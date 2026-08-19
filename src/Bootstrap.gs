@@ -1,0 +1,406 @@
+/**
+ * Bootstrap.gs
+ *
+ * 週報系統的初始化入口：initializeAllSheets() 建立全部 16 張工作表與標題、
+ * 補回 Config 預設值，並 seed PostDisplay／MergeGroups／ProgramTemplates／
+ * EmailTemplates 的固定資料。整個檔案冪等：重複執行不會清空既有資料，
+ * 也不會重覆新增 seed 資料。
+ *
+ * 本檔案不寫任何與 Google Docs、PDF、寄送電郵、觸發器有關的程式碼；
+ * 也不讀取職事表試算表。
+ */
+
+'use strict';
+
+/**
+ * 用途：整個週報系統的初始化入口。建立全部工作表與標題（冪等，不清空
+ *   既有資料），補回 Config 預設值與各張表的固定 seed 資料，並把本次執行
+ *   摘要寫入 Diagnostics。由選單「初始化工作表」呼叫，也可以在 Script
+ *   Editor 直接執行。
+ * Args: （無）
+ * Returns:
+ *   {{sheetsEnsured:number, configKeysAdded:number, seedRowsAdded:Object<string,number>}}
+ *     本次執行的摘要。
+ * Raises:
+ *   Error 如果任何一步失敗（例如試算表被鎖定），錯誤會原樣往上拋，由呼叫方
+ *     （menuInitializeAllSheets_()）決定如何呈現給使用者。
+ */
+function initializeAllSheets() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheetIds = Object.keys(SHEETS);
+
+  sheetIds.forEach(function (id) {
+    ensureSheet_(ss, id);
+  });
+
+  writeReadmeContent_(ss);
+
+  var configKeysAdded = seedConfigDefaults_();
+  var seedRowsAdded = {
+    POST_DISPLAY: seedPostDisplay_(),
+    MERGE_GROUPS: seedMergeGroups_(),
+    PROGRAM_TEMPLATES: seedProgramTemplates_(),
+    EMAIL_TEMPLATES: seedEmailTemplates_()
+  };
+
+  var summary = {
+    sheetsEnsured: sheetIds.length,
+    configKeysAdded: configKeysAdded,
+    seedRowsAdded: seedRowsAdded
+  };
+
+  writeInitializeDiagnosticsReport_(summary);
+  appendAuditLog_({
+    action: 'INITIALIZE_ALL_SHEETS',
+    notes: JSON.stringify(summary)
+  });
+
+  return summary;
+}
+
+/**
+ * 用途：如果 _README 工作表還沒有任何內容，寫入說明每張工作表用途的文字。
+ *   已經有內容就不覆寫——可能是 Ivan 自己補充過的版本，符合「已存在的
+ *   工作表只驗證／補回標題，不清空資料」的冪等原則。
+ * Args:
+ *   ss {Spreadsheet} 目標試算表。
+ * Returns:
+ *   {number} 本次新增的行數（0 代表已經有內容，略過）。
+ */
+function writeReadmeContent_(ss) {
+  var sheet = ss.getSheetByName(SHEETS.README);
+  if (sheet.getLastRow() >= 3) return 0;
+
+  var rows = README_CONTENT_LINES_.map(function (line) { return { TEXT: line }; });
+  writeSheet(SHEETS.README, rows);
+  return rows.length;
+}
+
+/** _README 工作表的內容，逐行對應一個資料列。書面語繁體中文。 */
+var README_CONTENT_LINES_ = [
+  '本工作表列出「週報系統」內每一張工作表的用途，以及各表主要由人手填寫、還是由系統寫入。',
+  '所有工作表的第 1 行是中文標題、第 2 行是程式使用的機器鍵，資料由第 3 行開始；請勿刪除或更改前兩行。',
+  'Config：全系統參數設定，全部由人手填寫／修改。ID、電郵等敏感欄位預設留空，需要 Ivan 自行填入。',
+  'BulletinWeeks：一個主日一行，記錄該週週報的全部內容欄位，以人手填寫為主；STATUS／DOC_ID／PDF_ID／LAST_GENERATED_AT／SENT_AT 等欄位由系統寫入。',
+  'Announcements：家事報告內容，一個主日可以有多行（用次序排列），人手填寫。',
+  'Prayers：代禱事項或宣教消息，一個主日可以有多行，人手填寫。',
+  'Fellowships：本週團契聚會資訊，一個主日可以有多行，人手填寫。',
+  'Finance：月度財政報告項目，人手填寫。',
+  'PersonDisplay：會友姓名的尊稱與顯示覆寫規則，人手維護。',
+  'PostDisplay：崗位在週報第 1、3 頁的顯示名稱、次序與合併規則，系統已預先填入 16 個崗位，日後如有調整由人手修改。',
+  'MergeGroups：PostDisplay 使用的合併組定義（例如「主席及報告」「影音」），系統已預先填入，人手可調整連接符等設定。',
+  'ProgramTemplates：崇拜程序範本，系統已預先填入平常主日／浸禮聯合崇拜／堂慶聯合崇拜三個範本，人手可視需要增補其他範本。',
+  'Recipients：週報收件人名單（堂委、執事、幹事），系統不會自動填入任何一行，需要 Ivan 自行填寫。',
+  'EmailTemplates：寄送週報用的電郵範本，系統已預先填入一個預設範本，人手可修改文字內容。',
+  'Diagnostics：系統唯讀診斷報告存放處，每次執行會清空重寫，只保留最新一次的內容，行數上限見 Config 的 DIAGNOSTICS_MAX_ROWS。',
+  'AuditLog：系統對試算表所做的每一次寫入異動記錄，逐格記錄，只會新增、不會刪除或覆寫。',
+  'SendLog：每一次寄送週報的記錄（含 DRY_RUN 試行的記錄），只會新增、不會刪除或覆寫。',
+  '本系統對「粵語堂職事表」試算表一律唯讀，不會寫入任何一格；職事表的連線設定同樣在 Config 內填寫。'
+];
+
+/**
+ * 用途：把本次 initializeAllSheets() 的執行摘要，連同 readSheet() 累積的
+ *   型別警告（例如某個文字欄位被 Sheets 誤判成日期），寫入 Diagnostics。
+ * Args:
+ *   summary {Object} initializeAllSheets() 組出的摘要物件。
+ * Returns:
+ *   {void}
+ */
+function writeInitializeDiagnosticsReport_(summary) {
+  var lines = [];
+  lines.push('執行時間：' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss'));
+  lines.push('已建立／確認工作表數：' + summary.sheetsEnsured);
+  lines.push('Config 新增設定鍵：' + summary.configKeysAdded);
+  Object.keys(summary.seedRowsAdded).forEach(function (id) {
+    lines.push(SHEETS[id] + ' 新增行數：' + summary.seedRowsAdded[id]);
+  });
+
+  var warnings = getSheetUtilsTypeWarnings_();
+  if (warnings.length > 0) {
+    lines.push('');
+    lines.push('型別警告（' + warnings.length + ' 筆，通常代表某個文字欄位被 Sheets 誤判成日期）：');
+    warnings.forEach(function (w) {
+      lines.push('－［' + w.sheet + '］第 ' + w.row + ' 行、欄位「' + w.key + '」：' + w.message);
+    });
+    clearSheetUtilsTypeWarnings_();
+  }
+
+  writeDiagnosticsReport_('初始化工作表', lines);
+}
+
+// =====================================================================
+// Seed：把固定資料補進尚未有該資料的工作表（比對唯一鍵，只新增缺少的）
+// =====================================================================
+
+/**
+ * 用途：把 SEED_POST_DISPLAY_ 內尚未存在的 POST_ID 補進 PostDisplay 工作表。
+ * Args: （無）
+ * Returns:
+ *   {number} 新增的行數。
+ */
+function seedPostDisplay_() {
+  return seedMissingRows_(SHEETS.POST_DISPLAY, 'POST_ID', SEED_POST_DISPLAY_);
+}
+
+/**
+ * 用途：把 SEED_MERGE_GROUPS_ 內尚未存在的 GROUP_ID 補進 MergeGroups 工作表。
+ * Args: （無）
+ * Returns:
+ *   {number} 新增的行數。
+ */
+function seedMergeGroups_() {
+  return seedMissingRows_(SHEETS.MERGE_GROUPS, 'GROUP_ID', SEED_MERGE_GROUPS_);
+}
+
+/**
+ * 用途：把 SEED_PROGRAM_TEMPLATES_ 內尚未存在的（TEMPLATE_ID, SEQ_NO）組合
+ *   補進 ProgramTemplates 工作表。用複合鍵是因為同一個 TEMPLATE_ID 底下有
+ *   多行（每個程序項目一行）。
+ * Args: （無）
+ * Returns:
+ *   {number} 新增的行數。
+ */
+function seedProgramTemplates_() {
+  return seedMissingRows_(SHEETS.PROGRAM_TEMPLATES, ['TEMPLATE_ID', 'SEQ_NO'], SEED_PROGRAM_TEMPLATES_);
+}
+
+/**
+ * 用途：把 SEED_EMAIL_TEMPLATES_ 內尚未存在的 TEMPLATE_ID 補進 EmailTemplates 工作表。
+ * Args: （無）
+ * Returns:
+ *   {number} 新增的行數。
+ */
+function seedEmailTemplates_() {
+  return seedMissingRows_(SHEETS.EMAIL_TEMPLATES, 'TEMPLATE_ID', SEED_EMAIL_TEMPLATES_);
+}
+
+/**
+ * 用途：通用的「補齊缺少的 seed 行」邏輯。用一個或多個機器鍵組成唯一識別，
+ *   只新增工作表目前沒有的組合；已存在的一律不覆蓋、不重覆新增，確保
+ *   initializeAllSheets() 可以重複執行而不會產生重複資料。
+ * Args:
+ *   sheetName {string} 工作表名稱。
+ *   uniqueKey {(string|string[])} 用來判斷「是否已存在」的機器鍵，可以是
+ *     單一鍵或複合鍵（陣列）。
+ *   seedRows {Object[]} 完整的 seed 資料（以機器鍵為 key 的物件陣列）。
+ * Returns:
+ *   {number} 實際新增的行數。
+ */
+function seedMissingRows_(sheetName, uniqueKey, seedRows) {
+  var keyFields = Array.isArray(uniqueKey) ? uniqueKey : [uniqueKey];
+  var existing = readSheet(sheetName);
+
+  var existingCompositeKeys = {};
+  existing.forEach(function (row) {
+    existingCompositeKeys[buildCompositeKey_(row, keyFields)] = true;
+  });
+
+  var missing = seedRows.filter(function (row) {
+    return !existingCompositeKeys[buildCompositeKey_(row, keyFields)];
+  });
+  if (missing.length === 0) return 0;
+
+  writeSheet(sheetName, missing);
+  return missing.length;
+}
+
+/**
+ * 用途：把一個資料列的指定欄位組成一個字串鍵，供 seedMissingRows_() 判斷
+ *   「是否已存在」用。
+ * Args:
+ *   row {Object} 以機器鍵為 key 的資料列。
+ *   keyFields {string[]} 要組合的機器鍵，依序組合。
+ * Returns:
+ *   {string} 組合後的鍵，欄位之間用直線字元分隔。本專案的機器鍵與 SEQ_NO
+ *     一律不含直線字元，不會與分隔符衝突。
+ */
+function buildCompositeKey_(row, keyFields) {
+  return keyFields.map(function (f) { return String(row[f]); }).join('|');
+}
+
+// =====================================================================
+// Seed 資料的建構小工具——純粹減少重複打字，不含業務邏輯。
+// =====================================================================
+
+/**
+ * 用途：組出一行 PostDisplay 的 seed 資料。
+ * Args:
+ *   postId {string} POST_ID（對應職事表 Posts 的崗位 ID）。
+ *   page1Name {string} 第 1 頁顯示名稱。
+ *   page1Order {number} 第 1 頁次序。
+ *   page1Show {boolean} 第 1 頁是否顯示。
+ *   page1Merge {string} 第 1 頁合併組 ID，沒有就傳 ''。
+ *   page3Name {string} 第 3 頁顯示名稱。
+ *   page3Order {number} 第 3 頁次序。
+ *   page3Show {boolean} 第 3 頁是否顯示。
+ *   page3Merge {string} 第 3 頁合併組 ID，沒有就傳 ''。
+ *   notes {string=} 備註，選填。
+ * Returns:
+ *   {Object} 以 PostDisplay 機器鍵為 key 的資料列，ACTIVE 固定 true。
+ */
+function postDisplayRow_(postId, page1Name, page1Order, page1Show, page1Merge, page3Name, page3Order, page3Show, page3Merge, notes) {
+  return {
+    POST_ID: postId,
+    PAGE1_NAME: page1Name,
+    PAGE1_ORDER: page1Order,
+    SHOW_ON_PAGE1: page1Show,
+    PAGE1_MERGE_GROUP: page1Merge || '',
+    PAGE3_NAME: page3Name,
+    PAGE3_ORDER: page3Order,
+    SHOW_ON_PAGE3: page3Show,
+    PAGE3_MERGE_GROUP: page3Merge || '',
+    ACTIVE: true,
+    NOTES: notes || ''
+  };
+}
+
+/**
+ * 用途：組出一行 ProgramTemplates 的 seed 資料。CONTENT_VALUE 這一輪固定
+ *   是空字串（三個 seed 範本都沒有用到 STATIC 內容來源）。
+ * Args:
+ *   templateId {string} TEMPLATE_ID。
+ *   seq {number} SEQ_NO。
+ *   itemName {string} 程序項目名稱。
+ *   contentSource {string} CONTENT_SOURCE 取值。
+ *   posture {string} POSTURE 取值（POSTURE 列舉之一）。
+ *   fullWidth {boolean} 是否整行。
+ *   condition {string} CONDITION 取值。
+ *   notes {string=} 備註，選填。
+ * Returns:
+ *   {Object} 以 ProgramTemplates 機器鍵為 key 的資料列，ACTIVE 固定 true。
+ */
+function programRow_(templateId, seq, itemName, contentSource, posture, fullWidth, condition, notes) {
+  return {
+    TEMPLATE_ID: templateId,
+    SEQ_NO: seq,
+    ITEM_NAME: itemName,
+    CONTENT_SOURCE: contentSource,
+    CONTENT_VALUE: '',
+    POSTURE: posture,
+    FULL_WIDTH: fullWidth,
+    CONDITION: condition,
+    ACTIVE: true,
+    NOTES: notes || ''
+  };
+}
+
+// =====================================================================
+// Seed 資料本體
+// =====================================================================
+
+/** PostDisplay 的 16 個固定崗位（見 docs/工作表結構.md）。 */
+var SEED_POST_DISPLAY_ = [
+  postDisplayRow_('CHAIR', '主席', 10, true, 'MG_CHAIR_ANNOUNCE', '主席', 10, true, '',
+    '第 1 頁與 ANNOUNCE 合併顯示為「主席及報告」（同一人擔任兩個崗位時才合併）；第 3 頁不合併，各自顯示。'),
+  postDisplayRow_('ANNOUNCE', '報告', 20, true, 'MG_CHAIR_ANNOUNCE', '報告', 20, true, '',
+    '第 1 頁與 CHAIR 合併顯示為「主席及報告」（同一人擔任兩個崗位時才合併）；第 3 頁不合併，各自顯示。'),
+  postDisplayRow_('PREACHER', '講員', 30, true, '', '講員', 30, true, ''),
+  postDisplayRow_('SCRIPTURE', '讀經', 40, true, '', '讀經', 40, true, ''),
+  postDisplayRow_('WORSHIP', '領詩', 50, true, '', '領詩', 50, true, ''),
+  postDisplayRow_('PIANO', '司琴', 60, true, '', '司琴', 60, true, ''),
+  postDisplayRow_('DEACON', '當值堂委', 70, true, '', '當值堂委', 120, true, ''),
+  postDisplayRow_('VIDEO', '錄影', 80, true, '', '錄影', 90, true, ''),
+  postDisplayRow_('SOUND', '影音', 90, true, 'MG_AV', '影音', 80, true, 'MG_AV',
+    '與 PPT 合併顯示為「影音」一格（不要求同一人）。'),
+  postDisplayRow_('PPT', '影音', 91, true, 'MG_AV', '影音', 81, true, 'MG_AV',
+    '與 SOUND 合併顯示為「影音」一格（不要求同一人）。'),
+  postDisplayRow_('USHER', '司事', 100, true, '', '司事', 70, true, ''),
+  postDisplayRow_('TRANSLATOR', '翻譯', 110, true, '', '翻譯', 110, true, ''),
+  postDisplayRow_('COMMUNION', '聖餐輔禮', 120, true, '', '聖餐輔禮', 130, true, '',
+    '職事表的崗位名稱是「聖餐襄禮」，週報一律顯示為「聖餐輔禮」。'),
+  postDisplayRow_('TRAFFIC', '交通指揮', 130, false, '', '交通指揮', 100, true, ''),
+  postDisplayRow_('COUNT', '司數', 140, false, '', '司數', 105, true, ''),
+  postDisplayRow_('FLOWER', '獻花', 150, false, '', '獻花', 140, false, '',
+    '第 1、3 頁事奉框皆不顯示；由 BulletinWeeks 的 FLOWER_THIS_WEEK／FLOWER_NEXT_WEEK 在第 3 頁另起一行處理。')
+];
+
+/** MergeGroups 的 2 個固定合併組。 */
+var SEED_MERGE_GROUPS_ = [
+  { GROUP_ID: 'MG_CHAIR_ANNOUNCE', DISPLAY_NAME: '主席及報告', JOIN_SEPARATOR: ' ', MERGE_ONLY_IF_SAME_PERSON: true, ACTIVE: true, NOTES: '' },
+  { GROUP_ID: 'MG_AV', DISPLAY_NAME: '影音', JOIN_SEPARATOR: ' ', MERGE_ONLY_IF_SAME_PERSON: false, ACTIVE: true, NOTES: '' }
+];
+
+/**
+ * ProgramTemplates 的 3 個固定範本：
+ *   TPL_NORMAL（平常主日，同時涵蓋聖餐主日與祈禱會週）
+ *   TPL_COMBINED_BAPTISM（浸禮三堂聯合崇拜，待核對，欠 2025-10-05 樣本）
+ *   TPL_ANNIVERSARY（堂慶三堂聯合崇拜，基於 TPL_NORMAL 調整）
+ */
+var SEED_PROGRAM_TEMPLATES_ = [
+  // ---- TPL_NORMAL ----
+  programRow_('TPL_NORMAL', 10, '序樂', 'FIELD:PRELUDE', POSTURE.STAND, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_NORMAL', 20, '宣召', 'FIELD:CALL_TEXT', POSTURE.STAND, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_NORMAL', 30, '祈禱', 'BLANK', POSTURE.STAND, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_NORMAL', 40, '誦讀', 'AUTO:RECITATION', POSTURE.STAND, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_NORMAL', 50, '詩歌頌讚', 'FIELD:HYMN_PRAISE', POSTURE.SIT, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_NORMAL', 60, '詩班頌唱', 'FIELD:CHOIR_TITLE', POSTURE.SIT, false, 'IF_FIELD:CHOIR_TITLE'),
+  programRow_('TPL_NORMAL', 70, '讀經', 'FIELD:SCRIPTURE_REF', POSTURE.SIT, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_NORMAL', 80, '證道', 'FIELD:SERMON_TITLE', POSTURE.SIT, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_NORMAL', 90, '回應詩歌', 'FIELD:RESPONSE_HYMN', POSTURE.SIT, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_NORMAL', 100, '聖餐', 'BLANK', POSTURE.SIT, false, 'WEEK_IN:1'),
+  programRow_('TPL_NORMAL', 110, '三一頌', 'BLANK', POSTURE.STAND, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_NORMAL', 120, '祝福', 'BLANK', POSTURE.STAND, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_NORMAL', 130, '阿們頌', 'BLANK', POSTURE.STAND, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_NORMAL', 140, '家事報告', 'BLANK', POSTURE.SIT, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_NORMAL', 150, '祈禱會', 'BLANK', POSTURE.NONE, true, 'WEEK_IN:2,4'),
+
+  // ---- TPL_COMBINED_BAPTISM（⚠️ 待核對，欠 2025-10-05 樣本，見 docs/待補資料.md B1）----
+  programRow_('TPL_COMBINED_BAPTISM', 10, '序樂', 'FIELD:PRELUDE', POSTURE.STAND, false, CONDITION_TYPE.ALWAYS,
+    '待核對：整個 TPL_COMBINED_BAPTISM 範本欠 2025-10-05 實際樣本，見 docs/待補資料.md B1。'),
+  programRow_('TPL_COMBINED_BAPTISM', 20, '宣召', 'FIELD:CALL_TEXT', POSTURE.STAND, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_COMBINED_BAPTISM', 30, '祈禱', 'BLANK', POSTURE.STAND, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_COMBINED_BAPTISM', 40, '詩歌頌讚', 'FIELD:HYMN_PRAISE', POSTURE.SIT, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_COMBINED_BAPTISM', 50, '讀經', 'FIELD:SCRIPTURE_REF', POSTURE.SIT, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_COMBINED_BAPTISM', 60, '證道', 'FIELD:SERMON_TITLE', POSTURE.SIT, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_COMBINED_BAPTISM', 70, '見證', 'BLANK', POSTURE.SIT, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_COMBINED_BAPTISM', 80, '浸禮', 'BLANK', POSTURE.SIT, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_COMBINED_BAPTISM', 90, '入會禮', 'BLANK', POSTURE.SIT, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_COMBINED_BAPTISM', 100, '孩童奉獻禮', 'BLANK', POSTURE.SIT, false, CONDITION_TYPE.NEVER,
+    'CONDITION 設為 NEVER：保留崗位，目前不會出現。如某次浸禮主日確實安排孩童奉獻禮，把這一行的 CONDITION 改為 ALWAYS 即可啟用，不需要新增整行。'),
+  programRow_('TPL_COMBINED_BAPTISM', 110, '詩班頌唱', 'FIELD:CHOIR_TITLE', POSTURE.SIT, false, 'IF_FIELD:CHOIR_TITLE'),
+  programRow_('TPL_COMBINED_BAPTISM', 120, '聖餐', 'BLANK', POSTURE.SIT, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_COMBINED_BAPTISM', 130, '祝福', 'BLANK', POSTURE.STAND, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_COMBINED_BAPTISM', 140, '阿們頌', 'BLANK', POSTURE.STAND, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_COMBINED_BAPTISM', 150, '贈禮', 'BLANK', POSTURE.SIT, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_COMBINED_BAPTISM', 160, '家事報告', 'BLANK', POSTURE.SIT, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_COMBINED_BAPTISM', 170, '拍照', 'BLANK', POSTURE.NONE, true, CONDITION_TYPE.ALWAYS),
+
+  // ---- TPL_ANNIVERSARY（基於 TPL_NORMAL：刪去「誦讀」與「祈禱會」，「詩班頌唱」條件改為 ALWAYS）----
+  programRow_('TPL_ANNIVERSARY', 10, '序樂', 'FIELD:PRELUDE', POSTURE.STAND, false, CONDITION_TYPE.ALWAYS,
+    '本範本基於 TPL_NORMAL：刪去「誦讀」與「祈禱會」兩行，並把「詩班頌唱」的出現條件從 IF_FIELD:CHOIR_TITLE 改為 ALWAYS。'),
+  programRow_('TPL_ANNIVERSARY', 20, '宣召', 'FIELD:CALL_TEXT', POSTURE.STAND, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_ANNIVERSARY', 30, '祈禱', 'BLANK', POSTURE.STAND, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_ANNIVERSARY', 50, '詩歌頌讚', 'FIELD:HYMN_PRAISE', POSTURE.SIT, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_ANNIVERSARY', 60, '詩班頌唱', 'FIELD:CHOIR_TITLE', POSTURE.SIT, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_ANNIVERSARY', 70, '讀經', 'FIELD:SCRIPTURE_REF', POSTURE.SIT, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_ANNIVERSARY', 80, '證道', 'FIELD:SERMON_TITLE', POSTURE.SIT, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_ANNIVERSARY', 90, '回應詩歌', 'FIELD:RESPONSE_HYMN', POSTURE.SIT, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_ANNIVERSARY', 100, '聖餐', 'BLANK', POSTURE.SIT, false, 'WEEK_IN:1'),
+  programRow_('TPL_ANNIVERSARY', 110, '三一頌', 'BLANK', POSTURE.STAND, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_ANNIVERSARY', 120, '祝福', 'BLANK', POSTURE.STAND, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_ANNIVERSARY', 130, '阿們頌', 'BLANK', POSTURE.STAND, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_ANNIVERSARY', 140, '家事報告', 'BLANK', POSTURE.SIT, false, CONDITION_TYPE.ALWAYS)
+];
+
+/** EmailTemplates 的 1 個固定範本，內文用書面語繁體中文與佔位符撰寫。 */
+var SEED_EMAIL_TEMPLATES_ = [
+  {
+    TEMPLATE_ID: 'TPL_WEEKLY_BULLETIN',
+    SUBJECT: '{{ChurchName}}粵語堂週報 — {{ServiceDate}}',
+    BODY: [
+      '各位主內肢體：',
+      '',
+      '平安！',
+      '',
+      '隨函附上 {{ServiceDate}} 主日的{{ChurchName}}粵語堂週報，敬請查收。',
+      '',
+      '如發現資料有任何錯漏，請回覆此郵件告知，以便盡快更正。',
+      '',
+      '謝謝！',
+      '',
+      '粵語堂週報系統　敬上'
+    ].join('\n'),
+    ACTIVE: true,
+    NOTES: ''
+  }
+];
