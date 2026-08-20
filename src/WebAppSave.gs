@@ -425,11 +425,14 @@ function normalizeWeekPayloadForCompare_(rawWeek) {
  * Args:
  *   payload {Object} 見本檔案檔頭的 payload 形狀說明。
  * Returns:
- *   {{lastSavedAt:string, changedFieldCount:number}} `lastSavedAt` 是
- *     `canonicalSaveToken_()` 正規化過的字串（不是 `Date`）——前端拿到
- *     什麼就原樣存起來、下次儲存原樣送回即可，不需要自己再處理任何
- *     日期／時區轉換。`changedFieldCount` 保證等於這次實際寫入
- *     `AuditLog` 的筆數（同一個真相來源：兩者都是 `auditEntries.length`）。
+ *   {{lastSavedAt:string, changedFieldCount:number, message:{type:string,text:string}}}
+ *     `lastSavedAt` 是 `canonicalSaveToken_()` 正規化過的字串（不是
+ *     `Date`）——前端拿到什麼就原樣存起來、下次儲存原樣送回即可，不需要
+ *     自己再處理任何日期／時區轉換。`changedFieldCount` 保證等於這次
+ *     實際寫入 `AuditLog` 的筆數（同一個真相來源：兩者都是
+ *     `auditEntries.length`）。`message` 是 `buildSaveResultMessage_()`
+ *     算好的文案，前端直接顯示，不再自己砌字串（前端沒有 Node 測試，
+ *     文案分支放在這裡才測得到）。
  * Raises:
  *   Error 如果 `payload.isoDate` 缺漏或格式不對；Error（`code:'STALE'`）
  *     如果樂觀鎖不符，此時**不會執行任何寫入**。
@@ -477,7 +480,32 @@ function saveWeekFromWebApp_(payload) {
 
   auditEntries.forEach(function (entry) { appendAuditLog_(entry); });
 
-  return { lastSavedAt: canonicalSaveToken_(newTimestamp), changedFieldCount: auditEntries.length };
+  return {
+    lastSavedAt: canonicalSaveToken_(newTimestamp),
+    changedFieldCount: auditEntries.length,
+    message: buildSaveResultMessage_(auditEntries.length)
+  };
+}
+
+/**
+ * 用途：組出「儲存完成」要顯示給使用者的訊息。純函式，依
+ *   `changedFieldCount` 決定文案與訊息類型——分開放在這裡（而不是讓
+ *   前端自己砌字串）的理由：前端沒有 Node 測試，文案分支放在 `.gs`
+ *   才測得到，也才能保證「有改動」跟「沒有改動」用的是完全不同的一句話
+ *   （兩者共用同一句訊息，會讓使用者以為系統壞了）。
+ * Args:
+ *   changedFieldCount {?number} 這次儲存實際寫入 `AuditLog` 的筆數；
+ *     缺少或 `null`／`undefined` 一律當 `0` 處理，不拋錯。
+ * Returns:
+ *   {{type:('success'|'info'), text:string}} `changedFieldCount > 0` →
+ *     `type:'success'`；否則 `type:'info'`。
+ */
+function buildSaveResultMessage_(changedFieldCount) {
+  var n = (changedFieldCount === null || changedFieldCount === undefined) ? 0 : changedFieldCount;
+  if (n > 0) {
+    return { type: 'success', text: '已儲存，更新了 ' + n + ' 個欄位。' };
+  }
+  return { type: 'info', text: '沒有偵測到任何改動，工作表沒有變更。' };
 }
 
 // =====================================================================

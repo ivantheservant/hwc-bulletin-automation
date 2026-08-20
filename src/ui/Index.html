@@ -6,6 +6,11 @@
   <div class="schema-warning">工作表結構落後於程式碼（<?= schemaWarning ?>），請先在試算表撳「週報系統 ▸ 初始化工作表」。</div>
   <? } ?>
 
+  <div id="busyBar" class="busy-bar hidden">
+    <div class="busy-bar-progress"></div>
+    <span id="busyBarText" class="busy-bar-text"></span>
+  </div>
+
   <header id="topbar">
     <div class="topbar-row">
       <label class="topbar-field">
@@ -80,7 +85,7 @@
           <input type="text" data-field="RESPONSE_HYMN">
         </label>
       </div>
-      <h3>程序表即時預覽</h3>
+      <h3>程序表即時預覽 <span id="previewBusyIndicator" class="preview-busy hidden">更新中…</span></h3>
       <table class="preview-table">
         <thead><tr><th>項目</th><th>內容</th><th>立坐</th></tr></thead>
         <tbody id="programPreviewBody"></tbody>

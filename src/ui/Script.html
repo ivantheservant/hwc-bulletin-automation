@@ -7,15 +7,41 @@
   //
   // `loaded`：只有 apiLoadWeek() 成功過才是 true。載入失敗時表單全部
   // 空白，若這時候仍然可以儲存，就會把工作表上既有的內容全部覆蓋成
-  // 空白——所以「儲存」按鈕的可用狀態完全跟著這個旗標走，見 setLoaded()。
+  // 空白——所以「儲存」按鈕的可用狀態完全跟著這個旗標走，見 applyBusyState()。
+  //
+  // `inFlight`：目前進行中的「會令使用者等待、要停用介面」的請求數
+  // （載入、儲存、重新讀取職事表）。**刻意是計數器，不是 boolean**——
+  // 理論上同一時間可能有一個以上的這類請求排隊，用 boolean 會在其中
+  // 一個結束時把整個忙碌狀態誤關掉。
+  //
+  // `previewInFlight`：即時預覽（apiPreviewProgram）自己的忙碌計數器，
+  // 刻意跟 `inFlight` 分開——預覽每次打字都會觸發，不可以停用整個介面
+  // （尤其不可以停用輸入框本身，否則使用者會打不了字），只顯示一個
+  // 小小的「更新中」提示。
   var state = {
     isoDate: null,
     lastSavedAt: null,
     loaded: false,
+    inFlight: 0,
+    previewInFlight: 0,
     week: {},
     lists: { announcements: [], prayers: [], fellowships: [], finance: [] },
     options: { programTemplateIds: [], recitationOptions: [], prayerBlockHeadingOptions: [], cantoneseSubColumnLabel: '主堂' }
   };
+
+  /**
+   * 成功／資訊訊息至少顯示的時間（毫秒）。**不可以更短**——這類訊息
+   * 通常是使用者剛完成一個動作（儲存、重新讀取職事表）之後最想確認
+   * 「到底有沒有生效」的回饋。事故經過：`onSaveSuccess()` 顯示完訊息
+   * 後緊接著呼叫 `loadWeek()`，而 `loadWeek()` 開頭會呼叫
+   * `hideMessage()`——訊息顯示之後幾十毫秒就被自己清掉，使用者的視線
+   * 根本來不及從按鈕移到訊息橫幅，等於完全看不見（見
+   * docs/已知bug類型.md「成功訊息被緊接的重新載入清走」那一則事故）。
+   * 修法是 `loadWeek()` 加 `options.keepMessage`，但即使有這個開關，
+   * 訊息本身還是要停留夠久，人才看得清楚，所以 5 秒是下限，不是隨便
+   * 抓的數字。
+   */
+  var MESSAGE_MIN_VISIBLE_MS = 5000;
 
   var LIST_DEFS = {
     announcements: {
@@ -93,7 +119,7 @@
 
     if (messageAutoHideTimer) { clearTimeout(messageAutoHideTimer); messageAutoHideTimer = null; }
     if (type !== 'error') {
-      messageAutoHideTimer = setTimeout(hideMessage, 5000);
+      messageAutoHideTimer = setTimeout(hideMessage, MESSAGE_MIN_VISIBLE_MS);
     }
   }
 
@@ -107,15 +133,87 @@
     return v ? v : '（尚未儲存）';
   }
 
-  /** `apiLoadWeek()` 成功才可以撳「儲存」——理由見 state.loaded 的註解。 */
+  /** `apiLoadWeek()` 成功才可以撳「儲存」——理由見 state.loaded 的註解。實際的按鈕停用邏輯統一在 applyBusyState()。 */
   function setLoaded(isLoaded) {
     state.loaded = isLoaded;
-    var saveBtn = document.getElementById('saveBtn');
-    saveBtn.disabled = !isLoaded;
+    applyBusyState();
+  }
+
+  /**
+   * 用途：全域忙碌狀態的**唯一**顯示邏輯。`state.inFlight`／
+   *   `state.previewInFlight` 兩個計數器有變動之後，一律呼叫這個函式
+   *   套用到畫面，不要在別的地方另外直接操作 disabled／樣式——避免
+   *   「兩個地方各自決定同一顆按鈕能不能撳」這種容易兜不攏的寫法。
+   *
+   *   | 狀態 | 表現 |
+   *   |---|---|
+   *   | `inFlight > 0` | 頂部忙碌指示列、主日下拉／「儲存」／「重新讀取職事表」全部停用、內容區加半透明遮罩 |
+   *   | `inFlight === 0` 且 `loaded === false` | 只停用「儲存」，其餘可用 |
+   *   | `inFlight === 0` 且 `loaded === true` | 全部可用 |
+   *
+   *   即時預覽的忙碌（`previewInFlight`）完全不影響上面這些——只控制
+   *   一個小提示的顯示與否，輸入框永遠不會因為預覽而被停用。
+   * Returns:
+   *   {void}
+   */
+  function applyBusyState() {
+    var busy = state.inFlight > 0;
+
+    var busyBar = document.getElementById('busyBar');
+    if (busy) busyBar.classList.remove('hidden'); else busyBar.classList.add('hidden');
+
+    var mainContent = document.getElementById('mainContent');
+    if (busy) mainContent.classList.add('is-busy'); else mainContent.classList.remove('is-busy');
+
+    document.getElementById('weekSelect').disabled = busy;
+    document.getElementById('reloadRosterBtn').disabled = busy;
+    document.getElementById('saveBtn').disabled = busy || !state.loaded;
+
+    var previewIndicator = document.getElementById('previewBusyIndicator');
+    if (state.previewInFlight > 0) previewIndicator.classList.remove('hidden');
+    else previewIndicator.classList.add('hidden');
+  }
+
+  function setBusyText(text) {
+    document.getElementById('busyBarText').textContent = text;
+  }
+
+  /**
+   * 用途：發出一個「會停用整個介面」的 `google.script.run` 請求前呼叫。
+   *   跟 `endRequest()` 成對——每一次 `beginRequest()` 都必須有對應的
+   *   `endRequest()`，放在該次請求的 `withSuccessHandler`／
+   *   `withFailureHandler` 處理函式**最前面**，避免任何提早 `return`
+   *   的分支漏減，導致 `inFlight` 卡住、介面永遠停用。
+   * Args:
+   *   text {string} 忙碌指示列要顯示的文字（例如「載入中…」）。
+   * Returns:
+   *   {void}
+   */
+  function beginRequest(text) {
+    state.inFlight++;
+    setBusyText(text);
+    applyBusyState();
+  }
+
+  function endRequest() {
+    state.inFlight = Math.max(0, state.inFlight - 1);
+    applyBusyState();
+  }
+
+  /** 即時預覽自己的忙碌計數器，跟 beginRequest()／endRequest() 分開，理由見 state 的註解。 */
+  function beginPreview() {
+    state.previewInFlight++;
+    applyBusyState();
+  }
+
+  function endPreview() {
+    state.previewInFlight = Math.max(0, state.previewInFlight - 1);
+    applyBusyState();
   }
 
   function onApiFailure(err) {
-    resetSaveButton();
+    endRequest();
+    setSaveButtonText('儲存');
     var message = '呼叫伺服器失敗：' + (err && err.message ? err.message : String(err));
     showMessage('error', message);
     reportClientError_(message, err && err.stack ? String(err.stack).split('\n').slice(0, 5).join('\n') : '', 'onApiFailure');
@@ -362,9 +460,24 @@
     });
   }
 
-  function loadWeek(isoDate) {
-    hideMessage();
+  /**
+   * 用途：載入指定主日的完整資料。
+   * Args:
+   *   isoDate {string} 主日日期，yyyy-MM-dd。
+   *   options {{keepMessage:boolean}=} 選填。`keepMessage:true` 時不清除
+   *     目前顯示的訊息橫幅——`onSaveSuccess()` 剛顯示完「已儲存」之類的
+   *     訊息、緊接著要呼叫這個函式重新整理畫面時要傳這個，否則訊息會
+   *     被下面第一行的 `hideMessage()` 立刻清走（見 MESSAGE_MIN_VISIBLE_MS
+   *     的註解）。使用者自己在下拉選單切換主日則不傳，維持原本「換頁
+   *     就清訊息」的行為。
+   * Returns:
+   *   {void}
+   */
+  function loadWeek(isoDate, options) {
+    var opts = options || {};
+    if (!opts.keepMessage) hideMessage();
     setLoaded(false);
+    beginRequest('載入中…');
     google.script.run
       .withSuccessHandler(function (resp) { onWeekLoaded(isoDate, resp); })
       .withFailureHandler(onApiFailure)
@@ -372,6 +485,7 @@
   }
 
   function onWeekLoaded(isoDate, resp) {
+    endRequest();
     if (!resp.ok) { setLoaded(false); showMessage('error', resp.error.message); return; }
     var data = resp.data;
 
@@ -397,19 +511,29 @@
 
   function reloadRosterOnly() {
     if (!state.isoDate) return;
+    if (state.inFlight > 0) return;
     hideMessage();
+    beginRequest('讀取職事表中…');
     google.script.run
-      .withSuccessHandler(function (resp) {
-        if (!resp.ok) { showMessage('error', resp.error.message); return; }
-        renderReadOnly(resp.data.readOnly);
-        renderStats(resp.data.missing, resp.data.warnings, state.lastSavedAt);
-        renderProgramPreview(resp.data.readOnly.program);
-        var v = resp.data.readOnly.rosterVersionUsed;
-        var versionText = (v === null || v === undefined) ? '（尚未生成）' : String(v);
-        showMessage('info', '已重新讀取職事表（版本 ' + versionText + '）。');
-      })
+      .withSuccessHandler(onRosterReloaded)
       .withFailureHandler(onApiFailure)
       .apiLoadWeek(state.isoDate);
+  }
+
+  /**
+   * 只更新唯讀區塊（事奉框、下週事奉、程序預覽）與統計，**不動可編輯
+   * 表單**——理由跟這個按鈕原本的設計一致：使用者可能正在填寫、尚未
+   * 儲存，這個按鈕的用途是核對職事表最新內容，不是重新載入整份資料。
+   * 訊息文案由伺服器的 buildRosterReloadMessage_() 算好，直接顯示。
+   */
+  function onRosterReloaded(resp) {
+    endRequest();
+    if (!resp.ok) { showMessage('error', resp.error.message); return; }
+    renderReadOnly(resp.data.readOnly);
+    renderStats(resp.data.missing, resp.data.warnings, state.lastSavedAt);
+    renderProgramPreview(resp.data.readOnly.program);
+    var msg = resp.data.rosterReloadMessage;
+    showMessage(msg.type, msg.text);
   }
 
   function buildSavePayload() {
@@ -424,23 +548,30 @@
     };
   }
 
-  /** 把「儲存」按鈕恢復成非儲存中的狀態；可不可以撳跟著 state.loaded 走。 */
-  function resetSaveButton() {
-    var saveBtn = document.getElementById('saveBtn');
-    saveBtn.textContent = '儲存';
-    saveBtn.disabled = !state.loaded;
+  function setSaveButtonText(text) {
+    document.getElementById('saveBtn').textContent = text;
   }
 
+  /**
+   * 用途：撳「儲存」的處理函式。
+   *
+   *   防止重複提交分兩層：按鈕在 `inFlight > 0` 時 `disabled`（視覺層，
+   *   見 applyBusyState()），這裡再加 `if (state.inFlight > 0) return;`
+   *   （邏輯層）——兩層都要有，因為鍵盤 Enter 或瀏覽器擴充功能有機會
+   *   繞過 `disabled` 屬性直接觸發 click。
+   * Returns:
+   *   {void}
+   */
   function saveWeek() {
     if (!state.isoDate) return;
+    if (state.inFlight > 0) return;
     if (!state.loaded) {
       showMessage('error', '資料未載入成功，無法儲存');
       return;
     }
     hideMessage();
-    var saveBtn = document.getElementById('saveBtn');
-    saveBtn.disabled = true;
-    saveBtn.textContent = '儲存中…';
+    setSaveButtonText('儲存中…');
+    beginRequest('儲存中…');
     google.script.run
       .withSuccessHandler(onSaveSuccess)
       .withFailureHandler(onApiFailure)
@@ -448,25 +579,24 @@
   }
 
   /**
-   * 成功且 changedFieldCount > 0 → 綠色「已儲存，更新了 N 個欄位。」
-   * 成功但 changedFieldCount === 0 → 藍色「沒有偵測到任何改動，工作表
-   * 沒有變更。」（跟真正存了東西共用同一句話會讓人以為系統壞了，這是
-   * 兩種不同的結果，訊息要分得開）。失敗 → 紅色橫幅，伺服器已經給了
-   * 講清楚原因的訊息（含 STALE 時的兩個時間、SCHEMA_OUTDATED 的落差
-   * 摘要），前端原樣顯示即可，不需要再自己覆寫一句。
+   * 失敗 → 紅色橫幅，伺服器已經給了講清楚原因的訊息（含 STALE 時的
+   * 兩個時間、SCHEMA_OUTDATED 的落差摘要），前端原樣顯示即可。成功時
+   * 的文案（綠色「已儲存，更新了 N 個欄位」或藍色「沒有偵測到任何
+   * 改動」）由伺服器的 buildSaveResultMessage_() 算好，前端不再自己
+   * 砌字串。顯示完訊息之後呼叫 loadWeek() 重新整理畫面，**一定要傳
+   * `{ keepMessage: true }`**，否則訊息會被 loadWeek() 開頭的
+   * hideMessage() 立刻清走（見 MESSAGE_MIN_VISIBLE_MS 的註解）。
    */
   function onSaveSuccess(resp) {
-    resetSaveButton();
+    endRequest();
+    setSaveButtonText('儲存');
     if (!resp.ok) {
       showMessage('error', resp.error.message);
       return;
     }
-    if (resp.data.changedFieldCount > 0) {
-      showMessage('success', '已儲存，更新了 ' + resp.data.changedFieldCount + ' 個欄位。');
-    } else {
-      showMessage('info', '沒有偵測到任何改動，工作表沒有變更。');
-    }
-    loadWeek(state.isoDate);
+    var msg = resp.data.message;
+    showMessage(msg.type, msg.text);
+    loadWeek(state.isoDate, { keepMessage: true });
   }
 
   // =====================================================================
@@ -478,12 +608,18 @@
     previewTimer = setTimeout(refreshPreview, 350);
   }
 
+  /**
+   * 即時預覽用自己的 previewInFlight 計數器（beginPreview／endPreview），
+   * **不呼叫** beginRequest()／endRequest()——預覽每次打字都會觸發，
+   * 不可以停用整個介面，尤其不可以停用輸入框本身，否則使用者會打不了字。
+   */
   function refreshPreview() {
     if (!state.isoDate) return;
     var draft = collectWeekFieldsFromForm();
+    beginPreview();
     google.script.run
-      .withSuccessHandler(function (resp) { if (resp.ok) renderProgramPreview(resp.data.rows); })
-      .withFailureHandler(function () { /* 預覽失敗不打擾使用者，維持上一次的預覽內容 */ })
+      .withSuccessHandler(function (resp) { endPreview(); if (resp.ok) renderProgramPreview(resp.data.rows); })
+      .withFailureHandler(function () { endPreview(); /* 預覽失敗不打擾使用者，維持上一次的預覽內容 */ })
       .apiPreviewProgram(state.isoDate, draft);
   }
 
@@ -551,6 +687,8 @@
     wireGlobalErrorHandlers();
     wireStaticEvents();
     document.getElementById('missingPanel').classList.add('hidden');
+    applyBusyState();
+    beginRequest('載入中…');
     google.script.run
       .withSuccessHandler(onWeeksLoaded)
       .withFailureHandler(onApiFailure)
@@ -558,6 +696,7 @@
   }
 
   function onWeeksLoaded(resp) {
+    endRequest();
     if (!resp.ok) { showMessage('error', resp.error.message); return; }
     populateWeekSelect(resp.data.weeks, resp.data.defaultIsoDate);
     if (resp.data.defaultIsoDate) {

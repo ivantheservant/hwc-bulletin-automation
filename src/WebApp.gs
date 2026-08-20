@@ -301,7 +301,7 @@ function apiPreviewProgram(isoDate, draftFields) {
  * Args:
  *   payload {Object} 見 `src/WebAppSave.gs` 檔頭的 payload 形狀說明。
  * Returns:
- *   {{ok:boolean, data:{lastSavedAt:string, changedFieldCount:number}, error?:Object}}
+ *   {{ok:boolean, data:{lastSavedAt:string, changedFieldCount:number, message:{type:string,text:string}}, error?:Object}}
  *     樂觀鎖沒對上時 `error.code` 是 `'STALE'`；工作表結構落後於程式碼時
  *     `error.code` 是 `'SCHEMA_OUTDATED'`（見 `checkSheetSchema_()`），
  *     兩種情況都**不會執行任何寫入**。
@@ -443,12 +443,14 @@ function pickDefaultWeekIsoDate_(entries, todayIso) {
  *   {Object} 形狀：
  *     `{ isoDate, week:Object, lists:{announcements,prayers,fellowships,finance},
  *        lastSavedAt:string, readOnly:Object, missing:Object[],
- *        warnings:Object[], options:Object }`
+ *        warnings:Object[], options:Object, rosterReloadMessage:Object }`
  *     `lastSavedAt` 經 `canonicalSaveToken_()` 正規化（見 WebAppSave.gs），
  *     前端只需要原樣存起來、儲存時原樣送回，不需要自己解析或轉換；
  *     `apiSaveWeek()` 比對樂觀鎖用的也是同一個函式，「從未儲存」在兩條
  *     路徑都是同一個值（空字串）——這是事故七的修法，見
- *     docs/已知bug類型.md。
+ *     docs/已知bug類型.md。`rosterReloadMessage` 是
+ *     `buildRosterReloadMessage_()` 算好的文案，只在「重新讀取職事表」
+ *     按鈕的情境下使用。
  * Raises:
  *   Error（`code:'NOT_CONFIGURED'`）如果 `ROSTER_SPREADSHEET_ID` 未設定。
  */
@@ -496,7 +498,10 @@ function loadWeekForWebApp_(isoDate) {
     },
     missing: model.missing,
     warnings: model.warnings,
-    options: webAppFieldOptions_()
+    options: webAppFieldOptions_(),
+    // 「重新讀取職事表」按鈕成功之後要顯示的文案；一律算好給前端，
+    // 前端只在那個按鈕的情境下使用，一般切換主日時不理會這個欄位。
+    rosterReloadMessage: buildRosterReloadMessage_(model.rosterVersionUsed, model.rosterIsOfficial)
   };
 }
 
@@ -595,6 +600,26 @@ function webAppRecitationOptions_() {
     options.push(t);
   });
   return options;
+}
+
+/**
+ * 用途：組出「重新讀取職事表」按鈕完成後要顯示的訊息。純函式，前端沒有
+ *   Node 測試，文案分支放在這裡才測得到，前端直接顯示、不用自己砌字串。
+ * Args:
+ *   versionNo {?number} 職事表版本號，`readRosterSnapshot_()` 的
+ *     `versionNo`；該季尚未生成職事表版本時是 `null`。
+ *   isOfficial {boolean} 職事表是否已正式發出。
+ * Returns:
+ *   {{type:'info', text:string}}
+ */
+function buildRosterReloadMessage_(versionNo, isOfficial) {
+  if (versionNo === null || versionNo === undefined) {
+    return { type: 'info', text: '已重新讀取職事表（該季尚未生成職事表）。' };
+  }
+  return {
+    type: 'info',
+    text: '已重新讀取職事表（版本 ' + versionNo + '，' + (isOfficial ? '已正式發出' : '尚未正式發出') + '）。'
+  };
 }
 
 // =====================================================================

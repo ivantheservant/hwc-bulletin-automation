@@ -64,6 +64,15 @@
   .btn-small { padding: 0.2em 0.6em; font-size: 12px; }
   .btn-danger { color: #b3261e; border-color: #e2b4b0; }
 
+  /* 停用中的按鈕／下拉要有明顯的視覺差異，讓人一眼看出「而家做緊嘢」。 */
+  .btn:disabled, select:disabled {
+    background: #eee;
+    color: #999;
+    border-color: #ddd;
+    cursor: not-allowed;
+  }
+  .btn:disabled:hover { background: #eee; }
+
   .message-bar {
     margin-top: 0.5em;
     padding: 0.5em 0.8em;
@@ -97,6 +106,66 @@
     font-size: 13px;
   }
 
+  /* 頂部忙碌指示列：載入／儲存／重新讀取職事表期間顯示，含一條動畫進度條與文字。 */
+  .busy-bar {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: #2f6feb;
+    color: #fff;
+    font-size: 12px;
+    padding: 0.35em 1em;
+    display: flex;
+    align-items: center;
+    gap: 0.7em;
+  }
+  .busy-bar-progress {
+    position: relative;
+    width: 90px;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.35);
+    border-radius: 2px;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .busy-bar-progress::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -40%;
+    width: 40%;
+    height: 100%;
+    background: #fff;
+    border-radius: 2px;
+    animation: busy-bar-slide 1.1s ease-in-out infinite;
+  }
+  @keyframes busy-bar-slide {
+    0% { left: -40%; }
+    100% { left: 100%; }
+  }
+  .busy-bar-text { white-space: nowrap; }
+
+  /* 忙碌時內容區蓋一層半透明遮罩，讓人一眼看到「而家做緊嘢，唔好撳」。
+     只在 inFlight > 0（載入／儲存／重新讀取職事表）時加上，即時預覽
+     自己的忙碌狀態不會觸發這個遮罩——見 Script.html 的 applyBusyState()。 */
+  #mainContent.is-busy {
+    pointer-events: none;
+  }
+  #mainContent.is-busy::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: rgba(255, 255, 255, 0.55);
+    z-index: 5;
+  }
+
+  .preview-busy {
+    font-size: 11px;
+    font-weight: normal;
+    color: #888;
+    margin-left: 0.5em;
+  }
+
   .missing-panel {
     margin-top: 0.5em;
     background: #fff8e6;
@@ -110,6 +179,7 @@
   .missing-panel ul { margin: 0.3em 0 0 1.2em; padding: 0; }
 
   #mainContent {
+    position: relative;
     max-width: 960px;
     margin: 1em auto 3em auto;
     padding: 0 1em;
