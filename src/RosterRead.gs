@@ -16,52 +16,59 @@
  *   3. 真正入口　readRosterSnapshot_(isoDate)
  *      先讀 Config、視需要呼叫 IO 層（同一次執行內 memoize），再呼叫
  *      純函式層。
+ *
+ * ⚠️ 型別正規化用的是本檔案自己的一套「白名單欄位＋寬鬆解析」
+ * （rosterToText_／rosterToIntLenient_／rosterToDateLenient_／
+ * rosterIsTrueValue_），**跟 `src/SheetUtils.gs` 的 `normalize*_()` 完全
+ * 分開，不共用**。原因見 docs/職事表唯讀介面.md「為什麼對職事表用寬鬆
+ * 解析」一節：職事表是別人的系統，我們沒有話事權要求對方的欄位型別／
+ * 列舉值符合我們的假設，嚴格規則只適合套在「自己的工作表」（`Constants.gs`
+ * 的 `COLUMNS`）。**這條界線不可以模糊**：職事表的寬鬆解析函式不可以
+ * 拿去用在週報自己的工作表上，自己的表仍然要嚴格。
  */
 
 'use strict';
 
 // =====================================================================
-// 職事表工作表結構（照抄自職事表的 src/Constants.gs，不要自己猜）
+// 職事表工作表結構——只列週報真正需要的白名單欄位，不是職事表的完整
+// schema（照抄完整 schema 曾經導致對方一個列舉欄位就讓我們整個拋錯，
+// 見 docs/已知bug類型.md 事故二）。
 // =====================================================================
 
 /**
- * 職事表七張工作表的結構定義：
+ * 職事表七張工作表的白名單定義：
  *   label          人看的表名，用於錯誤訊息。
  *   configKeyName  對應哪一個 CONFIG_KEYS，錯誤訊息要講得出「改哪個設定」。
- *   columns        機器鍵 → 型別（COLUMN_TYPES 的其中一個值）。只列出本輪
- *                  真正需要讀取的欄位——尤其 NAME_MAPPING 刻意只列 3 欄，
- *                  Email／Phone／PersonalLinkToken 等敏感欄位一律不讀進
- *                  記憶體（硬規則）。SpecialSundays 這張表已知會有其他
- *                  後加欄位，讀取邏輯用「機器鍵對照欄位位置」而不是「照
- *                  固定欄數讀」，所以多出來的欄不會造成任何問題。
+ *   columns        機器鍵 → 型別（'TEXT'／'INT'／'DATE'／'BOOLEAN'，見
+ *                  rosterNormalizeByType_()）。**只列出週報真正需要的
+ *                  欄位**——不在清單內的欄，即使工作表裡有，也完全不會
+ *                  被讀取／正規化／驗證，工作表可以自由新增其他欄位而
+ *                  不影響週報。NAME_MAPPING 刻意只列 3 欄，Email／Phone／
+ *                  PersonalLinkToken 等敏感欄位一律不讀進記憶體（硬規則）。
  */
 var ROSTER_TABLE_DEFS_ = Object.freeze({
   ASSIGNMENTS: {
     label: 'RosterAssignments',
     configKeyName: 'ROSTER_SHEET_ASSIGNMENTS',
     columns: {
-      AssignmentID: 'TEXT', QuarterID: 'TEXT', VersionNo: 'INT', ServiceDateID: 'TEXT',
-      ServiceDate: 'DATE', PostID: 'TEXT', SlotIndex: 'INT', PersonID: 'TEXT',
-      PersonNameSnapshot: 'TEXT', AssignSource: 'TEXT', RuleFlags: 'TEXT',
-      Locked: 'BOOLEAN', UpdatedAt: 'DATE', UpdatedBy: 'TEXT'
+      QuarterID: 'TEXT', VersionNo: 'INT', ServiceDate: 'DATE', PostID: 'TEXT',
+      SlotIndex: 'INT', PersonID: 'TEXT', PersonNameSnapshot: 'TEXT',
+      AssignSource: 'TEXT', Locked: 'BOOLEAN'
     }
   },
   VERSIONS: {
     label: 'RosterVersions',
     configKeyName: 'ROSTER_SHEET_VERSIONS',
     columns: {
-      VersionID: 'TEXT', QuarterID: 'TEXT', VersionNo: 'INT', SheetName: 'TEXT',
-      Basis: 'TEXT', ParentVersionNo: 'INT', Status: 'TEXT', Protected: 'BOOLEAN',
-      WarningCount: 'INT', CreatedAt: 'DATE', CreatedBy: 'TEXT', Notes: 'TEXT'
+      QuarterID: 'TEXT', VersionNo: 'INT'
     }
   },
   QUARTERS: {
     label: 'Quarters',
     configKeyName: 'ROSTER_SHEET_QUARTERS',
     columns: {
-      QuarterID: 'TEXT', Year: 'INT', Term: 'TEXT', StartDate: 'DATE', EndDate: 'DATE',
-      WeekCount: 'INT', GenerateOn: 'DATE', OfficialSendOn: 'DATE', Status: 'TEXT',
-      Notes: 'TEXT', Stage: 'TEXT', StageUpdatedAt: 'DATE'
+      // ⚠️ Quarters 同時有 Status 與 Stage 兩個欄位，快照用的是 Stage。
+      QuarterID: 'TEXT', Stage: 'TEXT'
     }
   },
   SERVICE_DATES: {
@@ -69,8 +76,7 @@ var ROSTER_TABLE_DEFS_ = Object.freeze({
     configKeyName: 'ROSTER_SHEET_SERVICE_DATES',
     columns: {
       ServiceDateID: 'TEXT', QuarterID: 'TEXT', ServiceDate: 'DATE', WeekIndex: 'INT',
-      IsFirstSundayOfMonth: 'BOOLEAN', ServiceType: 'TEXT', SpecialID: 'TEXT',
-      AutoGenerate: 'BOOLEAN', Notes: 'TEXT'
+      IsFirstSundayOfMonth: 'BOOLEAN', ServiceType: 'TEXT', SpecialID: 'TEXT'
     }
   },
   SPECIAL_SUNDAYS: {
@@ -79,7 +85,8 @@ var ROSTER_TABLE_DEFS_ = Object.freeze({
     columns: {
       SpecialID: 'TEXT', QuarterID: 'TEXT', ServiceDate: 'DATE', Type: 'TEXT', Title: 'TEXT',
       SkipPostIDs: 'TEXT', LockPostIDs: 'TEXT', ExternalOwner: 'TEXT',
-      CommunionOverride: 'TEXT', TranslationRequired: 'BOOLEAN', Active: 'BOOLEAN', Notes: 'TEXT'
+      // CommunionOverride 在職事表是保留但未串接的欄位，取值不明，一律當文字。
+      CommunionOverride: 'TEXT', TranslationRequired: 'BOOLEAN', Active: 'BOOLEAN'
     }
   },
   NAME_MAPPING: {
@@ -94,11 +101,10 @@ var ROSTER_TABLE_DEFS_ = Object.freeze({
     label: 'Posts',
     configKeyName: 'ROSTER_SHEET_POSTS',
     columns: {
-      PostID: 'TEXT', PostName_TC: 'TEXT', PostName_EN: 'TEXT', SlotCount: 'INT',
-      DistinctWithinPost: 'BOOLEAN', Category: 'TEXT', Frequency: 'TEXT',
-      AutoGenerate: 'BOOLEAN', AllowConsecutive: 'BOOLEAN', MutexGroup: 'TEXT',
-      DisplayOrder: 'INT', Active: 'BOOLEAN', Notes: 'TEXT', EmptyDisplay: 'TEXT',
-      EarlyArrivalMinutes: 'INT', RequiredRoles: 'TEXT'
+      // ⚠️ 刻意不列 AllowConsecutive：職事表的實際取值是
+      // ALLOW／BLOCK／WARN（一個列舉），不是 boolean，週報也用不到。
+      PostID: 'TEXT', PostName_TC: 'TEXT', SlotCount: 'INT', Frequency: 'TEXT',
+      AutoGenerate: 'BOOLEAN', DisplayOrder: 'INT', Active: 'BOOLEAN', EmptyDisplay: 'TEXT'
     }
   }
 });
@@ -118,15 +124,16 @@ var ROSTER_TABLES_CACHE_KEY_ = null;
  * 用途：按一個主日日期，從職事表試算表取得該主日的事奉名單與特別主日
  *   資訊。這是本檔案的真正入口：先讀 Config，再視需要呼叫 IO 層（同一次
  *   執行內會 memoize，重複呼叫不會重新讀試算表），最後呼叫純函式層組出
- *   快照物件。
+ *   快照物件，並把 IO 層讀取時累積的寬鬆解析警告一併併入。
  * Args:
  *   isoDate {string} 主日日期，yyyy-MM-dd 格式。
  * Returns:
  *   {Object} 快照物件，形狀見 docs/職事表唯讀介面.md。`ROSTER_SPREADSHEET_ID`
  *     未設定時，回傳 `{ ok:false, notConfigured:true, ... }`，不拋錯。
  * Raises:
- *   Error 如果 `openById()` 失敗、任何一張工作表不存在、或工作表第 2 行
- *     缺少預期的機器鍵（見 fetchRosterTables_()／readRosterTable_()）。
+ *   Error 只有三種情況：`openById()` 失敗、任何一張工作表不存在、或工作表
+ *     第 2 行缺少白名單內的機器鍵（見 fetchRosterTables_()／
+ *     readRosterTable_()）。其餘一律回傳快照物件並在 `warnings` 說明。
  */
 function readRosterSnapshot_(isoDate) {
   var spreadsheetId = getConfig(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, '');
@@ -134,8 +141,12 @@ function readRosterSnapshot_(isoDate) {
     return emptyRosterSnapshot_(isoDate, { ok: false, notConfigured: true });
   }
 
-  var tables = fetchRosterTablesCached_(spreadsheetId, buildRosterSheetNames_());
-  return buildRosterSnapshot_(tables, isoDate);
+  var io = fetchRosterTablesCached_(spreadsheetId, buildRosterSheetNames_());
+  var snapshot = buildRosterSnapshot_(io.tables, isoDate);
+  if (io.warnings.length > 0) {
+    snapshot.warnings = snapshot.warnings.concat(io.warnings);
+  }
+  return snapshot;
 }
 
 /**
@@ -156,8 +167,8 @@ function listRosterServiceDatesForQuarter_(quarterId) {
     throw new Error('listRosterServiceDatesForQuarter_：Config 的 ROSTER_SPREADSHEET_ID 未設定。');
   }
 
-  var tables = fetchRosterTablesCached_(spreadsheetId, buildRosterSheetNames_());
-  return tables.serviceDates
+  var io = fetchRosterTablesCached_(spreadsheetId, buildRosterSheetNames_());
+  return io.tables.serviceDates
     .filter(function (r) { return r.QuarterID === quarterId; })
     .map(function (r) { return r.ServiceDate; })
     .filter(function (d) { return d instanceof Date; })
@@ -220,17 +231,17 @@ function buildRosterSheetNames_() {
  *   spreadsheetId {string} 職事表試算表 ID。
  *   sheetNames {Object} buildRosterSheetNames_() 的回傳值。
  * Returns:
- *   {Object} 同 fetchRosterTables_() 的回傳值。
+ *   {{tables:Object, warnings:Object[]}} 同 fetchRosterTables_() 的回傳值。
  */
 function fetchRosterTablesCached_(spreadsheetId, sheetNames) {
   var cacheKey = spreadsheetId + '|' + JSON.stringify(sheetNames);
   if (ROSTER_TABLES_CACHE_ && ROSTER_TABLES_CACHE_KEY_ === cacheKey) {
     return ROSTER_TABLES_CACHE_;
   }
-  var tables = fetchRosterTables_(spreadsheetId, sheetNames);
-  ROSTER_TABLES_CACHE_ = tables;
+  var result = fetchRosterTables_(spreadsheetId, sheetNames);
+  ROSTER_TABLES_CACHE_ = result;
   ROSTER_TABLES_CACHE_KEY_ = cacheKey;
-  return tables;
+  return result;
 }
 
 // =====================================================================
@@ -238,22 +249,26 @@ function fetchRosterTablesCached_(spreadsheetId, sheetNames) {
 // =====================================================================
 
 /**
- * 用途：一次過把職事表七張工作表讀成純陣列物件並回傳，不做任何業務判斷
- *   （不比對日期、不篩選版本、不解析特別主日、不查姓名對照）。每張表只
- *   讀一次（`getDataRange` 等級的單次範圍讀取），不會針對個別崗位或個別
- *   主日重覆開表。
+ * 用途：一次過把職事表七張工作表（白名單欄位）讀成純陣列物件並回傳，
+ *   不做任何業務判斷（不比對日期、不篩選版本、不解析特別主日、不查
+ *   姓名對照）。每張表只讀一次（`getRange` 等級的單次範圍讀取），不會
+ *   針對個別崗位或個別主日重覆開表。
  * Args:
  *   spreadsheetId {string} 職事表試算表 ID。
  *   sheetNames {Object} buildRosterSheetNames_() 的回傳值，七個工作表的
  *     實際名稱。
  * Returns:
- *   {{assignments:Object[], versions:Object[], quarters:Object[],
+ *   {{tables:{assignments:Object[], versions:Object[], quarters:Object[],
  *     serviceDates:Object[], specialSundays:Object[], nameMapping:Object[],
- *     posts:Object[]}} 每個陣列元素是以職事表機器鍵為 key 的物件，已依
- *     ROSTER_TABLE_DEFS_ 宣告的型別正規化。
+ *     posts:Object[]}, warnings:{code:string,message:string}[]}}
+ *     `tables` 的每個陣列元素是以機器鍵為 key 的物件，已依
+ *     ROSTER_TABLE_DEFS_ 宣告的型別做**寬鬆**正規化；`warnings` 是讀取
+ *     過程中遇到的、無法解析的整數／日期值（空白不算，只有「有值但解析
+ *     不出來」才會記一筆）。
  * Raises:
  *   Error 如果 `openById()` 失敗（訊息只含 ID 前 8 個字元＋省略號，不印
- *     完整 ID），或任何一張工作表不存在，或第 2 行缺少預期的機器鍵。
+ *     完整 ID），或任何一張工作表不存在，或第 2 行缺少白名單內的機器鍵。
+ *     這是唯一會拋錯的三種情況——見檔案開頭「職事表工作表結構」的說明。
  */
 function fetchRosterTables_(spreadsheetId, sheetNames) {
   var ss;
@@ -268,35 +283,41 @@ function fetchRosterTables_(spreadsheetId, sheetNames) {
     );
   }
 
-  return {
-    assignments: readRosterTable_(ss, ROSTER_TABLE_DEFS_.ASSIGNMENTS, sheetNames.ASSIGNMENTS),
-    versions: readRosterTable_(ss, ROSTER_TABLE_DEFS_.VERSIONS, sheetNames.VERSIONS),
-    quarters: readRosterTable_(ss, ROSTER_TABLE_DEFS_.QUARTERS, sheetNames.QUARTERS),
-    serviceDates: readRosterTable_(ss, ROSTER_TABLE_DEFS_.SERVICE_DATES, sheetNames.SERVICE_DATES),
-    specialSundays: readRosterTable_(ss, ROSTER_TABLE_DEFS_.SPECIAL_SUNDAYS, sheetNames.SPECIAL_SUNDAYS),
-    nameMapping: readRosterTable_(ss, ROSTER_TABLE_DEFS_.NAME_MAPPING, sheetNames.NAME_MAPPING),
-    posts: readRosterTable_(ss, ROSTER_TABLE_DEFS_.POSTS, sheetNames.POSTS)
+  var warnings = [];
+  var tables = {
+    assignments: readRosterTable_(ss, ROSTER_TABLE_DEFS_.ASSIGNMENTS, sheetNames.ASSIGNMENTS, warnings),
+    versions: readRosterTable_(ss, ROSTER_TABLE_DEFS_.VERSIONS, sheetNames.VERSIONS, warnings),
+    quarters: readRosterTable_(ss, ROSTER_TABLE_DEFS_.QUARTERS, sheetNames.QUARTERS, warnings),
+    serviceDates: readRosterTable_(ss, ROSTER_TABLE_DEFS_.SERVICE_DATES, sheetNames.SERVICE_DATES, warnings),
+    specialSundays: readRosterTable_(ss, ROSTER_TABLE_DEFS_.SPECIAL_SUNDAYS, sheetNames.SPECIAL_SUNDAYS, warnings),
+    nameMapping: readRosterTable_(ss, ROSTER_TABLE_DEFS_.NAME_MAPPING, sheetNames.NAME_MAPPING, warnings),
+    posts: readRosterTable_(ss, ROSTER_TABLE_DEFS_.POSTS, sheetNames.POSTS, warnings)
   };
+
+  return { tables: tables, warnings: warnings };
 }
 
 /**
- * 用途：讀取職事表其中一張工作表：第 2 行當機器鍵、第 3 行起是資料。
- *   用機器鍵對照欄位位置（不是照固定欄數讀），所以工作表多出其他後加
- *   欄位不會造成任何問題；但如果 ROSTER_TABLE_DEFS_ 宣告的機器鍵有任何
- *   一個在第 2 行找不到，視為結構性問題，直接拋錯。
+ * 用途：讀取職事表其中一張工作表的白名單欄位：第 2 行當機器鍵、第 3 行
+ *   起是資料。用機器鍵對照欄位位置（不是照固定欄數讀），白名單以外的欄
+ *   完全不會被碰——工作表多出其他欄位（不論是本來就有、還是對方日後
+ *   加的）一律靜靜略過，不是錯誤。只有白名單內的機器鍵在第 2 行找不到，
+ *   才視為結構性問題，直接拋錯。
  * Args:
  *   ss {Spreadsheet} 已經用 `openById()` 開啟的職事表試算表。
  *   tableDef {{label:string, configKeyName:string, columns:Object<string,string>}}
  *     ROSTER_TABLE_DEFS_ 其中一個表定義。
  *   sheetName {string} 這張表在職事表試算表內的實際名稱（來自 Config）。
+ *   warningsOut {{code:string,message:string}[]} 累積寬鬆解析警告用的
+ *     陣列，這個函式會往裡面 push（透過 rosterNormalizeByType_()）。
  * Returns:
- *   {Object[]} 陣列，每個元素是以機器鍵為 key 的物件；整行皆空白的資料
- *     列會被略過。
+ *   {Object[]} 陣列，每個元素是以機器鍵為 key 的物件（只含白名單欄位）；
+ *     整行皆空白的資料列會被略過。
  * Raises:
  *   Error 如果工作表不存在，或第 2 行缺少 tableDef.columns 宣告的任何
  *     一個機器鍵。
  */
-function readRosterTable_(ss, tableDef, sheetName) {
+function readRosterTable_(ss, tableDef, sheetName, warningsOut) {
   var sheet = ss.getSheetByName(sheetName);
   if (!sheet) {
     throw new Error(
@@ -314,7 +335,7 @@ function readRosterTable_(ss, tableDef, sheetName) {
   }
 
   var headerKeys = sheet.getRange(2, 1, 1, lastCol).getValues()[0].map(function (v) {
-    return normalizeText_(v);
+    return rosterToText_(v);
   });
 
   var colIndexByKey = {};
@@ -327,7 +348,7 @@ function readRosterTable_(ss, tableDef, sheetName) {
   if (missingKeys.length > 0) {
     throw new Error(
       '職事表工作表「' + sheetName + '」（Config 鍵 ' + tableDef.configKeyName
-      + '）第 2 行缺少預期的機器鍵：' + missingKeys.join('、')
+      + '）第 2 行缺少白名單內的機器鍵：' + missingKeys.join('、')
       + '。職事表的欄位結構可能已經改變，請通知 Ivan 確認。'
     );
   }
@@ -346,14 +367,7 @@ function readRosterTable_(ss, tableDef, sheetName) {
       var raw = rawRow[colIndexByKey[key]];
       var type = tableDef.columns[key];
       var context = { sheet: sheetName, key: key, row: r + 3 };
-      try {
-        row[key] = normalizeByType_(type, raw, context);
-      } catch (err) {
-        throw new Error(
-          '職事表工作表「' + sheetName + '」第 ' + (r + 3) + ' 行、欄位「' + key
-          + '」的值無法正規化：' + err.message
-        );
-      }
+      row[key] = rosterNormalizeByType_(type, raw, context, warningsOut);
     });
     rows.push(row);
   });
@@ -362,16 +376,139 @@ function readRosterTable_(ss, tableDef, sheetName) {
 }
 
 // =====================================================================
+// 職事表專用的寬鬆型別解析——跟 src/SheetUtils.gs 的 normalize*_() 完全
+// 分開，不共用。理由見檔案開頭的說明；不可以拿去用在週報自己的工作表。
+// =====================================================================
+
+/**
+ * 用途：依 tableDef.columns 宣告的型別名稱，分派到對應的寬鬆解析函式。
+ * Args:
+ *   type {string} 'TEXT'／'INT'／'DATE'／'BOOLEAN' 其中之一。
+ *   raw {*} 儲存格原始值。
+ *   context {{sheet:string, key:string, row:number}} 供警告訊息使用。
+ *   warningsOut {{code:string,message:string}[]} 累積警告用的陣列。
+ * Returns:
+ *   {*} 正規化後的值，型別依 type 而定；永不拋錯（除了 type 本身打錯字）。
+ * Raises:
+ *   Error 如果 type 不是已知的型別名稱（代表 ROSTER_TABLE_DEFS_ 自己寫錯，
+ *     屬於程式錯誤，不是資料問題，所以還是要拋）。
+ */
+function rosterNormalizeByType_(type, raw, context, warningsOut) {
+  switch (type) {
+    case 'TEXT': return rosterToText_(raw);
+    case 'INT': return rosterToIntLenient_(raw, context, warningsOut);
+    case 'DATE': return rosterToDateLenient_(raw, context, warningsOut);
+    case 'BOOLEAN': return rosterIsTrueValue_(raw);
+    default:
+      throw new Error('rosterNormalizeByType_：ROSTER_TABLE_DEFS_ 用了未知的型別「' + type + '」，這是程式錯誤。');
+  }
+}
+
+/**
+ * 用途：職事表專用的寬鬆布林正規化。**刻意複製職事表 `src/SheetReader.gs`
+ *   的 `isTrueValue_()` 語意**：`value === true`，或者字串 trim 之後轉大寫
+ *   等於 `'TRUE'`，才是 `true`；空白、`FALSE`、`'是'`、`'1'`、`'Y'`、無法
+ *   辨識的列舉值（例如 `Posts.AllowConsecutive` 的 `'ALLOW'`）……其餘一律
+ *   當 `false`，**永不拋錯**。
+ *
+ *   ⚠️ 這個語意是刻意複製職事表的行為，**不可以自己另立一套**（例如接受
+ *   `是`／`1`／`Y`）。改這個函式之前，要先確認職事表 `isTrueValue_()`
+ *   那邊是不是也同步改了，否則會出現「職事表當它是關、週報當它是開」
+ *   這種兩邊語意不一致、最難查的問題。
+ * Args:
+ *   value {*} 儲存格原始值。
+ * Returns:
+ *   {boolean}
+ */
+function rosterIsTrueValue_(value) {
+  return value === true || String(value).trim().toUpperCase() === 'TRUE';
+}
+
+/**
+ * 用途：職事表專用的寬鬆文字正規化。跟 `SheetUtils.gs` 的 `normalizeText_()`
+ *   不同——這裡完全不管「這欄本來應該是什麼型別」，一律 `String()` 轉
+ *   字串再 trim，**永不拋錯、不記警告**。職事表的欄位不是我們定義的
+ *   schema，我們沒有資格要求它一定是純文字。
+ * Args:
+ *   value {*} 儲存格原始值。
+ * Returns:
+ *   {string} 空值一律回 `''`。
+ */
+function rosterToText_(value) {
+  if (value === null || value === undefined || value === '') return '';
+  return String(value).trim();
+}
+
+/**
+ * 用途：職事表專用的寬鬆整數正規化。空白回 `null`（正常狀態，不記警告）；
+ *   有值但解析不出整數，回 `null` 並記一筆警告，**永不拋錯**。
+ * Args:
+ *   value {*} 儲存格原始值。
+ *   context {{sheet:string, key:string, row:number}} 供警告訊息使用。
+ *   warningsOut {{code:string,message:string}[]} 累積警告用的陣列。
+ * Returns:
+ *   {?number}
+ */
+function rosterToIntLenient_(value, context, warningsOut) {
+  if (value === null || value === undefined || value === '') return null;
+  var n = Number(value);
+  if (!Number.isFinite(n) || Math.floor(n) !== n) {
+    warningsOut.push({
+      code: 'ROSTER_VALUE_UNPARSEABLE',
+      message: '職事表「' + context.sheet + '」第 ' + context.row + ' 行、欄位「' + context.key
+        + '」的整數值無法解析（值：' + JSON.stringify(value) + '），已當成空值處理。'
+    });
+    return null;
+  }
+  return n;
+}
+
+/**
+ * 用途：職事表專用的寬鬆日期正規化。接受 `Date` 物件與 `yyyy-MM-dd`
+ *   字串；空白回 `null`（正常狀態，不記警告）；有值但解析不出來，回
+ *   `null` 並記一筆警告，**永不拋錯**——該列在後續比對日期時，會因為
+ *   這個欄位是 `null` 而自動配不到任何日期，等於被略過。
+ * Args:
+ *   value {*} 儲存格原始值。
+ *   context {{sheet:string, key:string, row:number}} 供警告訊息使用。
+ *   warningsOut {{code:string,message:string}[]} 累積警告用的陣列。
+ * Returns:
+ *   {?Date}
+ */
+function rosterToDateLenient_(value, context, warningsOut) {
+  if (value === null || value === undefined || value === '') return null;
+  if (value instanceof Date) return value;
+  if (typeof value === 'string') {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+    if (m) {
+      var y = Number(m[1]);
+      var mo = Number(m[2]);
+      var d = Number(m[3]);
+      var date = new Date(y, mo - 1, d);
+      if (date.getFullYear() === y && date.getMonth() === mo - 1 && date.getDate() === d) {
+        return date;
+      }
+    }
+  }
+  warningsOut.push({
+    code: 'ROSTER_VALUE_UNPARSEABLE',
+    message: '職事表「' + context.sheet + '」第 ' + context.row + ' 行、欄位「' + context.key
+      + '」的日期值無法解析（值：' + JSON.stringify(value) + '），這一行在比對日期時會被自動略過。'
+  });
+  return null;
+}
+
+// =====================================================================
 // 純函式層——完全不碰 Apps Script 服務
 // =====================================================================
 
 /**
- * 用途：把 fetchRosterTables_() 的原始資料，組成一個主日的事奉快照。
- *   全部業務判斷都在這裡：比對日期、算 weekOfMonth、篩選最新版本的派工
- *   紀錄、解析特別主日、解析姓名對照、產生警告。完全不碰 Apps Script
- *   服務，方便在 Node 用假資料直接測試。
+ * 用途：把 fetchRosterTables_() 的 `tables` 原始資料，組成一個主日的
+ *   事奉快照。全部業務判斷都在這裡：比對日期、算 weekOfMonth、篩選最新
+ *   版本的派工紀錄、解析特別主日、解析姓名對照、產生警告。完全不碰
+ *   Apps Script 服務，方便在 Node 用假資料直接測試。
  * Args:
- *   tables {Object} fetchRosterTables_() 的回傳值。
+ *   tables {Object} fetchRosterTables_() 回傳值的 `.tables` 部分。
  *   isoDate {string} 主日日期，yyyy-MM-dd 格式。
  * Returns:
  *   {Object} 快照物件，形狀見 docs/職事表唯讀介面.md。
@@ -459,16 +596,25 @@ function buildRosterSnapshot_(tables, isoDate) {
     var nameByPersonId = {};
     tables.nameMapping.forEach(function (p) { nameByPersonId[p.PersonID] = p; });
 
+    // ⚠️ RosterAssignments 白名單沒有 ServiceDateID，用
+    // QuarterID + ServiceDate（實際日期）配對，不是用 ID 對照。
     snapshot.assignments = tables.assignments
       .filter(function (a) {
-        return a.ServiceDateID === snapshot.serviceDate.serviceDateId && a.VersionNo === maxVersionNo;
+        return a.QuarterID === snapshot.quarterId
+          && a.VersionNo === maxVersionNo
+          && rosterDateMatchesYMD_(a.ServiceDate, targetYear, targetMonth, targetDay);
       })
       .map(function (a) { return resolveRosterAssignmentPerson_(a, nameByPersonId, warnings); });
   }
 
   if (serviceDateRow.SpecialID) {
     var specialRow = tables.specialSundays.find(function (r) { return r.SpecialID === serviceDateRow.SpecialID; });
-    if (specialRow) {
+    if (!specialRow) {
+      warnings.push({
+        code: 'SPECIAL_SUNDAY_NOT_FOUND',
+        message: 'ServiceDates 指向的 SpecialID「' + serviceDateRow.SpecialID + '」在 SpecialSundays 找不到對應的一行。'
+      });
+    } else if (specialRow.Active) {
       snapshot.special = {
         specialId: specialRow.SpecialID,
         type: specialRow.Type,
@@ -479,12 +625,10 @@ function buildRosterSnapshot_(tables, isoDate) {
         communionOverride: specialRow.CommunionOverride,
         translationRequired: Boolean(specialRow.TranslationRequired)
       };
-    } else {
-      warnings.push({
-        code: 'SPECIAL_SUNDAY_NOT_FOUND',
-        message: 'ServiceDates 指向的 SpecialID「' + serviceDateRow.SpecialID + '」在 SpecialSundays 找不到對應的一行。'
-      });
     }
+    // else：specialRow 存在但 Active 不是 true——跟職事表行為一致，視為
+    // 停用中的特別主日設定，不當成「找不到」，也不當成正常特別主日，
+    // 靜靜當成沒有特別主日（snapshot.special 保持 null），不記警告。
   }
 
   return snapshot;
@@ -493,7 +637,7 @@ function buildRosterSnapshot_(tables, isoDate) {
 /**
  * 用途：判斷一個（已正規化的）ServiceDate 值是不是剛好等於指定的年／月／日。
  * Args:
- *   dateValue {*} tables.serviceDates 某一行的 ServiceDate（應該是 Date 或 null）。
+ *   dateValue {*} 應該是 Date 或 null（rosterToDateLenient_() 的輸出）。
  *   year {number}　month {number}（1-12）　day {number}
  * Returns:
  *   {boolean}

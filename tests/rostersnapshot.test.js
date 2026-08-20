@@ -16,6 +16,7 @@
 
 const assert = require('assert');
 const { loadAllSrcFilesInOrder } = require('./helpers/loadGas');
+const { makeFakeSheet, makeFakeSpreadsheet } = require('./helpers/fakeSpreadsheet');
 
 const GAS_STUBS = {
   Utilities: {
@@ -296,65 +297,9 @@ test('special 物件的 skipPostIds／lockPostIds 真的有經過 parseRosterIdL
 // 9. 由真正入口 readRosterSnapshot_() 叫下去（假 SpreadsheetApp 替身）
 // =====================================================================
 
-/**
- * 用途：造一個唯讀為主、但也支援 ensureSheet_() 會用到的少數幾個寫入
- *   方法（setValues／setFontWeight／setBackground／setFrozenRows）的假
- *   Sheet。RosterRead.gs 本身完全不會呼叫這些方法（tools/lint-readonly-roster.js
- *   已經鎖死），但 getConfig() 內部的 loadConfigCache_() 每次都會先呼叫
- *   ensureSheet_(ss,'CONFIG') 確保標題正確，所以「own」試算表（`Config`
- *   工作表所在的那個）需要一個支援得到寫入呼叫的假 Sheet；職事表那邊
- *   （openById 開出來的假試算表）則完全不會被寫，純讀取也夠用。
- */
-function makeFakeSheet(headers, keys, rowObjects) {
-  var data = [headers, keys].concat(rowObjects.map(function (obj) {
-    return keys.map(function (k) { return obj[k] === undefined ? '' : obj[k]; });
-  }));
-  var frozenRows = 0;
-  return {
-    getLastRow: function () { return data.length; },
-    getLastColumn: function () { return keys.length; },
-    getMaxRows: function () { return Math.max(data.length, 1000); },
-    getFrozenRows: function () { return frozenRows; },
-    setFrozenRows: function (n) { frozenRows = n; },
-    getRange: function (r, c, numRows, numCols) {
-      numRows = numRows || 1;
-      numCols = numCols || 1;
-      return {
-        getValues: function () {
-          var out = [];
-          for (var i = 0; i < numRows; i++) {
-            var rowIdx = r - 1 + i;
-            var rowArr = [];
-            for (var j = 0; j < numCols; j++) {
-              var colIdx = c - 1 + j;
-              var srcRow = data[rowIdx];
-              rowArr.push(srcRow && srcRow[colIdx] !== undefined ? srcRow[colIdx] : '');
-            }
-            out.push(rowArr);
-          }
-          return out;
-        },
-        setValues: function (values) {
-          for (var i = 0; i < values.length; i++) {
-            var rowIdx = r - 1 + i;
-            while (data.length <= rowIdx) data.push([]);
-            for (var j = 0; j < values[i].length; j++) {
-              data[rowIdx][c - 1 + j] = values[i][j];
-            }
-          }
-          return this;
-        },
-        setFontWeight: function () { return this; },
-        setBackground: function () { return this; },
-        setNumberFormat: function () { return this; }
-      };
-    }
-  };
-}
-
-function makeFakeSpreadsheet(sheetsByName) {
-  return { getSheetByName: function (name) { return sheetsByName[name] || null; } };
-}
+// makeFakeSheet／makeFakeSpreadsheet 搬到 tests/helpers/fakeSpreadsheet.js
+// 了——tests/configcache.test.js 也需要一模一樣的假 Sheet／Spreadsheet，
+// 抽出來共用，避免兩個測試檔案各自維護一份容易長歪的實作。
 
 /** 用 ROSTER_TABLE_DEFS_ 的機器鍵組出一張假的職事表工作表，不用手key 一次全部欄位名稱。 */
 function makeRosterSheetFromDef(defKey, rowObjects) {
@@ -496,6 +441,118 @@ test('只取該季最大 VersionNo 的派工紀錄，較舊版本的資料不會
   assert.strictEqual(snap.versionNo, 2);
   assert.strictEqual(snap.assignments.length, 1);
   assert.strictEqual(snap.assignments[0].personName, '新版本人選');
+});
+
+// =====================================================================
+// Prompt2b：白名單欄位＋寬鬆解析（職事表事故二的回歸測試）
+// =====================================================================
+
+test('Prompt2b-1：Posts.AllowConsecutive 是 "ALLOW"（職事表的列舉值）不會造成任何錯誤，因為根本不在白名單內', function () {
+  var postsKeys = Object.keys(sandbox.ROSTER_TABLE_DEFS_.POSTS.columns);
+  var extraKeys = postsKeys.concat(['AllowConsecutive']);
+  var rosterSheets = makeRosterSheets();
+  rosterSheets.Posts = makeFakeSheet(extraKeys, extraKeys, [
+    Object.assign(
+      {
+        PostID: 'CHAIR', PostName_TC: '主席', SlotCount: 1, Frequency: 'WEEKLY',
+        AutoGenerate: true, DisplayOrder: 10, Active: true, EmptyDisplay: 'PENDING'
+      },
+      { AllowConsecutive: 'ALLOW' } // 職事表的真實取值：ALLOW／BLOCK／WARN，不是 boolean
+    )
+  ]);
+  var FakeApp = {
+    getActiveSpreadsheet: function () { return makeFakeSpreadsheet({ Config: makeConfigSheet(fullConfigRows(FAKE_ROSTER_ID)) }); },
+    openById: function (id) { return makeFakeSpreadsheet(rosterSheets); }
+  };
+  var s = loadAllSrcFilesInOrder(Object.assign({}, GAS_STUBS, { SpreadsheetApp: FakeApp }));
+  var snap = s.readRosterSnapshot_('2027-10-03');
+  assert.strictEqual(snap.ok, true, 'AllowConsecutive=ALLOW 不應該讓整個讀取失敗');
+  assert.strictEqual(snap.posts.length, 1);
+  assert.strictEqual(snap.posts[0].postId, 'CHAIR');
+});
+
+test('Prompt2b-2：職事表多出一個未知欄位 SomeNewColumn → 讀取成功，沒有任何 warning', function () {
+  var postsKeys = Object.keys(sandbox.ROSTER_TABLE_DEFS_.POSTS.columns);
+  var extraKeys = postsKeys.concat(['SomeNewColumn']);
+  var rosterSheets = makeRosterSheets();
+  rosterSheets.Posts = makeFakeSheet(extraKeys, extraKeys, [
+    Object.assign(
+      {
+        PostID: 'CHAIR', PostName_TC: '主席', SlotCount: 1, Frequency: 'WEEKLY',
+        AutoGenerate: true, DisplayOrder: 10, Active: true, EmptyDisplay: 'PENDING'
+      },
+      { SomeNewColumn: '職事表日後新加的欄位' }
+    )
+  ]);
+  var FakeApp = {
+    getActiveSpreadsheet: function () { return makeFakeSpreadsheet({ Config: makeConfigSheet(fullConfigRows(FAKE_ROSTER_ID)) }); },
+    openById: function (id) { return makeFakeSpreadsheet(rosterSheets); }
+  };
+  var s = loadAllSrcFilesInOrder(Object.assign({}, GAS_STUBS, { SpreadsheetApp: FakeApp }));
+  var snap = s.readRosterSnapshot_('2027-10-03');
+  assert.strictEqual(snap.ok, true);
+  assert.strictEqual(snap.posts.length, 1);
+  assert.ok(warningCodes(snap).indexOf('ROSTER_VALUE_UNPARSEABLE') === -1, '多出來的欄位不應該產生任何警告');
+});
+
+test('Prompt2b-3：白名單欄位缺失（Posts 沒有 PostID）→ 拋錯，訊息列出缺少的欄名', function () {
+  var postsKeys = Object.keys(sandbox.ROSTER_TABLE_DEFS_.POSTS.columns).filter(function (k) { return k !== 'PostID'; });
+  var rosterSheets = makeRosterSheets();
+  rosterSheets.Posts = makeFakeSheet(postsKeys, postsKeys, [
+    { PostName_TC: '主席', SlotCount: 1, Frequency: 'WEEKLY', AutoGenerate: true, DisplayOrder: 10, Active: true, EmptyDisplay: 'PENDING' }
+  ]);
+  var FakeApp = {
+    getActiveSpreadsheet: function () { return makeFakeSpreadsheet({ Config: makeConfigSheet(fullConfigRows(FAKE_ROSTER_ID)) }); },
+    openById: function (id) { return makeFakeSpreadsheet(rosterSheets); }
+  };
+  var s = loadAllSrcFilesInOrder(Object.assign({}, GAS_STUBS, { SpreadsheetApp: FakeApp }));
+  assert.throws(function () { s.readRosterSnapshot_('2027-10-03'); }, function (err) {
+    return err.message.indexOf('PostID') !== -1;
+  });
+});
+
+test('Prompt2b-4：寬鬆布林 rosterIsTrueValue_ 跟職事表語意完全一致，永不拋錯', function () {
+  var rosterIsTrueValue_ = sandbox.rosterIsTrueValue_;
+  [true, 'TRUE', 'true', ' TRUE '].forEach(function (v) {
+    assert.strictEqual(rosterIsTrueValue_(v), true, 'expected true for ' + JSON.stringify(v));
+  });
+  [false, 'FALSE', '', null, undefined, '是', '1', 'Y', 'ALLOW'].forEach(function (v) {
+    assert.strictEqual(rosterIsTrueValue_(v), false, 'expected false for ' + JSON.stringify(v));
+  });
+});
+
+test('Prompt2b-5：SlotIndex 是 "abc" → null 且有 warning，不拋錯', function () {
+  var warnings = [];
+  var result = sandbox.rosterToIntLenient_('abc', { sheet: 'Posts', key: 'SlotIndex', row: 5 }, warnings);
+  assert.strictEqual(result, null);
+  assert.strictEqual(warnings.length, 1);
+  assert.strictEqual(warnings[0].code, 'ROSTER_VALUE_UNPARSEABLE');
+});
+
+test('Prompt2b-6：ServiceDate 無法解析 → 回 null 並記 warning，不拋錯；該列在比對日期時自動被略過', function () {
+  var warnings = [];
+  var result = sandbox.rosterToDateLenient_('不是日期', { sheet: 'ServiceDates', key: 'ServiceDate', row: 5 }, warnings);
+  assert.strictEqual(result, null);
+  assert.strictEqual(warnings.length, 1);
+  assert.strictEqual(warnings[0].code, 'ROSTER_VALUE_UNPARSEABLE');
+
+  // ServiceDate 解析失敗後會是 null，buildRosterSnapshot_ 應該當成「配不到日期」處理，不拋錯。
+  var tables = makeTables({ serviceDates: [serviceDateRow({ ServiceDate: null })] });
+  var snap = buildRosterSnapshot_(tables, '2027-10-03');
+  assert.strictEqual(snap.found, false);
+  assert.ok(warningCodes(snap).indexOf('SERVICE_DATE_NOT_FOUND') !== -1);
+});
+
+test('Prompt2b-7：SpecialSundays.Active 空白 → 該列視為 inactive（與職事表行為一致），不當成「找不到」', function () {
+  var tables = makeTables({
+    serviceDates: [serviceDateRow({ SpecialID: 'SP1' })],
+    quarters: [quarterRow()],
+    versions: [versionRow()],
+    specialSundays: [specialSundayRow({ Active: false })] // 空白經 rosterIsTrueValue_ 正規化後就是 false
+  });
+  var snap = buildRosterSnapshot_(tables, '2027-10-03');
+  assert.strictEqual(snap.special, null);
+  assert.ok(warningCodes(snap).indexOf('SPECIAL_SUNDAY_NOT_FOUND') === -1, 'inactive 不等於找不到，不應該有這筆警告');
 });
 
 // =====================================================================

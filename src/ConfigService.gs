@@ -12,18 +12,22 @@
  * 而 loadConfigCache_() 又呼叫 normalizeText_() 來讀 Config 自己的 VALUE 欄，
  * 就會變成「載入 Config 的過程需要先讀 Config」的無限遞迴。coerceConfigRawValue_()
  * 刻意保持零相依，從根本避免這個風險。
+ *
+ * ⚠️ 刻意不用任何跨執行、有存活時間（TTL）的快取服務（第二輪修過的事故，
+ * 見 docs/已知bug類型.md）：`Config` 是幹事會人手編輯的工作表，只有約 30
+ * 行，每次執行讀一次的成本可以忽略。曾經加過一層跨執行快取（TTL 6 小時）
+ * 想省這個幾乎不存在的成本，結果是人手改完 `Config` 卻要等最多 6 小時、
+ * 或者記得手動撳選單「重新載入設定」才生效——這正是「同一個狀態有兩個
+ * 真相來源，只更新了其中一個」，而且完全沒有錯誤訊息，只會表現成
+ * 「設定好像沒有寫入」。單次執行內的記憶體快取（`CONFIG_CACHE_`）沒有
+ * 這個問題（每次執行都是全新的，不會有陳舊資料），所以保留；跨執行的
+ * 快取全部拿掉，本檔案不應該再出現任何跨執行快取服務的呼叫。
  */
 
 'use strict';
 
 /** 執行期記憶體快取（同一次執行內重複呼叫 getConfig() 不用重讀工作表）。 */
 var CONFIG_CACHE_ = null;
-
-/** CacheService 的 key；「重新載入設定」選單會清掉這個 key。 */
-var CONFIG_CACHE_SERVICE_KEY_ = 'BULLETIN_CONFIG_CACHE_V1';
-
-/** CacheService 的存活時間（秒）。21600 秒＝6 小時，是 CacheService 的上限。 */
-var CONFIG_CACHE_TTL_SECONDS_ = 21600;
 
 /**
  * 用途：讀取 Config 工作表的其中一個設定值。
@@ -132,25 +136,21 @@ function seedConfigDefaults_() {
 }
 
 /**
- * 用途：清除 Config 快取（記憶體＋CacheService）。下一次 getConfig() 會
- *   重新從工作表讀取。選單「重新載入設定（唯讀）」會呼叫這個函式。
+ * 用途：清除 Config 記憶體快取。下一次 getConfig() 會重新從工作表讀取。
+ *   選單「重新載入設定（唯讀）」會呼叫這個函式，現在的作用純粹是「顯示
+ *   目前設定值」——因為記憶體快取只在單次執行內存在，本來就不會跨執行
+ *   殘留陳舊資料，這個函式主要是給同一次執行內想強制重讀的情境用。
  * Args: （無）
  * Returns:
  *   {void}
  */
 function clearConfigCache_() {
   CONFIG_CACHE_ = null;
-  try {
-    CacheService.getScriptCache().remove(CONFIG_CACHE_SERVICE_KEY_);
-  } catch (e) {
-    // CacheService 在部分執行環境（例如某些簡易觸發器）可能無法使用；
-    // 記憶體快取已經清了，CacheService 清不到不應該讓整個操作失敗。
-  }
 }
 
 /**
- * 用途：載入 Config 工作表全部設定值：先查記憶體、再查 CacheService、
- *   最後才真正讀工作表並重建兩層快取。
+ * 用途：載入 Config 工作表全部設定值：先查單次執行內的記憶體快取，沒有
+ *   就讀工作表並存進快取。**刻意不用任何跨執行快取服務**——見檔案開頭的說明。
  * Args: （無）
  * Returns:
  *   {Object<string,string>} 設定鍵到文字值的對照表。
@@ -160,16 +160,6 @@ function clearConfigCache_() {
  */
 function loadConfigCache_() {
   if (CONFIG_CACHE_) return CONFIG_CACHE_;
-
-  try {
-    var cached = CacheService.getScriptCache().get(CONFIG_CACHE_SERVICE_KEY_);
-    if (cached) {
-      CONFIG_CACHE_ = JSON.parse(cached);
-      return CONFIG_CACHE_;
-    }
-  } catch (e) {
-    // CacheService 不可用時直接退回讀工作表，不阻擋 getConfig() 運作。
-  }
 
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ensureSheet_(ss, 'CONFIG');
@@ -194,11 +184,6 @@ function loadConfigCache_() {
   }
 
   CONFIG_CACHE_ = result;
-  try {
-    CacheService.getScriptCache().put(CONFIG_CACHE_SERVICE_KEY_, JSON.stringify(result), CONFIG_CACHE_TTL_SECONDS_);
-  } catch (e) {
-    // 同上，CacheService 不可用時只用記憶體快取，不影響本次執行的正確性。
-  }
   return result;
 }
 
