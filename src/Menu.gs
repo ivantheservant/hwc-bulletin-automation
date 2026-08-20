@@ -6,8 +6,9 @@
  * （處理函式在 RosterDiagnostics.gs），第三輪加了兩個週報資料模型的項目
  * （處理函式在 BulletinDiagnostics.gs），第四輪加了一個開啟填寫介面的項目
  * （處理函式在 WebApp.gs），第四b輪加了一個檢查工作表結構的項目（處理
- * 函式同樣在 WebApp.gs）。Apps Script 全部檔案共用一個全域命名空間，
- * 選單引用哪個檔案定義的函式都可以。
+ * 函式同樣在 WebApp.gs），第五輪加了電郵與自動寄送相關的五個項目（處理
+ * 函式在 Mailer.gs／Trigger.gs）。Apps Script 全部檔案共用一個全域命名
+ * 空間，選單引用哪個檔案定義的函式都可以。
  *
  * ⚠️ 每個 `menuXxx_()` 的 catch 分支都要呼叫 `logMenuError_()`
  * （`src/ErrorLog.gs`）寫一筆 `ErrorLog`（`SOURCE='MENU'`），再顯示
@@ -34,6 +35,11 @@ function onOpen() {
     .addItem('建立本季空白週報', 'menuCreateBlankBulletinWeeks_')
     .addItem('預覽本週週報資料', 'menuPreviewBulletinModel_')
     .addItem('開啟填寫介面', 'menuOpenWebApp_')
+    .addItem('試寄下週週報（依 DRY_RUN 設定）', 'menuTestSendBulletin_')
+    .addItem('預覽週報郵件內容', 'menuPreviewBulletinEmail_')
+    .addItem('安裝自動寄送觸發器', 'menuInstallSendTrigger_')
+    .addItem('移除自動寄送觸發器', 'menuRemoveSendTrigger_')
+    .addItem('查看觸發器狀態', 'menuShowTriggerStatus_')
     .addToUi();
 }
 

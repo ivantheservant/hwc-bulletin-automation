@@ -293,7 +293,15 @@ var CONFIG_KEYS = Object.freeze({
   WEBAPP_ENABLED: 'WEBAPP_ENABLED',
   WEBAPP_ALLOWED_EMAILS: 'WEBAPP_ALLOWED_EMAILS',
   WEBAPP_URL: 'WEBAPP_URL',
-  PRAYER_BLOCK_HEADING_OPTIONS: 'PRAYER_BLOCK_HEADING_OPTIONS'
+  PRAYER_BLOCK_HEADING_OPTIONS: 'PRAYER_BLOCK_HEADING_OPTIONS',
+  // ---- 第五輪新增：電郵與自動寄送 ----
+  CHURCH_NAME: 'CHURCH_NAME',
+  SEND_MINUTE: 'SEND_MINUTE',
+  SEND_TARGET_OFFSET_DAYS: 'SEND_TARGET_OFFSET_DAYS',
+  SEND_GROUPS: 'SEND_GROUPS',
+  SEND_INCLUDE_MISSING_LIST: 'SEND_INCLUDE_MISSING_LIST',
+  SEND_BLOCK_IF_SCHEMA_OUTDATED: 'SEND_BLOCK_IF_SCHEMA_OUTDATED',
+  EMAIL_TEMPLATE_ID: 'EMAIL_TEMPLATE_ID'
 });
 
 // =====================================================================
@@ -349,7 +357,15 @@ var DEFAULTS = Object.freeze([
   { key: CONFIG_KEYS.WEBAPP_ENABLED, value: 'TRUE', note: '填寫介面總開關；FALSE 時 doGet 只回一頁說明，不渲染介面' },
   { key: CONFIG_KEYS.WEBAPP_ALLOWED_EMAILS, value: '', note: '可以使用填寫介面的電郵，逗號分隔；留空時只有部署者本人可用' },
   { key: CONFIG_KEYS.WEBAPP_URL, value: '', note: '填寫介面部署後的網址，由 Ivan 自行填入，選單「開啟填寫介面」會用到' },
-  { key: CONFIG_KEYS.PRAYER_BLOCK_HEADING_OPTIONS, value: '代禱事項,宣教消息,宣教代禱消息,宣教代禱事項', note: '代禱區塊標題欄位的建議值清單（逗號分隔）' }
+  { key: CONFIG_KEYS.PRAYER_BLOCK_HEADING_OPTIONS, value: '代禱事項,宣教消息,宣教代禱消息,宣教代禱事項', note: '代禱區塊標題欄位的建議值清單（逗號分隔）' },
+  // ---- 第五輪新增：電郵與自動寄送 ----
+  { key: CONFIG_KEYS.CHURCH_NAME, value: '基督教中國佈道會奧克蘭聖道堂', note: '電郵範本 {{ChurchName}} 用；EmailTemplates 內文一直用這個佔位符但先前沒有對應設定，會渲染成空字串' },
+  { key: CONFIG_KEYS.SEND_MINUTE, value: '0', note: '自動寄送的分鐘（0–59），配合 SEND_WEEKDAY／SEND_HOUR；⚠️ 僅供顯示規劃用，Apps Script 的時間觸發器實際上不能指定分鐘' },
+  { key: CONFIG_KEYS.SEND_TARGET_OFFSET_DAYS, value: '6', note: '由觸發日推算「要寄哪一個主日」的天數；星期一寄下個主日就是 6' },
+  { key: CONFIG_KEYS.SEND_GROUPS, value: 'CC,DB,ADMIN', note: '要寄給哪幾個 Recipients.GROUP_NAME（逗號分隔）' },
+  { key: CONFIG_KEYS.SEND_INCLUDE_MISSING_LIST, value: 'TRUE', note: '郵件內是否附上「本週待填欄位」清單' },
+  { key: CONFIG_KEYS.SEND_BLOCK_IF_SCHEMA_OUTDATED, value: 'TRUE', note: '工作表結構落後時拒絕寄送' },
+  { key: CONFIG_KEYS.EMAIL_TEMPLATE_ID, value: 'TPL_WEEKLY_BULLETIN', note: '用哪一個 EmailTemplates 範本' }
 ]);
 
 // =====================================================================
@@ -413,7 +429,8 @@ var POSTURE = Object.freeze({
 var ERROR_LOG_SOURCE = Object.freeze({
   SERVER: 'SERVER',
   CLIENT: 'CLIENT',
-  MENU: 'MENU'
+  MENU: 'MENU',
+  TRIGGER: 'TRIGGER'
 });
 
 // 注意：本檔案刻意不含 Node.js `module.exports`。tests/ 內的 Node 回歸測試
