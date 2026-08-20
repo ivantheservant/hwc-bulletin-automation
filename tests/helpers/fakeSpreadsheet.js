@@ -13,6 +13,36 @@
 'use strict';
 
 /**
+ * 用途：把要「寫進」假工作表的值轉成**跨 vm realm 安全**的形式。
+ *
+ *   ⚠️ 為什麼需要這一步：測試常常用一個新的 sandbox 模擬「Apps Script 的
+ *   下一次執行」，但假工作表的資料是跨 sandbox 共用的。如果直接把 A
+ *   sandbox 造出來的 `Date` 物件存起來，B sandbox 讀到它時，
+ *   `value instanceof Date` 會因為兩邊的 `Date` 建構子不是同一個而判定
+ *   false——`normalizeDate_()` 於是拋「不是 Date 物件、也不是合法的
+ *   yyyy-MM-dd 字串」，而值印出來明明就是一個日期，非常難查。
+ *
+ *   真正的 Sheets 沒有這個問題（只有一個 realm），所以這純粹是測試替身
+ *   要補的落差。存成 `yyyy-MM-dd` 字串是安全的：`normalizeDate_()` 本來
+ *   就同時接受 Date 與 `yyyy-MM-dd`，下游拿到的仍然是正規化過的 Date。
+ * Args:
+ *   value {*} 要寫入的值。
+ * Returns:
+ *   {*} Date 會被轉成 yyyy-MM-dd 字串，其餘原樣回傳。
+ */
+function toRealmSafeCellValue(value) {
+  if (value && Object.prototype.toString.call(value) === '[object Date]') {
+    var y = value.getFullYear();
+    var mo = String(value.getMonth() + 1);
+    var d = String(value.getDate());
+    if (mo.length < 2) mo = '0' + mo;
+    if (d.length < 2) d = '0' + d;
+    return y + '-' + mo + '-' + d;
+  }
+  return value;
+}
+
+/**
  * 用途：造一張假的 Sheet，內容用 headers／keys 兩行＋資料列組成。
  * Args:
  *   headers {string[]} 第 1 行（人看的標題，內容不影響任何驗證邏輯）。
@@ -57,9 +87,22 @@ function makeFakeSheet(headers, keys, rowObjects) {
             var rowIdx = r - 1 + i;
             while (data.length <= rowIdx) data.push([]);
             for (var j = 0; j < values[i].length; j++) {
-              data[rowIdx][c - 1 + j] = values[i][j];
+              data[rowIdx][c - 1 + j] = toRealmSafeCellValue(values[i][j]);
             }
           }
+          return this;
+        },
+        // 真正的 Range 除了 getValues/setValues 也有單格的 getValue/setValue，
+        // 而且 ConfigService.setConfig() 與 BulletinModel 的範本寫回都在用。
+        // 假物件缺了它們的話，那些程式碼會在 try/catch 內悄悄失敗，測試表面
+        // 上還是「通過」——所以這裡一併補齊。
+        getValue: function () {
+          var srcRow = data[r - 1];
+          return srcRow && srcRow[c - 1] !== undefined ? srcRow[c - 1] : '';
+        },
+        setValue: function (value) {
+          while (data.length <= r - 1) data.push([]);
+          data[r - 1][c - 1] = toRealmSafeCellValue(value);
           return this;
         },
         clearContent: function () {

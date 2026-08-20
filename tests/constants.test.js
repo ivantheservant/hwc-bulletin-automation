@@ -164,8 +164,8 @@ test('CONFIG_KEYS 每一個值都有對應的 DEFAULTS 項目（不會有「有�
   });
 });
 
-test('DEFAULTS 剛好 30 筆（prompt1.md 的 29 筆 ＋ prompt2.md 新增的 ROSTER_TEST_DATE）', function () {
-  assert.strictEqual(DEFAULTS.length, 30);
+test('DEFAULTS 剛好 39 筆（prompt1 的 29 ＋ prompt2 的 ROSTER_TEST_DATE ＋ prompt3 的 9 個規則設定）', function () {
+  assert.strictEqual(DEFAULTS.length, 39);
 });
 
 // =====================================================================

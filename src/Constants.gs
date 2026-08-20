@@ -262,7 +262,19 @@ var CONFIG_KEYS = Object.freeze({
   HONORIFIC_ON_PAGE3: 'HONORIFIC_ON_PAGE3',
   PRELUDE_DEFAULT: 'PRELUDE_DEFAULT',
   CANTONESE_SUBCOLUMN_LABEL: 'CANTONESE_SUBCOLUMN_LABEL',
-  DIAGNOSTICS_MAX_ROWS: 'DIAGNOSTICS_MAX_ROWS'
+  DIAGNOSTICS_MAX_ROWS: 'DIAGNOSTICS_MAX_ROWS',
+  // ---- 第三輪新增：週報資料模型組裝用的規則設定 ----
+  // 每一個都是「本來很容易寫死在程式碼裡的規則」，一律經 Config 才可以
+  // 由 Ivan 自行調整而不用改程式（見 prompt3.md「不要做的事」）。
+  TEMPLATE_KEYWORDS_BAPTISM: 'TEMPLATE_KEYWORDS_BAPTISM',
+  TEMPLATE_KEYWORDS_ANNIVERSARY: 'TEMPLATE_KEYWORDS_ANNIVERSARY',
+  TEMPLATE_DEFAULT: 'TEMPLATE_DEFAULT',
+  RECITATION_MONTH_GROUPS: 'RECITATION_MONTH_GROUPS',
+  CALL_TO_WORSHIP_FORMAT: 'CALL_TO_WORSHIP_FORMAT',
+  DEFAULT_PAGE_TITLE: 'DEFAULT_PAGE_TITLE',
+  DEFAULT_ATTENDANCE_HEADING: 'DEFAULT_ATTENDANCE_HEADING',
+  DEFAULT_NEXT_WEEK_HEADING: 'DEFAULT_NEXT_WEEK_HEADING',
+  DEFAULT_PRAYER_BLOCK_HEADING: 'DEFAULT_PRAYER_BLOCK_HEADING'
 });
 
 // =====================================================================
@@ -301,7 +313,20 @@ var DEFAULTS = Object.freeze([
   { key: CONFIG_KEYS.HONORIFIC_ON_PAGE3, value: 'FALSE', note: '第 3 頁下週事奉不加' },
   { key: CONFIG_KEYS.PRELUDE_DEFAULT, value: '主在聖殿中 (生命聖詩 522)', note: '68 期樣本全部相同' },
   { key: CONFIG_KEYS.CANTONESE_SUBCOLUMN_LABEL, value: '主堂', note: '人數表粵語堂子欄標題' },
-  { key: CONFIG_KEYS.DIAGNOSTICS_MAX_ROWS, value: '380', note: 'Diagnostics 工作表的資料行數上限，超過會被截斷' }
+  { key: CONFIG_KEYS.DIAGNOSTICS_MAX_ROWS, value: '380', note: 'Diagnostics 工作表的資料行數上限，超過會被截斷' },
+  { key: CONFIG_KEYS.TEMPLATE_KEYWORDS_BAPTISM, value: '浸禮', note: '特別主日標題／類型含這些關鍵詞就用浸禮合堂範本（逗號分隔）' },
+  { key: CONFIG_KEYS.TEMPLATE_KEYWORDS_ANNIVERSARY, value: '堂慶,週年', note: '特別主日標題／類型含這些關鍵詞就用堂慶合堂範本（逗號分隔）' },
+  { key: CONFIG_KEYS.TEMPLATE_DEFAULT, value: 'TPL_NORMAL', note: '推斷不到特別範本時使用的預設程序範本 ID' },
+  {
+    key: CONFIG_KEYS.RECITATION_MONTH_GROUPS,
+    value: '1-4:RECITATION_JAN_APR,5-8:RECITATION_MAY_AUG,9-12:RECITATION_SEP_DEC',
+    note: '誦讀內容的月份分組：「起月-迄月:Config鍵」，逗號分隔'
+  },
+  { key: CONFIG_KEYS.CALL_TO_WORSHIP_FORMAT, value: '{{text}}（{{ref}}）', note: '宣召內容的組合格式，佔位符為 {{text}} 與 {{ref}}' },
+  { key: CONFIG_KEYS.DEFAULT_PAGE_TITLE, value: '崇拜程序', note: 'BulletinWeeks 的程序表大標題留空時的預設值' },
+  { key: CONFIG_KEYS.DEFAULT_ATTENDANCE_HEADING, value: '上週主日崇拜人數', note: 'BulletinWeeks 的人數表標題留空時的預設值' },
+  { key: CONFIG_KEYS.DEFAULT_NEXT_WEEK_HEADING, value: '下週主日崇拜聚會事奉肢體', note: 'BulletinWeeks 的下週事奉標題留空時的預設值' },
+  { key: CONFIG_KEYS.DEFAULT_PRAYER_BLOCK_HEADING, value: '代禱事項', note: 'BulletinWeeks 的代禱區塊標題留空時的預設值' }
 ]);
 
 // =====================================================================

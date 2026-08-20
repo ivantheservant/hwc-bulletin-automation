@@ -141,8 +141,12 @@ function readRosterSnapshot_(isoDate) {
     return emptyRosterSnapshot_(isoDate, { ok: false, notConfigured: true });
   }
 
+  // 聖餐週次由 Config 決定（不可以寫死）。純函式層自己讀不到 Config，
+  // 所以在這個真正入口讀好再傳進去。
+  var communionWeeks = getConfigIntList_(CONFIG_KEYS.COMMUNION_WEEKS, '1');
+
   var io = fetchRosterTablesCached_(spreadsheetId, buildRosterSheetNames_());
-  var snapshot = buildRosterSnapshot_(io.tables, isoDate);
+  var snapshot = buildRosterSnapshot_(io.tables, isoDate, { communionWeeks: communionWeeks });
   if (io.warnings.length > 0) {
     snapshot.warnings = snapshot.warnings.concat(io.warnings);
   }
@@ -199,6 +203,7 @@ function emptyRosterSnapshot_(isoDate, overrides) {
     serviceDate: null,
     special: null,
     assignments: [],
+    slotsByPost: {},
     posts: [],
     warnings: []
   };
@@ -505,17 +510,23 @@ function rosterToDateLenient_(value, context, warningsOut) {
 /**
  * 用途：把 fetchRosterTables_() 的 `tables` 原始資料，組成一個主日的
  *   事奉快照。全部業務判斷都在這裡：比對日期、算 weekOfMonth、篩選最新
- *   版本的派工紀錄、解析特別主日、解析姓名對照、產生警告。完全不碰
- *   Apps Script 服務，方便在 Node 用假資料直接測試。
+ *   版本的派工紀錄、解析特別主日、解析姓名對照、逐個 slot 判斷狀態、
+ *   產生警告。完全不碰 Apps Script 服務，方便在 Node 用假資料直接測試。
  * Args:
  *   tables {Object} fetchRosterTables_() 回傳值的 `.tables` 部分。
  *   isoDate {string} 主日日期，yyyy-MM-dd 格式。
+ *   options {{communionWeeks:(number[]|undefined)}=} 選填。`communionWeeks`
+ *     是 Config `COMMUNION_WEEKS` 解析後的週次陣列，用來判斷
+ *     `Frequency === 'FIRST_SUNDAY'` 的崗位這一週適不適用。沒有提供時
+ *     退回 `[1]`——刻意與 Config 的預設值一致，只在測試等沒有 Config 的
+ *     情境下使用；正式路徑一律由 readRosterSnapshot_() 讀 Config 傳進來。
  * Returns:
  *   {Object} 快照物件，形狀見 docs/職事表唯讀介面.md。
  * Raises:
  *   Error 如果 isoDate 不是合法的 yyyy-MM-dd 格式。
  */
-function buildRosterSnapshot_(tables, isoDate) {
+function buildRosterSnapshot_(tables, isoDate, options) {
+  var communionWeeks = (options && options.communionWeeks) || [1];
   var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(isoDate || ''));
   if (!m) {
     throw new Error('buildRosterSnapshot_：isoDate 必須是 yyyy-MM-dd 格式，收到：' + JSON.stringify(isoDate));
@@ -607,31 +618,233 @@ function buildRosterSnapshot_(tables, isoDate) {
       .map(function (a) { return resolveRosterAssignmentPerson_(a, nameByPersonId, warnings); });
   }
 
-  if (serviceDateRow.SpecialID) {
-    var specialRow = tables.specialSundays.find(function (r) { return r.SpecialID === serviceDateRow.SpecialID; });
-    if (!specialRow) {
-      warnings.push({
-        code: 'SPECIAL_SUNDAY_NOT_FOUND',
-        message: 'ServiceDates 指向的 SpecialID「' + serviceDateRow.SpecialID + '」在 SpecialSundays 找不到對應的一行。'
-      });
-    } else if (specialRow.Active) {
-      snapshot.special = {
-        specialId: specialRow.SpecialID,
-        type: specialRow.Type,
-        title: specialRow.Title,
-        skipPostIds: parseRosterIdList_(specialRow.SkipPostIDs),
-        lockPostIds: parseRosterIdList_(specialRow.LockPostIDs),
-        externalOwner: specialRow.ExternalOwner,
-        communionOverride: specialRow.CommunionOverride,
-        translationRequired: Boolean(specialRow.TranslationRequired)
-      };
-    }
-    // else：specialRow 存在但 Active 不是 true——跟職事表行為一致，視為
-    // 停用中的特別主日設定，不當成「找不到」，也不當成正常特別主日，
-    // 靜靜當成沒有特別主日（snapshot.special 保持 null），不記警告。
+  // ⚠️ 特別主日一律按**日期**比對，不是按 ServiceDates.SpecialID。
+  // 見 buildSpecialSundayDateIndex_() 的說明與 docs/已知bug類型.md 事故四。
+  var specialIndex = buildSpecialSundayDateIndex_(tables.specialSundays, snapshot.quarterId);
+  var specialRow = specialIndex[isoDate] || null;
+
+  if (specialRow) {
+    snapshot.special = {
+      specialId: specialRow.SpecialID,
+      type: specialRow.Type,
+      // 照抄職事表 buildSpecialSundayTitleIndex_()：Title 有值就用 Title，否則用 Type。
+      title: specialRow.Title || specialRow.Type,
+      skipPostIds: parseRosterIdList_(specialRow.SkipPostIDs),
+      lockPostIds: parseRosterIdList_(specialRow.LockPostIDs),
+      externalOwner: specialRow.ExternalOwner,
+      communionOverride: specialRow.CommunionOverride,
+      translationRequired: Boolean(specialRow.TranslationRequired)
+    };
   }
 
+  // ServiceDates.SpecialID 只作參考記錄。實際資料裡它經常是空的，所以
+  // 完全不用來查表；但如果它有值、而按日期查到的卻是另一列（或查不到），
+  // 代表職事表兩處資料不一致，值得記一筆讓人留意。
+  if (serviceDateRow.SpecialID && (!specialRow || specialRow.SpecialID !== serviceDateRow.SpecialID)) {
+    warnings.push({
+      code: 'SPECIAL_SUNDAY_ID_MISMATCH',
+      message: 'ServiceDates 記錄的 SpecialID「' + serviceDateRow.SpecialID + '」與按日期（' + isoDate
+        + '）查到的 SpecialSundays 一列（' + (specialRow ? specialRow.SpecialID : '查無') + '）不一致；'
+        + '已一律以日期為準，SpecialID 只作參考。'
+    });
+  }
+
+  snapshot.slotsByPost = buildRosterSlotIndex_(snapshot, communionWeeks);
+
   return snapshot;
+}
+
+/**
+ * 用途：建立「日期字串 → SpecialSundays 資料列」的索引，只收 `Active` 為
+ *   TRUE、而且屬於指定季度的資料列。
+ *
+ *   ⚠️ 為什麼用日期而不是 SpecialID：實測 2027-10-03 在職事表顯示為
+ *   「主日崇拜（十月主日（浸禮））」，但 `ServiceDates.SpecialID` 那一欄
+ *   在真實資料裡是空的——職事表自己**從來不用 SpecialID 做這件事**，
+ *   它的 `buildSpecialSundayTitleIndex_()`（`src/RosterWriter.gs`）是按
+ *   `toDateString(row[SERVICE_DATE])` 建索引的。我們照抄同一個做法，
+ *   兩邊才不會出現「職事表顯示有特別主日、週報顯示沒有」的落差。
+ *
+ *   日期字串用 `formatIsoDate_()` 產生，即以**腳本時區**（appsscript.json
+ *   的 `Pacific/Auckland`）解讀 Date 物件的年／月／日——與同檔案
+ *   `rosterDateMatchesYMD_()` 的比對方式一致，也等同職事表用 SYS_TIMEZONE
+ *   格式化的效果，而且不需要呼叫 Apps Script 服務，純函式層才能保持純淨。
+ * Args:
+ *   specialSundayRows {Object[]} tables.specialSundays。
+ *   quarterId {string} 只收這個季度的資料列；空字串回空索引。
+ * Returns:
+ *   {Object<string,Object>} yyyy-MM-dd → SpecialSundays 資料列。同一個
+ *     日期有多列時保留**第一列**（與職事表的 `index[dateStr] = title`
+ *     覆寫行為相反，但這裡刻意保留先出現的，避免後面的停用列蓋掉有效列；
+ *     實務上同一季同一日不應該有兩列）。
+ */
+function buildSpecialSundayDateIndex_(specialSundayRows, quarterId) {
+  var index = {};
+  if (!quarterId) return index;
+
+  (specialSundayRows || []).forEach(function (row) {
+    if (!row.Active) return;
+    if (row.QuarterID !== quarterId) return;
+    if (!(row.ServiceDate instanceof Date)) return;
+    var key = formatIsoDate_(row.ServiceDate);
+    if (!(key in index)) index[key] = row;
+  });
+
+  return index;
+}
+
+// =====================================================================
+// 崗位 slot 狀態
+// =====================================================================
+
+/**
+ * slot 的四種狀態。週報對每一種的處理完全不同，所以**不可以**一律顯示
+ * 「（未排定）」——實測 2027-10-10 的聖餐襄禮與講員同樣顯示「（未排定）」，
+ * 但前者那一週根本不設這個崗位（整行不應該出現），後者只是等人手填
+ * （要顯示空白並列入待填清單）。見 docs/已知bug類型.md 事故五。
+ */
+var ROSTER_SLOT_STATE_ = Object.freeze({
+  ASSIGNED: 'ASSIGNED',
+  NOT_APPLICABLE: 'NOT_APPLICABLE',
+  EXTERNAL: 'EXTERNAL',
+  PENDING: 'PENDING'
+});
+
+/**
+ * 職事表 `Posts.Frequency` 代表「只在每月首個主日出現」的取值。
+ *
+ * ⚠️ 這是**職事表的列舉值**，跟 rosterIsTrueValue_() 的布林語意一樣屬於
+ * 「照抄對方實作」的東西，不是我們自己的設定——所以放在程式碼而不是
+ * Config。真正屬於我們的規則是「首個主日是第幾週」，那一項在 Config 的
+ * `COMMUNION_WEEKS`，由呼叫方讀好傳進來。
+ */
+var ROSTER_FREQUENCY_FIRST_SUNDAY_ = 'FIRST_SUNDAY';
+
+/**
+ * 用途：判斷一個 slot 的狀態，四選一。
+ *
+ *   判斷次序（**不可以調換**）：
+ *     1. `NOT_APPLICABLE`——結構性不適用
+ *     2. `EXTERNAL`——外堂／外單位負責
+ *     3. `ASSIGNED`——已排定人選
+ *     4. `PENDING`——有這個 slot 但未排人
+ *
+ *   為什麼結構性不適用要排最先：這一週「根本不設這個崗位」是關於**版面
+ *   結構**的判斷（那一行整行不出現），而其餘三種都是關於**那一格填什麼
+ *   內容**。結構先於內容——如果先判斷「有沒有人名」，一個沒有人名的
+ *   聖餐襄禮就會被當成 PENDING 而列入待填清單，叫幹事去填一個那一週
+ *   根本不存在的崗位。職事表的 `isStructuralNotApplicable_()` 也是同一個
+ *   優先級，兩邊一致才不會出現「職事表當它不存在、週報當它待填」。
+ *
+ *   同理，`EXTERNAL` 要排在 `ASSIGNED` 之前：外判崗位就算職事表碰巧留了
+ *   一個人名，週報要顯示的仍然是負責單位（例如「英語堂敬拜隊」）。
+ * Args:
+ *   ctx {{postId:string, personName:string, frequency:string,
+ *        weekOfMonth:number, communionWeeks:number[],
+ *        skipPostIds:string[], externalOwner:string}} 判斷所需的全部資料。
+ *     刻意用明確參數而不是直接吃 snapshot，讓這個判斷可以獨立測試。
+ * Returns:
+ *   {string} ROSTER_SLOT_STATE_ 的其中一個值。
+ */
+function resolveRosterSlotState_(ctx) {
+  var skipPostIds = ctx.skipPostIds || [];
+  var inSkipList = skipPostIds.indexOf(ctx.postId) !== -1;
+  var hasExternalOwner = Boolean(ctx.externalOwner);
+
+  // 1. 結構性不適用：這一週根本不設這個崗位。
+  var isFirstSundayOnlyPost = ctx.frequency === ROSTER_FREQUENCY_FIRST_SUNDAY_;
+  var thisWeekIsCommunionWeek = (ctx.communionWeeks || []).indexOf(ctx.weekOfMonth) !== -1;
+  var structurallyNotApplicable = isFirstSundayOnlyPost && !thisWeekIsCommunionWeek;
+  var skippedWithoutOwner = inSkipList && !hasExternalOwner;
+  if (structurallyNotApplicable || skippedWithoutOwner) {
+    return ROSTER_SLOT_STATE_.NOT_APPLICABLE;
+  }
+
+  // 2. 外判：崗位被特別主日跳過，但有指明負責單位。
+  if (inSkipList && hasExternalOwner) {
+    return ROSTER_SLOT_STATE_.EXTERNAL;
+  }
+
+  // 3. 已排定。
+  if (ctx.personName) {
+    return ROSTER_SLOT_STATE_.ASSIGNED;
+  }
+
+  // 4. 有這個 slot 但未排人。
+  return ROSTER_SLOT_STATE_.PENDING;
+}
+
+/**
+ * 用途：把快照的派工紀錄整理成「崗位 → slot 陣列」的索引，並為每個 slot
+ *   算好 `state`。快照內 `snapshot.posts` 列出的每一個啟用崗位都會有一個
+ *   條目——即使該崗位這一週完全沒有派工紀錄，也會補一個空白 slot，
+ *   好讓下游分得清「這個崗位不適用」與「這個崗位等人手填」。
+ * Args:
+ *   snapshot {Object} 已經填好 posts／assignments／special／weekOfMonth 的快照。
+ *   communionWeeks {number[]} Config COMMUNION_WEEKS 解析後的週次陣列。
+ * Returns:
+ *   {Object<string, Object[]>} postId → slot 陣列（按 slotIndex 排序）。
+ *     slot 形狀：`{ postId, slotIndex, personId, personName, assignSource,
+ *     locked, state, externalOwner }`。`externalOwner` 只在 `state` 為
+ *     `EXTERNAL` 時有值，其餘為空字串。
+ */
+function buildRosterSlotIndex_(snapshot, communionWeeks) {
+  var special = snapshot.special;
+  var skipPostIds = (special && special.skipPostIds) || [];
+  var externalOwner = (special && special.externalOwner) || '';
+
+  var frequencyByPostId = {};
+  (snapshot.posts || []).forEach(function (p) { frequencyByPostId[p.postId] = p.frequency; });
+
+  var assignmentsByPostId = {};
+  (snapshot.assignments || []).forEach(function (a) {
+    if (!assignmentsByPostId[a.postId]) assignmentsByPostId[a.postId] = [];
+    assignmentsByPostId[a.postId].push(a);
+  });
+
+  // 崗位清單＝啟用崗位 ∪ 實際有派工紀錄的崗位（後者是防呆：職事表把某個
+  // 崗位停用了、但舊的派工紀錄還在，我們寧可照樣顯示也不要靜靜漏掉）。
+  var postIds = (snapshot.posts || []).map(function (p) { return p.postId; });
+  Object.keys(assignmentsByPostId).forEach(function (postId) {
+    if (postIds.indexOf(postId) === -1) postIds.push(postId);
+  });
+
+  var slotsByPost = {};
+  postIds.forEach(function (postId) {
+    var rows = (assignmentsByPostId[postId] || []).slice().sort(function (a, b) {
+      return (a.slotIndex || 0) - (b.slotIndex || 0);
+    });
+
+    // 完全沒有派工紀錄時補一個空白 slot：這個崗位在版面上仍然存在，
+    // 只是未排人（或者結構上不適用），下面的 state 判斷會分辨得出來。
+    if (rows.length === 0) {
+      rows = [{ postId: postId, slotIndex: 1, personId: null, personName: '', assignSource: '', locked: false }];
+    }
+
+    slotsByPost[postId] = rows.map(function (a) {
+      var state = resolveRosterSlotState_({
+        postId: postId,
+        personName: a.personName,
+        frequency: frequencyByPostId[postId] || '',
+        weekOfMonth: snapshot.weekOfMonth,
+        communionWeeks: communionWeeks,
+        skipPostIds: skipPostIds,
+        externalOwner: externalOwner
+      });
+      return {
+        postId: postId,
+        slotIndex: a.slotIndex,
+        personId: a.personId,
+        personName: a.personName,
+        assignSource: a.assignSource,
+        locked: a.locked,
+        state: state,
+        externalOwner: state === ROSTER_SLOT_STATE_.EXTERNAL ? externalOwner : ''
+      };
+    });
+  });
+
+  return slotsByPost;
 }
 
 /**

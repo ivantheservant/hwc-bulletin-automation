@@ -3,8 +3,9 @@
  *
  * 開啟試算表時建立「週報系統」自訂選單。第一輪三個基本項目（初始化工作表、
  * 重新載入設定、關於本系統）之後，第二輪加了兩個職事表唯讀介面的測試項目
- * （處理函式定義在 RosterDiagnostics.gs，Apps Script 全部檔案共用一個
- * 全域命名空間，選單引用哪個檔案定義的函式都可以）。
+ * （處理函式在 RosterDiagnostics.gs），第三輪加了兩個週報資料模型的項目
+ * （處理函式在 BulletinDiagnostics.gs）。Apps Script 全部檔案共用一個全域
+ * 命名空間，選單引用哪個檔案定義的函式都可以。
  */
 
 'use strict';
@@ -23,6 +24,8 @@ function onOpen() {
     .addItem('關於本系統', 'menuAbout_')
     .addItem('測試讀取職事表', 'menuTestReadRoster_')
     .addItem('測試讀取職事表（全季）', 'menuTestReadRosterQuarter_')
+    .addItem('建立本季空白週報', 'menuCreateBlankBulletinWeeks_')
+    .addItem('預覽本週週報資料', 'menuPreviewBulletinModel_')
     .addToUi();
 }
 

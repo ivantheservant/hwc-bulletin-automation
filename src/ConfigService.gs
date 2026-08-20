@@ -54,6 +54,81 @@ function getConfig(key, defaultValue) {
 }
 
 /**
+ * 用途：讀取一個「逗號分隔的整數清單」設定值（例如 COMMUNION_WEEKS 的 `1`、
+ *   PRAYER_MEETING_WEEKS 的 `2,4`），解析成數字陣列。
+ * Args:
+ *   key {string} 設定鍵。
+ *   defaultValue {string} 找不到該鍵時使用的原始字串（一律必填，避免
+ *     「缺失靜靜當成空清單」——空清單在週次判斷裡代表「永不出現」，
+ *     跟「沒有設定」是兩回事）。
+ * Returns:
+ *   {number[]} 解析後的整數陣列，順序與設定值一致；空字串回空陣列。
+ * Raises:
+ *   Error 如果清單內任何一項不是合法整數——這是我們自己的 Config 工作表，
+ *     要嚴格；靜靜略過會讓「2,x,4」變成「2,4」而沒有人發現。
+ */
+function getConfigIntList_(key, defaultValue) {
+  var raw = getConfig(key, defaultValue);
+  return parseConfigIntList_(raw, key);
+}
+
+/**
+ * 用途：把逗號分隔的整數字串解析成數字陣列。與 getConfigIntList_() 分開，
+ *   是為了讓純函式層的測試不用經過 Config 工作表也測得到解析規則。
+ * Args:
+ *   raw {string} 原始字串，例如 `2,4`。半形與全形逗號都接受。
+ *   keyForMessage {string=} 選填，出錯時顯示在訊息裡的設定鍵名稱。
+ * Returns:
+ *   {number[]}
+ * Raises:
+ *   Error 如果任何一項不是合法整數。
+ */
+function parseConfigIntList_(raw, keyForMessage) {
+  if (raw === null || raw === undefined || String(raw).trim() === '') return [];
+  return String(raw).split(/[,，]/).map(function (part) {
+    var t = part.trim();
+    var n = Number(t);
+    if (t === '' || !Number.isFinite(n) || Math.floor(n) !== n) {
+      throw new Error(
+        'parseConfigIntList_：設定值' + (keyForMessage ? '「' + keyForMessage + '」' : '')
+        + '內含非整數項目「' + t + '」（完整值：' + JSON.stringify(raw) + '）。'
+      );
+    }
+    return n;
+  });
+}
+
+/**
+ * 用途：讀取一個「逗號分隔的文字清單」設定值（例如 TEMPLATE_KEYWORDS_ANNIVERSARY
+ *   的 `堂慶,週年`），解析成字串陣列，並去掉空白項目。
+ * Args:
+ *   key {string} 設定鍵。
+ *   defaultValue {string} 找不到該鍵時使用的原始字串。
+ * Returns:
+ *   {string[]} 空字串回空陣列。
+ */
+function getConfigTextList_(key, defaultValue) {
+  var raw = getConfig(key, defaultValue);
+  return parseConfigTextList_(raw);
+}
+
+/**
+ * 用途：把逗號分隔的文字字串解析成陣列（半形與全形逗號都接受，去除前後
+ *   空白與空項目）。與 getConfigTextList_() 分開的理由同 parseConfigIntList_()。
+ * Args:
+ *   raw {string} 原始字串。
+ * Returns:
+ *   {string[]}
+ */
+function parseConfigTextList_(raw) {
+  if (raw === null || raw === undefined) return [];
+  return String(raw)
+    .split(/[,，]/)
+    .map(function (s) { return s.trim(); })
+    .filter(function (s) { return s.length > 0; });
+}
+
+/**
  * 用途：寫入或更新 Config 工作表的其中一個設定值，同步清除快取並寫一筆
  *   稽核記錄。key 不存在時會新增一行（EDITABLE 預設 TRUE）。
  * Args:

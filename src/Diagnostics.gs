@@ -53,7 +53,7 @@ function writeDiagnosticsReport_(reportName, contentLines) {
       REPORT_NAME: reportName,
       ROW_NO: rows.length + 1,
       CONTENT: '（已截斷：本報告共 ' + totalLines + ' 行，只顯示前 ' + (maxRows - 1)
-        + ' 行，上限為 ' + maxRows + ' 行。）',
+        + ' 行，尚餘 ' + (totalLines - (maxRows - 1)) + ' 行未顯示，上限為 ' + maxRows + ' 行。）',
       GENERATED_AT: now
     });
   }
