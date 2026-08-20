@@ -47,6 +47,21 @@ function weeklyBulletinSendTrigger_() {
       return;
     }
 
+    // 先跑一次職事表分歧提醒，再寄週報。包一層 try/catch——提醒信本身
+    // 失敗（例如收件人清單有問題）不應該連累週報寄不出去，那是兩件
+    // 獨立的事；失敗記一筆 ErrorLog 就好。
+    try {
+      sendConflictNoticeIfNeeded_(targetIso);
+    } catch (noticeErr) {
+      appendErrorLog_({
+        source: ERROR_LOG_SOURCE.TRIGGER,
+        functionName: 'weeklyBulletinSendTrigger_/sendConflictNoticeIfNeeded_',
+        errorCode: (noticeErr && noticeErr.code) || 'ERROR',
+        message: (noticeErr && noticeErr.message) ? noticeErr.message : String(noticeErr),
+        detail: buildErrorDetail_(noticeErr, { argsSummary: 'isoDate=' + targetIso })
+      });
+    }
+
     sendBulletinForDate_(targetIso, {});
   } catch (err) {
     appendErrorLog_({

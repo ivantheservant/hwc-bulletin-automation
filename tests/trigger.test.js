@@ -157,13 +157,27 @@ test('weeklyBulletinSendTrigger_：目標日不是星期日（今天星期一、
   assert.ok(errorRows[0].MESSAGE.indexOf('2027-10-09') !== -1, errorRows[0].MESSAGE);
 });
 
-test('weeklyBulletinSendTrigger_：目標日是星期日（offset=6）時，不會因為「不是星期日」而提早結束——會嘗試往下呼叫 sendBulletinForDate_（因為職事表未設定而失敗，一樣要記 ErrorLog，但錯誤代碼不同）', function () {
+test('weeklyBulletinSendTrigger_：目標日是星期日（offset=6）時，不會因為「不是星期日」而提早結束——會繼續往下跑（在這個殘缺的測試環境下，分歧提醒與寄送都會失敗並各自記 ErrorLog，但錯誤代碼都不是 TARGET_NOT_SUNDAY）', function () {
   const env = makeEnv({ config: { SEND_TARGET_OFFSET_DAYS: '6', ROSTER_SPREADSHEET_ID: '' } });
   env.sandbox.weeklyBulletinSendTrigger_();
 
   const errorRows = env.sandbox.readSheet('ErrorLog');
-  assert.strictEqual(errorRows.length, 1);
-  assert.notStrictEqual(errorRows[0].ERROR_CODE, 'TARGET_NOT_SUNDAY', '目標日是星期日，不應該卡在這一步');
+  assert.ok(errorRows.length > 0, '往下跑之後失敗了，應該要有 ErrorLog 記錄');
+  assert.ok(
+    errorRows.every(function (r) { return r.ERROR_CODE !== 'TARGET_NOT_SUNDAY'; }),
+    '目標日是星期日，不應該卡在這一步，實際：' + JSON.stringify(errorRows.map(function (r) { return r.ERROR_CODE; }))
+  );
+});
+
+test('weeklyBulletinSendTrigger_：分歧提醒失敗不會連累週報寄送——兩者各自記一筆 ErrorLog，函式本身不拋錯', function () {
+  const env = makeEnv({ config: { SEND_TARGET_OFFSET_DAYS: '6', ROSTER_SPREADSHEET_ID: '' } });
+  assert.doesNotThrow(function () { env.sandbox.weeklyBulletinSendTrigger_(); });
+
+  const errorRows = env.sandbox.readSheet('ErrorLog');
+  assert.ok(
+    errorRows.some(function (r) { return r.FUNCTION_NAME.indexOf('sendConflictNoticeIfNeeded_') !== -1; }),
+    '應該有一筆來自分歧提醒的錯誤，實際：' + JSON.stringify(errorRows.map(function (r) { return r.FUNCTION_NAME; }))
+  );
 });
 
 // =====================================================================

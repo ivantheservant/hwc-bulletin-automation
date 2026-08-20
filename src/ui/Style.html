@@ -178,6 +178,20 @@
   }
   .missing-panel ul { margin: 0.3em 0 0 1.2em; padding: 0; }
 
+  /* 有衝突時「衝突 N 項」用紅色，一眼看得出來跟「待填」不是同一回事。 */
+  .stat-conflict { background: #fdeceb; color: #8c231c; font-weight: bold; }
+  .conflict-panel {
+    margin-top: 0.5em;
+    background: #fdeceb;
+    border: 1px solid #e2b4b0;
+    border-radius: 4px;
+    padding: 0.6em 1em;
+    font-size: 13px;
+    max-height: 260px;
+    overflow-y: auto;
+  }
+  .conflict-panel ul { margin: 0.3em 0 0 1.2em; padding: 0; }
+
   #mainContent {
     position: relative;
     max-width: 960px;
@@ -259,4 +273,98 @@
   .repeatable-row-actions { display: flex; flex-direction: column; gap: 0.25em; }
 
   #prayerBlockHeadingInput { max-width: 260px; }
+
+  /* ---- 可編輯的事奉框（第六輪） ---- */
+
+  .duty-panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1em;
+    flex-wrap: wrap;
+  }
+  .duty-panel-head h2 { margin: 0; }
+
+  .duty-list { display: flex; flex-direction: column; gap: 0.4em; margin-top: 0.8em; }
+
+  .duty-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6em;
+    padding: 0.4em 0.5em;
+    border: 1px solid #e6e8eb;
+    border-radius: 4px;
+    background: #fff;
+    border-left: 4px solid transparent;
+  }
+  .duty-row-label {
+    flex: 0 0 7em;
+    font-size: 13px;
+    color: #444;
+    padding-top: 0.45em;
+  }
+  .duty-row-slots { flex: 1; display: flex; flex-direction: column; gap: 0.4em; }
+
+  .duty-slot { display: flex; align-items: center; gap: 0.5em; flex-wrap: wrap; }
+  .duty-slot input[type="text"] { flex: 1; min-width: 9em; }
+  .duty-slot-roster { font-size: 11px; color: #999; white-space: nowrap; }
+
+  /* 改動過的格子：左邊一條橙色直線 ＋ 一個「還原」小按鈕。 */
+  .duty-row.is-overridden { border-left-color: #e08a1e; background: #fffaf2; }
+  .duty-row.is-conflict { border-left-color: #b3261e; background: #fdeceb; }
+
+  .duty-conflict-detail {
+    font-size: 12px;
+    color: #8c231c;
+    background: #fff;
+    border: 1px solid #e2b4b0;
+    border-radius: 3px;
+    padding: 0.3em 0.5em;
+    line-height: 1.6;
+  }
+
+  /* ---- 「由職事表重新取數」對話框 ---- */
+
+  .dialog-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1em;
+  }
+  .dialog {
+    background: #fff;
+    border-radius: 6px;
+    max-width: 760px;
+    width: 100%;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    padding: 1em 1.2em;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.25);
+  }
+  .dialog h3 { margin: 0 0 0.6em; font-size: 15px; color: #222; }
+  .dialog-toolbar { display: flex; gap: 0.4em; margin-bottom: 0.5em; }
+  .dialog-body { flex: 1; overflow-y: auto; }
+  .dialog-body table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .dialog-body th, .dialog-body td {
+    border: 1px solid #e1e3e7;
+    padding: 0.35em 0.5em;
+    text-align: left;
+    vertical-align: top;
+  }
+  .dialog-body tr.is-conflict td { background: #fdeceb; }
+  .dialog-footnote {
+    font-size: 12px;
+    color: #8c231c;
+    background: #fdeceb;
+    border-radius: 4px;
+    padding: 0.5em 0.8em;
+    margin: 0.7em 0 0;
+  }
+  .dialog-actions { display: flex; justify-content: flex-end; gap: 0.5em; margin-top: 0.8em; }
+  .dialog-empty { font-size: 13px; color: #555; padding: 1em 0; }
 </style>

@@ -53,8 +53,8 @@ const validTypes = Object.keys(COLUMN_TYPES).map(function (k) { return COLUMN_TY
 // SHEETS ⇄ COLUMNS 一致性
 // =====================================================================
 
-test('SHEETS 剛好定義 17 張工作表', function () {
-  assert.strictEqual(sheetIds.length, 17);
+test('SHEETS 剛好定義 19 張工作表', function () {
+  assert.strictEqual(sheetIds.length, 19);
 });
 
 test('每個 SHEETS 的 key 在 COLUMNS 都有對應定義，且沒有多餘的 COLUMNS key', function () {
@@ -164,8 +164,8 @@ test('CONFIG_KEYS 每一個值都有對應的 DEFAULTS 項目（不會有「有�
   });
 });
 
-test('DEFAULTS 剛好 50 筆（prompt1 的 29 ＋ prompt2 的 ROSTER_TEST_DATE ＋ prompt3 的 9 個規則設定 ＋ prompt4 的 4 個填寫介面設定 ＋ prompt5 的 7 個電郵設定）', function () {
-  assert.strictEqual(DEFAULTS.length, 50);
+test('DEFAULTS 剛好 51 筆（prompt1 的 29 ＋ prompt2 的 ROSTER_TEST_DATE ＋ prompt3 的 9 個規則設定 ＋ prompt4 的 4 個填寫介面設定 ＋ prompt5 的 7 個電郵設定 ＋ prompt6 的 CONFLICT_NOTICE_GROUPS）', function () {
+  assert.strictEqual(DEFAULTS.length, 51);
 });
 
 // =====================================================================

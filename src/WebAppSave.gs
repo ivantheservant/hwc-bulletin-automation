@@ -44,9 +44,14 @@
  *   announcements: [{ seqNo:(number|null), TEXT:string }, ...],
  *   prayers:       [{ seqNo:(number|null), TEXT:string }, ...],
  *   fellowships:   [{ seqNo:(number|null), FELLOWSHIP_NAME, MEETING_DATE, MEETING_TIME, CONTENT }, ...],
- *   finance:       [{ seqNo:(number|null), ROW_LABEL, COL_SPECIAL_OVERSEAS, COL_HARDSHIP }, ...]
+ *   finance:       [{ seqNo:(number|null), ROW_LABEL, COL_SPECIAL_OVERSEAS, COL_HARDSHIP }, ...],
+ *   dutyEdits:     [{ postId:string, slotIndex:number, name:string }, ...]   // 第六輪
  * }
  * ```
+ *
+ * `dutyEdits` 是事奉框每一格的目前值（未套尊稱的原始姓名）。與職事表
+ * 現值相同、或者是空字串的格子**不會**產生 `DutyOverride` 記錄，見
+ * `src/DutyOverride.gs` 的 `computeDutyOverridePlan_()`。
  *
  * 四個清單陣列代表「儲存後這一週應該有的完整清單、按顯示次序排列」：
  * `seqNo` 對得上工作表現有的行就是修改，對不上（或沒有這個欄位）就是
@@ -475,6 +480,12 @@ function saveWeekFromWebApp_(payload) {
     applyListPlan_(listDefs[type].sheetName, targetDate, isoDate, type, ops.listPlans[type], auditEntries);
   });
 
+  // 第六輪：事奉框的人手覆寫。刻意放在最後，而且獨立於上面的欄位／清單
+  // 儲存——覆寫寫的是另一張表（`DutyOverride`），跟 `BulletinWeeks` 的
+  // 樂觀鎖是同一次操作的一部分（所以在同一個 payload 內），但邏輯上是
+  // 完全分開的一件事。
+  applyDutyEditsFromPayload_(isoDate, targetDate, payload.dutyEdits, auditEntries);
+
   var newTimestamp = new Date();
   writeWeekCell_(weekRowInfo.__rowNo, 'LAST_SAVED_AT', newTimestamp);
 
@@ -748,4 +759,43 @@ function applyListPlan_(sheetName, targetDate, isoDate, listType, plan, auditEnt
       });
     });
   }
+}
+
+/**
+ * 用途：把 payload 內的事奉框編輯（`dutyEdits`）套用到 `DutyOverride`
+ *   工作表。真正的規則在 `src/DutyOverride.gs` 的
+ *   `computeDutyOverridePlan_()`（純函式）與 `applyDutyOverridePlan_()`
+ *   （IO），這裡只負責把「現在的職事表值」與「現有的覆寫行」讀出來
+ *   餵給它們。
+ *
+ *   ⚠️ **只寫週報自己的 `DutyOverride` 工作表，一格職事表都不會寫**——
+ *   `readRosterSnapshot_()` 是唯讀的（見 src/RosterRead.gs 與
+ *   tools/lint-readonly-roster.js）。
+ *
+ *   `dutyEdits` 缺漏或是空陣列時直接回傳，不做任何事——舊版前端（還沒
+ *   更新的分頁）送上來的 payload 不會有這個欄位，那種情況下應該完全
+ *   不動既有的覆寫，而不是把它們全部當成「被清空」。
+ * Args:
+ *   isoDate {string} 主日日期，yyyy-MM-dd。
+ *   targetDate {Date} 同一個主日日期的 `Date` 形式（新增行要用）。
+ *   dutyEdits {Object[]} 見本檔案檔頭的 payload 形狀說明。
+ *   auditEntriesOut {Object[]} 累積 `AuditLog` 條目用的陣列。
+ * Returns:
+ *   {void}
+ * Raises:
+ *   Error 如果 `DutyOverride` 工作表不存在（`applyDutyOverridePlan_()`
+ *     原樣拋出——有東西要寫卻沒有表可以寫，是必須講出來的結構問題）。
+ */
+function applyDutyEditsFromPayload_(isoDate, targetDate, dutyEdits, auditEntriesOut) {
+  if (!dutyEdits || dutyEdits.length === 0) return;
+
+  var snapshot = readRosterSnapshot_(isoDate);
+  var plan = computeDutyOverridePlan_({
+    edits: dutyEdits,
+    existingRows: readDutyOverrideRowsWithRowNo_(isoDate),
+    rosterNameByKey: buildRosterNameByKey_(snapshot.slotsByPost),
+    rosterVersion: snapshot.versionNo
+  });
+
+  applyDutyOverridePlan_(plan, targetDate, isoDate, getCallerEmail_(), auditEntriesOut);
 }

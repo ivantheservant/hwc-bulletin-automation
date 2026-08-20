@@ -26,6 +26,12 @@
     previewInFlight: 0,
     week: {},
     lists: { announcements: [], prayers: [], fellowships: [], finance: [] },
+    // 第六輪：事奉框每一格目前的值，鍵是「崗位#位次」。儲存時整批送回
+    // 伺服器，由 computeDutyOverridePlan_() 決定哪幾格真的需要寫
+    // DutyOverride（與職事表現值相同的格子不會產生記錄）。
+    dutyEdits: {},
+    // 「由職事表重新取數」對話框目前列出的候選項目。
+    fetchCandidates: [],
     options: { programTemplateIds: [], recitationOptions: [], prayerBlockHeadingOptions: [], cantoneseSubColumnLabel: '主堂' }
   };
 
@@ -167,6 +173,7 @@
 
     document.getElementById('weekSelect').disabled = busy;
     document.getElementById('reloadRosterBtn').disabled = busy;
+    document.getElementById('fetchFromRosterBtn').disabled = busy || !state.loaded;
     document.getElementById('saveBtn').disabled = busy || !state.loaded;
 
     var previewIndicator = document.getElementById('previewBusyIndicator');
@@ -260,8 +267,123 @@
       meta.appendChild(warn);
     }
 
-    renderDutyTable('dutyBoxPage1Body', readOnly.dutyBoxPage1);
+    renderEditableDutyBox(readOnly.dutyBoxPage1);
     renderDutyTable('nextWeekDutyBody', readOnly.nextWeekDuty);
+  }
+
+  /**
+   * 用途：把第 1 頁事奉框渲染成**可編輯**的一格格輸入框（第六輪）。
+   *
+   *   每個崗位每個位次一個輸入框，預設值是 `slot.bulletinName`——那是
+   *   **未套尊稱的原始姓名**，不是版面上印的「陳大文弟兄」。用原始姓名
+   *   才能安全來回：輸入框的內容會原樣存進 `DutyOverride.OVERRIDE_NAME`，
+   *   如果放的是已加尊稱的顯示文字，幹事什麼都不改直接儲存，就會產生
+   *   一個「陳大文弟兄」的覆寫，之後再也對不上 PersonDisplay 的姓名，
+   *   尊稱反而不見了。
+   *
+   *   改動過的格子（`hasOverride`）左邊有一條橙色直線與「還原」按鈕；
+   *   `CONFLICT` 的格子用紅底，並列出三個值（覆寫當時的職事表值、
+   *   職事表現值、你的覆寫值）。
+   * Args:
+   *   rows {Object[]} `apiLoadWeek()` 回傳的 `readOnly.dutyBoxPage1`。
+   * Returns:
+   *   {void}
+   */
+  function renderEditableDutyBox(rows) {
+    var container = document.getElementById('dutyBoxPage1Body');
+    container.innerHTML = '';
+    state.dutyEdits = {};
+
+    if (!rows || rows.length === 0) {
+      var empty = el('div', 'hint');
+      empty.textContent = '（沒有事奉資料）';
+      container.appendChild(empty);
+      return;
+    }
+
+    rows.forEach(function (row) {
+      var rowEl = el('div', 'duty-row');
+      if (row.status === 'CONFLICT') rowEl.classList.add('is-conflict');
+      else if (row.hasOverride) rowEl.classList.add('is-overridden');
+
+      var labelEl = el('div', 'duty-row-label');
+      labelEl.textContent = row.label;
+      rowEl.appendChild(labelEl);
+
+      var slotsWrap = el('div', 'duty-row-slots');
+      (row.slots || []).forEach(function (slot) {
+        slotsWrap.appendChild(buildDutySlotRow(slot, rowEl));
+      });
+      rowEl.appendChild(slotsWrap);
+
+      container.appendChild(rowEl);
+    });
+  }
+
+  /**
+   * 用途：渲染事奉框內的一格（一個崗位的一個位次）。
+   * Args:
+   *   slot {Object} `buildDutyBoxSlotDetail_()` 的輸出。
+   *   rowEl {HTMLElement} 整行的容器，用來即時加／減橙色標示。
+   * Returns:
+   *   {HTMLElement}
+   */
+  function buildDutySlotRow(slot, rowEl) {
+    var wrap = el('div', 'duty-slot');
+    var key = slot.postId + '#' + slot.slotIndex;
+    state.dutyEdits[key] = { postId: slot.postId, slotIndex: slot.slotIndex, name: slot.bulletinName };
+
+    var input = el('input');
+    input.type = 'text';
+    input.value = slot.bulletinName || '';
+    input.placeholder = slot.rosterName ? '' : '（職事表未排定）';
+
+    var restoreBtn = makeSmallButton('還原', function () {
+      input.value = slot.rosterName || '';
+      state.dutyEdits[key].name = input.value;
+      refreshSlotMarkers();
+    });
+    restoreBtn.title = '把這一格改回職事表現時的值';
+
+    function refreshSlotMarkers() {
+      var changed = String(input.value || '').trim() !== String(slot.rosterName || '').trim();
+      restoreBtn.classList.toggle('hidden', !changed);
+      // 整行只要有任何一格跟職事表不同就加橙色標示。CONFLICT 的紅底
+      // 由伺服器算好，前端不會即時改變它——衝突與否要重新載入才知道。
+      if (!rowEl.classList.contains('is-conflict')) {
+        var anyChanged = Array.prototype.some.call(rowEl.querySelectorAll('input[type="text"]'), function (other) {
+          return other.dataset.rosterName !== undefined
+            && String(other.value || '').trim() !== String(other.dataset.rosterName || '').trim();
+        });
+        rowEl.classList.toggle('is-overridden', anyChanged);
+      }
+    }
+
+    input.dataset.rosterName = slot.rosterName || '';
+    input.addEventListener('input', function () {
+      state.dutyEdits[key].name = input.value;
+      refreshSlotMarkers();
+    });
+
+    wrap.appendChild(input);
+
+    var rosterHint = el('span', 'duty-slot-roster');
+    rosterHint.textContent = '職事表：' + (slot.rosterName || '（未排定）');
+    wrap.appendChild(rosterHint);
+
+    wrap.appendChild(restoreBtn);
+    restoreBtn.classList.toggle('hidden', !slot.hasOverride);
+
+    if (slot.status === 'CONFLICT') {
+      var detail = el('div', 'duty-conflict-detail');
+      detail.textContent = '⚠ 職事表在你覆寫之後又改過　'
+        + '覆寫當時職事表＝' + (slot.rosterValueAtOverride || '（空白）')
+        + '　職事表現值＝' + (slot.rosterName || '（空白）')
+        + '　你的覆寫值＝' + (slot.bulletinName || '（空白）');
+      wrap.appendChild(detail);
+    }
+
+    return wrap;
   }
 
   function renderDutyTable(tbodyId, rows) {
@@ -432,6 +554,38 @@
     renderMissingPanel(missing);
   }
 
+  /**
+   * 用途：更新頂部「衝突 N 項」與可展開的分歧清單。有衝突時整個標籤
+   *   變紅色——衝突跟「待填」不是同一種嚴重程度，要一眼分得出來。
+   * Args:
+   *   rosterDiff {Object} `apiLoadWeek()` 回傳的 `rosterDiff`。
+   * Returns:
+   *   {void}
+   */
+  function renderConflictStat(rosterDiff) {
+    var diff = rosterDiff || { conflictCount: 0, rows: [] };
+    var statEl = document.getElementById('statConflicts');
+    statEl.textContent = '衝突 ' + diff.conflictCount + ' 項';
+    statEl.classList.toggle('stat-conflict', diff.conflictCount > 0);
+
+    var panel = document.getElementById('conflictPanel');
+    var conflicts = (diff.rows || []).filter(function (r) { return r.status === 'CONFLICT'; });
+    if (conflicts.length === 0) {
+      panel.innerHTML = '（週報與職事表沒有衝突）';
+      return;
+    }
+    panel.innerHTML =
+      '<div><strong>職事表在你覆寫之後又改過的欄位：</strong></div><ul>'
+      + conflicts.map(function (r) {
+        return '<li>' + escapeHtml(r.postLabel) + ' #' + r.slotIndex
+          + '　覆寫當時職事表＝' + escapeHtml(r.rosterValueAtOverride || '（空白）')
+          + '　職事表現值＝' + escapeHtml(r.rosterName || '（空白）')
+          + '　週報現值＝' + escapeHtml(r.bulletinName || '（空白）')
+          + '</li>';
+      }).join('')
+      + '</ul><div>本系統不會改動職事表。如果週報的版本才是正確的，請自行到職事表更正。</div>';
+  }
+
   function renderMissingPanel(missing) {
     var panel = document.getElementById('missingPanel');
     if (!missing || missing.length === 0) {
@@ -505,6 +659,7 @@
     renderAllLists();
     renderReadOnly(data.readOnly);
     renderStats(data.missing, data.warnings, data.lastSavedAt);
+    renderConflictStat(data.rosterDiff);
     renderProgramPreview(data.readOnly.program);
     setLoaded(true);
   }
@@ -531,6 +686,7 @@
     if (!resp.ok) { showMessage('error', resp.error.message); return; }
     renderReadOnly(resp.data.readOnly);
     renderStats(resp.data.missing, resp.data.warnings, state.lastSavedAt);
+    renderConflictStat(resp.data.rosterDiff);
     renderProgramPreview(resp.data.readOnly.program);
     var msg = resp.data.rosterReloadMessage;
     showMessage(msg.type, msg.text);
@@ -544,7 +700,8 @@
       announcements: state.lists.announcements,
       prayers: state.lists.prayers,
       fellowships: state.lists.fellowships,
-      finance: state.lists.finance
+      finance: state.lists.finance,
+      dutyEdits: Object.keys(state.dutyEdits).map(function (k) { return state.dutyEdits[k]; })
     };
   }
 
@@ -600,6 +757,132 @@
   }
 
   // =====================================================================
+  // 由職事表重新取數
+  // =====================================================================
+
+  /**
+   * 用途：撳「由職事表重新取數」——**不會立即寫入**，只是去伺服器拿一份
+   *   比對清單，然後彈出對話框讓使用者逐項勾選。真正的寫入要等撳「確定」。
+   * Returns:
+   *   {void}
+   */
+  function openFetchFromRosterDialog() {
+    if (!state.isoDate) return;
+    if (state.inFlight > 0) return;
+    hideMessage();
+    beginRequest('讀取職事表中…');
+    google.script.run
+      .withSuccessHandler(onFetchCandidatesLoaded)
+      .withFailureHandler(onApiFailure)
+      .apiGetRosterFetchCandidates(state.isoDate);
+  }
+
+  function onFetchCandidatesLoaded(resp) {
+    endRequest();
+    if (!resp.ok) { showMessage('error', resp.error.message); return; }
+    state.fetchCandidates = resp.data.rows || [];
+    renderFetchDialog();
+    document.getElementById('fetchDialogBackdrop').classList.remove('hidden');
+  }
+
+  /**
+   * 用途：渲染對話框內容。只列出 `CONFLICT` 與 `OVERRIDDEN` 的行——
+   *   `FOLLOW` 已經自動處理好、`SAME` 根本沒有東西會變，兩者都沒有
+   *   「要不要取數」這個選擇可言。`CONFLICT` 預設勾選、`OVERRIDDEN`
+   *   預設不勾選（由伺服器算好的 `defaultChecked` 決定）。
+   * Returns:
+   *   {void}
+   */
+  function renderFetchDialog() {
+    var body = document.getElementById('fetchDialogBody');
+    var footnote = document.getElementById('fetchDialogFootnote');
+    var confirmBtn = document.getElementById('fetchConfirmBtn');
+    body.innerHTML = '';
+
+    if (state.fetchCandidates.length === 0) {
+      var empty = el('div', 'dialog-empty');
+      empty.textContent = '週報與職事表一致，沒有需要取數的欄位。';
+      body.appendChild(empty);
+      footnote.classList.add('hidden');
+      confirmBtn.classList.add('hidden');
+      return;
+    }
+    footnote.classList.remove('hidden');
+    confirmBtn.classList.remove('hidden');
+
+    var table = el('table');
+    table.innerHTML = '<thead><tr><th></th><th>崗位</th><th>位次</th><th>你的覆寫值</th><th>職事表現值</th></tr></thead>';
+    var tbody = el('tbody');
+
+    state.fetchCandidates.forEach(function (row, idx) {
+      var tr = el('tr');
+      if (row.status === 'CONFLICT') tr.classList.add('is-conflict');
+
+      var tdCheck = el('td');
+      var checkbox = el('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = Boolean(row.defaultChecked);
+      checkbox.setAttribute('data-fetch-index', String(idx));
+      tdCheck.appendChild(checkbox);
+      tr.appendChild(tdCheck);
+
+      [row.postLabel, String(row.slotIndex), row.bulletinName || '（空白）', row.rosterName || '（空白）']
+        .forEach(function (text) {
+          var td = el('td');
+          td.textContent = text;
+          tr.appendChild(td);
+        });
+
+      tbody.appendChild(tr);
+    });
+
+    table.appendChild(tbody);
+    body.appendChild(table);
+  }
+
+  function setAllFetchCheckboxes(checked) {
+    var boxes = document.querySelectorAll('#fetchDialogBody input[type="checkbox"]');
+    for (var i = 0; i < boxes.length; i++) boxes[i].checked = checked;
+  }
+
+  function closeFetchDialog() {
+    document.getElementById('fetchDialogBackdrop').classList.add('hidden');
+  }
+
+  /**
+   * 用途：撳對話框的「確定」——把勾選的欄位送去伺服器，改回跟隨職事表。
+   * Returns:
+   *   {void}
+   */
+  function confirmFetchFromRoster() {
+    var selections = [];
+    var boxes = document.querySelectorAll('#fetchDialogBody input[type="checkbox"]');
+    for (var i = 0; i < boxes.length; i++) {
+      if (!boxes[i].checked) continue;
+      var row = state.fetchCandidates[Number(boxes[i].getAttribute('data-fetch-index'))];
+      if (row) selections.push({ postId: row.postId, slotIndex: row.slotIndex });
+    }
+
+    closeFetchDialog();
+    if (selections.length === 0) {
+      showMessage('info', '沒有勾選任何欄位，沒有做任何改動。');
+      return;
+    }
+
+    beginRequest('由職事表重新取數中…');
+    google.script.run
+      .withSuccessHandler(function (resp) {
+        endRequest();
+        if (!resp.ok) { showMessage('error', resp.error.message); return; }
+        showMessage(resp.data.message.type, resp.data.message.text);
+        // 重新載入才看得到新的名單與衝突狀態；一定要保留剛顯示的訊息。
+        loadWeek(state.isoDate, { keepMessage: true });
+      })
+      .withFailureHandler(onApiFailure)
+      .apiFetchFromRoster(state.isoDate, selections);
+  }
+
+  // =====================================================================
   // 程序表即時預覽
   // =====================================================================
 
@@ -634,6 +917,15 @@
     document.getElementById('statMissing').addEventListener('click', function () {
       document.getElementById('missingPanel').classList.toggle('hidden');
     });
+    document.getElementById('statConflicts').addEventListener('click', function () {
+      document.getElementById('conflictPanel').classList.toggle('hidden');
+    });
+
+    document.getElementById('fetchFromRosterBtn').addEventListener('click', openFetchFromRosterDialog);
+    document.getElementById('fetchCancelBtn').addEventListener('click', closeFetchDialog);
+    document.getElementById('fetchConfirmBtn').addEventListener('click', confirmFetchFromRoster);
+    document.getElementById('fetchSelectAllBtn').addEventListener('click', function () { setAllFetchCheckboxes(true); });
+    document.getElementById('fetchSelectNoneBtn').addEventListener('click', function () { setAllFetchCheckboxes(false); });
 
     var addButtons = document.querySelectorAll('[data-add-list]');
     for (var i = 0; i < addButtons.length; i++) {
@@ -687,6 +979,7 @@
     wireGlobalErrorHandlers();
     wireStaticEvents();
     document.getElementById('missingPanel').classList.add('hidden');
+    document.getElementById('conflictPanel').classList.add('hidden');
     applyBusyState();
     beginRequest('載入中…');
     google.script.run

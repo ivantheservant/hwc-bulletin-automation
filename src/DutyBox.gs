@@ -9,6 +9,13 @@
  *   - `buildDutyBox_(snapshot, page)`　真正入口，讀工作表與 Config。
  *   - `buildDutyBoxRows_(input)`　　　純函式，全部資料由呼叫方傳進來，
  *     不碰 Apps Script 服務，方便在 Node 直接測試。
+ *
+ * ⚠️ 第六輪起，傳進來的 `snapshot.slotsByPost` 應該**已經套過**
+ * `applyDutyOverridesToSlots_()`（見 src/DutyOverride.gs）。取值次序固定是
+ * 「職事表快照 → 套用 DutyOverride → 套用 PersonDisplay 尊稱」，而
+ * **合併組（主席及報告、影音）一定要在套用覆寫之後才合併**——本檔案
+ * 只負責最後那一步（合併＋尊稱），所以只要呼叫方守住次序，合併自然
+ * 就是用覆寫後的人選去判斷的。
  */
 
 'use strict';
@@ -46,7 +53,7 @@ function dutyBoxPageKeys_(page) {
  * Raises:
  *   Error 如果 page 不是 1 或 3，或任何一張工作表讀取失敗。
  */
-function buildDutyBox_(snapshot, page, warnings) {
+function buildDutyBox_(snapshot, page, warnings, diffByKey) {
   var honorificKey = page === 1 ? CONFIG_KEYS.HONORIFIC_ON_PAGE1 : CONFIG_KEYS.HONORIFIC_ON_PAGE3;
   var honorificRaw = getConfig(honorificKey, page === 1 ? 'TRUE' : 'FALSE');
 
@@ -58,8 +65,68 @@ function buildDutyBox_(snapshot, page, warnings) {
     personDisplayRows: readSheet(SHEETS.PERSON_DISPLAY),
     withHonorific: normalizeBoolean_(honorificRaw) === true,
     targetDate: normalizeDate_(snapshot.isoDate),
+    diffByKey: diffByKey || {},
     warnings: warnings || []
   });
+}
+
+/**
+ * 用途：把一個 slot 轉成給填寫介面用的「一格可編輯的事奉格」資料。
+ *
+ *   ⚠️ `bulletinName` 是**未套尊稱的原始姓名**，不是版面上印的
+ *   「陳大文弟兄」——這一格會直接變成輸入框的預設值，而輸入框的內容
+ *   儲存時會原樣存進 `DutyOverride.OVERRIDE_NAME`。如果這裡放已經加了
+ *   尊稱的顯示文字，幹事不改任何東西直接儲存，就會產生一個
+ *   「陳大文弟兄」的覆寫，之後再也對不上 `PersonDisplay.NAME_TC`，
+ *   尊稱反而不見了。原始姓名才能安全來回。
+ * Args:
+ *   postId {string} 崗位 ID。
+ *   slot {Object} 已經套過覆寫的 slot。
+ *   displayText {?string} resolveSlotDisplay_() 算出來的顯示文字。
+ *   diffByKey {Object<string,Object>} 「崗位#位次 → `buildRosterDiff_()`
+ *     的那一行」。介面顯示衝突時要同時列出三個值，所以這裡要的是整行
+ *     比對結果，不只是狀態字串。
+ * Returns:
+ *   {{postId:string, slotIndex:number, rosterName:string, bulletinName:string,
+ *     displayText:string, hasOverride:boolean, state:string, status:string,
+ *     rosterValueAtOverride:string}}
+ */
+function buildDutyBoxSlotDetail_(postId, slot, displayText, diffByKey) {
+  var slotIndex = (slot.slotIndex === null || slot.slotIndex === undefined) ? 1 : slot.slotIndex;
+  var rosterName = String(
+    (slot.rosterName === undefined || slot.rosterName === null) ? (slot.personName || '') : slot.rosterName
+  );
+  var diffRow = (diffByKey || {})[dutyOverrideKey_(postId, slotIndex)] || null;
+  return {
+    postId: postId,
+    slotIndex: slotIndex,
+    rosterName: rosterName,
+    bulletinName: slot.hasOverride ? String(slot.overrideName || '') : rosterName,
+    displayText: String(displayText === null || displayText === undefined ? '' : displayText),
+    hasOverride: Boolean(slot.hasOverride),
+    state: slot.state,
+    status: (diffRow && diffRow.status) || ROSTER_DIFF_STATUS.SAME,
+    rosterValueAtOverride: (diffRow && diffRow.rosterValueAtOverride) || ''
+  };
+}
+
+/**
+ * 用途：把一組 slot 的比對狀態收斂成整行的一個狀態——嚴重的贏：
+ *   `CONFLICT` ＞ `OVERRIDDEN` ＞ `FOLLOW` ＞ `SAME`。介面用這個值決定
+ *   整行的底色。
+ * Args:
+ *   slotDetails {Object[]} `buildDutyBoxSlotDetail_()` 的輸出陣列。
+ * Returns:
+ *   {string} `ROSTER_DIFF_STATUS` 其中一個值；空陣列回 `SAME`。
+ */
+function worstDutyBoxStatus_(slotDetails) {
+  var order = [ROSTER_DIFF_STATUS.CONFLICT, ROSTER_DIFF_STATUS.OVERRIDDEN, ROSTER_DIFF_STATUS.FOLLOW];
+  for (var i = 0; i < order.length; i++) {
+    var status = order[i];
+    var hit = (slotDetails || []).some(function (s) { return s.status === status; });
+    if (hit) return status;
+  }
+  return ROSTER_DIFF_STATUS.SAME;
 }
 
 /**
@@ -89,8 +156,12 @@ function buildDutyBox_(snapshot, page, warnings) {
  *          warnings:Object[]}}
  * Returns:
  *   {{label:string, text:string, postIds:string[], states:string[],
- *     isPending:boolean}[]} 依顯示次序排好的事奉框資料列。整組都
+ *     isPending:boolean, hasOverride:boolean, status:string,
+ *     slots:Object[]}[]} 依顯示次序排好的事奉框資料列。整組都
  *     `NOT_APPLICABLE` 的崗位／合併組不會出現在結果內。
+ *     `slots` 是每一格的可編輯資料（見 buildDutyBoxSlotDetail_()），
+ *     供填寫介面渲染輸入框；`hasOverride`／`status` 是整行收斂後的值，
+ *     供介面上色。
  * Raises:
  *   Error 如果 `input.page` 不是 1 或 3。
  */
@@ -98,6 +169,7 @@ function buildDutyBoxRows_(input) {
   var pageKeys = dutyBoxPageKeys_(input.page);
   var warnings = input.warnings || [];
   var slotsByPost = (input.snapshot && input.snapshot.slotsByPost) || {};
+  var diffByKey = input.diffByKey || {};
 
   var displayOptions = {
     withHonorific: input.withHonorific === true,
@@ -150,14 +222,14 @@ function buildDutyBoxRows_(input) {
       emittedGroups[groupId] = true;
 
       var groupRow = buildMergedDutyBoxRow_(
-        decision, groupPosts[groupId], usableSlotsByPostId, pageKeys, displayOptions
+        decision, groupPosts[groupId], usableSlotsByPostId, pageKeys, displayOptions, diffByKey
       );
       if (groupRow) rows.push(groupRow);
       return;
     }
 
     // 不合併（本來就沒有合併組，或者同人才合併但不是同一人）→ 各自一行。
-    var singleRow = buildSingleDutyBoxRow_(post, usableSlotsByPostId[post.POST_ID], pageKeys, displayOptions);
+    var singleRow = buildSingleDutyBoxRow_(post, usableSlotsByPostId[post.POST_ID], pageKeys, displayOptions, diffByKey);
     if (singleRow) rows.push(singleRow);
   });
 
@@ -203,23 +275,48 @@ function decideDutyBoxMerge_(groupId, groupPostRows, usableSlotsByPostId, mergeG
   }
 
   // 只在同一人時合併：組內每個崗位都要有 slot，而且全部 slot 指向同一個
-  // 非空 PersonID。任何一個崗位未排人（PersonID 為 null）都不算同一人——
-  // 「主席未定、報告是甲」不可以顯示成「主席及報告：甲」。
+  // 非空的「身分」。任何一個崗位未排人都不算同一人——「主席未定、報告是
+  // 甲」不可以顯示成「主席及報告：甲」。
   if (postsWithSlots.length !== groupPostRows.length) {
     return { willMerge: false, groupRow: groupRow };
   }
 
-  var personIds = {};
+  var identities = {};
   var sawEmpty = false;
   groupPostRows.forEach(function (p) {
     (usableSlotsByPostId[p.POST_ID] || []).forEach(function (slot) {
-      if (slot.personId) personIds[slot.personId] = true;
+      var identity = dutySlotIdentityKey_(slot);
+      if (identity) identities[identity] = true;
       else sawEmpty = true;
     });
   });
 
-  var willMerge = !sawEmpty && Object.keys(personIds).length === 1;
+  var willMerge = !sawEmpty && Object.keys(identities).length === 1;
   return { willMerge: willMerge, groupRow: groupRow };
+}
+
+/**
+ * 用途：算出一個 slot 的「身分鍵」，供「只在同一人時合併」的判斷用。
+ *
+ *   ⚠️ 第六輪之前只看 `personId`，但人手覆寫存的是**姓名文字**、
+ *   `personId` 是 `null`（見 src/DutyOverride.gs）。只看 `personId` 的話，
+ *   「主席與報告都被覆寫成同一個人」會因為兩邊 `personId` 都是 null 而
+ *   被判定成「未排人」，永遠不合併——明明是同一個人卻拆成兩行。所以
+ *   覆寫的格子改用姓名當身分鍵。
+ *
+ *   兩種鍵刻意加不同前綴，避免「PersonID 剛好等於某個姓名文字」這種
+ *   極端情況下把兩種不同的身分混為一談。
+ * Args:
+ *   slot {Object} 已經套過覆寫的 slot。
+ * Returns:
+ *   {string} 身分鍵；未排人（沒有 PersonID 也沒有覆寫姓名）回空字串。
+ */
+function dutySlotIdentityKey_(slot) {
+  if (slot.hasOverride) {
+    var name = String(slot.overrideName || '').trim();
+    return name ? 'NAME:' + name : '';
+  }
+  return slot.personId ? 'ID:' + slot.personId : '';
 }
 
 /**
@@ -234,19 +331,25 @@ function decideDutyBoxMerge_(groupId, groupPostRows, usableSlotsByPostId, mergeG
  * Returns:
  *   {?Object} 事奉框資料列；沒有任何可用 slot 時回 `null`（該行不出現）。
  */
-function buildSingleDutyBoxRow_(post, usableSlots, pageKeys, displayOptions) {
+function buildSingleDutyBoxRow_(post, usableSlots, pageKeys, displayOptions, diffByKey) {
   var slots = usableSlots || [];
   if (slots.length === 0) return null;
 
   var ordered = slots.slice().sort(function (a, b) { return (a.slotIndex || 0) - (b.slotIndex || 0); });
   var texts = ordered.map(function (slot) { return resolveSlotDisplay_(slot, displayOptions); });
+  var slotDetails = ordered.map(function (slot, i) {
+    return buildDutyBoxSlotDetail_(post.POST_ID, slot, texts[i], diffByKey);
+  });
 
   return {
     label: String(post[pageKeys.name] || ''),
     text: joinDutyBoxNames_(texts, ' '),
     postIds: [post.POST_ID],
     states: ordered.map(function (s) { return s.state; }),
-    isPending: ordered.some(function (s) { return s.state === ROSTER_SLOT_STATE_.PENDING; })
+    isPending: ordered.some(function (s) { return s.state === ROSTER_SLOT_STATE_.PENDING; }),
+    hasOverride: ordered.some(function (s) { return Boolean(s.hasOverride); }),
+    status: worstDutyBoxStatus_(slotDetails),
+    slots: slotDetails
   };
 }
 
@@ -264,7 +367,7 @@ function buildSingleDutyBoxRow_(post, usableSlots, pageKeys, displayOptions) {
  * Returns:
  *   {?Object} 事奉框資料列；整組都沒有可用 slot 時回 `null`。
  */
-function buildMergedDutyBoxRow_(decision, groupPostRows, usableSlotsByPostId, pageKeys, displayOptions) {
+function buildMergedDutyBoxRow_(decision, groupPostRows, usableSlotsByPostId, pageKeys, displayOptions, diffByKey) {
   var separator = decision.groupRow ? String(decision.groupRow.JOIN_SEPARATOR || ' ') : ' ';
 
   var orderedPosts = groupPostRows.slice().sort(function (a, b) {
@@ -274,6 +377,7 @@ function buildMergedDutyBoxRow_(decision, groupPostRows, usableSlotsByPostId, pa
   var texts = [];
   var postIds = [];
   var states = [];
+  var slotDetails = [];
 
   orderedPosts.forEach(function (post) {
     var slots = (usableSlotsByPostId[post.POST_ID] || []).slice().sort(function (a, b) {
@@ -283,7 +387,9 @@ function buildMergedDutyBoxRow_(decision, groupPostRows, usableSlotsByPostId, pa
     postIds.push(post.POST_ID);
     slots.forEach(function (slot) {
       states.push(slot.state);
-      texts.push(resolveSlotDisplay_(slot, displayOptions));
+      var text = resolveSlotDisplay_(slot, displayOptions);
+      texts.push(text);
+      slotDetails.push(buildDutyBoxSlotDetail_(post.POST_ID, slot, text, diffByKey));
     });
   });
 
@@ -294,7 +400,10 @@ function buildMergedDutyBoxRow_(decision, groupPostRows, usableSlotsByPostId, pa
     text: joinDutyBoxNames_(texts, separator),
     postIds: postIds,
     states: states,
-    isPending: states.indexOf(ROSTER_SLOT_STATE_.PENDING) !== -1
+    isPending: states.indexOf(ROSTER_SLOT_STATE_.PENDING) !== -1,
+    hasOverride: slotDetails.some(function (s) { return s.hasOverride; }),
+    status: worstDutyBoxStatus_(slotDetails),
+    slots: slotDetails
   };
 }
 

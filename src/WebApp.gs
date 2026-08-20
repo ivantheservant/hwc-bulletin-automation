@@ -322,6 +322,39 @@ function apiSaveWeek(payload) {
 }
 
 /**
+ * 用途：前端呼叫，取得「由職事表重新取數」對話框要顯示的比對清單。
+ *   **唯讀，不寫入任何一格**——撳按鈕只是打開對話框看看有什麼可以取，
+ *   真正的寫入要等使用者勾選完再撳「確定」（`apiFetchFromRoster()`）。
+ * Args:
+ *   isoDate {string} 主日日期，yyyy-MM-dd。
+ * Returns:
+ *   {{ok:boolean, data:{rows:Object[], rosterVersion:(number|null)}, error?:Object}}
+ *     `rows` 只含 `status` 是 `CONFLICT` 或 `OVERRIDDEN` 的行——`FOLLOW`
+ *     已經自動處理好、`SAME` 根本沒有東西會變，兩者都沒有「要不要取數」
+ *     這個選擇可言。每一行多一個 `defaultChecked`：`CONFLICT` 預設勾選
+ *     （職事表在覆寫之後改過，多數情況下要跟新的），`OVERRIDDEN` 預設
+ *     不勾選（幹事的決定仍然成立，不應該預設幫他推翻）。
+ */
+function apiGetRosterFetchCandidates(isoDate) {
+  return withApiResult_(function () { return getRosterFetchCandidates_(isoDate); },
+    { functionName: 'apiGetRosterFetchCandidates', argsSummary: 'isoDate=' + isoDate });
+}
+
+/**
+ * 用途：前端呼叫，把勾選的欄位改回跟隨職事表——也就是把那些格子的
+ *   `DutyOverride` 改成 `ACTIVE=FALSE`（**不刪行**，記錄永遠保留）。
+ * Args:
+ *   isoDate {string} 主日日期，yyyy-MM-dd。
+ *   selections {{postId:string, slotIndex:number}[]} 使用者勾選的欄位。
+ * Returns:
+ *   {{ok:boolean, data:{clearedCount:number, message:{type:string,text:string}}, error?:Object}}
+ */
+function apiFetchFromRoster(isoDate, selections) {
+  return withApiResult_(function () { return fetchFromRosterForWebApp_(isoDate, selections); },
+    { functionName: 'apiFetchFromRoster', argsSummary: 'isoDate=' + isoDate + ' selections=' + ((selections || []).length) });
+}
+
+/**
  * 用途：前端呼叫，把捕捉到的前端例外（`window.onerror`／
  *   `window.onunhandledrejection`，或前端程式碼自己 catch 到的錯誤）
  *   寫入 `ErrorLog`（`SOURCE='CLIENT'`）。跟其他 `api*` 函式一樣要通過
@@ -499,6 +532,9 @@ function loadWeekForWebApp_(isoDate) {
     missing: model.missing,
     warnings: model.warnings,
     options: webAppFieldOptions_(),
+    // 第六輪：週報與職事表的比對結果。前端用 `conflictCount` 顯示頂部
+    // 的「衝突 N 項」，用 `rows` 展開比對清單。
+    rosterDiff: model.rosterDiff,
     // 「重新讀取職事表」按鈕成功之後要顯示的文案；一律算好給前端，
     // 前端只在那個按鈕的情境下使用，一般切換主日時不理會這個欄位。
     rosterReloadMessage: buildRosterReloadMessage_(model.rosterVersionUsed, model.rosterIsOfficial)
@@ -642,6 +678,91 @@ function previewProgramForWebApp_(isoDate, draftFields) {
   var draftWeek = Object.assign({}, weekRow, draftFields || {});
   var program = buildProgramTable_(draftWeek, snapshot);
   return { templateId: program.templateId, rows: program.rows };
+}
+
+// =====================================================================
+// 由職事表重新取數
+// =====================================================================
+
+/**
+ * 用途：`apiGetRosterFetchCandidates()` 的 IO 層。唯讀。
+ * Args:
+ *   isoDate {string} 主日日期，yyyy-MM-dd。
+ * Returns:
+ *   {{rows:Object[], rosterVersion:(number|null)}}
+ */
+function getRosterFetchCandidates_(isoDate) {
+  var diff = computeRosterDiff_(isoDate);
+  var rows = diff.rows
+    .filter(function (r) {
+      return r.status === ROSTER_DIFF_STATUS.CONFLICT || r.status === ROSTER_DIFF_STATUS.OVERRIDDEN;
+    })
+    .map(function (r) {
+      return Object.assign({}, r, { defaultChecked: r.status === ROSTER_DIFF_STATUS.CONFLICT });
+    });
+  return { rows: rows, rosterVersion: diff.rosterVersion };
+}
+
+/**
+ * 用途：`apiFetchFromRoster()` 的 IO 層。把勾選的欄位改回跟隨職事表：
+ *   那些格子生效中的 `DutyOverride` 改成 `ACTIVE=FALSE`，並逐格記一筆
+ *   `AuditLog`（`ACTION` 用 `FETCH_FROM_ROSTER`）。
+ *
+ *   ⚠️ **不刪行**——`DutyOverride` 的記錄永遠保留，只是不再生效。日後
+ *   要追「這一格曾經被誰、什麼時候、改成什麼」仍然查得到。
+ * Args:
+ *   isoDate {string} 主日日期，yyyy-MM-dd。
+ *   selections {{postId:string, slotIndex:number}[]} 使用者勾選的欄位。
+ * Returns:
+ *   {{clearedCount:number, message:{type:string,text:string}}}
+ */
+function fetchFromRosterForWebApp_(isoDate, selections) {
+  var picked = selections || [];
+  if (picked.length === 0) {
+    return { clearedCount: 0, message: { type: 'info', text: '沒有勾選任何欄位，沒有做任何改動。' } };
+  }
+
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.DUTY_OVERRIDE);
+  if (!sheet) {
+    throw new Error('fetchFromRosterForWebApp_：找不到工作表「' + SHEETS.DUTY_OVERRIDE + '」，請先執行「初始化工作表」。');
+  }
+  var def = COLUMNS.DUTY_OVERRIDE;
+  var activeCol = def.keys.indexOf('ACTIVE') + 1;
+
+  var existingByKey = {};
+  readDutyOverrideRowsWithRowNo_(isoDate).forEach(function (row) {
+    var key = dutyOverrideKey_(row.POST_ID, row.SLOT_INDEX);
+    if (!(key in existingByKey)) existingByKey[key] = row;
+  });
+
+  var cleared = 0;
+  picked.forEach(function (sel) {
+    var key = dutyOverrideKey_(sel.postId, sel.slotIndex);
+    var existing = existingByKey[key];
+    if (!existing || existing.ACTIVE !== true) return;
+
+    sheet.getRange(existing.__rowNo, activeCol).setValue(false);
+    appendAuditLog_({
+      action: 'FETCH_FROM_ROSTER',
+      sheetName: SHEETS.DUTY_OVERRIDE,
+      rowKey: isoDate + '#' + sel.postId + '#' + (sel.slotIndex === undefined ? 1 : sel.slotIndex),
+      field: 'ACTIVE',
+      oldValue: 'TRUE',
+      newValue: 'FALSE',
+      notes: '由職事表重新取數：人手覆寫「' + String(existing.OVERRIDE_NAME || '') + '」已取消，改回跟隨職事表。記錄保留，不刪行。'
+    });
+    cleared++;
+  });
+
+  return {
+    clearedCount: cleared,
+    message: {
+      type: cleared > 0 ? 'success' : 'info',
+      text: cleared > 0
+        ? '已把 ' + cleared + ' 個欄位改回跟隨職事表；你原本的修改已清除（記錄仍然保留）。'
+        : '勾選的欄位目前沒有生效中的人手覆寫，沒有做任何改動。'
+    }
+  };
 }
 
 // =====================================================================

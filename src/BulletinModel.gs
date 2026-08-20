@@ -93,10 +93,28 @@ function buildBulletinModel_(isoDate) {
     persistInferredTemplateId_(isoDate, program.templateId, warnings);
   }
 
-  var dutyBoxPage1 = buildDutyBox_(snapshot, 1, warnings);
+  // ⚠️ 取值次序固定：**職事表快照 → 套用 DutyOverride → 套用 PersonDisplay
+  // 尊稱**，不可以調轉（見 src/DutyOverride.gs 的核心原則）。合併組
+  // （主席及報告、影音）在 buildDutyBox_() 內部才合併，也就是在覆寫
+  // 套用**之後**——這一點是靠這裡先換掉 slotsByPost 才成立的。
+  var overrides = readDutyOverrideRows_(isoDate);
+  var diff = buildRosterDiff_(isoDate, snapshot, overrides,
+    (week.ROSTER_SNAPSHOT_VERSION === undefined) ? null : week.ROSTER_SNAPSHOT_VERSION);
+  var diffByKey = {};
+  diff.rows.forEach(function (r) { diffByKey[dutyOverrideKey_(r.postId, r.slotIndex)] = r; });
+
+  snapshot.slotsByPost = applyDutyOverridesToSlots_(snapshot.slotsByPost, buildDutyOverrideIndex_(overrides));
+
+  var dutyBoxPage1 = buildDutyBox_(snapshot, 1, warnings, diffByKey);
   var nextWeekDuty = [];
   if (nextSnapshot && nextSnapshot.found) {
-    nextWeekDuty = buildDutyBox_(nextSnapshot, 3, warnings);
+    // 下週事奉用的是**下一個主日**的職事表快照，所以要套下一個主日自己
+    // 的覆寫，不是這一週的。
+    var nextOverrides = readDutyOverrideRows_(nextIsoDate);
+    nextSnapshot.slotsByPost = applyDutyOverridesToSlots_(
+      nextSnapshot.slotsByPost, buildDutyOverrideIndex_(nextOverrides)
+    );
+    nextWeekDuty = buildDutyBox_(nextSnapshot, 3, warnings, {});
   } else if (nextSnapshot) {
     warnings.push({
       code: 'NEXT_WEEK_NOT_IN_ROSTER',
@@ -115,6 +133,7 @@ function buildBulletinModel_(isoDate) {
     program: program.rows,
     dutyBoxPage1: dutyBoxPage1,
     nextWeekDuty: nextWeekDuty,
+    rosterDiff: diff,
     announcementRows: readSheet(SHEETS.ANNOUNCEMENTS),
     prayerRows: readSheet(SHEETS.PRAYERS),
     fellowshipRows: readSheet(SHEETS.FELLOWSHIPS),
@@ -167,6 +186,8 @@ function emptyBulletinModel_(isoDate, overrides) {
     program: [],
     attendance: { columns: [], rows: [] },
     nextWeekDuty: [],
+    // 第六輪新增：週報與職事表的比對結果（見 src/RosterDiff.gs）。
+    rosterDiff: { isoDate: isoDate, rosterVersion: null, snapshotVersion: null, rows: [], conflictCount: 0, followedCount: 0 },
     flowers: { thisWeek: '', nextWeek: '' },
     announcements: [],
     prayerBlock: { heading: '', items: [] },
@@ -212,6 +233,10 @@ function assembleBulletinModel_(input) {
     dutyBoxPage1: input.dutyBoxPage1 || [],
     program: input.program || [],
     nextWeekDuty: input.nextWeekDuty || [],
+    rosterDiff: input.rosterDiff || {
+      isoDate: input.isoDate, rosterVersion: null, snapshotVersion: null,
+      rows: [], conflictCount: 0, followedCount: 0
+    },
     warnings: warnings
   });
 

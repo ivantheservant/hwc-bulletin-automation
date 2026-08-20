@@ -19,6 +19,7 @@
       </label>
       <span id="statMissing" class="stat stat-clickable" title="撳一下展開待填清單">待填 0 項</span>
       <span id="statWarnings" class="stat">警告 0 項</span>
+      <span id="statConflicts" class="stat stat-clickable" title="撳一下展開職事表分歧清單">衝突 0 項</span>
       <span id="statSaved" class="stat">最後儲存時間：（尚未儲存）</span>
       <span class="topbar-spacer"></span>
       <button id="reloadRosterBtn" type="button" class="btn btn-secondary">重新讀取職事表</button>
@@ -26,23 +27,27 @@
     </div>
     <div id="messageBar" class="message-bar hidden"></div>
     <div id="missingPanel" class="missing-panel hidden"></div>
+    <div id="conflictPanel" class="conflict-panel hidden"></div>
   </header>
 
   <main id="mainContent">
 
-    <section class="panel readonly-panel">
-      <h2>職事表資料（唯讀，僅供核對）</h2>
-      <div id="rosterMeta" class="readonly-meta"></div>
-      <div class="readonly-columns">
-        <div class="readonly-col">
-          <h3>本週事奉（第 1 頁）</h3>
-          <table class="readonly-table"><tbody id="dutyBoxPage1Body"></tbody></table>
-        </div>
-        <div class="readonly-col">
-          <h3>下週事奉（第 3 頁）</h3>
-          <table class="readonly-table"><tbody id="nextWeekDutyBody"></tbody></table>
-        </div>
+    <section class="panel duty-panel">
+      <div class="duty-panel-head">
+        <h2>本週事奉（可直接修改）</h2>
+        <button id="fetchFromRosterBtn" type="button" class="btn btn-secondary">由職事表重新取數</button>
       </div>
+      <div id="rosterMeta" class="readonly-meta"></div>
+      <p class="hint">
+        在這裡改動的名單<strong>只存在週報，永遠不會寫回職事表</strong>。
+        沒有改動過的崗位會自動跟隨職事表最新版；改動過的崗位，職事表之後再改也不會蓋過你的修改，只會標示為衝突。
+      </p>
+      <div id="dutyBoxPage1Body" class="duty-list"></div>
+    </section>
+
+    <section class="panel readonly-panel">
+      <h2>下週事奉（第 3 頁，唯讀，僅供核對）</h2>
+      <table class="readonly-table"><tbody id="nextWeekDutyBody"></tbody></table>
     </section>
 
     <section class="panel">
@@ -177,6 +182,24 @@
     </section>
 
   </main>
+
+  <div id="fetchDialogBackdrop" class="dialog-backdrop hidden">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="fetchDialogTitle">
+      <h3 id="fetchDialogTitle">由職事表重新取數</h3>
+      <div class="dialog-toolbar">
+        <button type="button" class="btn btn-small" id="fetchSelectAllBtn">全選</button>
+        <button type="button" class="btn btn-small" id="fetchSelectNoneBtn">全不選</button>
+      </div>
+      <div id="fetchDialogBody" class="dialog-body"></div>
+      <p id="fetchDialogFootnote" class="dialog-footnote">
+        勾選的欄位會被職事表的值覆蓋，你的修改會被清除（<code>DutyOverride</code> 改為 <code>ACTIVE=FALSE</code>，記錄仍然保留）。
+      </p>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-secondary" id="fetchCancelBtn">取消</button>
+        <button type="button" class="btn btn-primary" id="fetchConfirmBtn">確定</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <?!= include('ui/Script'); ?>

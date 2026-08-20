@@ -120,6 +120,88 @@ function resolvePersonDisplay_(personId, nameSnapshot, options) {
 }
 
 /**
+ * 用途：在 `PersonDisplay` 資料列中，用**姓名**（而不是 PersonID）找出
+ *   在指定日期生效的那一行。
+ *
+ *   ⚠️ 為什麼需要按姓名找：第六輪的人手覆寫（`DutyOverride.OVERRIDE_NAME`）
+ *   存的是**顯示用的姓名文字**，不是 PersonID——幹事可能填一個職事表根本
+ *   沒有的人（例如臨時幫忙的訪客），那種情況下根本沒有 PersonID 可用。
+ *   但如果填的名字剛好對得上某位肢體，尊稱仍然應該照樣套用，所以要有
+ *   這條按姓名查的路徑。
+ * Args:
+ *   nameTC {string} 要查的姓名。
+ *   rows {Object[]} `PersonDisplay` 工作表的資料列。
+ *   targetDate {?Date} 目標主日日期；`null` 代表不做生效日期篩選。
+ * Returns:
+ *   {?Object} 找到的資料列；找不到回 `null`。同時符合多行時取**第一行**。
+ */
+function findPersonDisplayRowByName_(nameTC, rows, targetDate) {
+  var name = String(nameTC || '').trim();
+  if (!name) return null;
+
+  var matches = (rows || []).filter(function (row) {
+    if (String(row.NAME_TC || '').trim() !== name) return false;
+    if (row.ACTIVE !== true) return false;
+    if (targetDate instanceof Date) {
+      if (row.EFFECTIVE_FROM instanceof Date && targetDate.getTime() < row.EFFECTIVE_FROM.getTime()) return false;
+      if (row.EFFECTIVE_TO instanceof Date && targetDate.getTime() > row.EFFECTIVE_TO.getTime()) return false;
+    }
+    return true;
+  });
+
+  return matches.length > 0 ? matches[0] : null;
+}
+
+/**
+ * 用途：把一個**人手覆寫的姓名**算成週報上要印的文字。
+ *
+ *   規則跟 resolvePersonDisplay_() 一樣（`DISPLAY_OVERRIDE` 優先、職稱類
+ *   尊稱一律保留、一般敬稱受 `withHonorific` 控制），差別只在於查
+ *   `PersonDisplay` 是**按姓名**而不是按 PersonID。
+ *
+ *   ⚠️ 對不上任何一位肢體時，**原樣顯示覆寫的姓名並記一筆 warning**，
+ *   不拋錯——幹事填一個職事表沒有的人（臨時幫忙的訪客）是完全正常的
+ *   使用情境，週報照樣要印得出來；warning 只是讓「這個名字沒有尊稱設定」
+ *   這件事看得見，不是錯誤。
+ * Args:
+ *   overrideName {string} `DutyOverride.OVERRIDE_NAME` 的值。
+ *   options {{withHonorific:boolean, personDisplayRows:Object[],
+ *            targetDate:(Date|null), warnings:(Object[]|undefined)}}
+ *     同 resolvePersonDisplay_() 的 options。
+ * Returns:
+ *   {string} 要印在週報上的文字。
+ */
+function resolveOverrideDisplay_(overrideName, options) {
+  var opts = options || {};
+  var name = String(overrideName || '').trim();
+  if (!name) return '';
+
+  var row = findPersonDisplayRowByName_(name, opts.personDisplayRows, opts.targetDate || null);
+
+  if (!row) {
+    if (opts.warnings) {
+      opts.warnings.push({
+        code: 'OVERRIDE_NAME_NOT_IN_PERSON_DISPLAY',
+        name: name,
+        message: '人手覆寫的姓名「' + name + '」在週報的 PersonDisplay 工作表找不到生效中的一行，'
+          + '已原樣顯示，沒有加尊稱。如果這是本堂肢體，可以在 PersonDisplay 補上他的尊稱設定；'
+          + '如果是臨時幫忙的訪客，這是正常的，可以不理。'
+      });
+    }
+    return name;
+  }
+
+  var override = String(row.DISPLAY_OVERRIDE || '').trim();
+  if (override) return override;
+
+  var honorific = String(row.HONORIFIC || '').trim();
+  if (!honorific) return name;
+  if (!opts.withHonorific && !isTitleHonorific_(honorific)) return name;
+
+  return name + honorific;
+}
+
+/**
  * 用途：依 slot 的 `state` 決定那一格應該顯示什麼文字。
  *
  *   | state | 顯示 |
@@ -128,8 +210,16 @@ function resolvePersonDisplay_(personId, nameSnapshot, options) {
  *   | `EXTERNAL` | 負責單位名稱（例如「英語堂敬拜隊」） |
  *   | `ASSIGNED` | 經 resolvePersonDisplay_() 算出來的姓名 |
  *   | `PENDING` | 空字串（版面上留白，同時會被 BulletinModel 列入待填清單） |
+ *
+ *   ⚠️ `slot.hasOverride` 為 true 時走 resolveOverrideDisplay_()（按姓名查
+ *   `PersonDisplay`），因為覆寫存的是姓名文字而不是 PersonID。這個判斷
+ *   放在 `state` 之後——`NOT_APPLICABLE` 仍然勝過覆寫（結構先於內容，
+ *   見 docs/已知bug類型.md 事故五與 src/DutyOverride.gs 的說明），而
+ *   `applyDutyOverridesToSlots_()` 本來就不會替 `NOT_APPLICABLE` 的 slot
+ *   設 `hasOverride`。
  * Args:
- *   slot {Object} buildRosterSlotIndex_() 產生的 slot。
+ *   slot {Object} buildRosterSlotIndex_() 產生、可能經
+ *     applyDutyOverridesToSlots_() 套過覆寫的 slot。
  *   options {Object} 同 resolvePersonDisplay_() 的 options。
  * Returns:
  *   {?string} 要顯示的文字；`null` 代表這一行整行不出現。
@@ -145,6 +235,7 @@ function resolveSlotDisplay_(slot, options) {
     case ROSTER_SLOT_STATE_.PENDING:
       return '';
     default:
+      if (slot.hasOverride) return resolveOverrideDisplay_(slot.overrideName, options);
       return resolvePersonDisplay_(slot.personId, slot.personName, options);
   }
 }

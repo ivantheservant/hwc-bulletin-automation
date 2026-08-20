@@ -61,7 +61,9 @@ var SHEETS = Object.freeze({
   DIAGNOSTICS: 'Diagnostics',
   AUDIT_LOG: 'AuditLog',
   SEND_LOG: 'SendLog',
-  ERROR_LOG: 'ErrorLog'
+  ERROR_LOG: 'ErrorLog',
+  DUTY_OVERRIDE: 'DutyOverride',
+  CONFLICT_NOTICE_LOG: 'ConflictNoticeLog'
 });
 
 // =====================================================================
@@ -100,7 +102,13 @@ var COLUMNS = Object.freeze({
       '英語堂兒童', '粵語堂主堂兒童', '粵語堂北岸兒童', '華語堂兒童',
       '下週事奉標題', '本週獻花', '下週獻花', '代禱區塊標題', '本週讀經',
       '狀態', '使用的職事表版本', '產生的 Docs ID', '產生的 PDF ID',
-      '最後產生時間', '寄出時間', '最後儲存時間', '備註'
+      '最後產生時間', '寄出時間', '最後儲存時間', '備註',
+      // ⚠️ 第六輪新增的兩欄刻意加在**最後面**（`NOTES` 之後），不是插在
+      // 中間——`ensureSheet_()` 只會重寫第 1、2 行標題，不會搬動第 3 行
+      // 起的資料。在中間插欄的話，既有資料的欄位位置會整排錯開，原本
+      // 「備註」那一格會被當成新欄位讀出來。加在最後面是唯一不會動到
+      // 既有資料的做法。
+      '快照職事表版本', '快照時間'
     ],
     keys: [
       'SERVICE_DATE', 'QUARTER_ID', 'WEEK_OF_MONTH', 'SPECIAL_TYPE', 'PAGE_TITLE',
@@ -112,7 +120,8 @@ var COLUMNS = Object.freeze({
       'ATT_ENG_CHILD', 'ATT_CANE_CHILD', 'ATT_CANN_CHILD', 'ATT_MAN_CHILD',
       'NEXT_WEEK_HEADING', 'FLOWER_THIS_WEEK', 'FLOWER_NEXT_WEEK', 'PRAYER_BLOCK_HEADING', 'WEEKLY_BIBLE_READING',
       'STATUS', 'ROSTER_VERSION_USED', 'DOC_ID', 'PDF_ID',
-      'LAST_GENERATED_AT', 'SENT_AT', 'LAST_SAVED_AT', 'NOTES'
+      'LAST_GENERATED_AT', 'SENT_AT', 'LAST_SAVED_AT', 'NOTES',
+      'ROSTER_SNAPSHOT_VERSION', 'ROSTER_SNAPSHOT_AT'
     ],
     types: [
       'DATE', 'TEXT', 'INT', 'TEXT', 'TEXT',
@@ -125,7 +134,8 @@ var COLUMNS = Object.freeze({
       'TEXT', 'TEXT', 'TEXT', 'TEXT',
       'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT',
       'TEXT', 'TEXT', 'TEXT', 'TEXT',
-      'DATE', 'DATE', 'DATE', 'TEXT'
+      'DATE', 'DATE', 'DATE', 'TEXT',
+      'INT', 'DATE'
     ],
     textFormatColumns: [
       'ATT_ENG_WORSHIP', 'ATT_CANE_WORSHIP', 'ATT_CANN_WORSHIP', 'ATT_MAN_WORSHIP',
@@ -230,6 +240,36 @@ var COLUMNS = Object.freeze({
     headers: ['時間', '使用者', '來源', '函式', '錯誤代碼', '錯誤訊息', '詳情'],
     keys: ['TIMESTAMP', 'ACTOR', 'SOURCE', 'FUNCTION_NAME', 'ERROR_CODE', 'MESSAGE', 'DETAIL'],
     types: ['DATE', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT']
+  },
+
+  // 第六輪新增：幹事在週報直接改事奉名單時的人手覆寫記錄。
+  //
+  // ⚠️ `OVERRIDE_NAME` 是**顯示用的姓名文字**，不是 PersonID——幹事可能
+  // 填一個職事表根本沒有的人（例如臨時幫忙的訪客）。
+  // ⚠️ `ROSTER_VALUE_AT_OVERRIDE` 是**覆寫當時**職事表那一格的值，衝突
+  // 判斷完全靠它（見 src/RosterDiff.gs 的說明）。
+  // ⚠️ **不刪行**：取消覆寫是把 `ACTIVE` 改成 FALSE。
+  DUTY_OVERRIDE: {
+    headers: [
+      '主日日期', '崗位', '位次', '覆寫姓名', '覆寫時的職事表值',
+      '覆寫時的職事表版本', '覆寫時間', '覆寫者', '原因', '有效', '備註'
+    ],
+    keys: [
+      'SERVICE_DATE', 'POST_ID', 'SLOT_INDEX', 'OVERRIDE_NAME', 'ROSTER_VALUE_AT_OVERRIDE',
+      'ROSTER_VERSION_AT_OVERRIDE', 'OVERRIDE_AT', 'OVERRIDE_BY', 'REASON', 'ACTIVE', 'NOTES'
+    ],
+    types: [
+      'DATE', 'TEXT', 'INT', 'TEXT', 'TEXT',
+      'INT', 'DATE', 'TEXT', 'TEXT', 'BOOLEAN', 'TEXT'
+    ]
+  },
+
+  // 第六輪新增：已經寄過衝突提醒的「指紋」記錄，用來防止同一個衝突
+  // 每星期重複轟炸收件人。指紋變了（職事表又改過）才會再寄一次。
+  CONFLICT_NOTICE_LOG: {
+    headers: ['時間', '主日日期', '崗位', '位次', '指紋', '職事表現值', '備註'],
+    keys: ['TIMESTAMP', 'SERVICE_DATE', 'POST_ID', 'SLOT_INDEX', 'FINGERPRINT', 'ROSTER_VALUE', 'NOTES'],
+    types: ['DATE', 'DATE', 'TEXT', 'INT', 'TEXT', 'TEXT', 'TEXT']
   }
 
 });
@@ -301,7 +341,9 @@ var CONFIG_KEYS = Object.freeze({
   SEND_GROUPS: 'SEND_GROUPS',
   SEND_INCLUDE_MISSING_LIST: 'SEND_INCLUDE_MISSING_LIST',
   SEND_BLOCK_IF_SCHEMA_OUTDATED: 'SEND_BLOCK_IF_SCHEMA_OUTDATED',
-  EMAIL_TEMPLATE_ID: 'EMAIL_TEMPLATE_ID'
+  EMAIL_TEMPLATE_ID: 'EMAIL_TEMPLATE_ID',
+  // ---- 第六輪新增：週報與職事表的分歧處理 ----
+  CONFLICT_NOTICE_GROUPS: 'CONFLICT_NOTICE_GROUPS'
 });
 
 // =====================================================================
@@ -365,7 +407,9 @@ var DEFAULTS = Object.freeze([
   { key: CONFIG_KEYS.SEND_GROUPS, value: 'CC,DB,ADMIN', note: '要寄給哪幾個 Recipients.GROUP_NAME（逗號分隔）' },
   { key: CONFIG_KEYS.SEND_INCLUDE_MISSING_LIST, value: 'TRUE', note: '郵件內是否附上「本週待填欄位」清單' },
   { key: CONFIG_KEYS.SEND_BLOCK_IF_SCHEMA_OUTDATED, value: 'TRUE', note: '工作表結構落後時拒絕寄送' },
-  { key: CONFIG_KEYS.EMAIL_TEMPLATE_ID, value: 'TPL_WEEKLY_BULLETIN', note: '用哪一個 EmailTemplates 範本' }
+  { key: CONFIG_KEYS.EMAIL_TEMPLATE_ID, value: 'TPL_WEEKLY_BULLETIN', note: '用哪一個 EmailTemplates 範本' },
+  // ---- 第六輪新增：週報與職事表的分歧處理 ----
+  { key: CONFIG_KEYS.CONFLICT_NOTICE_GROUPS, value: 'ADMIN', note: '職事表分歧提醒信要寄給哪幾個 Recipients.GROUP_NAME（逗號分隔）' }
 ]);
 
 // =====================================================================
@@ -431,6 +475,23 @@ var ERROR_LOG_SOURCE = Object.freeze({
   CLIENT: 'CLIENT',
   MENU: 'MENU',
   TRIGGER: 'TRIGGER'
+});
+
+/**
+ * 週報與職事表比對的四種狀態（見 src/RosterDiff.gs）。
+ *
+ * | 值 | 條件 | 處理 |
+ * |---|---|---|
+ * | `SAME` | 兩邊相同 | 不顯示、不提醒 |
+ * | `FOLLOW` | 無覆寫、職事表版本比上一次比對時新 | **自動跟隨**，記一筆 AuditLog，不用問幹事 |
+ * | `CONFLICT` | 有覆寫，而且職事表現值 ≠ 覆寫當時記下的職事表值 | **提醒**：職事表在覆寫之後又改過 |
+ * | `OVERRIDDEN` | 有覆寫，職事表沒有再改過 | 只在比對表顯示，不算衝突 |
+ */
+var ROSTER_DIFF_STATUS = Object.freeze({
+  SAME: 'SAME',
+  FOLLOW: 'FOLLOW',
+  CONFLICT: 'CONFLICT',
+  OVERRIDDEN: 'OVERRIDDEN'
 });
 
 // 注意：本檔案刻意不含 Node.js `module.exports`。tests/ 內的 Node 回歸測試
