@@ -1,8 +1,10 @@
 /**
  * Menu.gs
  *
- * 開啟試算表時建立「週報系統」自訂選單。本輪只有三個項目：初始化工作表、
- * 重新載入設定（唯讀）、關於本系統。
+ * 開啟試算表時建立「週報系統」自訂選單。第一輪三個基本項目（初始化工作表、
+ * 重新載入設定、關於本系統）之後，第二輪加了兩個職事表唯讀介面的測試項目
+ * （處理函式定義在 RosterDiagnostics.gs，Apps Script 全部檔案共用一個
+ * 全域命名空間，選單引用哪個檔案定義的函式都可以）。
  */
 
 'use strict';
@@ -19,6 +21,8 @@ function onOpen() {
     .addItem('初始化工作表', 'menuInitializeAllSheets_')
     .addItem('重新載入設定（唯讀）', 'menuReloadConfig_')
     .addItem('關於本系統', 'menuAbout_')
+    .addItem('測試讀取職事表', 'menuTestReadRoster_')
+    .addItem('測試讀取職事表（全季）', 'menuTestReadRosterQuarter_')
     .addToUi();
 }
 

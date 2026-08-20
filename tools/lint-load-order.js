@@ -72,6 +72,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { maskStringsAndComments } = require('./lib/maskSource');
 
 const JSON_OUTPUT = process.argv.indexOf('--json') !== -1;
 const DEFAULT_SRC_DIR = path.join(__dirname, '..', 'src');
@@ -87,56 +88,9 @@ const RESERVED_WORDS = new Set([
 const IDENTIFIER_RE = /^[A-Za-z_$][\w$]*$/;
 const TOKEN_RE = /[A-Za-z_$][\w$]*|=>|[{}()[\];:,=.]/g;
 
-/**
- * 用途：把原始碼內的字串／樣板字面值與註解內容替換成空白，保留原本的
- *   換行位置與整體長度，避免字串內容（例如 '{{ChurchName}}'）被後續的
- *   token 化步驟誤判成程式碼的大括號或識別碼。
- * Args:
- *   source {string} 原始 .gs 檔案內容。
- * Returns:
- *   {string} 長度與換行位置都跟原文一致，字串／註解內容變成空白的版本。
- */
-function maskStringsAndComments(source) {
-  let out = '';
-  let i = 0;
-  const n = source.length;
-  while (i < n) {
-    const c = source[i];
-    const c2 = i + 1 < n ? source[i + 1] : '';
-
-    if (c === '/' && c2 === '/') {
-      while (i < n && source[i] !== '\n') { out += ' '; i++; }
-      continue;
-    }
-    if (c === '/' && c2 === '*') {
-      out += '  '; i += 2;
-      while (i < n && !(source[i] === '*' && source[i + 1] === '/')) {
-        out += (source[i] === '\n') ? '\n' : ' ';
-        i++;
-      }
-      if (i < n) { out += '  '; i += 2; }
-      continue;
-    }
-    if (c === '\'' || c === '"' || c === '`') {
-      const quote = c;
-      out += ' '; i++;
-      while (i < n && source[i] !== quote) {
-        if (source[i] === '\\' && i + 1 < n) {
-          out += (source[i + 1] === '\n') ? ' \n' : '  ';
-          i += 2;
-          continue;
-        }
-        out += (source[i] === '\n') ? '\n' : ' ';
-        i++;
-      }
-      if (i < n) { out += ' '; i++; }
-      continue;
-    }
-    out += c;
-    i++;
-  }
-  return out;
-}
+// maskStringsAndComments() 搬到 tools/lib/maskSource.js 了——
+// tools/lint-readonly-roster.js 也需要一模一樣的邏輯，抽出來共用，
+// 避免兩個 lint 工具各自維護一份容易長歪的字串／註解遮罩實作。
 
 /**
  * 用途：把遮罩過的原始碼切成簡化 token 陣列，每個 token 附帶行號。

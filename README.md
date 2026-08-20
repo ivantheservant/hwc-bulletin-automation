@@ -44,7 +44,10 @@ Auckland 粵語堂自動產生每個主日的週報（崇拜程序、封面、�
 - `AuditLog` 逐格記錄
 - 不刪行，只用 `Active=FALSE` 或 `EffectiveTo`
 - 工作表第 1 行中文標題、第 2 行機器鍵、資料由第 3 行開始
-- commit 前執行 `node tools/scan-staged-secrets.js`
+- commit 前要跑的檢查：
+  - `node tools/scan-staged-secrets.js`　（掃描即將 commit 的內容有沒有真實個資）
+  - `node tools/lint-load-order.js`　（`.gs` 檔案的頂層初始化式不可以依賴載入次序）
+  - `node tools/lint-readonly-roster.js`　（對職事表試算表一律唯讀，一個格都不可以寫）
 
 ## 目錄
 
