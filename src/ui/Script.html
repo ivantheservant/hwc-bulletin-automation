@@ -1,0 +1,458 @@
+<script>
+(function () {
+  'use strict';
+
+  // 目前這個主日的完整狀態。刻意不用 localStorage／sessionStorage——
+  // 重新整理頁面就是要重新從伺服器讀最新資料，不應該有任何本地殘留狀態。
+  var state = {
+    isoDate: null,
+    lastSavedAt: null,
+    week: {},
+    lists: { announcements: [], prayers: [], fellowships: [], finance: [] },
+    options: { programTemplateIds: [], recitationOptions: [], prayerBlockHeadingOptions: [], cantoneseSubColumnLabel: '主堂' }
+  };
+
+  var LIST_DEFS = {
+    announcements: {
+      containerId: 'announcementsList',
+      fields: [{ key: 'TEXT', type: 'textarea', placeholder: '家事報告內容' }]
+    },
+    prayers: {
+      containerId: 'prayersList',
+      fields: [{ key: 'TEXT', type: 'textarea', placeholder: '代禱事項內容' }]
+    },
+    fellowships: {
+      containerId: 'fellowshipsList',
+      fields: [
+        { key: 'FELLOWSHIP_NAME', type: 'text', placeholder: '團契' },
+        { key: 'MEETING_DATE', type: 'text', placeholder: '日期' },
+        { key: 'MEETING_TIME', type: 'text', placeholder: '時間' },
+        { key: 'CONTENT', type: 'text', placeholder: '週會內容' }
+      ]
+    },
+    finance: {
+      containerId: 'financeList',
+      fields: [
+        { key: 'ROW_LABEL', type: 'text', placeholder: '項目' },
+        { key: 'COL_SPECIAL_OVERSEAS', type: 'text', placeholder: '特殊海外奉獻' },
+        { key: 'COL_HARDSHIP', type: 'text', placeholder: '慈惠' }
+      ]
+    }
+  };
+
+  var previewTimer = null;
+
+  // =====================================================================
+  // 小工具
+  // =====================================================================
+
+  function escapeHtml(text) {
+    return String(text === null || text === undefined ? '' : text)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function el(tag, className) {
+    var node = document.createElement(tag);
+    if (className) node.className = className;
+    return node;
+  }
+
+  function showMessage(type, text) {
+    var bar = document.getElementById('messageBar');
+    bar.className = 'message-bar ' + type;
+    bar.textContent = text;
+    bar.classList.remove('hidden');
+  }
+
+  function hideMessage() {
+    document.getElementById('messageBar').classList.add('hidden');
+  }
+
+  function formatTimestamp(v) {
+    if (!v) return '（尚未儲存）';
+    try {
+      var date = (v instanceof Date) ? v : new Date(v);
+      if (isNaN(date.getTime())) return String(v);
+      return date.toLocaleString();
+    } catch (e) {
+      return String(v);
+    }
+  }
+
+  function onApiFailure(err) {
+    var saveBtn = document.getElementById('saveBtn');
+    if (saveBtn) saveBtn.disabled = false;
+    showMessage('error', '呼叫伺服器失敗：' + (err && err.message ? err.message : String(err)));
+  }
+
+  // =====================================================================
+  // 唯讀區塊
+  // =====================================================================
+
+  function renderReadOnly(readOnly) {
+    var meta = document.getElementById('rosterMeta');
+    var parts = [
+      '特別主日：' + escapeHtml(readOnly.special ? readOnly.special.title : '（無）'),
+      '程序範本：' + escapeHtml(readOnly.templateId || '（無）'),
+      '職事表版本：' + escapeHtml(readOnly.rosterVersionUsed === null || readOnly.rosterVersionUsed === undefined
+        ? '（尚未生成）' : String(readOnly.rosterVersionUsed))
+    ];
+    meta.innerHTML = parts.join('　');
+    if (!readOnly.rosterIsOfficial) {
+      var warn = el('strong');
+      warn.style.color = '#b3261e';
+      warn.textContent = '　⚠ 職事表尚未正式發出，內容可能仍會變動';
+      meta.appendChild(warn);
+    }
+
+    renderDutyTable('dutyBoxPage1Body', readOnly.dutyBoxPage1);
+    renderDutyTable('nextWeekDutyBody', readOnly.nextWeekDuty);
+  }
+
+  function renderDutyTable(tbodyId, rows) {
+    var tbody = document.getElementById(tbodyId);
+    tbody.innerHTML = '';
+    (rows || []).forEach(function (r) {
+      var tr = el('tr');
+      var tdLabel = el('td');
+      tdLabel.textContent = r.label;
+      var tdText = el('td', r.isPending ? 'pending' : '');
+      tdText.textContent = r.text || '（待填）';
+      tr.appendChild(tdLabel);
+      tr.appendChild(tdText);
+      tbody.appendChild(tr);
+    });
+    if (!rows || rows.length === 0) {
+      var tr = el('tr');
+      var td = el('td');
+      td.colSpan = 2;
+      td.textContent = '（沒有資料）';
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+    }
+  }
+
+  function renderProgramPreview(rows) {
+    var tbody = document.getElementById('programPreviewBody');
+    tbody.innerHTML = '';
+    (rows || []).forEach(function (r) {
+      var tr = el('tr');
+      [r.itemName, r.content, r.fullWidth ? '' : r.posture].forEach(function (text) {
+        var td = el('td');
+        td.textContent = text || '';
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+  }
+
+  // =====================================================================
+  // 可編輯欄位
+  // =====================================================================
+
+  function applyWeekFieldsToForm() {
+    var fields = document.querySelectorAll('[data-field]');
+    for (var i = 0; i < fields.length; i++) {
+      var fieldEl = fields[i];
+      var key = fieldEl.getAttribute('data-field');
+      fieldEl.value = state.week[key] || '';
+    }
+  }
+
+  function collectWeekFieldsFromForm() {
+    var week = {};
+    var fields = document.querySelectorAll('[data-field]');
+    for (var i = 0; i < fields.length; i++) {
+      var fieldEl = fields[i];
+      week[fieldEl.getAttribute('data-field')] = fieldEl.value;
+    }
+    return week;
+  }
+
+  function populateSelectOptions(selectEl, options, labelFn) {
+    selectEl.innerHTML = '';
+    (options || []).forEach(function (opt) {
+      var o = el('option');
+      o.value = opt;
+      o.textContent = labelFn ? labelFn(opt) : opt;
+      selectEl.appendChild(o);
+    });
+  }
+
+  function populatePrayerHeadingOptions(options) {
+    var dl = document.getElementById('prayerBlockHeadingOptions');
+    dl.innerHTML = '';
+    (options || []).forEach(function (v) {
+      var o = el('option');
+      o.value = v;
+      dl.appendChild(o);
+    });
+  }
+
+  // =====================================================================
+  // 可增刪清單（家事報告／代禱／團契／財政）
+  // =====================================================================
+
+  function renderList(type) {
+    var def = LIST_DEFS[type];
+    var container = document.getElementById(def.containerId);
+    container.innerHTML = '';
+    state.lists[type].forEach(function (item, idx) {
+      container.appendChild(buildListRow(type, def, item, idx));
+    });
+    if (state.lists[type].length === 0) {
+      var empty = el('div', 'hint');
+      empty.textContent = '（目前沒有任何一項，撳下面的按鈕新增）';
+      container.appendChild(empty);
+    }
+  }
+
+  function buildListRow(type, def, item, idx) {
+    var row = el('div', 'repeatable-row');
+
+    var fieldsWrap = el('div', 'repeatable-row-fields');
+    def.fields.forEach(function (f) {
+      var inputEl = el(f.type === 'textarea' ? 'textarea' : 'input');
+      if (f.type !== 'textarea') inputEl.type = 'text';
+      if (f.type === 'textarea') inputEl.rows = 2;
+      inputEl.placeholder = f.placeholder;
+      inputEl.value = item[f.key] || '';
+      inputEl.addEventListener('input', function () { item[f.key] = inputEl.value; });
+      fieldsWrap.appendChild(inputEl);
+    });
+    row.appendChild(fieldsWrap);
+
+    var actions = el('div', 'repeatable-row-actions');
+    actions.appendChild(makeSmallButton('↑ 上移', function () { moveListItem(type, idx, -1); }));
+    actions.appendChild(makeSmallButton('↓ 下移', function () { moveListItem(type, idx, 1); }));
+    actions.appendChild(makeSmallButton('刪除', function () { removeListItem(type, idx); }, true));
+    row.appendChild(actions);
+
+    return row;
+  }
+
+  function makeSmallButton(label, onClick, danger) {
+    var btn = el('button', 'btn btn-small' + (danger ? ' btn-danger' : ''));
+    btn.type = 'button';
+    btn.textContent = label;
+    btn.addEventListener('click', onClick);
+    return btn;
+  }
+
+  function moveListItem(type, idx, delta) {
+    var arr = state.lists[type];
+    var target = idx + delta;
+    if (target < 0 || target >= arr.length) return;
+    var tmp = arr[idx];
+    arr[idx] = arr[target];
+    arr[target] = tmp;
+    renderList(type);
+  }
+
+  function removeListItem(type, idx) {
+    state.lists[type].splice(idx, 1);
+    renderList(type);
+  }
+
+  function addListItem(type) {
+    var def = LIST_DEFS[type];
+    var blank = { seqNo: null };
+    def.fields.forEach(function (f) { blank[f.key] = ''; });
+    state.lists[type].push(blank);
+    renderList(type);
+  }
+
+  function renderAllLists() {
+    Object.keys(LIST_DEFS).forEach(function (type) { renderList(type); });
+  }
+
+  // =====================================================================
+  // 頂部統計與待填清單
+  // =====================================================================
+
+  function renderStats(missing, warnings, lastSavedAt) {
+    document.getElementById('statMissing').textContent = '待填 ' + (missing ? missing.length : 0) + ' 項';
+    document.getElementById('statWarnings').textContent = '警告 ' + (warnings ? warnings.length : 0) + ' 項';
+    document.getElementById('statSaved').textContent = '最後儲存時間：' + formatTimestamp(lastSavedAt);
+    renderMissingPanel(missing);
+  }
+
+  function renderMissingPanel(missing) {
+    var panel = document.getElementById('missingPanel');
+    if (!missing || missing.length === 0) {
+      panel.innerHTML = '（目前沒有待填項目）';
+      return;
+    }
+    var html = '<ul>' + missing.map(function (m) {
+      return '<li>' + escapeHtml(m.label) + '：' + escapeHtml(m.reason) + '</li>';
+    }).join('') + '</ul>';
+    panel.innerHTML = html;
+  }
+
+  // =====================================================================
+  // 主日下拉、載入、儲存、重新讀取職事表
+  // =====================================================================
+
+  function populateWeekSelect(weeks, defaultIsoDate) {
+    var sel = document.getElementById('weekSelect');
+    sel.innerHTML = '';
+    weeks.forEach(function (w) {
+      var o = el('option');
+      o.value = w.isoDate;
+      o.textContent = w.label + (w.status ? '　[' + w.status + ']' : '');
+      if (w.isoDate === defaultIsoDate) o.selected = true;
+      sel.appendChild(o);
+    });
+  }
+
+  function loadWeek(isoDate) {
+    hideMessage();
+    google.script.run
+      .withSuccessHandler(function (resp) { onWeekLoaded(isoDate, resp); })
+      .withFailureHandler(onApiFailure)
+      .apiLoadWeek(isoDate);
+  }
+
+  function onWeekLoaded(isoDate, resp) {
+    if (!resp.ok) { showMessage('error', resp.error.message); return; }
+    var data = resp.data;
+
+    state.isoDate = isoDate;
+    state.lastSavedAt = data.lastSavedAt;
+    state.week = data.week;
+    state.lists = data.lists;
+    state.options = data.options;
+
+    populateSelectOptions(document.getElementById('programTemplateSelect'), data.options.programTemplateIds);
+    populateSelectOptions(document.getElementById('recitationSelect'), data.options.recitationOptions,
+      function (v) { return v || '（留空＝自動）'; });
+    populatePrayerHeadingOptions(data.options.prayerBlockHeadingOptions);
+    document.getElementById('attCantoneseSubLabel').textContent = '粵語堂' + (data.options.cantoneseSubColumnLabel || '主堂');
+
+    applyWeekFieldsToForm();
+    renderAllLists();
+    renderReadOnly(data.readOnly);
+    renderStats(data.missing, data.warnings, data.lastSavedAt);
+    renderProgramPreview(data.readOnly.program);
+  }
+
+  function reloadRosterOnly() {
+    if (!state.isoDate) return;
+    hideMessage();
+    google.script.run
+      .withSuccessHandler(function (resp) {
+        if (!resp.ok) { showMessage('error', resp.error.message); return; }
+        renderReadOnly(resp.data.readOnly);
+        renderStats(resp.data.missing, resp.data.warnings, state.lastSavedAt);
+        renderProgramPreview(resp.data.readOnly.program);
+        showMessage('info', '已重新讀取職事表資料。');
+      })
+      .withFailureHandler(onApiFailure)
+      .apiLoadWeek(state.isoDate);
+  }
+
+  function buildSavePayload() {
+    return {
+      isoDate: state.isoDate,
+      lastSavedAt: state.lastSavedAt,
+      week: collectWeekFieldsFromForm(),
+      announcements: state.lists.announcements,
+      prayers: state.lists.prayers,
+      fellowships: state.lists.fellowships,
+      finance: state.lists.finance
+    };
+  }
+
+  function saveWeek() {
+    if (!state.isoDate) return;
+    hideMessage();
+    var saveBtn = document.getElementById('saveBtn');
+    saveBtn.disabled = true;
+    google.script.run
+      .withSuccessHandler(onSaveSuccess)
+      .withFailureHandler(onApiFailure)
+      .apiSaveWeek(buildSavePayload());
+  }
+
+  function onSaveSuccess(resp) {
+    document.getElementById('saveBtn').disabled = false;
+    if (!resp.ok) {
+      if (resp.error.code === 'STALE') {
+        showMessage('error', '這一週的資料在你編輯期間被其他人改過，請重新載入後再儲存。');
+      } else {
+        showMessage('error', resp.error.message);
+      }
+      return;
+    }
+    showMessage('success', '已儲存。');
+    loadWeek(state.isoDate);
+  }
+
+  // =====================================================================
+  // 程序表即時預覽
+  // =====================================================================
+
+  function schedulePreviewRefresh() {
+    if (previewTimer) clearTimeout(previewTimer);
+    previewTimer = setTimeout(refreshPreview, 350);
+  }
+
+  function refreshPreview() {
+    if (!state.isoDate) return;
+    var draft = collectWeekFieldsFromForm();
+    google.script.run
+      .withSuccessHandler(function (resp) { if (resp.ok) renderProgramPreview(resp.data.rows); })
+      .withFailureHandler(function () { /* 預覽失敗不打擾使用者，維持上一次的預覽內容 */ })
+      .apiPreviewProgram(state.isoDate, draft);
+  }
+
+  // =====================================================================
+  // 初始化
+  // =====================================================================
+
+  function wireStaticEvents() {
+    document.getElementById('weekSelect').addEventListener('change', function (e) { loadWeek(e.target.value); });
+    document.getElementById('saveBtn').addEventListener('click', saveWeek);
+    document.getElementById('reloadRosterBtn').addEventListener('click', reloadRosterOnly);
+    document.getElementById('statMissing').addEventListener('click', function () {
+      document.getElementById('missingPanel').classList.toggle('hidden');
+    });
+
+    var addButtons = document.querySelectorAll('[data-add-list]');
+    for (var i = 0; i < addButtons.length; i++) {
+      (function (btn) {
+        btn.addEventListener('click', function () { addListItem(btn.getAttribute('data-add-list')); });
+      })(addButtons[i]);
+    }
+
+    document.addEventListener('input', function (e) {
+      var target = e.target;
+      if (target && target.hasAttribute && target.hasAttribute('data-field')) {
+        state.week[target.getAttribute('data-field')] = target.value;
+        schedulePreviewRefresh();
+      }
+    });
+  }
+
+  function init() {
+    wireStaticEvents();
+    document.getElementById('missingPanel').classList.add('hidden');
+    google.script.run
+      .withSuccessHandler(onWeeksLoaded)
+      .withFailureHandler(onApiFailure)
+      .apiListWeeks();
+  }
+
+  function onWeeksLoaded(resp) {
+    if (!resp.ok) { showMessage('error', resp.error.message); return; }
+    populateWeekSelect(resp.data.weeks, resp.data.defaultIsoDate);
+    if (resp.data.defaultIsoDate) {
+      loadWeek(resp.data.defaultIsoDate);
+    } else {
+      showMessage('error', '目前沒有任何主日資料。請先在試算表用選單「建立本季空白週報」建立骨架。');
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', init);
+})();
+</script>

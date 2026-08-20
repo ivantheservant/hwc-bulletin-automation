@@ -1,0 +1,588 @@
+/**
+ * WebApp.gs
+ *
+ * 週報填寫介面（單頁 Web App）：`doGet` 入口、權限檢查，以及給前端
+ * `google.script.run` 呼叫的四個 API 函式（`apiListWeeks`／`apiLoadWeek`／
+ * `apiPreviewProgram`／`apiSaveWeek`）。實際的儲存邏輯（upsert、樂觀鎖、
+ * AuditLog）在 `src/WebAppSave.gs`，本檔案只負責「誰可以用」與「前端要
+ * 什麼資料」。
+ *
+ * 本檔案完全不碰 Google Docs、PDF、`MailApp`、`ScriptApp.newTrigger`，
+ * 也不會寫入職事表（唯一會寫的是週報自己的試算表，經 WebAppSave.gs）。
+ *
+ * 權限次序（`doGet` 與每一個 API 函式都要遵守）：
+ *   1. `WEBAPP_ENABLED` 不是 TRUE → 一頁說明，不渲染介面。
+ *   2. 呼叫者不在 `WEBAPP_ALLOWED_EMAILS`（留空時只允許部署者本人）
+ *      → 一頁說明。
+ *   3. 通過才渲染 `ui/Index`。
+ *
+ * ⚠️ **只在 `doGet` 檢查是不夠的**——`google.script.run` 可以繞過頁面直接
+ * 呼叫任何一個全域函式，所以每一個 API 函式開頭都要再呼叫一次
+ * `assertCallerAuthorized_()`（透過 `withApiResult_()` 統一處理）。
+ */
+
+'use strict';
+
+// =====================================================================
+// doGet 入口
+// =====================================================================
+
+/**
+ * 用途：Web App 的 `doGet` 入口（Apps Script 固定簽章）。依序檢查總開關與
+ *   呼叫者權限，通過才渲染 `ui/Index` 樣板。
+ * Args:
+ *   e {Object} Apps Script 傳入的請求事件物件，本函式不使用其內容。
+ * Returns:
+ *   {HtmlOutput}
+ */
+function doGet(e) {
+  if (!isWebAppEnabled_()) {
+    return HtmlService.createHtmlOutput(renderWebAppMessagePage_(
+      '填寫介面目前已關閉',
+      ['管理者已經在 Config 把 WEBAPP_ENABLED 設為 FALSE。', '要重新啟用，請在 Config 把 WEBAPP_ENABLED 改回 TRUE。']
+    ));
+  }
+  if (!isCallerAuthorized_()) {
+    return HtmlService.createHtmlOutput(renderWebAppMessagePage_(
+      '沒有使用權限',
+      ['您目前沒有權限使用本填寫介面。', '請聯絡管理者，在 Config 的 WEBAPP_ALLOWED_EMAILS 加入您的電郵（逗號分隔）。']
+    ));
+  }
+
+  return HtmlService.createTemplateFromFile('ui/Index').evaluate()
+    .setTitle(APP_NAME + '－填寫介面')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+/**
+ * 用途：`ui/Index.html` 用來組合 `ui/Style.html`／`ui/Script.html` 的樣板
+ *   輔助函式（Apps Script `HtmlService` 樣板的標準寫法）。
+ * Args:
+ *   filename {string} 相對於 `src/` 的 HTML 檔案路徑（例如 `'ui/Style'`）。
+ * Returns:
+ *   {string} 該檔案求值後的內容。
+ */
+function include(filename) {
+  return HtmlService.createTemplateFromFile(filename).evaluate().getContent();
+}
+
+/**
+ * 用途：組出「總開關關閉」或「沒有權限」這類說明頁面的 HTML。純字串組合，
+ *   不經過樣板引擎，所以不受「.html 註解不可以出現樣板標籤符號」那條
+ *   限制（那條限制針對的是 `HtmlService.createTemplateFromFile()` 讀取的
+ *   `.html` 檔案，這裡回傳的是已經求值完的純字串）。
+ * Args:
+ *   title {string} 頁面標題。
+ *   lines {string[]} 每一行說明文字，會逐行輸出成獨立的 `<p>`。
+ * Returns:
+ *   {string} 完整的 HTML 內容。
+ */
+function renderWebAppMessagePage_(title, lines) {
+  var paragraphs = (lines || []).map(function (line) { return '<p>' + escapeHtml_(line) + '</p>'; }).join('');
+  return '<div style="font-family:sans-serif;max-width:32em;margin:3em auto;line-height:1.8;color:#333;">'
+    + '<h2>' + escapeHtml_(title) + '</h2>'
+    + paragraphs
+    + '</div>';
+}
+
+/**
+ * 用途：把文字轉成安全嵌入 HTML 的形式（跳脫 `& < > "` 四個字元）。
+ * Args:
+ *   text {*} 任意值，會先轉成字串。
+ * Returns:
+ *   {string}
+ */
+function escapeHtml_(text) {
+  return String(text === null || text === undefined ? '' : text)
+    .split('&').join('&amp;')
+    .split('<').join('&lt;')
+    .split('>').join('&gt;')
+    .split('"').join('&quot;');
+}
+
+// =====================================================================
+// 權限
+// =====================================================================
+
+/**
+ * 用途：讀 Config 的 `WEBAPP_ENABLED` 總開關。
+ * Args: （無）
+ * Returns:
+ *   {boolean}
+ */
+function isWebAppEnabled_() {
+  return normalizeBoolean_(getConfig(CONFIG_KEYS.WEBAPP_ENABLED, 'TRUE')) === true;
+}
+
+/**
+ * 用途：取得目前呼叫者的電郵。包一層 try/catch——部分執行環境（例如網域
+ *   外的存取）可能沒有權限回傳電郵，這時當成「查不到」而不是讓整個請求
+ *   失敗（呼叫方會因為查不到電郵而判定沒有權限，效果等同拒絕）。
+ * Args: （無）
+ * Returns:
+ *   {string} 查不到時回空字串。
+ */
+function getCallerEmail_() {
+  try {
+    return Session.getActiveUser().getEmail() || '';
+  } catch (err) {
+    return '';
+  }
+}
+
+/**
+ * 用途：取得腳本的「有效使用者」電郵——`executeAs: USER_DEPLOYING` 部署下，
+ *   這是部署者本人的電郵，不論實際呼叫者是誰都一樣。`WEBAPP_ALLOWED_EMAILS`
+ *   留空時，只有這個人可以使用填寫介面。
+ * Args: （無）
+ * Returns:
+ *   {string} 查不到時回空字串。
+ */
+function getEffectiveEmail_() {
+  try {
+    return Session.getEffectiveUser().getEmail() || '';
+  } catch (err) {
+    return '';
+  }
+}
+
+/**
+ * 用途：判斷一個電郵是否有權限使用填寫介面。純函式，方便獨立測試。
+ * Args:
+ *   callerEmail {string} 呼叫者的電郵。
+ *   allowedEmailsList {string[]} `WEBAPP_ALLOWED_EMAILS` 解析後的清單。
+ *   effectiveEmail {string} 部署者（`Session.getEffectiveUser()`）的電郵。
+ * Returns:
+ *   {boolean} 名單非空時，呼叫者要在名單內（不分大小寫）；名單空白時，
+ *     只有呼叫者等於 `effectiveEmail` 才通過。`callerEmail` 空白一律回 false。
+ */
+function isEmailAuthorized_(callerEmail, allowedEmailsList, effectiveEmail) {
+  var caller = String(callerEmail || '').trim().toLowerCase();
+  if (!caller) return false;
+
+  var allowed = (allowedEmailsList || [])
+    .map(function (e) { return String(e || '').trim().toLowerCase(); })
+    .filter(function (e) { return e.length > 0; });
+
+  if (allowed.length > 0) {
+    return allowed.indexOf(caller) !== -1;
+  }
+
+  var effective = String(effectiveEmail || '').trim().toLowerCase();
+  return Boolean(effective) && caller === effective;
+}
+
+/**
+ * 用途：`isEmailAuthorized_()` 的 IO 包裝——讀目前呼叫者、Config 名單、
+ *   部署者電郵，判斷這一次呼叫是否有權限。
+ * Args: （無）
+ * Returns:
+ *   {boolean}
+ */
+function isCallerAuthorized_() {
+  var allowed = getConfigTextList_(CONFIG_KEYS.WEBAPP_ALLOWED_EMAILS, '');
+  return isEmailAuthorized_(getCallerEmail_(), allowed, getEffectiveEmail_());
+}
+
+/**
+ * 用途：每一個給前端呼叫的 API 函式開頭都要呼叫這個函式——只在 `doGet`
+ *   檢查權限是不夠的，`google.script.run` 可以繞過頁面直接呼叫任何全域
+ *   函式。
+ * Args: （無）
+ * Returns:
+ *   {void}
+ * Raises:
+ *   Error（`code: 'FORBIDDEN'`）如果呼叫者沒有權限。
+ */
+function assertCallerAuthorized_() {
+  if (isCallerAuthorized_()) return;
+  var err = new Error('您沒有權限使用本填寫介面。請聯絡管理者，在 Config 的 WEBAPP_ALLOWED_EMAILS 加入您的電郵。');
+  err.code = 'FORBIDDEN';
+  throw err;
+}
+
+// =====================================================================
+// API 函式——統一回傳 { ok, data?, error? }，不可以把例外直接拋到前端
+// =====================================================================
+
+/**
+ * 用途：把一個會拋錯的函式包成統一的 `{ ok, data?, error? }` 形狀，並在
+ *   執行前檢查呼叫者權限。全部 `api*` 函式都經由這個函式呼叫底層邏輯。
+ * Args:
+ *   fn {function(): *} 實際要執行的邏輯，可以拋錯。
+ * Returns:
+ *   {{ok:boolean, data:*, error:({code:string,message:string}|undefined)}}
+ */
+function withApiResult_(fn) {
+  try {
+    assertCallerAuthorized_();
+    return { ok: true, data: fn() };
+  } catch (err) {
+    return {
+      ok: false,
+      error: {
+        code: (err && err.code) || 'ERROR',
+        message: (err && err.message) ? err.message : String(err)
+      }
+    };
+  }
+}
+
+/**
+ * 用途：前端呼叫，取得主日下拉清單。
+ * Args: （無）
+ * Returns:
+ *   {{ok:boolean, data:{weeks:Object[], defaultIsoDate:(string|null)}, error?:Object}}
+ */
+function apiListWeeks() {
+  return withApiResult_(function () { return listWeeksForWebApp_(); });
+}
+
+/**
+ * 用途：前端呼叫，取得指定主日的完整可編輯欄位、唯讀區塊、待填清單、
+ *   警告與樂觀鎖時間戳記。
+ * Args:
+ *   isoDate {string} 主日日期，yyyy-MM-dd。
+ * Returns:
+ *   {{ok:boolean, data:Object, error?:Object}} `data` 形狀見
+ *     `loadWeekForWebApp_()`。
+ */
+function apiLoadWeek(isoDate) {
+  return withApiResult_(function () { return loadWeekForWebApp_(isoDate); });
+}
+
+/**
+ * 用途：前端呼叫，用**未儲存**的草稿欄位值即時重算一次程序表，不寫入
+ *   任何工作表。
+ * Args:
+ *   isoDate {string} 主日日期，yyyy-MM-dd。
+ *   draftFields {Object} 目前表單上的欄位草稿值（以 `BulletinWeeks` 機器鍵
+ *     為 key），會覆蓋掉工作表現有值後再算一次程序表。
+ * Returns:
+ *   {{ok:boolean, data:{templateId:string, rows:Object[]}, error?:Object}}
+ */
+function apiPreviewProgram(isoDate, draftFields) {
+  return withApiResult_(function () { return previewProgramForWebApp_(isoDate, draftFields); });
+}
+
+/**
+ * 用途：前端呼叫，儲存一週的可編輯欄位。詳細行為見 `src/WebAppSave.gs`
+ *   的 `saveWeekFromWebApp_()`（樂觀鎖、upsert、逐格 AuditLog）。
+ * Args:
+ *   payload {Object} 見 `src/WebAppSave.gs` 檔頭的 payload 形狀說明。
+ * Returns:
+ *   {{ok:boolean, data:{lastSavedAt:Date, changedFieldCount:number}, error?:Object}}
+ *     樂觀鎖沒對上時 `error.code` 是 `'STALE'`。
+ */
+function apiSaveWeek(payload) {
+  return withApiResult_(function () { return saveWeekFromWebApp_(payload); });
+}
+
+// =====================================================================
+// apiListWeeks 的實作
+// =====================================================================
+
+/**
+ * 用途：`apiListWeeks()` 的 IO 層——讀 `BulletinWeeks`，交給純函式層組出
+ *   下拉選項與預設選中的日期。
+ * Args: （無）
+ * Returns:
+ *   {{weeks:Object[], defaultIsoDate:(string|null)}}
+ */
+function listWeeksForWebApp_() {
+  var rows = readSheet(SHEETS.BULLETIN_WEEKS);
+  var todayIso = formatIsoDate_(new Date());
+  var entries = buildWeekListEntries_(rows, todayIso);
+  return {
+    weeks: entries,
+    defaultIsoDate: pickDefaultWeekIsoDate_(entries, todayIso)
+  };
+}
+
+/**
+ * 用途：把 `BulletinWeeks` 資料列組成下拉選單用的清單：`STATUS` 不是
+ *   `SENT` 的排前面，組內按日期由小到大排序。純函式，方便獨立測試。
+ * Args:
+ *   rows {Object[]} `readSheet(SHEETS.BULLETIN_WEEKS)` 的輸出。
+ *   todayIso {string} 今天的日期，yyyy-MM-dd（只用來讓呼叫方之後挑預設值，
+ *     這個函式本身不使用）。
+ * Returns:
+ *   {{isoDate:string, weekOfMonth:(number|null), status:string, label:string}[]}
+ *     `SERVICE_DATE` 不是合法 Date 的行會被略過（代表資料本身有問題，
+ *     不應該讓整個下拉清單壞掉）。
+ */
+function buildWeekListEntries_(rows, todayIso) {
+  return (rows || [])
+    .filter(function (r) { return r.SERVICE_DATE instanceof Date; })
+    .map(function (r) {
+      var isoDate = formatIsoDate_(r.SERVICE_DATE);
+      var weekOfMonth = (r.WEEK_OF_MONTH === null || r.WEEK_OF_MONTH === undefined) ? null : r.WEEK_OF_MONTH;
+      return {
+        isoDate: isoDate,
+        weekOfMonth: weekOfMonth,
+        status: r.STATUS || '',
+        label: isoDate + '（週次 ' + (weekOfMonth === null ? '?' : weekOfMonth) + '）'
+      };
+    })
+    .sort(function (a, b) {
+      var aNotSent = a.status !== BULLETIN_WEEK_STATUS.SENT;
+      var bNotSent = b.status !== BULLETIN_WEEK_STATUS.SENT;
+      if (aNotSent !== bNotSent) return aNotSent ? -1 : 1;
+      if (a.isoDate < b.isoDate) return -1;
+      if (a.isoDate > b.isoDate) return 1;
+      return 0;
+    });
+}
+
+/**
+ * 用途：從下拉清單挑出預設選中的日期：今天之後最近的一個主日；沒有
+ *   （全部都是過去）就選清單第一個。純函式。
+ * Args:
+ *   entries {Object[]} `buildWeekListEntries_()` 的輸出。
+ *   todayIso {string} 今天的日期，yyyy-MM-dd。
+ * Returns:
+ *   {?string} 清單是空陣列時回 `null`。
+ */
+function pickDefaultWeekIsoDate_(entries, todayIso) {
+  if (!entries || entries.length === 0) return null;
+
+  var upcoming = entries
+    .filter(function (e) { return e.isoDate >= todayIso; })
+    .slice()
+    .sort(function (a, b) {
+      if (a.isoDate < b.isoDate) return -1;
+      if (a.isoDate > b.isoDate) return 1;
+      return 0;
+    });
+
+  return upcoming.length > 0 ? upcoming[0].isoDate : entries[0].isoDate;
+}
+
+// =====================================================================
+// apiLoadWeek 的實作
+// =====================================================================
+
+/**
+ * 用途：`apiLoadWeek()` 的 IO 層。唯讀區塊（事奉框、下週事奉、特別主日、
+ *   程序範本、職事表版本／是否正式發出）直接沿用 `buildBulletinModel_()`；
+ *   可編輯欄位另外用**未經 BulletinModel 加工**的原始值讀出（幹事要看到
+ *   實際存的內容，不是套過預設值之後的顯示字串）。
+ * Args:
+ *   isoDate {string} 主日日期，yyyy-MM-dd。
+ * Returns:
+ *   {Object} 形狀：
+ *     `{ isoDate, week:Object, lists:{announcements,prayers,fellowships,finance},
+ *        lastSavedAt:(Date|null), readOnly:Object, missing:Object[],
+ *        warnings:Object[], options:Object }`
+ * Raises:
+ *   Error（`code:'NOT_CONFIGURED'`）如果 `ROSTER_SPREADSHEET_ID` 未設定。
+ */
+function loadWeekForWebApp_(isoDate) {
+  var model = buildBulletinModel_(isoDate);
+  if (model.notConfigured) {
+    var err = new Error('職事表尚未設定（Config 的 ROSTER_SPREADSHEET_ID 是空的），請先設定後再使用填寫介面。');
+    err.code = 'NOT_CONFIGURED';
+    throw err;
+  }
+
+  var weekRows = readSheet(SHEETS.BULLETIN_WEEKS);
+  var weekRow = findBulletinWeekRow_(weekRows, isoDate) || {};
+
+  var week = {};
+  webAppWeekFieldKeys_().forEach(function (key) {
+    var v = weekRow[key];
+    if (v instanceof Date) {
+      week[key] = formatIsoDate_(v);
+    } else {
+      week[key] = (v === null || v === undefined) ? '' : v;
+    }
+  });
+
+  return {
+    isoDate: isoDate,
+    week: week,
+    lists: {
+      announcements: pickWebAppListItems_(readSheet(SHEETS.ANNOUNCEMENTS), isoDate, ['TEXT']),
+      prayers: pickWebAppListItems_(readSheet(SHEETS.PRAYERS), isoDate, ['TEXT']),
+      fellowships: pickWebAppListItems_(readSheet(SHEETS.FELLOWSHIPS), isoDate,
+        ['FELLOWSHIP_NAME', 'MEETING_DATE', 'MEETING_TIME', 'CONTENT']),
+      finance: pickWebAppListItems_(readSheet(SHEETS.FINANCE), isoDate,
+        ['ROW_LABEL', 'COL_SPECIAL_OVERSEAS', 'COL_HARDSHIP'])
+    },
+    lastSavedAt: weekRow.LAST_SAVED_AT || null,
+    readOnly: {
+      dutyBoxPage1: model.dutyBoxPage1,
+      nextWeekDuty: model.nextWeekDuty,
+      special: model.special,
+      templateId: model.templateId,
+      rosterVersionUsed: model.rosterVersionUsed,
+      rosterIsOfficial: model.rosterIsOfficial,
+      program: model.program
+    },
+    missing: model.missing,
+    warnings: model.warnings,
+    options: webAppFieldOptions_()
+  };
+}
+
+/**
+ * 用途：從一張「一個主日多行」的工作表（`Announcements`／`Prayers`／
+ *   `Fellowships`／`Finance`），篩出指定主日、`ACTIVE=TRUE` 的行，按
+ *   `SEQ_NO` 排序，只挑出呼叫方要的欄位（加上 `seqNo`）。
+ * Args:
+ *   rows {Object[]} `readSheet()` 的輸出。
+ *   isoDate {string} 主日日期，yyyy-MM-dd。
+ *   fieldKeys {string[]} 要挑出的機器鍵（例如 `['TEXT']`）。
+ * Returns:
+ *   {Object[]} 每個元素形狀 `{ seqNo, <fieldKeys...> }`；`isoDate` 格式不對
+ *     時回空陣列。
+ */
+function pickWebAppListItems_(rows, isoDate, fieldKeys) {
+  var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(isoDate || ''));
+  if (!m) return [];
+  var y = Number(m[1]);
+  var mo = Number(m[2]);
+  var d = Number(m[3]);
+
+  return (rows || [])
+    .filter(function (r) { return r.ACTIVE === true && rosterDateMatchesYMD_(r.SERVICE_DATE, y, mo, d); })
+    .slice()
+    .sort(function (a, b) { return (a.SEQ_NO || 0) - (b.SEQ_NO || 0); })
+    .map(function (r) {
+      var item = { seqNo: r.SEQ_NO };
+      fieldKeys.forEach(function (key) {
+        var v = r[key];
+        item[key] = (v === null || v === undefined) ? '' : v;
+      });
+      return item;
+    });
+}
+
+/**
+ * 用途：組出可編輯欄位需要的各種下拉選項（程序範本 ID、誦讀覆寫、代禱
+ *   標題建議值），一律來自 Config／`ProgramTemplates`，不寫死。
+ * Args: （無）
+ * Returns:
+ *   {{programTemplateIds:string[], recitationOptions:string[],
+ *     prayerBlockHeadingOptions:string[], cantoneseSubColumnLabel:string}}
+ *     `recitationOptions` 第一項固定是空字串（代表「留空＝自動」）。
+ */
+function webAppFieldOptions_() {
+  return {
+    programTemplateIds: uniqueProgramTemplateIds_(readSheet(SHEETS.PROGRAM_TEMPLATES)),
+    recitationOptions: webAppRecitationOptions_(),
+    prayerBlockHeadingOptions: getConfigTextList_(
+      CONFIG_KEYS.PRAYER_BLOCK_HEADING_OPTIONS, '代禱事項,宣教消息,宣教代禱消息,宣教代禱事項'
+    ),
+    cantoneseSubColumnLabel: getConfig(CONFIG_KEYS.CANTONESE_SUBCOLUMN_LABEL, '主堂')
+  };
+}
+
+/**
+ * 用途：把 `ProgramTemplates` 啟用中的資料列去重出 `TEMPLATE_ID` 清單，
+ *   保留第一次出現的次序。
+ * Args:
+ *   templateRows {Object[]} `readSheet(SHEETS.PROGRAM_TEMPLATES)` 的輸出。
+ * Returns:
+ *   {string[]}
+ */
+function uniqueProgramTemplateIds_(templateRows) {
+  var seen = {};
+  var ids = [];
+  (templateRows || []).forEach(function (r) {
+    if (r.ACTIVE !== true) return;
+    if (seen[r.TEMPLATE_ID]) return;
+    seen[r.TEMPLATE_ID] = true;
+    ids.push(r.TEMPLATE_ID);
+  });
+  return ids;
+}
+
+/**
+ * 用途：組出「誦讀（覆寫）」下拉的選項——留空（自動）＋ Config 三個誦讀
+ *   內容鍵目前的值（去重）。選項內容完全來自 Config，不寫死。
+ * Args: （無）
+ * Returns:
+ *   {string[]} 第一項固定是空字串。
+ */
+function webAppRecitationOptions_() {
+  var raw = [
+    getConfig(CONFIG_KEYS.RECITATION_JAN_APR, '使徒信經'),
+    getConfig(CONFIG_KEYS.RECITATION_MAY_AUG, '十誡'),
+    getConfig(CONFIG_KEYS.RECITATION_SEP_DEC, '主禱文')
+  ];
+  var seen = {};
+  var options = [''];
+  raw.forEach(function (v) {
+    var t = String(v || '').trim();
+    if (!t || seen[t]) return;
+    seen[t] = true;
+    options.push(t);
+  });
+  return options;
+}
+
+// =====================================================================
+// apiPreviewProgram 的實作
+// =====================================================================
+
+/**
+ * 用途：`apiPreviewProgram()` 的 IO 層。用工作表現有的週資料列為底，疊上
+ *   前端傳來的草稿欄位值，重算一次程序表——完全不寫入任何工作表。
+ * Args:
+ *   isoDate {string} 主日日期，yyyy-MM-dd。
+ *   draftFields {Object} 草稿欄位值（`BulletinWeeks` 機器鍵 → 值）。
+ * Returns:
+ *   {{templateId:string, rows:Object[]}}
+ */
+function previewProgramForWebApp_(isoDate, draftFields) {
+  var snapshot = readRosterSnapshot_(isoDate);
+  var weekRows = readSheet(SHEETS.BULLETIN_WEEKS);
+  var weekRow = findBulletinWeekRow_(weekRows, isoDate) || {};
+  var draftWeek = Object.assign({}, weekRow, draftFields || {});
+  var program = buildProgramTable_(draftWeek, snapshot);
+  return { templateId: program.templateId, rows: program.rows };
+}
+
+// =====================================================================
+// 選單：開啟填寫介面
+// =====================================================================
+
+/**
+ * 用途：選單項目「開啟填寫介面」的處理函式。`WEBAPP_URL` 有值就用對話框
+ *   顯示可點擊的連結；留空就講解部署步驟。
+ * Args: （無）
+ * Returns:
+ *   {void}
+ */
+function menuOpenWebApp_() {
+  var ui = SpreadsheetApp.getUi();
+  var url = getConfig(CONFIG_KEYS.WEBAPP_URL, '');
+
+  if (url) {
+    var html = HtmlService.createHtmlOutput(
+      '<div style="font-family:sans-serif;padding:1em;line-height:1.6;">'
+      + '<p>填寫介面網址：</p>'
+      + '<p><a href="' + escapeHtml_(url) + '" target="_blank" rel="noopener">' + escapeHtml_(url) + '</a></p>'
+      + '</div>'
+    ).setWidth(440).setHeight(160);
+    ui.showModalDialog(html, '開啟填寫介面');
+    return;
+  }
+
+  ui.alert(
+    '尚未部署填寫介面',
+    [
+      '請先部署本專案的 Web App，步驟：',
+      '1. Script Editor ▸ 部署 ▸ 新增部署作業',
+      '2. 類型選「網頁應用程式」',
+      '3. 執行身分選「我」',
+      '4. 存取權選「網域內的使用者」',
+      '5. 按「部署」，複製產生的網址',
+      '6. 把網址貼進 Config 的 WEBAPP_URL 這一格',
+      '',
+      '完成後重新點選這個選單項目即可看到連結。'
+    ].join('\n'),
+    ui.ButtonSet.OK
+  );
+}

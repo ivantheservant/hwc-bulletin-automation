@@ -1,0 +1,173 @@
+<?!= include('ui/Style'); ?>
+
+<div id="app">
+
+  <header id="topbar">
+    <div class="topbar-row">
+      <label class="topbar-field">
+        主日：
+        <select id="weekSelect"></select>
+      </label>
+      <span id="statMissing" class="stat stat-clickable" title="撳一下展開待填清單">待填 0 項</span>
+      <span id="statWarnings" class="stat">警告 0 項</span>
+      <span id="statSaved" class="stat">最後儲存時間：（尚未儲存）</span>
+      <span class="topbar-spacer"></span>
+      <button id="reloadRosterBtn" type="button" class="btn btn-secondary">重新讀取職事表</button>
+      <button id="saveBtn" type="button" class="btn btn-primary">儲存</button>
+    </div>
+    <div id="messageBar" class="message-bar hidden"></div>
+    <div id="missingPanel" class="missing-panel hidden"></div>
+  </header>
+
+  <main id="mainContent">
+
+    <section class="panel readonly-panel">
+      <h2>職事表資料（唯讀，僅供核對）</h2>
+      <div id="rosterMeta" class="readonly-meta"></div>
+      <div class="readonly-columns">
+        <div class="readonly-col">
+          <h3>本週事奉（第 1 頁）</h3>
+          <table class="readonly-table"><tbody id="dutyBoxPage1Body"></tbody></table>
+        </div>
+        <div class="readonly-col">
+          <h3>下週事奉（第 3 頁）</h3>
+          <table class="readonly-table"><tbody id="nextWeekDutyBody"></tbody></table>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>甲、崇拜程序</h2>
+      <div class="field-grid">
+        <label>程序表大標題
+          <input type="text" data-field="PAGE_TITLE">
+        </label>
+        <label>程序範本
+          <select data-field="PROGRAM_TEMPLATE_ID" id="programTemplateSelect"></select>
+        </label>
+        <label>序樂
+          <input type="text" data-field="PRELUDE">
+        </label>
+        <label>宣召出處
+          <input type="text" data-field="CALL_REF">
+        </label>
+        <label class="field-wide">宣召經文
+          <textarea data-field="CALL_TEXT" rows="2"></textarea>
+        </label>
+        <label>誦讀（覆寫）
+          <select data-field="RECITATION_OVERRIDE" id="recitationSelect"></select>
+        </label>
+        <label>詩歌頌讚
+          <input type="text" data-field="HYMN_PRAISE">
+        </label>
+        <label>詩班項目名稱
+          <input type="text" data-field="CHOIR_LABEL">
+        </label>
+        <label>詩班曲名
+          <input type="text" data-field="CHOIR_TITLE">
+        </label>
+        <label>讀經
+          <input type="text" data-field="SCRIPTURE_REF">
+        </label>
+        <label>證道講題
+          <input type="text" data-field="SERMON_TITLE">
+        </label>
+        <label>回應詩歌
+          <input type="text" data-field="RESPONSE_HYMN">
+        </label>
+      </div>
+      <h3>程序表即時預覽</h3>
+      <table class="preview-table">
+        <thead><tr><th>項目</th><th>內容</th><th>立坐</th></tr></thead>
+        <tbody id="programPreviewBody"></tbody>
+      </table>
+    </section>
+
+    <section class="panel">
+      <h2>乙、上週崇拜人數</h2>
+      <div class="field-grid">
+        <label>人數表標題
+          <input type="text" data-field="ATTENDANCE_HEADING">
+        </label>
+        <label>人數統計日期
+          <input type="text" data-field="ATTENDANCE_DATE" placeholder="yyyy-MM-dd">
+        </label>
+      </div>
+      <table class="attendance-table">
+        <thead>
+          <tr><th></th><th>英語堂</th><th id="attCantoneseSubLabel">粵語堂主堂</th><th>粵語堂北岸</th><th>華語堂</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th>崇拜</th>
+            <td><input type="text" data-field="ATT_ENG_WORSHIP"></td>
+            <td><input type="text" data-field="ATT_CANE_WORSHIP"></td>
+            <td><input type="text" data-field="ATT_CANN_WORSHIP"></td>
+            <td><input type="text" data-field="ATT_MAN_WORSHIP"></td>
+          </tr>
+          <tr>
+            <th>祈禱會</th>
+            <td><input type="text" data-field="ATT_ENG_PRAYER"></td>
+            <td><input type="text" data-field="ATT_CANE_PRAYER"></td>
+            <td><input type="text" data-field="ATT_CANN_PRAYER"></td>
+            <td><input type="text" data-field="ATT_MAN_PRAYER"></td>
+          </tr>
+          <tr>
+            <th>兒童</th>
+            <td><input type="text" data-field="ATT_ENG_CHILD"></td>
+            <td><input type="text" data-field="ATT_CANE_CHILD"></td>
+            <td><input type="text" data-field="ATT_CANN_CHILD"></td>
+            <td><input type="text" data-field="ATT_MAN_CHILD"></td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="hint">以上 12 格一律當文字保存（樣本出現過「--」「前:5 / 後:120」這類值），不會被轉成數字或日期。</p>
+    </section>
+
+    <section class="panel">
+      <h2>丙、獻花</h2>
+      <div class="field-grid">
+        <label>本週獻花
+          <input type="text" data-field="FLOWER_THIS_WEEK">
+        </label>
+        <label>下週獻花
+          <input type="text" data-field="FLOWER_NEXT_WEEK">
+        </label>
+        <label>下週事奉標題
+          <input type="text" data-field="NEXT_WEEK_HEADING">
+        </label>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>丁、家事報告</h2>
+      <div id="announcementsList" class="repeatable-list"></div>
+      <button type="button" class="btn btn-secondary" data-add-list="announcements">新增一則家事報告</button>
+    </section>
+
+    <section class="panel">
+      <h2>戊、代禱事項</h2>
+      <label>代禱區塊標題
+        <input type="text" id="prayerBlockHeadingInput" data-field="PRAYER_BLOCK_HEADING" list="prayerBlockHeadingOptions">
+        <datalist id="prayerBlockHeadingOptions"></datalist>
+      </label>
+      <div id="prayersList" class="repeatable-list"></div>
+      <button type="button" class="btn btn-secondary" data-add-list="prayers">新增一則代禱事項</button>
+    </section>
+
+    <section class="panel">
+      <h2>己、本週團契聚會</h2>
+      <div id="fellowshipsList" class="repeatable-list repeatable-list-fellowship"></div>
+      <button type="button" class="btn btn-secondary" data-add-list="fellowships">新增一項團契聚會</button>
+    </section>
+
+    <section class="panel">
+      <h2>庚、月度財政報告</h2>
+      <div id="financeList" class="repeatable-list repeatable-list-finance"></div>
+      <button type="button" class="btn btn-secondary" data-add-list="finance">新增一項財政報告</button>
+    </section>
+
+  </main>
+</div>
+
+<?!= include('ui/Script'); ?>

@@ -1,0 +1,170 @@
+<style>
+  * { box-sizing: border-box; }
+
+  body {
+    font-family: "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+    margin: 0;
+    background: #f4f5f7;
+    color: #222;
+    font-size: 14px;
+  }
+
+  h2 { font-size: 16px; margin: 0 0 0.8em 0; }
+  h3 { font-size: 13px; margin: 1em 0 0.4em 0; color: #555; }
+
+  #topbar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: #ffffff;
+    border-bottom: 1px solid #d7d9dd;
+    padding: 0.6em 1em;
+  }
+
+  .topbar-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.8em;
+  }
+
+  .topbar-field select {
+    margin-left: 0.3em;
+  }
+
+  .topbar-spacer { flex: 1; }
+
+  .stat {
+    padding: 0.2em 0.6em;
+    border-radius: 4px;
+    background: #eef0f3;
+    font-size: 13px;
+  }
+
+  .stat-clickable { cursor: pointer; }
+  .stat-clickable:hover { background: #dfe3e8; }
+
+  .btn {
+    border: 1px solid #c7cad0;
+    background: #fff;
+    padding: 0.45em 1em;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .btn:hover { background: #f0f1f3; }
+  .btn-primary {
+    background: #2f6feb;
+    border-color: #2f6feb;
+    color: #fff;
+    font-weight: bold;
+  }
+  .btn-primary:hover { background: #2657c0; }
+  .btn-secondary { color: #444; }
+  .btn-small { padding: 0.2em 0.6em; font-size: 12px; }
+  .btn-danger { color: #b3261e; border-color: #e2b4b0; }
+
+  .message-bar {
+    margin-top: 0.5em;
+    padding: 0.5em 0.8em;
+    border-radius: 4px;
+    font-size: 13px;
+  }
+  .message-bar.info { background: #e6f0ff; color: #14418a; }
+  .message-bar.error { background: #fdeceb; color: #8c231c; }
+  .message-bar.success { background: #e8f6ec; color: #216032; }
+  .hidden { display: none !important; }
+
+  .missing-panel {
+    margin-top: 0.5em;
+    background: #fff8e6;
+    border: 1px solid #f0d999;
+    border-radius: 4px;
+    padding: 0.6em 1em;
+    font-size: 13px;
+    max-height: 220px;
+    overflow-y: auto;
+  }
+  .missing-panel ul { margin: 0.3em 0 0 1.2em; padding: 0; }
+
+  #mainContent {
+    max-width: 960px;
+    margin: 1em auto 3em auto;
+    padding: 0 1em;
+  }
+
+  .panel {
+    background: #fff;
+    border: 1px solid #e1e3e7;
+    border-radius: 6px;
+    padding: 1em 1.2em;
+    margin-bottom: 1em;
+  }
+
+  .readonly-panel { background: #fafafa; }
+  .readonly-meta { font-size: 13px; color: #555; margin-bottom: 0.6em; }
+  .readonly-columns { display: flex; gap: 2em; flex-wrap: wrap; }
+  .readonly-col { flex: 1; min-width: 260px; }
+  .readonly-table, .preview-table, .attendance-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  .readonly-table td, .readonly-table th,
+  .preview-table td, .preview-table th,
+  .attendance-table td, .attendance-table th {
+    border: 1px solid #e1e3e7;
+    padding: 0.35em 0.5em;
+    text-align: left;
+    vertical-align: top;
+  }
+  .readonly-table .pending { color: #b3261e; font-style: italic; }
+
+  .field-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 0.7em 1em;
+    margin-bottom: 0.6em;
+  }
+  .field-grid label {
+    display: flex;
+    flex-direction: column;
+    font-size: 12px;
+    color: #555;
+    gap: 0.25em;
+  }
+  .field-wide { grid-column: 1 / -1; }
+
+  input[type="text"], textarea, select {
+    font-size: 13px;
+    padding: 0.4em 0.5em;
+    border: 1px solid #c7cad0;
+    border-radius: 4px;
+    font-family: inherit;
+    width: 100%;
+  }
+  textarea { resize: vertical; }
+
+  .attendance-table th { background: #f4f5f7; }
+  .attendance-table input { width: 100%; }
+
+  .hint { font-size: 12px; color: #777; margin: 0.4em 0 0 0; }
+
+  .repeatable-list { display: flex; flex-direction: column; gap: 0.5em; margin-bottom: 0.6em; }
+  .repeatable-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5em;
+    background: #fafbfc;
+    border: 1px solid #e6e8eb;
+    border-radius: 4px;
+    padding: 0.5em;
+  }
+  .repeatable-row textarea, .repeatable-row input[type="text"] { flex: 1; }
+  .repeatable-row-fields { flex: 1; display: grid; gap: 0.4em; }
+  .repeatable-list-fellowship .repeatable-row-fields { grid-template-columns: 1.3fr 1fr 1fr 1.6fr; }
+  .repeatable-list-finance .repeatable-row-fields { grid-template-columns: 1.4fr 1fr 1fr; }
+  .repeatable-row-actions { display: flex; flex-direction: column; gap: 0.25em; }
+
+  #prayerBlockHeadingInput { max-width: 260px; }
+</style>

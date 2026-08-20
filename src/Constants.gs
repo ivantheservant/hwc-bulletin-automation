@@ -99,7 +99,7 @@ var COLUMNS = Object.freeze({
       '英語堂兒童', '粵語堂主堂兒童', '粵語堂北岸兒童', '華語堂兒童',
       '下週事奉標題', '本週獻花', '下週獻花', '代禱區塊標題', '本週讀經',
       '狀態', '使用的職事表版本', '產生的 Docs ID', '產生的 PDF ID',
-      '最後產生時間', '寄出時間', '備註'
+      '最後產生時間', '寄出時間', '最後儲存時間', '備註'
     ],
     keys: [
       'SERVICE_DATE', 'QUARTER_ID', 'WEEK_OF_MONTH', 'SPECIAL_TYPE', 'PAGE_TITLE',
@@ -111,7 +111,7 @@ var COLUMNS = Object.freeze({
       'ATT_ENG_CHILD', 'ATT_CANE_CHILD', 'ATT_CANN_CHILD', 'ATT_MAN_CHILD',
       'NEXT_WEEK_HEADING', 'FLOWER_THIS_WEEK', 'FLOWER_NEXT_WEEK', 'PRAYER_BLOCK_HEADING', 'WEEKLY_BIBLE_READING',
       'STATUS', 'ROSTER_VERSION_USED', 'DOC_ID', 'PDF_ID',
-      'LAST_GENERATED_AT', 'SENT_AT', 'NOTES'
+      'LAST_GENERATED_AT', 'SENT_AT', 'LAST_SAVED_AT', 'NOTES'
     ],
     types: [
       'DATE', 'TEXT', 'INT', 'TEXT', 'TEXT',
@@ -124,7 +124,7 @@ var COLUMNS = Object.freeze({
       'TEXT', 'TEXT', 'TEXT', 'TEXT',
       'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT',
       'TEXT', 'TEXT', 'TEXT', 'TEXT',
-      'DATE', 'DATE', 'TEXT'
+      'DATE', 'DATE', 'DATE', 'TEXT'
     ],
     textFormatColumns: [
       'ATT_ENG_WORSHIP', 'ATT_CANE_WORSHIP', 'ATT_CANN_WORSHIP', 'ATT_MAN_WORSHIP',
@@ -149,7 +149,10 @@ var COLUMNS = Object.freeze({
     headers: ['主日日期', '次序', '團契', '日期', '時間', '週會內容', '有效'],
     keys: ['SERVICE_DATE', 'SEQ_NO', 'FELLOWSHIP_NAME', 'MEETING_DATE', 'MEETING_TIME', 'CONTENT', 'ACTIVE'],
     // ⚠️ MEETING_DATE／MEETING_TIME 是文字，不是 DATE：樣本值如 '10/5 星期日'、'4:30pm'。
-    types: ['DATE', 'INT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'BOOLEAN']
+    types: ['DATE', 'INT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'BOOLEAN'],
+    // 第四輪新增：填寫介面允許人手直接輸入 '10/5' 這類單純數字形狀的日期，
+    // 沒有這個保護，Google Sheets 會自動把它轉成真正的 Date——強制純文字格式。
+    textFormatColumns: ['MEETING_DATE', 'MEETING_TIME']
   },
 
   FINANCE: {
@@ -274,7 +277,12 @@ var CONFIG_KEYS = Object.freeze({
   DEFAULT_PAGE_TITLE: 'DEFAULT_PAGE_TITLE',
   DEFAULT_ATTENDANCE_HEADING: 'DEFAULT_ATTENDANCE_HEADING',
   DEFAULT_NEXT_WEEK_HEADING: 'DEFAULT_NEXT_WEEK_HEADING',
-  DEFAULT_PRAYER_BLOCK_HEADING: 'DEFAULT_PRAYER_BLOCK_HEADING'
+  DEFAULT_PRAYER_BLOCK_HEADING: 'DEFAULT_PRAYER_BLOCK_HEADING',
+  // ---- 第四輪新增：填寫介面（Web App）的開關、權限與代禱標題建議清單 ----
+  WEBAPP_ENABLED: 'WEBAPP_ENABLED',
+  WEBAPP_ALLOWED_EMAILS: 'WEBAPP_ALLOWED_EMAILS',
+  WEBAPP_URL: 'WEBAPP_URL',
+  PRAYER_BLOCK_HEADING_OPTIONS: 'PRAYER_BLOCK_HEADING_OPTIONS'
 });
 
 // =====================================================================
@@ -326,7 +334,11 @@ var DEFAULTS = Object.freeze([
   { key: CONFIG_KEYS.DEFAULT_PAGE_TITLE, value: '崇拜程序', note: 'BulletinWeeks 的程序表大標題留空時的預設值' },
   { key: CONFIG_KEYS.DEFAULT_ATTENDANCE_HEADING, value: '上週主日崇拜人數', note: 'BulletinWeeks 的人數表標題留空時的預設值' },
   { key: CONFIG_KEYS.DEFAULT_NEXT_WEEK_HEADING, value: '下週主日崇拜聚會事奉肢體', note: 'BulletinWeeks 的下週事奉標題留空時的預設值' },
-  { key: CONFIG_KEYS.DEFAULT_PRAYER_BLOCK_HEADING, value: '代禱事項', note: 'BulletinWeeks 的代禱區塊標題留空時的預設值' }
+  { key: CONFIG_KEYS.DEFAULT_PRAYER_BLOCK_HEADING, value: '代禱事項', note: 'BulletinWeeks 的代禱區塊標題留空時的預設值' },
+  { key: CONFIG_KEYS.WEBAPP_ENABLED, value: 'TRUE', note: '填寫介面總開關；FALSE 時 doGet 只回一頁說明，不渲染介面' },
+  { key: CONFIG_KEYS.WEBAPP_ALLOWED_EMAILS, value: '', note: '可以使用填寫介面的電郵，逗號分隔；留空時只有部署者本人可用' },
+  { key: CONFIG_KEYS.WEBAPP_URL, value: '', note: '填寫介面部署後的網址，由 Ivan 自行填入，選單「開啟填寫介面」會用到' },
+  { key: CONFIG_KEYS.PRAYER_BLOCK_HEADING_OPTIONS, value: '代禱事項,宣教消息,宣教代禱消息,宣教代禱事項', note: '代禱區塊標題欄位的建議值清單（逗號分隔）' }
 ]);
 
 // =====================================================================
