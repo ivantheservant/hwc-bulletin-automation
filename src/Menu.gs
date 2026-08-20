@@ -8,8 +8,9 @@
  * （處理函式在 WebApp.gs），第四b輪加了一個檢查工作表結構的項目（處理
  * 函式同樣在 WebApp.gs），第五輪加了電郵與自動寄送相關的五個項目（處理
  * 函式在 Mailer.gs／Trigger.gs），第六輪加了一個檢查職事表分歧的項目
- * （處理函式在 RosterDiff.gs）。Apps Script 全部檔案共用一個全域命名
- * 空間，選單引用哪個檔案定義的函式都可以。
+ * （處理函式在 RosterDiff.gs），第六b輪加了三個 PersonDisplay／尊稱設定
+ * 相關的項目（處理函式在 HonorificSetup.gs）。Apps Script 全部檔案共用
+ * 一個全域命名空間，選單引用哪個檔案定義的函式都可以。
  *
  * ⚠️ 每個 `menuXxx_()` 的 catch 分支都要呼叫 `logMenuError_()`
  * （`src/ErrorLog.gs`）寫一筆 `ErrorLog`（`SOURCE='MENU'`），再顯示
@@ -34,6 +35,9 @@ function onOpen() {
     .addItem('測試讀取職事表', 'menuTestReadRoster_')
     .addItem('測試讀取職事表（全季）', 'menuTestReadRosterQuarter_')
     .addItem('建立本季空白週報', 'menuCreateBlankBulletinWeeks_')
+    .addItem('由職事表建立 PersonDisplay 骨架', 'menuBuildPersonDisplaySkeleton_')
+    .addItem('套用尊稱對照表', 'menuApplyHonorificLookup_')
+    .addItem('尊稱未設定報告', 'menuHonorificMissingReport_')
     .addItem('預覽本週週報資料', 'menuPreviewBulletinModel_')
     .addItem('檢查職事表分歧', 'menuCheckRosterDiff_')
     .addItem('開啟填寫介面', 'menuOpenWebApp_')

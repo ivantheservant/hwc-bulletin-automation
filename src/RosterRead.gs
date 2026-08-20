@@ -181,6 +181,126 @@ function listRosterServiceDatesForQuarter_(quarterId) {
 }
 
 /**
+ * 用途：讀出職事表 `NameMapping` 的全部資料列（白名單三欄：`PersonID`／
+ *   `NameTC`／`Active`，見 ROSTER_TABLE_DEFS_.NAME_MAPPING 的說明——
+ *   `Email`／`Phone`／`PersonalLinkToken` 這些欄位一律不會被讀進記憶體，
+ *   這是硬規則，不是這個函式自己過濾的）。供第六b輪「由職事表建立
+ *   PersonDisplay 骨架」使用，不篩選 `Active`，由呼叫方自行決定要不要
+ *   篩（純函式層的職責，方便單獨測試「篩選 Active」這條規則）。
+ * Args: （無）
+ * Returns:
+ *   {Object[]} 每個元素是 `{PersonID, NameTC, Active}`。
+ * Raises:
+ *   Error 如果 `ROSTER_SPREADSHEET_ID` 未設定，或底層讀取失敗
+ *     （見 fetchRosterTables_()）。
+ */
+function readRosterNameMappingRows_() {
+  var spreadsheetId = getConfig(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, '');
+  if (!spreadsheetId) {
+    throw new Error('readRosterNameMappingRows_：Config 的 ROSTER_SPREADSHEET_ID 未設定。');
+  }
+
+  var io = fetchRosterTablesCached_(spreadsheetId, buildRosterSheetNames_());
+  return io.tables.nameMapping;
+}
+
+/**
+ * 用途：列出「某個主日所在的季度」內，全部有實際事奉安排（`PersonID`
+ *   不為空）的人，PersonID 各出現一次（同一人整季可能事奉多次）。供
+ *   第六b輪「尊稱未設定報告」使用——只有真的會出現在週報上的人才需要
+ *   確認尊稱，不用理會職事表 90 個人全部。
+ *
+ *   ⚠️ 真正入口，唯讀，不寫入任何一格。
+ * Args:
+ *   isoDate {string} 主日日期，yyyy-MM-dd——只用來定位「哪一季」，不代表
+ *     只看這一個主日。
+ * Returns:
+ *   {{quarterId:(string|null), versionNo:(number|null),
+ *     persons:{personId:string, nameTC:string}[]}} `quarterId` 找不到
+ *     （這個日期不在職事表 `ServiceDates` 內）時回 `null`，`persons`
+ *     為空陣列，不拋錯——這是唯讀診斷報告，讓呼叫方自行決定如何呈現
+ *     「找不到這個主日」，不需要用例外中斷。
+ * Raises:
+ *   Error 如果 `ROSTER_SPREADSHEET_ID` 未設定，或底層讀取失敗
+ *     （見 fetchRosterTables_()），或 `isoDate` 不是合法的 yyyy-MM-dd 格式
+ *     （見 buildRosterQuarterAssignedPersons_()）。
+ */
+function listRosterQuarterAssignedPersons_(isoDate) {
+  var spreadsheetId = getConfig(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, '');
+  if (!spreadsheetId) {
+    throw new Error('listRosterQuarterAssignedPersons_：Config 的 ROSTER_SPREADSHEET_ID 未設定。');
+  }
+
+  var io = fetchRosterTablesCached_(spreadsheetId, buildRosterSheetNames_());
+  return buildRosterQuarterAssignedPersons_(io.tables, isoDate);
+}
+
+/**
+ * 用途：`listRosterQuarterAssignedPersons_()` 的純函式層——完全不碰
+ *   Apps Script 服務，方便在 Node 直接測試。版本選擇邏輯與
+ *   `buildRosterSnapshot_()` 一致：同一季取 `VersionNo` 最大的一版
+ *   （最新版）。
+ * Args:
+ *   tables {Object} `fetchRosterTables_()` 回傳的 `tables`（`serviceDates`／
+ *     `versions`／`assignments`／`nameMapping`）。
+ *   isoDate {string} 主日日期，yyyy-MM-dd。
+ * Returns:
+ *   {{quarterId:(string|null), versionNo:(number|null),
+ *     persons:{personId:string, nameTC:string}[]}} `persons` 依
+ *     `personId` 排序；找不到 `NameTC`（NameMapping 沒有這個人）時退回
+ *     `PersonNameSnapshot`。
+ * Raises:
+ *   Error 如果 `isoDate` 不是合法的 yyyy-MM-dd 格式。
+ */
+function buildRosterQuarterAssignedPersons_(tables, isoDate) {
+  var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(isoDate || ''));
+  if (!m) {
+    throw new Error('buildRosterQuarterAssignedPersons_：isoDate 必須是 yyyy-MM-dd 格式，收到：' + JSON.stringify(isoDate));
+  }
+  var targetYear = Number(m[1]);
+  var targetMonth = Number(m[2]);
+  var targetDay = Number(m[3]);
+
+  var serviceDateRow = tables.serviceDates.find(function (r) {
+    return rosterDateMatchesYMD_(r.ServiceDate, targetYear, targetMonth, targetDay);
+  });
+  if (!serviceDateRow) {
+    return { quarterId: null, versionNo: null, persons: [] };
+  }
+  var quarterId = serviceDateRow.QuarterID;
+
+  var maxVersionNo = null;
+  tables.versions.forEach(function (r) {
+    if (r.QuarterID !== quarterId) return;
+    if (typeof r.VersionNo !== 'number') return;
+    if (maxVersionNo === null || r.VersionNo > maxVersionNo) maxVersionNo = r.VersionNo;
+  });
+  if (maxVersionNo === null) {
+    return { quarterId: quarterId, versionNo: null, persons: [] };
+  }
+
+  var nameByPersonId = {};
+  tables.nameMapping.forEach(function (p) { nameByPersonId[p.PersonID] = p.NameTC; });
+
+  var seen = {};
+  var persons = [];
+  tables.assignments.forEach(function (a) {
+    if (a.QuarterID !== quarterId || a.VersionNo !== maxVersionNo) return;
+    if (!a.PersonID) return;
+    if (seen[a.PersonID]) return;
+    seen[a.PersonID] = true;
+    persons.push({
+      personId: a.PersonID,
+      nameTC: nameByPersonId[a.PersonID] || a.PersonNameSnapshot || ''
+    });
+  });
+
+  persons.sort(function (a, b) { return a.personId < b.personId ? -1 : (a.personId > b.personId ? 1 : 0); });
+
+  return { quarterId: quarterId, versionNo: maxVersionNo, persons: persons };
+}
+
+/**
  * 用途：組出一個「未設定／查無資料」情況下形狀完整的快照物件——所有欄位
  *   都在，只是值為 null／空陣列，方便呼叫端不用逐層防呆就能顯示摘要。
  * Args:

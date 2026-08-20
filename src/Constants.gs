@@ -53,6 +53,7 @@ var SHEETS = Object.freeze({
   FELLOWSHIPS: 'Fellowships',
   FINANCE: 'Finance',
   PERSON_DISPLAY: 'PersonDisplay',
+  HONORIFIC_LOOKUP: 'HonorificLookup',
   POST_DISPLAY: 'PostDisplay',
   MERGE_GROUPS: 'MergeGroups',
   PROGRAM_TEMPLATES: 'ProgramTemplates',
@@ -176,6 +177,15 @@ var COLUMNS = Object.freeze({
     headers: ['PersonID', '姓名', '尊稱', '顯示覆寫', '生效日', '失效日', '有效', '備註'],
     keys: ['PERSON_ID', 'NAME_TC', 'HONORIFIC', 'DISPLAY_OVERRIDE', 'EFFECTIVE_FROM', 'EFFECTIVE_TO', 'ACTIVE', 'NOTES'],
     types: ['TEXT', 'TEXT', 'TEXT', 'TEXT', 'DATE', 'DATE', 'BOOLEAN', 'TEXT']
+  },
+
+  // 第六b輪新增：Ivan 人手貼上的「姓名 → 尊稱」對照表，不是系統資料——
+  // 由 seed 零行（initializeAllSheets() 只建立標題兩行），讀取時要寬鬆
+  // （見 src/HonorificSetup.gs 的說明）。
+  HONORIFIC_LOOKUP: {
+    headers: ['姓名', '尊稱', '出現次數', '備註'],
+    keys: ['NAME_TC', 'HONORIFIC', 'OCCURRENCES', 'NOTE'],
+    types: ['TEXT', 'TEXT', 'INT', 'TEXT']
   },
 
   POST_DISPLAY: {

@@ -1,7 +1,7 @@
 /**
  * Bootstrap.gs
  *
- * 週報系統的初始化入口：initializeAllSheets() 建立全部 16 張工作表與標題、
+ * 週報系統的初始化入口：initializeAllSheets() 建立 SHEETS 定義的全部工作表與標題、
  * 補回 Config 預設值，並 seed PostDisplay／MergeGroups／ProgramTemplates／
  * EmailTemplates 的固定資料。整個檔案冪等：重複執行不會清空既有資料，
  * 也不會重覆新增 seed 資料。
@@ -99,7 +99,8 @@ function readmeContentLines_() {
   'Prayers：代禱事項或宣教消息，一個主日可以有多行，人手填寫。',
   'Fellowships：本週團契聚會資訊，一個主日可以有多行，人手填寫。',
   'Finance：月度財政報告項目，人手填寫。',
-  'PersonDisplay：會友姓名的尊稱與顯示覆寫規則，人手維護。',
+  'PersonDisplay：會友姓名的尊稱與顯示覆寫規則。可以透過「由職事表建立 PersonDisplay 骨架」「套用尊稱對照表」選單自動建立與填入，也可以人手調整。',
+  'HonorificLookup：Ivan 人手貼上的「姓名 → 尊稱」對照表，配合「套用尊稱對照表」選單使用，系統不會自動填入任何一行。',
   'PostDisplay：崗位在週報第 1、3 頁的顯示名稱、次序與合併規則，系統已預先填入 16 個崗位，日後如有調整由人手修改。',
   'MergeGroups：PostDisplay 使用的合併組定義（例如「主席及報告」「影音」），系統已預先填入，人手可調整連接符等設定。',
   'ProgramTemplates：崇拜程序範本，系統已預先填入平常主日／浸禮聯合崇拜／堂慶聯合崇拜三個範本，人手可視需要增補其他範本。',
