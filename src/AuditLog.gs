@@ -3,6 +3,11 @@
  *
  * AuditLog 工作表的逐格記錄慣例：任何一次對試算表的寫入異動，都應該呼叫
  * appendAuditLog_() 留一筆記錄。只會新增、不會刪除或覆寫既有記錄。
+ *
+ * ⚠️ 全部欄位一律經 SheetUtils.gs 的 sanitizeCellText_() 才寫入——
+ * OLD_VALUE／NEW_VALUE 這類值可能直接來自使用者填在 BulletinWeeks 等
+ * 工作表的內容，如果剛好以 =／+／-／@ 開頭，setValues() 會被 Sheets
+ * 當成公式求值，見 docs/已知bug類型.md 事故六。
  */
 
 'use strict';
@@ -39,13 +44,13 @@ function appendAuditLog_(entry) {
 
   writeSheet(SHEETS.AUDIT_LOG, [{
     TIMESTAMP: new Date(),
-    ACTOR: actor,
-    ACTION: entry.action,
-    SHEET_NAME: entry.sheetName || '',
-    ROW_KEY: entry.rowKey || '',
-    FIELD: entry.field || '',
-    OLD_VALUE: entry.oldValue || '',
-    NEW_VALUE: entry.newValue || '',
-    NOTES: entry.notes || ''
+    ACTOR: sanitizeCellText_(actor),
+    ACTION: sanitizeCellText_(entry.action),
+    SHEET_NAME: sanitizeCellText_(entry.sheetName || ''),
+    ROW_KEY: sanitizeCellText_(entry.rowKey || ''),
+    FIELD: sanitizeCellText_(entry.field || ''),
+    OLD_VALUE: sanitizeCellText_(entry.oldValue || ''),
+    NEW_VALUE: sanitizeCellText_(entry.newValue || ''),
+    NOTES: sanitizeCellText_(entry.notes || '')
   }]);
 }

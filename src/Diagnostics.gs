@@ -5,6 +5,10 @@
  * （只保留最新一次報告），行數上限由 Config 的 DIAGNOSTICS_MAX_ROWS 控制
  * （預設 380 行——超過的話 Google Drive connector 讀不完）。超過上限就截斷，
  * 並在最後一行明確寫明「已截斷」，不可以默默丟掉資料。
+ *
+ * ⚠️ REPORT_NAME／CONTENT 一律經 SheetUtils.gs 的 sanitizeCellText_() 才
+ * 寫入——系統自己組出來的文字（例如區段標題）如果以 =／+／-／@ 開頭，
+ * setValues() 會被 Sheets 當成公式求值，見 docs/已知bug類型.md 事故六。
  */
 
 'use strict';
@@ -44,16 +48,19 @@ function writeDiagnosticsReport_(reportName, contentLines) {
   }
 
   var now = new Date();
+  var safeReportName = sanitizeCellText_(reportName);
   var rows = lines.map(function (line, i) {
-    return { REPORT_NAME: reportName, ROW_NO: i + 1, CONTENT: line, GENERATED_AT: now };
+    return { REPORT_NAME: safeReportName, ROW_NO: i + 1, CONTENT: sanitizeCellText_(line), GENERATED_AT: now };
   });
 
   if (truncated) {
     rows.push({
-      REPORT_NAME: reportName,
+      REPORT_NAME: safeReportName,
       ROW_NO: rows.length + 1,
-      CONTENT: '（已截斷：本報告共 ' + totalLines + ' 行，只顯示前 ' + (maxRows - 1)
-        + ' 行，尚餘 ' + (totalLines - (maxRows - 1)) + ' 行未顯示，上限為 ' + maxRows + ' 行。）',
+      CONTENT: sanitizeCellText_(
+        '（已截斷：本報告共 ' + totalLines + ' 行，只顯示前 ' + (maxRows - 1)
+        + ' 行，尚餘 ' + (totalLines - (maxRows - 1)) + ' 行未顯示，上限為 ' + maxRows + ' 行。）'
+      ),
       GENERATED_AT: now
     });
   }

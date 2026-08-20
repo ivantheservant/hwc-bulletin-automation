@@ -189,6 +189,13 @@ function menuPreviewBulletinModel_() {
  *   基本資料、事奉框、程序表、下週事奉、待填清單、警告，每個區段之前
  *   有一行分隔標題。
  *
+ *   ⚠️ 區段標題一律用全形括號「【…】」，**不可以用 `===` 這類以 `=` 開頭
+ *   的寫法**——`writeDiagnosticsReport_()` 用 `setValues()` 整批寫入，
+ *   Sheets 會把 `=` 開頭的字串當成公式求值（見 docs/已知bug類型.md
+ *   事故六）。就算標題本身沒問題，`writeDiagnosticsReport_()` 內部也一律
+ *   會呼叫 `sanitizeCellText_()` 再保險一次，但這裡仍然要用不會觸發的
+ *   寫法，不要依賴下游的保護。
+ *
  *   ⚠️ 這裡**不做截斷**——截斷交給 writeDiagnosticsReport_() 統一處理，
  *   它會依 Config 的 `DIAGNOSTICS_MAX_ROWS`（380）截斷並在最後一行寫明
  *   本報告共幾行、只顯示了前幾行。一份報告只在一個地方截斷，才不會出現
@@ -201,7 +208,7 @@ function menuPreviewBulletinModel_() {
 function buildBulletinModelReportLines_(model) {
   var lines = [];
 
-  lines.push('=== 基本資料 ===');
+  lines.push('【基本資料】');
   lines.push('日期：' + model.isoDate + '　當月第 ' + model.weekOfMonth + ' 個主日');
   lines.push('季度：' + (model.quarterId || '（無）')
     + '　職事表版本：' + (model.rosterVersionUsed === null ? '（尚未生成）' : model.rosterVersionUsed)
@@ -219,13 +226,13 @@ function buildBulletinModelReportLines_(model) {
     + '　下週獻花：' + (model.flowers.nextWeek || '（未填）'));
 
   lines.push('');
-  lines.push('=== 事奉框（第 1 頁，' + model.dutyBoxPage1.length + ' 行）===');
+  lines.push('【事奉框（第 1 頁，' + model.dutyBoxPage1.length + ' 行）】');
   model.dutyBoxPage1.forEach(function (row) {
     lines.push('　' + row.label + '：' + (row.text || '（待填）') + '　[' + row.states.join(',') + ']');
   });
 
   lines.push('');
-  lines.push('=== 程序表（' + model.program.length + ' 行）===');
+  lines.push('【程序表（' + model.program.length + ' 行）】');
   model.program.forEach(function (row) {
     lines.push('　' + row.seqNo + '　' + row.itemName
       + (row.posture ? '　' + row.posture : '')
@@ -234,22 +241,22 @@ function buildBulletinModelReportLines_(model) {
   });
 
   lines.push('');
-  lines.push('=== 下週事奉（第 3 頁，' + model.nextWeekDuty.length + ' 行）===');
+  lines.push('【下週事奉（第 3 頁，' + model.nextWeekDuty.length + ' 行）】');
   model.nextWeekDuty.forEach(function (row) {
     lines.push('　' + row.label + '：' + (row.text || '（待填）'));
   });
 
   lines.push('');
-  lines.push('=== 人數表 ===');
+  lines.push('【人數表】');
   lines.push('　　　　' + model.attendance.columns.join('　'));
   model.attendance.rows.forEach(function (row) {
     lines.push('　' + row.label + '　' + row.values.map(function (v) { return v || '—'; }).join('　'));
   });
 
   lines.push('');
-  lines.push('=== 家事報告（' + model.announcements.length + ' 項）／代禱（'
+  lines.push('【家事報告（' + model.announcements.length + ' 項）／代禱（'
     + model.prayerBlock.items.length + ' 項）／團契（' + model.fellowships.length + ' 項）／財政（'
-    + model.finance.length + ' 項）===');
+    + model.finance.length + ' 項）】');
   model.announcements.forEach(function (a) { lines.push('　報告 ' + a.seqNo + '：' + a.text); });
   model.prayerBlock.items.forEach(function (p) { lines.push('　' + model.prayerBlock.heading + ' ' + p.seqNo + '：' + p.text); });
   model.fellowships.forEach(function (f) {
@@ -260,13 +267,13 @@ function buildBulletinModelReportLines_(model) {
   });
 
   lines.push('');
-  lines.push('=== 待填清單（' + model.missing.length + ' 項）===');
+  lines.push('【待填清單（' + model.missing.length + ' 項）】');
   model.missing.forEach(function (m) {
     lines.push('　' + m.label + '（' + m.field + '）：' + m.reason);
   });
 
   lines.push('');
-  lines.push('=== 警告（' + model.warnings.length + ' 項）===');
+  lines.push('【警告（' + model.warnings.length + ' 項）】');
   model.warnings.forEach(function (w) {
     lines.push('　[' + w.code + '] ' + w.message);
   });

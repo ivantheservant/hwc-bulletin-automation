@@ -2,8 +2,9 @@
  * SheetUtils.gs
  *
  * 工作表存取的共用工具：確保工作表存在（ensureSheet_）、通用讀取
- * （readSheet）、通用附加寫入（writeSheet），以及型別正規化層
- * （normalizeBoolean_／normalizeText_／normalizeDate_／normalizeInt_）。
+ * （readSheet）、通用附加寫入（writeSheet），型別正規化層
+ * （normalizeBoolean_／normalizeText_／normalizeDate_／normalizeInt_），
+ * 以及防止字串被 Sheets 當成公式求值的 sanitizeCellText_()。
  *
  * 型別正規化層存在的原因：Google Sheets 會自動把 `TRUE`／`FALSE` 正規化成
  * boolean、把日期形狀的字串正規化成 Date 物件，如果不處理，「本來想要字串
@@ -189,6 +190,41 @@ function normalizeByType_(type, raw, context) {
     default:
       throw new Error('normalizeByType_：未知的欄位型別「' + type + '」。');
   }
+}
+
+// =====================================================================
+// 防止字串被當成公式求值
+// =====================================================================
+
+/**
+ * 用途：防止字串被 Google Sheets 的 `setValues()`／`setValue()` 當成公式
+ *   求值。凡是字串以 `=`／`+`／`-`／`@` 其中一個字元開頭，就在前面加一個
+ *   半形單引號，強制 Sheets 當成純文字；其餘型別與不需要跳脫的字串一律
+ *   原樣回傳。
+ *
+ *   ⚠️ 事故：「週報資料模型預覽」的區段標題 `'=== 基本資料 ==='` 經
+ *   `writeDiagnosticsReport_()` 的 `setValues()` 寫入 Diagnostics 後，
+ *   因為以 `=` 開頭，被 Sheets 當成公式求值，整格變成 `#ERROR!`。
+ *   `setValues()`／`setValue()` 跟使用者在儲存格介面手動打字不一樣，
+ *   沒有「這一欄是純文字格式」這道防線可以攔（`textFormatColumns` 只保護
+ *   固定的欄，Diagnostics／AuditLog 這類每次內容都不一樣的欄位沒辦法
+ *   預先鎖死格式）——凡是**系統自己組出來、經 `writeSheet()` 整批寫入**
+ *   的文字，尤其是 `Diagnostics`／`AuditLog`／`SendLog`（見
+ *   docs/已知bug類型.md 事故六），一律要在寫入前經過這個函式。
+ * Args:
+ *   value {*} 任意值。
+ * Returns:
+ *   {*} 只有「字串、而且以 `=`／`+`／`-`／`@` 開頭」才會加上前導單引號；
+ *     其餘型別（`number`／`boolean`／`Date`／`null`／`undefined`）與不需要
+ *     跳脫的字串一律原樣回傳。
+ */
+function sanitizeCellText_(value) {
+  if (typeof value !== 'string' || value.length === 0) return value;
+  var firstChar = value.charAt(0);
+  if (firstChar === '=' || firstChar === '+' || firstChar === '-' || firstChar === '@') {
+    return "'" + value;
+  }
+  return value;
 }
 
 // =====================================================================
