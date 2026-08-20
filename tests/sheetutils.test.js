@@ -15,11 +15,15 @@
 'use strict';
 
 const assert = require('assert');
-const { loadGasFiles } = require('./helpers/loadGas');
+const { loadAllSrcFilesInOrder } = require('./helpers/loadGas');
 
 // SheetUtils.gs 的 normalizeText_() 在「文字欄位拿到 Date 物件」時會呼叫
 // Utilities.formatDate() 與 Session.getScriptTimeZone()——這兩個是 Apps
 // Script 全域服務，Node 沒有，所以在載入前先放兩個最小 stub 進 context。
+// SpreadsheetApp／CacheService 只是空物件：本檔案只測試 SheetUtils.gs 的
+// 純函式，不會真的呼叫任何用到它們的函式（ensureSheet_／readSheet／
+// getConfig 之類），放空物件只是保險——萬一哪個檔案的頂層陳述式不小心
+// 用到，寧可在載入階段就報錯，也不要用 undefined 靜靜過。
 const FAKE_TIMEZONE = 'Pacific/Auckland';
 const GAS_STUBS = {
   Utilities: {
@@ -31,11 +35,17 @@ const GAS_STUBS = {
     }
   },
   Session: {
-    getScriptTimeZone: function () { return FAKE_TIMEZONE; }
-  }
+    getScriptTimeZone: function () { return FAKE_TIMEZONE; },
+    getActiveUser: function () { return { getEmail: function () { return ''; } }; }
+  },
+  SpreadsheetApp: {},
+  CacheService: {}
 };
 
-const sandbox = loadGasFiles(['src/Constants.gs', 'src/SheetUtils.gs'], GAS_STUBS);
+// 一律按 Apps Script 實際的載入次序（檔名字母序）載入全部 src/*.gs，
+// 不要自己手動列一個檔案清單、自選次序——見 tests/helpers/loadGas.js
+// 檔頭的事故說明。
+const sandbox = loadAllSrcFilesInOrder(GAS_STUBS);
 const {
   normalizeBoolean_, normalizeText_, normalizeDate_, normalizeInt_,
   normalizeByType_, getSheetUtilsTypeWarnings_, clearSheetUtilsTypeWarnings_,

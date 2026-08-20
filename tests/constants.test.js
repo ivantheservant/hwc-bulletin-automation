@@ -13,9 +13,22 @@
 'use strict';
 
 const assert = require('assert');
-const { loadGasFiles } = require('./helpers/loadGas');
+const { loadAllSrcFilesInOrder } = require('./helpers/loadGas');
 
-const sandbox = loadGasFiles(['src/Constants.gs']);
+// 一律按 Apps Script 實際的載入次序（檔名字母序）載入全部 src/*.gs，
+// 不要自己手動只列 Constants.gs、自選次序——見 tests/helpers/loadGas.js
+// 檔頭的事故說明：Constants.gs 排第 4，第一輪就是因為測試把它排到最前面
+// 才漏掉了 Bootstrap.gs 提前引用 Constants.gs 常數的 bug。
+const GAS_STUBS = {
+  Utilities: { formatDate: function () { return ''; } },
+  Session: {
+    getScriptTimeZone: function () { return 'Pacific/Auckland'; },
+    getActiveUser: function () { return { getEmail: function () { return ''; } }; }
+  },
+  SpreadsheetApp: {},
+  CacheService: {}
+};
+const sandbox = loadAllSrcFilesInOrder(GAS_STUBS);
 const { SHEETS, COLUMNS, SHEET_ID_BY_NAME, CONFIG_KEYS, DEFAULTS, COLUMN_TYPES } = sandbox;
 
 let pass = 0;

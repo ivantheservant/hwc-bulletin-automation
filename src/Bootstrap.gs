@@ -71,13 +71,26 @@ function writeReadmeContent_(ss) {
   var sheet = ss.getSheetByName(SHEETS.README);
   if (sheet.getLastRow() >= 3) return 0;
 
-  var rows = README_CONTENT_LINES_.map(function (line) { return { TEXT: line }; });
+  var rows = readmeContentLines_().map(function (line) { return { TEXT: line }; });
   writeSheet(SHEETS.README, rows);
   return rows.length;
 }
 
-/** _README 工作表的內容，逐行對應一個資料列。書面語繁體中文。 */
-var README_CONTENT_LINES_ = [
+/**
+ * 用途：_README 工作表的內容，逐行對應一個資料列。書面語繁體中文。寫成
+ *   函式而不是頂層 var，是因為 Apps Script 按檔名字母序執行每個 .gs 的
+ *   頂層陳述式——頂層 var 的內容在「被賦值那一刻」就固定下來，如果賦值式
+ *   引用了另一個檔案宣告的識別碼，而那個檔案排在後面，讀到的就是
+ *   undefined。函式主體只在被呼叫時才求值，那時全部檔案都已經載入完畢，
+ *   所以一律用這個手法（詳見 docs/已知bug類型.md 的「跨檔案載入次序」）。
+ *   這個函式本身沒有跨檔案參照，但為了跟其餘 seed 函式一致、也防止日後
+ *   有人加內容時不小心引用到別的檔案，同樣採用延遲求值。
+ * Args: （無）
+ * Returns:
+ *   {string[]} _README 的內容，一個陣列元素對應一行。
+ */
+function readmeContentLines_() {
+  return [
   '本工作表列出「週報系統」內每一張工作表的用途，以及各表主要由人手填寫、還是由系統寫入。',
   '所有工作表的第 1 行是中文標題、第 2 行是程式使用的機器鍵，資料由第 3 行開始；請勿刪除或更改前兩行。',
   'Config：全系統參數設定，全部由人手填寫／修改。ID、電郵等敏感欄位預設留空，需要 Ivan 自行填入。',
@@ -96,7 +109,8 @@ var README_CONTENT_LINES_ = [
   'AuditLog：系統對試算表所做的每一次寫入異動記錄，逐格記錄，只會新增、不會刪除或覆寫。',
   'SendLog：每一次寄送週報的記錄（含 DRY_RUN 試行的記錄），只會新增、不會刪除或覆寫。',
   '本系統對「粵語堂職事表」試算表一律唯讀，不會寫入任何一格；職事表的連線設定同樣在 Config 內填寫。'
-];
+  ];
+}
 
 /**
  * 用途：把本次 initializeAllSheets() 的執行摘要，連同 readSheet() 累積的
@@ -133,45 +147,48 @@ function writeInitializeDiagnosticsReport_(summary) {
 // =====================================================================
 
 /**
- * 用途：把 SEED_POST_DISPLAY_ 內尚未存在的 POST_ID 補進 PostDisplay 工作表。
+ * 用途：把 seedPostDisplayRows_() 回傳的資料內尚未存在的 POST_ID 補進
+ *   PostDisplay 工作表。
  * Args: （無）
  * Returns:
  *   {number} 新增的行數。
  */
 function seedPostDisplay_() {
-  return seedMissingRows_(SHEETS.POST_DISPLAY, 'POST_ID', SEED_POST_DISPLAY_);
+  return seedMissingRows_(SHEETS.POST_DISPLAY, 'POST_ID', seedPostDisplayRows_());
 }
 
 /**
- * 用途：把 SEED_MERGE_GROUPS_ 內尚未存在的 GROUP_ID 補進 MergeGroups 工作表。
+ * 用途：把 seedMergeGroupsRows_() 回傳的資料內尚未存在的 GROUP_ID 補進
+ *   MergeGroups 工作表。
  * Args: （無）
  * Returns:
  *   {number} 新增的行數。
  */
 function seedMergeGroups_() {
-  return seedMissingRows_(SHEETS.MERGE_GROUPS, 'GROUP_ID', SEED_MERGE_GROUPS_);
+  return seedMissingRows_(SHEETS.MERGE_GROUPS, 'GROUP_ID', seedMergeGroupsRows_());
 }
 
 /**
- * 用途：把 SEED_PROGRAM_TEMPLATES_ 內尚未存在的（TEMPLATE_ID, SEQ_NO）組合
- *   補進 ProgramTemplates 工作表。用複合鍵是因為同一個 TEMPLATE_ID 底下有
- *   多行（每個程序項目一行）。
+ * 用途：把 seedProgramTemplatesRows_() 回傳的資料內尚未存在的
+ *   （TEMPLATE_ID, SEQ_NO）組合補進 ProgramTemplates 工作表。用複合鍵是
+ *   因為同一個 TEMPLATE_ID 底下有多行（每個程序項目一行）。
  * Args: （無）
  * Returns:
  *   {number} 新增的行數。
  */
 function seedProgramTemplates_() {
-  return seedMissingRows_(SHEETS.PROGRAM_TEMPLATES, ['TEMPLATE_ID', 'SEQ_NO'], SEED_PROGRAM_TEMPLATES_);
+  return seedMissingRows_(SHEETS.PROGRAM_TEMPLATES, ['TEMPLATE_ID', 'SEQ_NO'], seedProgramTemplatesRows_());
 }
 
 /**
- * 用途：把 SEED_EMAIL_TEMPLATES_ 內尚未存在的 TEMPLATE_ID 補進 EmailTemplates 工作表。
+ * 用途：把 seedEmailTemplatesRows_() 回傳的資料內尚未存在的 TEMPLATE_ID
+ *   補進 EmailTemplates 工作表。
  * Args: （無）
  * Returns:
  *   {number} 新增的行數。
  */
 function seedEmailTemplates_() {
-  return seedMissingRows_(SHEETS.EMAIL_TEMPLATES, 'TEMPLATE_ID', SEED_EMAIL_TEMPLATES_);
+  return seedMissingRows_(SHEETS.EMAIL_TEMPLATES, 'TEMPLATE_ID', seedEmailTemplatesRows_());
 }
 
 /**
@@ -288,8 +305,17 @@ function programRow_(templateId, seq, itemName, contentSource, posture, fullWidt
 // Seed 資料本體
 // =====================================================================
 
-/** PostDisplay 的 16 個固定崗位（見 docs/工作表結構.md）。 */
-var SEED_POST_DISPLAY_ = [
+/**
+ * 用途：PostDisplay 的 16 個固定崗位（見 docs/工作表結構.md）。寫成函式
+ *   延遲求值——理由見 readmeContentLines_() 的說明。這裡呼叫的
+ *   postDisplayRow_() 是本檔案自己的函式，不是跨檔案參照，但統一用函式
+ *   包起來比較不容易在日後修改時不小心引入跨檔案的頂層參照。
+ * Args: （無）
+ * Returns:
+ *   {Object[]} PostDisplay 的 seed 資料列。
+ */
+function seedPostDisplayRows_() {
+  return [
   postDisplayRow_('CHAIR', '主席', 10, true, 'MG_CHAIR_ANNOUNCE', '主席', 10, true, '',
     '第 1 頁與 ANNOUNCE 合併顯示為「主席及報告」（同一人擔任兩個崗位時才合併）；第 3 頁不合併，各自顯示。'),
   postDisplayRow_('ANNOUNCE', '報告', 20, true, 'MG_CHAIR_ANNOUNCE', '報告', 20, true, '',
@@ -312,21 +338,42 @@ var SEED_POST_DISPLAY_ = [
   postDisplayRow_('COUNT', '司數', 140, false, '', '司數', 105, true, ''),
   postDisplayRow_('FLOWER', '獻花', 150, false, '', '獻花', 140, false, '',
     '第 1、3 頁事奉框皆不顯示；由 BulletinWeeks 的 FLOWER_THIS_WEEK／FLOWER_NEXT_WEEK 在第 3 頁另起一行處理。')
-];
-
-/** MergeGroups 的 2 個固定合併組。 */
-var SEED_MERGE_GROUPS_ = [
-  { GROUP_ID: 'MG_CHAIR_ANNOUNCE', DISPLAY_NAME: '主席及報告', JOIN_SEPARATOR: ' ', MERGE_ONLY_IF_SAME_PERSON: true, ACTIVE: true, NOTES: '' },
-  { GROUP_ID: 'MG_AV', DISPLAY_NAME: '影音', JOIN_SEPARATOR: ' ', MERGE_ONLY_IF_SAME_PERSON: false, ACTIVE: true, NOTES: '' }
-];
+  ];
+}
 
 /**
- * ProgramTemplates 的 3 個固定範本：
+ * 用途：MergeGroups 的 2 個固定合併組。寫成函式延遲求值——理由見
+ *   readmeContentLines_() 的說明。
+ * Args: （無）
+ * Returns:
+ *   {Object[]} MergeGroups 的 seed 資料列。
+ */
+function seedMergeGroupsRows_() {
+  return [
+    { GROUP_ID: 'MG_CHAIR_ANNOUNCE', DISPLAY_NAME: '主席及報告', JOIN_SEPARATOR: ' ', MERGE_ONLY_IF_SAME_PERSON: true, ACTIVE: true, NOTES: '' },
+    { GROUP_ID: 'MG_AV', DISPLAY_NAME: '影音', JOIN_SEPARATOR: ' ', MERGE_ONLY_IF_SAME_PERSON: false, ACTIVE: true, NOTES: '' }
+  ];
+}
+
+/**
+ * 用途：ProgramTemplates 的 3 個固定範本：
  *   TPL_NORMAL（平常主日，同時涵蓋聖餐主日與祈禱會週）
  *   TPL_COMBINED_BAPTISM（浸禮三堂聯合崇拜，待核對，欠 2025-10-05 樣本）
  *   TPL_ANNIVERSARY（堂慶三堂聯合崇拜，基於 TPL_NORMAL 調整）
+ *
+ *   寫成函式延遲求值是**必要**的，不只是風格一致：這裡面用到
+ *   `POSTURE.STAND`／`CONDITION_TYPE.ALWAYS` 等 Constants.gs 宣告的常數。
+ *   Apps Script 按檔名字母序（Bootstrap 排在 Constants 前面）執行頂層
+ *   陳述式，如果這裡仍然是頂層 var，執行到這裡的時候 POSTURE 還是
+ *   undefined，讀 `.STAND` 會直接拋 TypeError，導致整個專案載入失敗、
+ *   onOpen() 完全沒有機會執行（本檔案就是這個 bug 的事故現場，
+ *   詳見 docs/已知bug類型.md）。
+ * Args: （無）
+ * Returns:
+ *   {Object[]} ProgramTemplates 的 seed 資料列，共 45 行。
  */
-var SEED_PROGRAM_TEMPLATES_ = [
+function seedProgramTemplatesRows_() {
+  return [
   // ---- TPL_NORMAL ----
   programRow_('TPL_NORMAL', 10, '序樂', 'FIELD:PRELUDE', POSTURE.STAND, false, CONDITION_TYPE.ALWAYS),
   programRow_('TPL_NORMAL', 20, '宣召', 'FIELD:CALL_TEXT', POSTURE.STAND, false, CONDITION_TYPE.ALWAYS),
@@ -380,27 +427,36 @@ var SEED_PROGRAM_TEMPLATES_ = [
   programRow_('TPL_ANNIVERSARY', 120, '祝福', 'BLANK', POSTURE.STAND, false, CONDITION_TYPE.ALWAYS),
   programRow_('TPL_ANNIVERSARY', 130, '阿們頌', 'BLANK', POSTURE.STAND, false, CONDITION_TYPE.ALWAYS),
   programRow_('TPL_ANNIVERSARY', 140, '家事報告', 'BLANK', POSTURE.SIT, false, CONDITION_TYPE.ALWAYS)
-];
+  ];
+}
 
-/** EmailTemplates 的 1 個固定範本，內文用書面語繁體中文與佔位符撰寫。 */
-var SEED_EMAIL_TEMPLATES_ = [
-  {
-    TEMPLATE_ID: 'TPL_WEEKLY_BULLETIN',
-    SUBJECT: '{{ChurchName}}粵語堂週報 — {{ServiceDate}}',
-    BODY: [
-      '各位主內肢體：',
-      '',
-      '平安！',
-      '',
-      '隨函附上 {{ServiceDate}} 主日的{{ChurchName}}粵語堂週報，敬請查收。',
-      '',
-      '如發現資料有任何錯漏，請回覆此郵件告知，以便盡快更正。',
-      '',
-      '謝謝！',
-      '',
-      '粵語堂週報系統　敬上'
-    ].join('\n'),
-    ACTIVE: true,
-    NOTES: ''
-  }
-];
+/**
+ * 用途：EmailTemplates 的 1 個固定範本，內文用書面語繁體中文與佔位符撰寫。
+ *   寫成函式延遲求值——理由見 readmeContentLines_() 的說明。
+ * Args: （無）
+ * Returns:
+ *   {Object[]} EmailTemplates 的 seed 資料列。
+ */
+function seedEmailTemplatesRows_() {
+  return [
+    {
+      TEMPLATE_ID: 'TPL_WEEKLY_BULLETIN',
+      SUBJECT: '{{ChurchName}}粵語堂週報 — {{ServiceDate}}',
+      BODY: [
+        '各位主內肢體：',
+        '',
+        '平安！',
+        '',
+        '隨函附上 {{ServiceDate}} 主日的{{ChurchName}}粵語堂週報，敬請查收。',
+        '',
+        '如發現資料有任何錯漏，請回覆此郵件告知，以便盡快更正。',
+        '',
+        '謝謝！',
+        '',
+        '粵語堂週報系統　敬上'
+      ].join('\n'),
+      ACTIVE: true,
+      NOTES: ''
+    }
+  ];
+}
