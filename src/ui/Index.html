@@ -2,6 +2,10 @@
 
 <div id="app">
 
+  <? if (schemaWarning) { ?>
+  <div class="schema-warning">工作表結構落後於程式碼（<?= schemaWarning ?>），請先在試算表撳「週報系統 ▸ 初始化工作表」。</div>
+  <? } ?>
+
   <header id="topbar">
     <div class="topbar-row">
       <label class="topbar-field">

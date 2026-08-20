@@ -2,10 +2,11 @@
  * WebApp.gs
  *
  * 週報填寫介面（單頁 Web App）：`doGet` 入口、權限檢查，以及給前端
- * `google.script.run` 呼叫的四個 API 函式（`apiListWeeks`／`apiLoadWeek`／
- * `apiPreviewProgram`／`apiSaveWeek`）。實際的儲存邏輯（upsert、樂觀鎖、
- * AuditLog）在 `src/WebAppSave.gs`，本檔案只負責「誰可以用」與「前端要
- * 什麼資料」。
+ * `google.script.run` 呼叫的五個 API 函式（`apiListWeeks`／`apiLoadWeek`／
+ * `apiPreviewProgram`／`apiSaveWeek`／`apiLogClientError`）。實際的儲存
+ * 邏輯（upsert、樂觀鎖、AuditLog）在 `src/WebAppSave.gs`，工作表結構
+ * 檢查在 `src/SchemaCheck.gs`，例外記錄在 `src/ErrorLog.gs`；本檔案負責
+ * 「誰可以用」「前端要什麼資料」，把這幾個模組串起來。
  *
  * 本檔案完全不碰 Google Docs、PDF、`MailApp`、`ScriptApp.newTrigger`，
  * 也不會寫入職事表（唯一會寫的是週報自己的試算表，經 WebAppSave.gs）。
@@ -14,11 +15,15 @@
  *   1. `WEBAPP_ENABLED` 不是 TRUE → 一頁說明，不渲染介面。
  *   2. 呼叫者不在 `WEBAPP_ALLOWED_EMAILS`（留空時只允許部署者本人）
  *      → 一頁說明。
- *   3. 通過才渲染 `ui/Index`。
+ *   3. 通過才渲染 `ui/Index`（`doGet` 這一步同時會跑一次
+ *      `checkSheetSchema_()`，結構落後於程式碼時交給樣板顯示黃色橫幅）。
  *
  * ⚠️ **只在 `doGet` 檢查是不夠的**——`google.script.run` 可以繞過頁面直接
  * 呼叫任何一個全域函式，所以每一個 API 函式開頭都要再呼叫一次
- * `assertCallerAuthorized_()`（透過 `withApiResult_()` 統一處理）。
+ * `assertCallerAuthorized_()`（透過 `withApiResult_()` 統一處理）；
+ * `withApiResult_()` 同時也是把例外寫進 `ErrorLog` 的唯一地方——
+ * Apps Script 的執行紀錄只看得到「這次呼叫完成」，看不出裡面其實失敗了，
+ * 見 docs/已知bug類型.md 事故七。
  */
 
 'use strict';
@@ -29,7 +34,9 @@
 
 /**
  * 用途：Web App 的 `doGet` 入口（Apps Script 固定簽章）。依序檢查總開關與
- *   呼叫者權限，通過才渲染 `ui/Index` 樣板。
+ *   呼叫者權限，通過才渲染 `ui/Index` 樣板；渲染前先跑一次
+ *   `checkSheetSchema_()`，結構落後於程式碼時把摘要交給樣板顯示成黃色
+ *   橫幅（見 `ui/Index.html`），提醒要先撳「初始化工作表」。
  * Args:
  *   e {Object} Apps Script 傳入的請求事件物件，本函式不使用其內容。
  * Returns:
@@ -49,7 +56,11 @@ function doGet(e) {
     ));
   }
 
-  return HtmlService.createTemplateFromFile('ui/Index').evaluate()
+  var schema = checkSheetSchema_();
+  var template = HtmlService.createTemplateFromFile('ui/Index');
+  template.schemaWarning = buildSchemaShortSummary_(schema);
+
+  return template.evaluate()
     .setTitle(APP_NAME + '－填寫介面')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
@@ -208,22 +219,39 @@ function assertCallerAuthorized_() {
 /**
  * 用途：把一個會拋錯的函式包成統一的 `{ ok, data?, error? }` 形狀，並在
  *   執行前檢查呼叫者權限。全部 `api*` 函式都經由這個函式呼叫底層邏輯。
+ *
+ *   ⚠️ **例外發生時，先寫一筆 `ErrorLog`（`SOURCE='SERVER'`）才回傳
+ *   `{ok:false,...}`**——Apps Script 的執行紀錄只看得到「這次呼叫完成」，
+ *   看不出裡面其實是失敗的；不記下來就沒有人知道發生過什麼事（見
+ *   docs/已知bug類型.md 事故七的第 2 部分）。寫 `ErrorLog` 本身若失敗，
+ *   `appendErrorLog_()` 自己會吞掉例外，不會影響這裡照樣回傳
+ *   `{ok:false,...}` 給呼叫端。
  * Args:
  *   fn {function(): *} 實際要執行的邏輯，可以拋錯。
+ *   context {{functionName:(string|undefined), argsSummary:(string|undefined)}=}
+ *     選填，寫入 `ErrorLog` 用：`functionName` 是出錯的 API 函式名稱，
+ *     `argsSummary` 是呼叫方自己組的、**不含電郵或個人資料**的參數摘要
+ *     （例如 `'isoDate=2027-10-03'`）。
  * Returns:
  *   {{ok:boolean, data:*, error:({code:string,message:string}|undefined)}}
  */
-function withApiResult_(fn) {
+function withApiResult_(fn, context) {
   try {
     assertCallerAuthorized_();
     return { ok: true, data: fn() };
   } catch (err) {
+    var errorCode = (err && err.code) || 'ERROR';
+    var message = (err && err.message) ? err.message : String(err);
+    appendErrorLog_({
+      source: ERROR_LOG_SOURCE.SERVER,
+      functionName: (context && context.functionName) || '',
+      errorCode: errorCode,
+      message: message,
+      detail: buildErrorDetail_(err, context)
+    });
     return {
       ok: false,
-      error: {
-        code: (err && err.code) || 'ERROR',
-        message: (err && err.message) ? err.message : String(err)
-      }
+      error: { code: errorCode, message: message }
     };
   }
 }
@@ -235,7 +263,7 @@ function withApiResult_(fn) {
  *   {{ok:boolean, data:{weeks:Object[], defaultIsoDate:(string|null)}, error?:Object}}
  */
 function apiListWeeks() {
-  return withApiResult_(function () { return listWeeksForWebApp_(); });
+  return withApiResult_(function () { return listWeeksForWebApp_(); }, { functionName: 'apiListWeeks' });
 }
 
 /**
@@ -248,7 +276,8 @@ function apiListWeeks() {
  *     `loadWeekForWebApp_()`。
  */
 function apiLoadWeek(isoDate) {
-  return withApiResult_(function () { return loadWeekForWebApp_(isoDate); });
+  return withApiResult_(function () { return loadWeekForWebApp_(isoDate); },
+    { functionName: 'apiLoadWeek', argsSummary: 'isoDate=' + isoDate });
 }
 
 /**
@@ -262,7 +291,8 @@ function apiLoadWeek(isoDate) {
  *   {{ok:boolean, data:{templateId:string, rows:Object[]}, error?:Object}}
  */
 function apiPreviewProgram(isoDate, draftFields) {
-  return withApiResult_(function () { return previewProgramForWebApp_(isoDate, draftFields); });
+  return withApiResult_(function () { return previewProgramForWebApp_(isoDate, draftFields); },
+    { functionName: 'apiPreviewProgram', argsSummary: 'isoDate=' + isoDate });
 }
 
 /**
@@ -271,11 +301,51 @@ function apiPreviewProgram(isoDate, draftFields) {
  * Args:
  *   payload {Object} 見 `src/WebAppSave.gs` 檔頭的 payload 形狀說明。
  * Returns:
- *   {{ok:boolean, data:{lastSavedAt:Date, changedFieldCount:number}, error?:Object}}
- *     樂觀鎖沒對上時 `error.code` 是 `'STALE'`。
+ *   {{ok:boolean, data:{lastSavedAt:string, changedFieldCount:number}, error?:Object}}
+ *     樂觀鎖沒對上時 `error.code` 是 `'STALE'`；工作表結構落後於程式碼時
+ *     `error.code` 是 `'SCHEMA_OUTDATED'`（見 `checkSheetSchema_()`），
+ *     兩種情況都**不會執行任何寫入**。
  */
 function apiSaveWeek(payload) {
-  return withApiResult_(function () { return saveWeekFromWebApp_(payload); });
+  return withApiResult_(function () {
+    var schema = checkSheetSchema_();
+    if (!schema.ok) {
+      var err = new Error(
+        '工作表結構落後於程式碼（' + buildSchemaMismatchSummary_(schema)
+        + '），請先在試算表撳「週報系統 ▸ 初始化工作表」。寧可拒絕儲存，也不要寫壞資料。'
+      );
+      err.code = 'SCHEMA_OUTDATED';
+      throw err;
+    }
+    return saveWeekFromWebApp_(payload);
+  }, { functionName: 'apiSaveWeek', argsSummary: 'isoDate=' + (payload && payload.isoDate) });
+}
+
+/**
+ * 用途：前端呼叫，把捕捉到的前端例外（`window.onerror`／
+ *   `window.onunhandledrejection`，或前端程式碼自己 catch 到的錯誤）
+ *   寫入 `ErrorLog`（`SOURCE='CLIENT'`）。跟其他 `api*` 函式一樣要通過
+ *   `withApiResult_()` 的權限檢查——理由同樣是「google.script.run 可以
+ *   繞過頁面直接呼叫」。
+ * Args:
+ *   payload {{message:(string|undefined), detail:(string|undefined),
+ *     functionName:(string|undefined)}} `detail` 只准放堆疊摘要這類
+ *     不含個資的內容，**前端不可以把電郵或表單完整內容塞進來**。
+ * Returns:
+ *   {{ok:boolean, data:{logged:boolean}, error?:Object}}
+ */
+function apiLogClientError(payload) {
+  return withApiResult_(function () {
+    var p = payload || {};
+    var logged = appendErrorLog_({
+      source: ERROR_LOG_SOURCE.CLIENT,
+      functionName: p.functionName || '（前端）',
+      errorCode: 'CLIENT_ERROR',
+      message: p.message || '',
+      detail: p.detail || ''
+    });
+    return { logged: logged };
+  }, { functionName: 'apiLogClientError' });
 }
 
 // =====================================================================
@@ -372,8 +442,13 @@ function pickDefaultWeekIsoDate_(entries, todayIso) {
  * Returns:
  *   {Object} 形狀：
  *     `{ isoDate, week:Object, lists:{announcements,prayers,fellowships,finance},
- *        lastSavedAt:(Date|null), readOnly:Object, missing:Object[],
+ *        lastSavedAt:string, readOnly:Object, missing:Object[],
  *        warnings:Object[], options:Object }`
+ *     `lastSavedAt` 經 `canonicalSaveToken_()` 正規化（見 WebAppSave.gs），
+ *     前端只需要原樣存起來、儲存時原樣送回，不需要自己解析或轉換；
+ *     `apiSaveWeek()` 比對樂觀鎖用的也是同一個函式，「從未儲存」在兩條
+ *     路徑都是同一個值（空字串）——這是事故七的修法，見
+ *     docs/已知bug類型.md。
  * Raises:
  *   Error（`code:'NOT_CONFIGURED'`）如果 `ROSTER_SPREADSHEET_ID` 未設定。
  */
@@ -409,7 +484,7 @@ function loadWeekForWebApp_(isoDate) {
       finance: pickWebAppListItems_(readSheet(SHEETS.FINANCE), isoDate,
         ['ROW_LABEL', 'COL_SPECIAL_OVERSEAS', 'COL_HARDSHIP'])
     },
-    lastSavedAt: weekRow.LAST_SAVED_AT || null,
+    lastSavedAt: canonicalSaveToken_(weekRow.LAST_SAVED_AT),
     readOnly: {
       dutyBoxPage1: model.dutyBoxPage1,
       nextWeekDuty: model.nextWeekDuty,
@@ -557,32 +632,63 @@ function previewProgramForWebApp_(isoDate, draftFields) {
  */
 function menuOpenWebApp_() {
   var ui = SpreadsheetApp.getUi();
-  var url = getConfig(CONFIG_KEYS.WEBAPP_URL, '');
+  try {
+    var url = getConfig(CONFIG_KEYS.WEBAPP_URL, '');
 
-  if (url) {
-    var html = HtmlService.createHtmlOutput(
-      '<div style="font-family:sans-serif;padding:1em;line-height:1.6;">'
-      + '<p>填寫介面網址：</p>'
-      + '<p><a href="' + escapeHtml_(url) + '" target="_blank" rel="noopener">' + escapeHtml_(url) + '</a></p>'
-      + '</div>'
-    ).setWidth(440).setHeight(160);
-    ui.showModalDialog(html, '開啟填寫介面');
-    return;
+    if (url) {
+      var html = HtmlService.createHtmlOutput(
+        '<div style="font-family:sans-serif;padding:1em;line-height:1.6;">'
+        + '<p>填寫介面網址：</p>'
+        + '<p><a href="' + escapeHtml_(url) + '" target="_blank" rel="noopener">' + escapeHtml_(url) + '</a></p>'
+        + '</div>'
+      ).setWidth(440).setHeight(160);
+      ui.showModalDialog(html, '開啟填寫介面');
+      return;
+    }
+
+    ui.alert(
+      '尚未部署填寫介面',
+      [
+        '請先部署本專案的 Web App，步驟：',
+        '1. Script Editor ▸ 部署 ▸ 新增部署作業',
+        '2. 類型選「網頁應用程式」',
+        '3. 執行身分選「我」',
+        '4. 存取權選「網域內的使用者」',
+        '5. 按「部署」，複製產生的網址',
+        '6. 把網址貼進 Config 的 WEBAPP_URL 這一格',
+        '',
+        '完成後重新點選這個選單項目即可看到連結。'
+      ].join('\n'),
+      ui.ButtonSet.OK
+    );
+  } catch (err) {
+    logMenuError_('menuOpenWebApp_', err);
+    ui.alert('開啟填寫介面失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
   }
+}
 
-  ui.alert(
-    '尚未部署填寫介面',
-    [
-      '請先部署本專案的 Web App，步驟：',
-      '1. Script Editor ▸ 部署 ▸ 新增部署作業',
-      '2. 類型選「網頁應用程式」',
-      '3. 執行身分選「我」',
-      '4. 存取權選「網域內的使用者」',
-      '5. 按「部署」，複製產生的網址',
-      '6. 把網址貼進 Config 的 WEBAPP_URL 這一格',
-      '',
-      '完成後重新點選這個選單項目即可看到連結。'
-    ].join('\n'),
-    ui.ButtonSet.OK
-  );
+/**
+ * 用途：選單項目「檢查工作表結構」的處理函式。呼叫 `checkSheetSchema_()`，
+ *   用對話框顯示結果；有落差時明確講「請撳『初始化工作表』」。
+ * Args: （無）
+ * Returns:
+ *   {void}
+ */
+function menuCheckSheetSchema_() {
+  var ui = SpreadsheetApp.getUi();
+  try {
+    var result = checkSheetSchema_();
+    if (result.ok) {
+      ui.alert('檢查工作表結構', '工作表結構與程式碼一致，沒有發現落差。', ui.ButtonSet.OK);
+      return;
+    }
+    ui.alert(
+      '檢查工作表結構：發現落差',
+      buildSchemaMismatchSummary_(result) + '\n\n請撳「初始化工作表」補齊。',
+      ui.ButtonSet.OK
+    );
+  } catch (err) {
+    logMenuError_('menuCheckSheetSchema_', err);
+    ui.alert('檢查工作表結構失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
+  }
 }

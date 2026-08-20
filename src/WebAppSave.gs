@@ -153,29 +153,93 @@ function computeFieldDiff_(existingObj, newValuesObj, fieldKeys) {
 }
 
 /**
- * 用途：把 `LAST_SAVED_AT` 這類「應該代表同一個時間點」的值，正規化成
- *   可以直接比較大小的毫秒數。接受 `Date` 物件、數字、或可以被
- *   `Date.parse()` 解析的字串。
+ * 用途：把兩位數字補成兩位字串（`5` → `'05'`），`formatSaveTokenDate_()`
+ *   的小工具。
  * Args:
- *   v {*}
+ *   n {number}
  * Returns:
- *   {?number} 空值或無法解析一律回 `null`。
+ *   {string}
  */
-function normalizeTimestampForCompare_(v) {
-  if (v === null || v === undefined || v === '') return null;
-  if (v instanceof Date) return v.getTime();
-  if (typeof v === 'number') return v;
-  if (typeof v === 'string') {
-    var t = Date.parse(v);
-    if (!Number.isNaN(t)) return t;
+function pad2ForSaveToken_(n) {
+  return (n < 10 ? '0' : '') + n;
+}
+
+/**
+ * 用途：把一個 `Date` 物件格式化成 `yyyy-MM-dd HH:mm:ss`，`canonicalSaveToken_()`
+ *   專用。
+ *
+ *   ⚠️ 刻意用 `Date` 物件自己的 `getFullYear()`／`getHours()` 等**區域時間**
+ *   讀值，不呼叫 `Utilities.formatDate()`——這樣這個函式完全不碰 Apps
+ *   Script 服務，可以在 Node 直接測試，不需要任何 GAS stub。這樣做是
+ *   安全的：Apps Script 專案本身的執行時區（`appsscript.json` 的
+ *   `timeZone`）本來就設定成跟 Config 的 `SYS_TIMEZONE` 一致
+ *   （`Pacific/Auckland`），所以 `Date` 物件的區域時間讀值本來就等於用
+ *   `SYS_TIMEZONE` 格式化的結果；`BulletinModel.gs` 的
+ *   `formatDatePatternSimple_()` 也是同一個做法。
+ * Args:
+ *   date {Date}
+ * Returns:
+ *   {string}
+ */
+function formatSaveTokenDate_(date) {
+  return date.getFullYear() + '-' + pad2ForSaveToken_(date.getMonth() + 1) + '-' + pad2ForSaveToken_(date.getDate())
+    + ' ' + pad2ForSaveToken_(date.getHours()) + ':' + pad2ForSaveToken_(date.getMinutes()) + ':' + pad2ForSaveToken_(date.getSeconds());
+}
+
+/**
+ * 用途：把任何一個「代表最後儲存時間」的值，正規化成單一個標準字串
+ *   （canonical save token）。**`apiLoadWeek()` 給前端的 `lastSavedAt`，
+ *   跟 `apiSaveWeek()` 比對樂觀鎖時，都只准經過這一個函式**，不可以
+ *   各自再發明一套「這算不算空」的判斷。
+ *
+ *   ⚠️ 事故：修這個函式之前，「從未儲存」這個狀態有**兩種表示法**——
+ *   `loadWeekForWebApp_()` 給前端的是 `weekRow.LAST_SAVED_AT || null`
+ *   （`null`），`saveWeekFromWebApp_()` 直接讀工作表算出來的樂觀鎖判斷
+ *   走的是另一套邏輯——兩條路徑「同一個狀態」用了不同的值／比較方式，
+ *   稍有落差就會被判定不相符，導致**第一次儲存永遠被誤判成 STALE**，
+ *   而且錯誤訊息還說「有人改過」，其實從來沒有人存過。詳見
+ *   docs/已知bug類型.md 事故七。修法是兩條路徑都只透過這一個函式取得
+ *   要比較的值，「同一個狀態只有一種表示法」。
+ * Args:
+ *   value {*} `Date` 物件、可以被 `new Date()` 解析成合法日期的字串、
+ *     代表時間戳記的數字（epoch 毫秒；Sheets 有時會把時間戳當成序列值
+ *     讀出來，一律當數字處理），或代表「從未儲存」的空值
+ *     （`null`／`undefined`／空字串／只有空白的字串）。
+ * Returns:
+ *   {string} 空值一律回 `''`（代表「從未儲存」，兩條路徑都用這個值，
+ *     `'' === ''` 才會相符，第一次儲存才存得進去）；`Date`／可解析成
+ *     日期的字串／數字一律格式化成 `yyyy-MM-dd HH:mm:ss`；其餘（解析
+ *     不出日期的字串）回 `trim()` 之後的原值，不拋錯。
+ */
+function canonicalSaveToken_(value) {
+  if (value === null || value === undefined) return '';
+
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? '' : formatSaveTokenDate_(value);
   }
-  return null;
+
+  if (typeof value === 'number') {
+    var fromNumber = new Date(value);
+    return Number.isNaN(fromNumber.getTime()) ? '' : formatSaveTokenDate_(fromNumber);
+  }
+
+  if (typeof value === 'string') {
+    var trimmed = value.trim();
+    if (trimmed === '') return '';
+    var parsed = new Date(trimmed);
+    if (!Number.isNaN(parsed.getTime())) return formatSaveTokenDate_(parsed);
+    return trimmed;
+  }
+
+  return String(value).trim();
 }
 
 /**
  * 用途：樂觀鎖檢查——`apiLoadWeek()` 給前端的 `lastSavedAt`，要跟目前
  *   工作表現有的 `LAST_SAVED_AT` 一致才允許儲存。兩者都是「空」（例如
- *   這一週從來沒有被填寫介面存過）也算相符，允許第一次儲存。
+ *   這一週從來沒有被填寫介面存過）也算相符，允許第一次儲存。兩個值都
+ *   經 `canonicalSaveToken_()` 正規化之後才比較——見該函式 docstring
+ *   說明的事故。
  * Args:
  *   currentLastSavedAt {*} 目前工作表現有的 `BulletinWeeks.LAST_SAVED_AT`。
  *   payloadLastSavedAt {*} `apiSaveWeek()` payload 帶回來的 `lastSavedAt`。
@@ -183,7 +247,7 @@ function normalizeTimestampForCompare_(v) {
  *   {boolean}
  */
 function checkOptimisticLock_(currentLastSavedAt, payloadLastSavedAt) {
-  return normalizeTimestampForCompare_(currentLastSavedAt) === normalizeTimestampForCompare_(payloadLastSavedAt);
+  return canonicalSaveToken_(currentLastSavedAt) === canonicalSaveToken_(payloadLastSavedAt);
 }
 
 /**
@@ -277,14 +341,24 @@ function computeListUpsertPlan_(existingRows, payloadItems, fieldKeys) {
  * Returns:
  *   {{weekChanges:Object[], listPlans:Object<string,Object>}}
  * Raises:
- *   Error（`code:'STALE'`）如果樂觀鎖不符。
+ *   Error（`code:'STALE'`）如果樂觀鎖不符。訊息**同時包含兩個時間**
+ *     （工作表上目前的最後儲存時間、payload 帶來的載入時版本時間），
+ *     不再只講一句「有人改過」卻不講是什麼時候——真正 STALE 時，這兩個
+ *     時間點對使用者判斷「要不要覆蓋」是必要資訊。
  */
 function buildSaveOperations_(input) {
   var payload = input.payload || {};
   var currentWeek = input.currentWeek || null;
 
-  if (!checkOptimisticLock_(currentWeek ? currentWeek.LAST_SAVED_AT : null, payload.lastSavedAt)) {
-    var err = new Error('這一週的資料在你編輯期間被其他人改過，請重新載入後再儲存。');
+  var currentToken = canonicalSaveToken_(currentWeek ? currentWeek.LAST_SAVED_AT : null);
+  var payloadToken = canonicalSaveToken_(payload.lastSavedAt);
+
+  if (currentToken !== payloadToken) {
+    var err = new Error(
+      '這一週的資料在你載入之後被改過（工作表上的最後儲存時間是 '
+      + (currentToken || '（尚未儲存）') + '，你載入時是 ' + (payloadToken || '（尚未儲存）')
+      + '）。請重新載入後再儲存，以免覆蓋別人的修改。'
+    );
     err.code = 'STALE';
     throw err;
   }
@@ -351,10 +425,14 @@ function normalizeWeekPayloadForCompare_(rawWeek) {
  * Args:
  *   payload {Object} 見本檔案檔頭的 payload 形狀說明。
  * Returns:
- *   {{lastSavedAt:Date, changedFieldCount:number}}
+ *   {{lastSavedAt:string, changedFieldCount:number}} `lastSavedAt` 是
+ *     `canonicalSaveToken_()` 正規化過的字串（不是 `Date`）——前端拿到
+ *     什麼就原樣存起來、下次儲存原樣送回即可，不需要自己再處理任何
+ *     日期／時區轉換。`changedFieldCount` 保證等於這次實際寫入
+ *     `AuditLog` 的筆數（同一個真相來源：兩者都是 `auditEntries.length`）。
  * Raises:
  *   Error 如果 `payload.isoDate` 缺漏或格式不對；Error（`code:'STALE'`）
- *     如果樂觀鎖不符。
+ *     如果樂觀鎖不符，此時**不會執行任何寫入**。
  */
 function saveWeekFromWebApp_(payload) {
   if (!payload || !payload.isoDate) {
@@ -399,7 +477,7 @@ function saveWeekFromWebApp_(payload) {
 
   auditEntries.forEach(function (entry) { appendAuditLog_(entry); });
 
-  return { lastSavedAt: newTimestamp, changedFieldCount: auditEntries.length };
+  return { lastSavedAt: canonicalSaveToken_(newTimestamp), changedFieldCount: auditEntries.length };
 }
 
 // =====================================================================

@@ -289,6 +289,10 @@ test('真正入口：第一次儲存（lastSavedAt 皆空）→ 成功，並寫�
     auditRows.every(function (r) { return r.ACTION === 'WEBAPP_SAVE_WEEK' || r.ACTION === 'WEBAPP_SAVE_FELLOWSHIPS'; }),
     '實際 ACTION：' + JSON.stringify(auditRows.map(function (r) { return r.ACTION; }))
   );
+  assert.strictEqual(
+    result.changedFieldCount, auditRows.length,
+    'changedFieldCount 一定要等於實際寫入 AuditLog 的筆數——只有一個真相來源，不可以一邊算一邊寫、兩者各數各的'
+  );
 });
 
 test('真正入口：樂觀鎖不符 → 拋 STALE 且完全沒有寫入動作', function () {

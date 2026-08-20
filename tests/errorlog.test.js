@@ -1,0 +1,206 @@
+#!/usr/bin/env node
+/**
+ * tests/errorlog.test.js
+ *
+ * src/ErrorLog.gs 與 src/WebApp.gs 的 withApiResult_() 回歸測試：把例外
+ * 「看得見、留得低」（見 docs/已知bug類型.md 事故七第 2 部分）。
+ *
+ * 1. withApiResult_() 失敗時寫一筆 ErrorLog，成功時不寫
+ * 2. ErrorLog 寫入經過 sanitizeCellText_()
+ * 3. 寫 ErrorLog 失敗時，原本的錯誤仍然照樣回傳給呼叫端
+ *
+ * 執行方式：node tests/errorlog.test.js
+ * 離開碼：0＝全部通過　1＝有測試失敗
+ */
+
+'use strict';
+
+const assert = require('assert');
+const { loadAllSrcFilesInOrder } = require('./helpers/loadGas');
+const { makeFakeSheet, makeFakeSpreadsheet } = require('./helpers/fakeSpreadsheet');
+
+const CALLER_EMAIL = 'tester@x.com';
+
+const GAS_STUBS = {
+  Utilities: { formatDate: function () { return ''; } },
+  Session: {
+    getScriptTimeZone: function () { return 'Pacific/Auckland'; },
+    getActiveUser: function () { return { getEmail: function () { return CALLER_EMAIL; } }; },
+    getEffectiveUser: function () { return { getEmail: function () { return CALLER_EMAIL; } }; }
+  },
+  SpreadsheetApp: {},
+  CacheService: {},
+  HtmlService: {}
+};
+
+let pass = 0;
+let fail = 0;
+
+function test(name, fn) {
+  try {
+    fn();
+    pass++;
+    console.log('  ✓ ' + name);
+  } catch (err) {
+    fail++;
+    console.log('  ✗ ' + name);
+    console.log('    ' + err.message);
+  }
+}
+
+function ownSheetFor(sandboxRef, sheetId, rows) {
+  const def = sandboxRef.COLUMNS[sheetId];
+  return makeFakeSheet(def.headers, def.keys, rows || []);
+}
+
+/**
+ * 造一個帶 ErrorLog（除非 `omitErrorLog`）與 Config（`WEBAPP_ALLOWED_EMAILS`
+ * 空白，靠 effectiveEmail 通過權限檢查）的假環境。
+ */
+function makeEnv(options) {
+  const o = options || {};
+  const freshSandbox = loadAllSrcFilesInOrder(GAS_STUBS);
+  const configRows = freshSandbox.DEFAULTS.map(function (d) {
+    return { KEY: d.key, VALUE: d.value, NOTE: '', EDITABLE: true };
+  });
+
+  const sheets = {
+    Config: makeFakeSheet(freshSandbox.COLUMNS.CONFIG.headers, freshSandbox.COLUMNS.CONFIG.keys, configRows)
+  };
+  if (!o.omitErrorLog) {
+    sheets.ErrorLog = ownSheetFor(freshSandbox, 'ERROR_LOG', []);
+  }
+
+  const FakeApp = { getActiveSpreadsheet: function () { return makeFakeSpreadsheet(sheets); } };
+  return loadAllSrcFilesInOrder(Object.assign({}, GAS_STUBS, { SpreadsheetApp: FakeApp }));
+}
+
+// =====================================================================
+// 1. withApiResult_() 失敗時寫一筆 ErrorLog，成功時不寫
+// =====================================================================
+
+test('withApiResult_：fn() 拋錯 → ErrorLog 多一筆記錄，且回傳 {ok:false, error}', function () {
+  var sb = makeEnv();
+  var before = sb.readSheet('ErrorLog').length;
+
+  var resp = sb.withApiResult_(function () {
+    var err = new Error('故意拋出的錯誤');
+    err.code = 'BOOM';
+    throw err;
+  }, { functionName: 'testFn' });
+
+  assert.strictEqual(resp.ok, false);
+  assert.strictEqual(resp.error.code, 'BOOM');
+  assert.strictEqual(resp.error.message, '故意拋出的錯誤');
+
+  var rows = sb.readSheet('ErrorLog');
+  assert.strictEqual(rows.length, before + 1);
+  assert.strictEqual(rows[before].SOURCE, 'SERVER');
+  assert.strictEqual(rows[before].FUNCTION_NAME, 'testFn');
+  assert.strictEqual(rows[before].ERROR_CODE, 'BOOM');
+  assert.strictEqual(rows[before].MESSAGE, '故意拋出的錯誤');
+});
+
+test('withApiResult_：fn() 成功 → ErrorLog 不會多一筆記錄', function () {
+  var sb = makeEnv();
+  var before = sb.readSheet('ErrorLog').length;
+
+  var resp = sb.withApiResult_(function () { return { hello: 'world' }; }, { functionName: 'testFn' });
+
+  assert.strictEqual(resp.ok, true);
+  assert.strictEqual(sb.readSheet('ErrorLog').length, before, '成功時不應該寫入 ErrorLog');
+});
+
+test('withApiResult_：呼叫者沒有權限時也算「失敗」，一樣要記一筆 ErrorLog', function () {
+  var unauthorizedStubs = Object.assign({}, GAS_STUBS, {
+    Session: {
+      getScriptTimeZone: function () { return 'Pacific/Auckland'; },
+      getActiveUser: function () { return { getEmail: function () { return 'nobody@x.com'; } }; },
+      getEffectiveUser: function () { return { getEmail: function () { return CALLER_EMAIL; } }; }
+    }
+  });
+  var freshSandbox = loadAllSrcFilesInOrder(unauthorizedStubs);
+  var configRows = freshSandbox.DEFAULTS.map(function (d) { return { KEY: d.key, VALUE: d.value, NOTE: '', EDITABLE: true }; });
+  var sheets = {
+    Config: makeFakeSheet(freshSandbox.COLUMNS.CONFIG.headers, freshSandbox.COLUMNS.CONFIG.keys, configRows),
+    ErrorLog: ownSheetFor(freshSandbox, 'ERROR_LOG', [])
+  };
+  var sb = loadAllSrcFilesInOrder(Object.assign({}, unauthorizedStubs, {
+    SpreadsheetApp: { getActiveSpreadsheet: function () { return makeFakeSpreadsheet(sheets); } }
+  }));
+
+  var resp = sb.withApiResult_(function () { return 'should not reach here'; }, { functionName: 'testFn' });
+  assert.strictEqual(resp.ok, false);
+  assert.strictEqual(resp.error.code, 'FORBIDDEN');
+  assert.strictEqual(sb.readSheet('ErrorLog').length, 1);
+  assert.strictEqual(sb.readSheet('ErrorLog')[0].ERROR_CODE, 'FORBIDDEN');
+});
+
+// =====================================================================
+// 2. ErrorLog 寫入經過 sanitizeCellText_()
+// =====================================================================
+
+test('appendErrorLog_：MESSAGE／DETAIL 以 = 開頭 → 寫入時有前導單引號（不會被 Sheets 當成公式）', function () {
+  var sb = makeEnv();
+  sb.appendErrorLog_({
+    source: sb.ERROR_LOG_SOURCE.SERVER,
+    functionName: 'testFn',
+    errorCode: 'ERR',
+    message: '=1+1 這不是公式',
+    detail: '=HYPERLINK("http://example.invalid")'
+  });
+
+  var rows = sb.readSheet('ErrorLog');
+  var row = rows[rows.length - 1];
+  assert.strictEqual(row.MESSAGE, "'=1+1 這不是公式");
+  assert.strictEqual(row.DETAIL, "'=HYPERLINK(\"http://example.invalid\")");
+  assert.notStrictEqual(row.MESSAGE.charAt(0), '=');
+});
+
+test('appendErrorLog_：ACTOR 沒有提供時用 Session.getActiveUser()，一樣經過 sanitizeCellText_', function () {
+  var actorStubs = Object.assign({}, GAS_STUBS, {
+    Session: {
+      getScriptTimeZone: function () { return 'Pacific/Auckland'; },
+      getActiveUser: function () { return { getEmail: function () { return '=actor@x.com'; } }; },
+      getEffectiveUser: function () { return { getEmail: function () { return CALLER_EMAIL; } }; }
+    }
+  });
+  var freshSandbox = loadAllSrcFilesInOrder(actorStubs);
+  var sheets = { ErrorLog: ownSheetFor(freshSandbox, 'ERROR_LOG', []) };
+  var sb = loadAllSrcFilesInOrder(Object.assign({}, actorStubs, {
+    SpreadsheetApp: { getActiveSpreadsheet: function () { return makeFakeSpreadsheet(sheets); } }
+  }));
+
+  sb.appendErrorLog_({ source: sb.ERROR_LOG_SOURCE.MENU, functionName: 'f', errorCode: 'E', message: 'm' });
+  var row = sb.readSheet('ErrorLog')[0];
+  assert.strictEqual(row.ACTOR, "'=actor@x.com");
+});
+
+// =====================================================================
+// 3. 寫 ErrorLog 失敗時，原本的錯誤仍然照樣回傳給呼叫端
+// =====================================================================
+
+test('appendErrorLog_：ErrorLog 工作表不存在時回 false，不拋錯', function () {
+  var sb = makeEnv({ omitErrorLog: true });
+  var result = sb.appendErrorLog_({ source: sb.ERROR_LOG_SOURCE.SERVER, functionName: 'f', errorCode: 'E', message: 'm' });
+  assert.strictEqual(result, false);
+});
+
+test('真正入口：ErrorLog 工作表不存在時，withApiResult_() 仍然正確回傳原本的錯誤，不會被「寫 ErrorLog 失敗」蓋掉或整個拋出', function () {
+  var sb = makeEnv({ omitErrorLog: true });
+
+  var resp = sb.withApiResult_(function () {
+    var err = new Error('這個錯誤要平安送到呼叫端');
+    err.code = 'ORIGINAL_ERROR';
+    throw err;
+  }, { functionName: 'testFn' });
+
+  assert.strictEqual(resp.ok, false);
+  assert.strictEqual(resp.error.code, 'ORIGINAL_ERROR');
+  assert.strictEqual(resp.error.message, '這個錯誤要平安送到呼叫端');
+});
+
+// =====================================================================
+
+console.log('\n' + pass + ' passed, ' + fail + ' failed');
+process.exit(fail === 0 ? 0 : 1);

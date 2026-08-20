@@ -69,11 +69,33 @@
     padding: 0.5em 0.8em;
     border-radius: 4px;
     font-size: 13px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6em;
   }
   .message-bar.info { background: #e6f0ff; color: #14418a; }
   .message-bar.error { background: #fdeceb; color: #8c231c; }
   .message-bar.success { background: #e8f6ec; color: #216032; }
+  .message-bar-close {
+    background: none;
+    border: none;
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    color: inherit;
+    padding: 0 0.2em;
+    flex-shrink: 0;
+  }
   .hidden { display: none !important; }
+
+  .schema-warning {
+    background: #fff3cd;
+    color: #7a5c00;
+    border-bottom: 1px solid #f0d999;
+    padding: 0.6em 1em;
+    font-size: 13px;
+  }
 
   .missing-panel {
     margin-top: 0.5em;

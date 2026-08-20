@@ -4,9 +4,14 @@
 
   // 目前這個主日的完整狀態。刻意不用 localStorage／sessionStorage——
   // 重新整理頁面就是要重新從伺服器讀最新資料，不應該有任何本地殘留狀態。
+  //
+  // `loaded`：只有 apiLoadWeek() 成功過才是 true。載入失敗時表單全部
+  // 空白，若這時候仍然可以儲存，就會把工作表上既有的內容全部覆蓋成
+  // 空白——所以「儲存」按鈕的可用狀態完全跟著這個旗標走，見 setLoaded()。
   var state = {
     isoDate: null,
     lastSavedAt: null,
+    loaded: false,
     week: {},
     lists: { announcements: [], prayers: [], fellowships: [], finance: [] },
     options: { programTemplateIds: [], recitationOptions: [], prayerBlockHeadingOptions: [], cantoneseSubColumnLabel: '主堂' }
@@ -41,6 +46,7 @@
   };
 
   var previewTimer = null;
+  var messageAutoHideTimer = null;
 
   // =====================================================================
   // 小工具
@@ -57,32 +63,83 @@
     return node;
   }
 
+  /**
+   * 顯示頂部訊息橫幅。`type` 是 `'success'`／`'info'`／`'error'` 其中一個
+   * （對應 Style.html 的 `.message-bar.xxx`）。
+   *
+   * 錯誤橫幅**不會自動消失**，右邊會加一個「×」讓使用者自己關掉——
+   * 錯誤如果自己淡出，使用者可能根本來不及看清楚發生了什麼事就消失了。
+   * 成功／資訊橫幅 5 秒後自動淡出。
+   */
   function showMessage(type, text) {
     var bar = document.getElementById('messageBar');
     bar.className = 'message-bar ' + type;
-    bar.textContent = text;
+    bar.innerHTML = '';
+
+    var textSpan = el('span');
+    textSpan.textContent = text;
+    bar.appendChild(textSpan);
+
+    if (type === 'error') {
+      var closeBtn = el('button', 'message-bar-close');
+      closeBtn.type = 'button';
+      closeBtn.textContent = '×';
+      closeBtn.setAttribute('aria-label', '關閉');
+      closeBtn.addEventListener('click', hideMessage);
+      bar.appendChild(closeBtn);
+    }
+
     bar.classList.remove('hidden');
+
+    if (messageAutoHideTimer) { clearTimeout(messageAutoHideTimer); messageAutoHideTimer = null; }
+    if (type !== 'error') {
+      messageAutoHideTimer = setTimeout(hideMessage, 5000);
+    }
   }
 
   function hideMessage() {
     document.getElementById('messageBar').classList.add('hidden');
+    if (messageAutoHideTimer) { clearTimeout(messageAutoHideTimer); messageAutoHideTimer = null; }
   }
 
+  /** `lastSavedAt` 一律是伺服器 canonicalSaveToken_() 正規化過的字串，前端直接顯示即可，不需要自己解析。 */
   function formatTimestamp(v) {
-    if (!v) return '（尚未儲存）';
-    try {
-      var date = (v instanceof Date) ? v : new Date(v);
-      if (isNaN(date.getTime())) return String(v);
-      return date.toLocaleString();
-    } catch (e) {
-      return String(v);
-    }
+    return v ? v : '（尚未儲存）';
+  }
+
+  /** `apiLoadWeek()` 成功才可以撳「儲存」——理由見 state.loaded 的註解。 */
+  function setLoaded(isLoaded) {
+    state.loaded = isLoaded;
+    var saveBtn = document.getElementById('saveBtn');
+    saveBtn.disabled = !isLoaded;
   }
 
   function onApiFailure(err) {
-    var saveBtn = document.getElementById('saveBtn');
-    if (saveBtn) saveBtn.disabled = false;
-    showMessage('error', '呼叫伺服器失敗：' + (err && err.message ? err.message : String(err)));
+    resetSaveButton();
+    var message = '呼叫伺服器失敗：' + (err && err.message ? err.message : String(err));
+    showMessage('error', message);
+    reportClientError_(message, err && err.stack ? String(err.stack).split('\n').slice(0, 5).join('\n') : '', 'onApiFailure');
+  }
+
+  /**
+   * 用途：把前端捕捉到的錯誤回報到伺服器 ErrorLog（SOURCE='CLIENT'）。
+   *   刻意不等回應、也不處理失敗——回報錯誤這件事本身失敗了，不應該再
+   *   跳一個新的錯誤橫幅打斷使用者。`detail` 只能放堆疊摘要這類技術性
+   *   內容，不可以夾帶電郵或表單完整內容。
+   * Args:
+   *   message {string}　detail {string}　functionName {string}
+   * Returns:
+   *   {void}
+   */
+  function reportClientError_(message, detail, functionName) {
+    try {
+      google.script.run
+        .withSuccessHandler(function () {})
+        .withFailureHandler(function () {})
+        .apiLogClientError({ message: message, detail: detail, functionName: functionName });
+    } catch (e) {
+      // 連呼叫 google.script.run 本身都失敗：吞掉，不要因為回報錯誤這件事再產生新的例外。
+    }
   }
 
   // =====================================================================
@@ -307,6 +364,7 @@
 
   function loadWeek(isoDate) {
     hideMessage();
+    setLoaded(false);
     google.script.run
       .withSuccessHandler(function (resp) { onWeekLoaded(isoDate, resp); })
       .withFailureHandler(onApiFailure)
@@ -314,7 +372,7 @@
   }
 
   function onWeekLoaded(isoDate, resp) {
-    if (!resp.ok) { showMessage('error', resp.error.message); return; }
+    if (!resp.ok) { setLoaded(false); showMessage('error', resp.error.message); return; }
     var data = resp.data;
 
     state.isoDate = isoDate;
@@ -334,6 +392,7 @@
     renderReadOnly(data.readOnly);
     renderStats(data.missing, data.warnings, data.lastSavedAt);
     renderProgramPreview(data.readOnly.program);
+    setLoaded(true);
   }
 
   function reloadRosterOnly() {
@@ -345,7 +404,9 @@
         renderReadOnly(resp.data.readOnly);
         renderStats(resp.data.missing, resp.data.warnings, state.lastSavedAt);
         renderProgramPreview(resp.data.readOnly.program);
-        showMessage('info', '已重新讀取職事表資料。');
+        var v = resp.data.readOnly.rosterVersionUsed;
+        var versionText = (v === null || v === undefined) ? '（尚未生成）' : String(v);
+        showMessage('info', '已重新讀取職事表（版本 ' + versionText + '）。');
       })
       .withFailureHandler(onApiFailure)
       .apiLoadWeek(state.isoDate);
@@ -363,28 +424,48 @@
     };
   }
 
+  /** 把「儲存」按鈕恢復成非儲存中的狀態；可不可以撳跟著 state.loaded 走。 */
+  function resetSaveButton() {
+    var saveBtn = document.getElementById('saveBtn');
+    saveBtn.textContent = '儲存';
+    saveBtn.disabled = !state.loaded;
+  }
+
   function saveWeek() {
     if (!state.isoDate) return;
+    if (!state.loaded) {
+      showMessage('error', '資料未載入成功，無法儲存');
+      return;
+    }
     hideMessage();
     var saveBtn = document.getElementById('saveBtn');
     saveBtn.disabled = true;
+    saveBtn.textContent = '儲存中…';
     google.script.run
       .withSuccessHandler(onSaveSuccess)
       .withFailureHandler(onApiFailure)
       .apiSaveWeek(buildSavePayload());
   }
 
+  /**
+   * 成功且 changedFieldCount > 0 → 綠色「已儲存，更新了 N 個欄位。」
+   * 成功但 changedFieldCount === 0 → 藍色「沒有偵測到任何改動，工作表
+   * 沒有變更。」（跟真正存了東西共用同一句話會讓人以為系統壞了，這是
+   * 兩種不同的結果，訊息要分得開）。失敗 → 紅色橫幅，伺服器已經給了
+   * 講清楚原因的訊息（含 STALE 時的兩個時間、SCHEMA_OUTDATED 的落差
+   * 摘要），前端原樣顯示即可，不需要再自己覆寫一句。
+   */
   function onSaveSuccess(resp) {
-    document.getElementById('saveBtn').disabled = false;
+    resetSaveButton();
     if (!resp.ok) {
-      if (resp.error.code === 'STALE') {
-        showMessage('error', '這一週的資料在你編輯期間被其他人改過，請重新載入後再儲存。');
-      } else {
-        showMessage('error', resp.error.message);
-      }
+      showMessage('error', resp.error.message);
       return;
     }
-    showMessage('success', '已儲存。');
+    if (resp.data.changedFieldCount > 0) {
+      showMessage('success', '已儲存，更新了 ' + resp.data.changedFieldCount + ' 個欄位。');
+    } else {
+      showMessage('info', '沒有偵測到任何改動，工作表沒有變更。');
+    }
     loadWeek(state.isoDate);
   }
 
@@ -434,7 +515,40 @@
     });
   }
 
+  /**
+   * 用途：捕捉前端沒有被任何 try/catch 接住的例外（一般執行錯誤與未處理
+   *   的 Promise rejection），顯示紅色橫幅並回報 ErrorLog——理由同
+   *   onApiFailure()：Apps Script 執行紀錄看不到前端發生了什麼事，不記
+   *   下來就沒有人知道。
+   * Returns:
+   *   {void}
+   */
+  function wireGlobalErrorHandlers() {
+    window.onerror = function (message, source, lineno, colno, error) {
+      var text = '前端發生未預期的錯誤：' + message;
+      showMessage('error', text);
+      reportClientError_(
+        text,
+        error && error.stack ? String(error.stack).split('\n').slice(0, 5).join('\n') : (source + ':' + lineno + ':' + colno),
+        'window.onerror'
+      );
+      return false;
+    };
+
+    window.onunhandledrejection = function (event) {
+      var reason = event && event.reason;
+      var text = '前端發生未處理的錯誤：' + (reason && reason.message ? reason.message : String(reason));
+      showMessage('error', text);
+      reportClientError_(
+        text,
+        reason && reason.stack ? String(reason.stack).split('\n').slice(0, 5).join('\n') : '',
+        'window.onunhandledrejection'
+      );
+    };
+  }
+
   function init() {
+    wireGlobalErrorHandlers();
     wireStaticEvents();
     document.getElementById('missingPanel').classList.add('hidden');
     google.script.run

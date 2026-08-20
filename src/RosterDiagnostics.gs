@@ -37,6 +37,7 @@ function menuTestReadRoster_() {
     ui.alert('職事表讀取測試', buildRosterSnapshotSummaryLines_(snapshot).join('\n'), ui.ButtonSet.OK);
     writeRosterSnapshotDiagnosticsReport_(snapshot);
   } catch (err) {
+    logMenuError_('menuTestReadRoster_', err);
     ui.alert('測試讀取職事表失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
   }
 }
@@ -76,6 +77,7 @@ function menuTestReadRosterQuarter_() {
     writeDiagnosticsReport_('職事表讀取測試（全季）', lines);
     ui.alert('已完成', '季度「' + quarterId + '」共 ' + dates.length + ' 個主日，已把結果寫入 Diagnostics。', ui.ButtonSet.OK);
   } catch (err) {
+    logMenuError_('menuTestReadRosterQuarter_', err);
     ui.alert('測試讀取職事表（全季）失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
   }
 }

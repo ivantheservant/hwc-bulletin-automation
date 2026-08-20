@@ -60,7 +60,8 @@ var SHEETS = Object.freeze({
   EMAIL_TEMPLATES: 'EmailTemplates',
   DIAGNOSTICS: 'Diagnostics',
   AUDIT_LOG: 'AuditLog',
-  SEND_LOG: 'SendLog'
+  SEND_LOG: 'SendLog',
+  ERROR_LOG: 'ErrorLog'
 });
 
 // =====================================================================
@@ -219,6 +220,16 @@ var COLUMNS = Object.freeze({
     headers: ['時間', '主日日期', '收件人', '主旨', '狀態', '是否試行', '職事表版本', '錯誤'],
     keys: ['TIMESTAMP', 'SERVICE_DATE', 'RECIPIENT_EMAIL', 'SUBJECT', 'STATUS', 'DRY_RUN', 'ROSTER_VERSION_USED', 'ERROR'],
     types: ['DATE', 'DATE', 'TEXT', 'TEXT', 'TEXT', 'BOOLEAN', 'TEXT', 'TEXT']
+  },
+
+  // 第四b輪新增：把例外「看得見、留得低」——伺服器／前端／選單三種來源
+  // 的錯誤統一寫進這裡，見 src/ErrorLog.gs。DETAIL 一律不可以存電郵或
+  // 完整個人資料，只存堆疊頭幾行與程式碼自己組的參數摘要（見
+  // docs/已知bug類型.md 事故七）。
+  ERROR_LOG: {
+    headers: ['時間', '使用者', '來源', '函式', '錯誤代碼', '錯誤訊息', '詳情'],
+    keys: ['TIMESTAMP', 'ACTOR', 'SOURCE', 'FUNCTION_NAME', 'ERROR_CODE', 'MESSAGE', 'DETAIL'],
+    types: ['DATE', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT']
   }
 
 });
@@ -396,6 +407,13 @@ var POSTURE = Object.freeze({
   STAND: '眾 立',
   SIT: '眾 坐',
   NONE: ''
+});
+
+/** ErrorLog.SOURCE 允許的取值。 */
+var ERROR_LOG_SOURCE = Object.freeze({
+  SERVER: 'SERVER',
+  CLIENT: 'CLIENT',
+  MENU: 'MENU'
 });
 
 // 注意：本檔案刻意不含 Node.js `module.exports`。tests/ 內的 Node 回歸測試

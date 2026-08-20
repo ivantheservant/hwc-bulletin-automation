@@ -53,8 +53,8 @@ const validTypes = Object.keys(COLUMN_TYPES).map(function (k) { return COLUMN_TY
 // SHEETS ⇄ COLUMNS 一致性
 // =====================================================================
 
-test('SHEETS 剛好定義 16 張工作表', function () {
-  assert.strictEqual(sheetIds.length, 16);
+test('SHEETS 剛好定義 17 張工作表', function () {
+  assert.strictEqual(sheetIds.length, 17);
 });
 
 test('每個 SHEETS 的 key 在 COLUMNS 都有對應定義，且沒有多餘的 COLUMNS key', function () {

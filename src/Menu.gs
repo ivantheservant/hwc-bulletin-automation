@@ -5,8 +5,13 @@
  * 重新載入設定、關於本系統）之後，第二輪加了兩個職事表唯讀介面的測試項目
  * （處理函式在 RosterDiagnostics.gs），第三輪加了兩個週報資料模型的項目
  * （處理函式在 BulletinDiagnostics.gs），第四輪加了一個開啟填寫介面的項目
- * （處理函式在 WebApp.gs）。Apps Script 全部檔案共用一個全域命名空間，
+ * （處理函式在 WebApp.gs），第四b輪加了一個檢查工作表結構的項目（處理
+ * 函式同樣在 WebApp.gs）。Apps Script 全部檔案共用一個全域命名空間，
  * 選單引用哪個檔案定義的函式都可以。
+ *
+ * ⚠️ 每個 `menuXxx_()` 的 catch 分支都要呼叫 `logMenuError_()`
+ * （`src/ErrorLog.gs`）寫一筆 `ErrorLog`（`SOURCE='MENU'`），再顯示
+ * `ui.alert()`——不能只顯示對話框、不留記錄，見 docs/已知bug類型.md 事故七。
  */
 
 'use strict';
@@ -22,6 +27,7 @@ function onOpen() {
     .createMenu(APP_NAME)
     .addItem('初始化工作表', 'menuInitializeAllSheets_')
     .addItem('重新載入設定（唯讀）', 'menuReloadConfig_')
+    .addItem('檢查工作表結構', 'menuCheckSheetSchema_')
     .addItem('關於本系統', 'menuAbout_')
     .addItem('測試讀取職事表', 'menuTestReadRoster_')
     .addItem('測試讀取職事表（全季）', 'menuTestReadRosterQuarter_')
@@ -55,6 +61,7 @@ function menuInitializeAllSheets_() {
     ];
     ui.alert('初始化完成', lines.join('\n'), ui.ButtonSet.OK);
   } catch (err) {
+    logMenuError_('menuInitializeAllSheets_', err);
     ui.alert('初始化失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
   }
 }
@@ -80,6 +87,7 @@ function menuReloadConfig_() {
     });
     ui.alert('目前設定值（共 ' + keys.length + ' 項）', lines.join('\n'), ui.ButtonSet.OK);
   } catch (err) {
+    logMenuError_('menuReloadConfig_', err);
     ui.alert('讀取設定失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
   }
 }
