@@ -14,6 +14,13 @@
 
   ⚠️ 本檔案的 HTML 註解內不可以出現字面上的樣板標籤符號（見
   docs/已知bug類型.md 的 bug class 第 1 項）——樣板引擎不理註解。
+
+  ⚠️ HtmlService 有兩種輸出標籤：**會轉義**（把值當 HTML 文字處理，
+  用於直接顯示在畫面上的內容）與**不轉義**（原樣輸出）。凡是伺服器端
+  已經呼叫過 JSON.stringify() 的值，一律要用**不轉義**那一種——用
+  會轉義那一種等於把已經編碼好的 JSON 字串再轉義一次，雙引號會變成
+  資料本身的一部分（實測出現過季度 ID 從 2027T4 變成帶引號的字串，
+  導致所有比對都失配、卻不會拋任何錯誤）。詳見 docs/已知bug類型.md。
 -->
 <!DOCTYPE html>
 <html>
@@ -112,7 +119,7 @@
   </div>
 
 <script>
-  var QUARTER_ID = <?= JSON.stringify(quarterId) ?>;
+  var QUARTER_ID = <?!= JSON.stringify(quarterId) ?>;
   var CONFLICTS = <?!= conflictsJson ?>;
 
   // 每一項目前的選擇；null 代表這一行還沒有人選過。
@@ -237,15 +244,12 @@
           document.getElementById('confirmBtn').disabled = false;
           return;
         }
+        // ⚠️ 訊息文字一律用伺服器回傳的 message（buildFillConflictResultMessage_()
+        // 算好的），前端不可以自己用 appliedGrid／appliedSystem 是不是都是
+        // 0 去猜——那樣猜不出「skipped 也是 0」的情況，見
+        // docs/已知bug類型.md 事故十五。
         var d = resp.data;
-        var message;
-        if (d.appliedGrid === 0 && d.appliedSystem === 0) {
-          message = '你全部選了「暫不處理」，所以一格都沒有改動。';
-        } else {
-          message = '已套用：填寫表 ' + d.appliedGrid + ' 格、系統 ' + d.appliedSystem
-            + ' 格；暫不處理 ' + d.skipped + ' 格（下次同步仍然會問）。';
-        }
-        document.getElementById('status').textContent = message;
+        document.getElementById('status').textContent = d.message;
         document.getElementById('hint').textContent = '';
 
         var confirmBtn = document.getElementById('confirmBtn');

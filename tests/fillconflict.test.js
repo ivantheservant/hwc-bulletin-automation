@@ -117,25 +117,50 @@ test('2. decisions 是空陣列 → 仍然寫總結記錄，decisionsReceived �
 // 3. decisions 對不上任何目前的衝突
 // =====================================================================
 
-test('3. decisions 的 isoDate／fieldKey 對不上任何衝突 → unmatched 計數正確，不拋錯', function () {
-  const env = makeConflictEnv('2027-11-07', 'SERMON_TITLE', '格子表的講題', '系統的講題');
+test('3. decisions 之中有一部分對不上目前的衝突 → unmatched 計數正確，不拋錯（因為還有其他配對成功）', function () {
+  const env = makeSyncedEnv();
+  setGridCell(env, '2027-11-07', 'SERMON_TITLE', '格子表講題');
+  setSystemCell(env, '2027-11-07', 'SERMON_TITLE', '系統講題');
+  env.sandbox.syncFillGrid_(QUARTER_ID);
 
   let result;
   assert.doesNotThrow(function () {
     result = env.sandbox.resolveFillConflicts_(QUARTER_ID, [
+      { isoDate: '2027-11-07', fieldKey: 'SERMON_TITLE', choice: 'GRID' },
       { isoDate: '2027-12-25', fieldKey: 'SERMON_TITLE', choice: 'GRID' },
       { isoDate: '2027-11-07', fieldKey: 'NOT_A_REAL_FIELD', choice: 'SYSTEM' }
     ]);
   });
 
   assert.strictEqual(result.unmatched, 2);
-  assert.strictEqual(result.appliedGrid, 0);
-  assert.strictEqual(result.appliedSystem, 0);
-  assert.strictEqual(result.decisionsReceived, 2);
+  assert.strictEqual(result.appliedGrid, 1);
+  assert.strictEqual(result.matchedConflicts, 1);
+  assert.strictEqual(result.decisionsReceived, 3);
 
   const runRecords = findRunRecord(env);
   assert.strictEqual(runRecords.length, 1);
   assert.strictEqual(JSON.parse(runRecords[0].NOTES).unmatched, 2);
+});
+
+test('3b. decisions 全部對不上目前的衝突（例如季度 ID 傳壞了）→ 拋 NO_MATCHING_CONFLICT，而且沒有任何寫入', function () {
+  const env = makeConflictEnv('2027-11-07', 'SERMON_TITLE', '格子表的講題', '系統的講題');
+  const beforeWeeks = JSON.stringify(env.sandbox.readSheet('BulletinWeeks'));
+  const beforeAuditCount = env.sandbox.readSheet('AuditLog').length;
+
+  assert.throws(function () {
+    env.sandbox.resolveFillConflicts_(QUARTER_ID, [
+      { isoDate: '2027-12-25', fieldKey: 'SERMON_TITLE', choice: 'GRID' }
+    ]);
+  }, function (err) {
+    assert.strictEqual(err.code, 'NO_MATCHING_CONFLICT');
+    assert.ok(err.message.indexOf(QUARTER_ID) !== -1, '訊息要講明是哪一個季度');
+    return true;
+  });
+
+  assert.strictEqual(JSON.stringify(env.sandbox.readSheet('BulletinWeeks')), beforeWeeks,
+    'BulletinWeeks 不可以有任何改動');
+  assert.strictEqual(env.sandbox.readSheet('AuditLog').length, beforeAuditCount,
+    '連 FILL_CONFLICT_RESOLVE_RUN 總結記錄都不可以寫——這不是使用者的選擇，是系統性的鍵值不符');
 });
 
 // =====================================================================
@@ -217,6 +242,41 @@ test('6. 混合選擇（一格 GRID、一格 SYSTEM、一格 SKIP）→ 三個�
   // 沒被處理的那一格（SCRIPTURE_REF）下次同步仍然要報成衝突。
   const plan = env.sandbox.computeFillSyncPlan_(QUARTER_ID);
   assert.strictEqual(plan.conflictCount, 1, '只有 SKIP 的那一格還應該是衝突');
+});
+
+// =====================================================================
+// buildFillConflictResultMessage_：訊息文案一律由伺服器算好（事故十五）
+// =====================================================================
+
+test('buildFillConflictResultMessage_：有實際套用時，講明三個實際數字', function () {
+  const env = makeSyncedEnv();
+  const message = env.sandbox.buildFillConflictResultMessage_({ appliedGrid: 2, appliedSystem: 1, skipped: 1 });
+  assert.strictEqual(message, '已套用：填寫表 2 格、系統 1 格；暫不處理 1 格（下次同步仍然會問）。');
+});
+
+test('buildFillConflictResultMessage_：只有 skipped 大於 0 且 appliedGrid／appliedSystem 都是 0 才可以說「全部選了暫不處理」', function () {
+  const env = makeSyncedEnv();
+  assert.strictEqual(
+    env.sandbox.buildFillConflictResultMessage_({ appliedGrid: 0, appliedSystem: 0, skipped: 3 }),
+    '你全部選了「暫不處理」，所以一格都沒有改動。'
+  );
+});
+
+test('buildFillConflictResultMessage_：appliedGrid／appliedSystem／skipped 全部是 0 時，不可以誤判成「全部暫不處理」', function () {
+  // ⚠️ 這正是事故十五的陷阱：舊寫法只看 appliedGrid===0 && appliedSystem===0，
+  // 在 unmatched 為主、skipped 也是 0 的情況下會錯誤顯示「你全部選了暫不
+  // 處理」，實際上使用者根本沒有選過暫不處理。
+  const env = makeSyncedEnv();
+  const message = env.sandbox.buildFillConflictResultMessage_({ appliedGrid: 0, appliedSystem: 0, skipped: 0 });
+  assert.strictEqual(message, '已套用：填寫表 0 格、系統 0 格；暫不處理 0 格（下次同步仍然會問）。');
+});
+
+test('resolveFillConflicts_ 的回傳值含 message 欄位，內容與 buildFillConflictResultMessage_ 一致', function () {
+  const env = makeConflictEnv('2027-11-07', 'SERMON_TITLE', '格子表的講題', '系統的講題');
+  const result = env.sandbox.resolveFillConflicts_(QUARTER_ID, [
+    { isoDate: '2027-11-07', fieldKey: 'SERMON_TITLE', choice: 'SKIP' }
+  ]);
+  assert.strictEqual(result.message, '你全部選了「暫不處理」，所以一格都沒有改動。');
 });
 
 // =====================================================================

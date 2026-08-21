@@ -186,12 +186,36 @@ function menuCheckFillGridAppearance_() {
  *     `'SKIP'`（暫不處理）。
  * Returns:
  *   {{ok:boolean, appliedGrid:number, appliedSystem:number, skipped:number,
- *     decisionsReceived:number, matchedConflicts:number, unmatched:number}}
+ *     decisionsReceived:number, matchedConflicts:number, unmatched:number,
+ *     message:string}}
  */
 function apiResolveFillConflicts(quarterId, decisions) {
   return withApiResult_(function () {
-    return resolveFillConflicts_(quarterId, decisions);
+    return resolveFillConflicts_(normalizeQuarterId_(quarterId), decisions);
   }, { functionName: 'apiResolveFillConflicts', argsSummary: 'quarterId=' + quarterId });
+}
+
+/**
+ * 用途：組出「處理填寫表衝突」對話框成功之後要顯示的結果文案。
+ *
+ *   ⚠️ 刻意放在 `.gs`（而不是讓 `ui/FillConflict.html` 自己砌字串）：
+ *   前端沒有 Node 測試，文案分支放在這裡才測得到；也避免前端用
+ *   `appliedGrid`／`appliedSystem` 是不是都是 `0` 來猜「是不是使用者
+ *   全部選了暫不處理」——那個猜法在 `skipped` 也是 `0`（例如全部
+ *   `unmatched`）的情況下一樣會誤判，見 docs/已知bug類型.md 事故十五。
+ *   只有 `skipped > 0` 才可以說「使用者真的選了暫不處理」。
+ * Args:
+ *   result {{appliedGrid:number, appliedSystem:number, skipped:number}}
+ *     `resolveFillConflicts_()` 算出來的套用結果。
+ * Returns:
+ *   {string} 給對話框顯示的一句話。
+ */
+function buildFillConflictResultMessage_(result) {
+  if (result.skipped > 0 && result.appliedGrid === 0 && result.appliedSystem === 0) {
+    return '你全部選了「暫不處理」，所以一格都沒有改動。';
+  }
+  return '已套用：填寫表 ' + result.appliedGrid + ' 格、系統 ' + result.appliedSystem
+    + ' 格；暫不處理 ' + result.skipped + ' 格（下次同步仍然會問）。';
 }
 
 /**
@@ -204,12 +228,24 @@ function apiResolveFillConflicts(quarterId, decisions) {
  *   一模一樣。`unmatched`（送來的 decision 對不上任何目前的衝突格）是
  *   這筆總結記錄裡最重要的欄位：日後再遇到「撳了但沒反應」，看這個數字
  *   就知道是前後端鍵值對不上，而不是使用者選錯。
+ *
+ *   ⚠️ 但如果**送來的選擇全部都對不上**（`decisionsReceived > 0` 而
+ *   `matchedConflicts === 0`），這已經不是「使用者選了暫不處理」——那是
+ *   一次徹底的鍵值不符（例如季度 ID 傳壞了），繼續往下走只會安靜地
+ *   什麼都不做。這種情況直接拋錯（`code: 'NO_MATCHING_CONFLICT'`），
+ *   不寫任何東西（連總結記錄都不寫），讓 `withApiResult_()` 把它變成
+ *   使用者看得到的明確錯誤訊息，而不是又一次「撳了沒反應」。
  * Args:
- *   quarterId {string} 季度 ID。
+ *   quarterId {string} 季度 ID（呼叫方要先用 `normalizeQuarterId_()`
+ *     處理過，這裡不再重複剝引號／驗證格式）。
  *   decisions {Object[]} 見 `apiResolveFillConflicts()`。
  * Returns:
  *   {{appliedGrid:number, appliedSystem:number, skipped:number,
- *     decisionsReceived:number, matchedConflicts:number, unmatched:number}}
+ *     decisionsReceived:number, matchedConflicts:number, unmatched:number,
+ *     message:string}}
+ * Raises:
+ *   Error（`code: 'NO_MATCHING_CONFLICT'`）如果送來至少一個選擇，卻一個
+ *     都對不上目前的衝突清單。
  */
 function resolveFillConflicts_(quarterId, decisions) {
   var plan = computeFillSyncPlan_(quarterId);
@@ -266,9 +302,19 @@ function resolveFillConflicts_(quarterId, decisions) {
     skipped++;
   });
 
+  var matchedConflicts = appliedGrid + appliedSystem + skipped;
+
+  if (decisionList.length > 0 && matchedConflicts === 0) {
+    var noMatchErr = new Error(
+      '送來 ' + decisionList.length + ' 個選擇，但在季度 ' + quarterId
+      + ' 找不到對應的衝突，請重新開啟對話框再試。'
+    );
+    noMatchErr.code = 'NO_MATCHING_CONFLICT';
+    throw noMatchErr;
+  }
+
   if (snapshotEntries.length > 0) writeFillSnapshotEntries_(quarterId, snapshotEntries);
 
-  var matchedConflicts = appliedGrid + appliedSystem + skipped;
   appendAuditLog_({
     action: 'FILL_CONFLICT_RESOLVE_RUN',
     sheetName: fillGridSheetName_(quarterId),
@@ -289,7 +335,8 @@ function resolveFillConflicts_(quarterId, decisions) {
     skipped: skipped,
     decisionsReceived: decisionList.length,
     matchedConflicts: matchedConflicts,
-    unmatched: unmatched
+    unmatched: unmatched,
+    message: buildFillConflictResultMessage_({ appliedGrid: appliedGrid, appliedSystem: appliedSystem, skipped: skipped })
   };
 }
 

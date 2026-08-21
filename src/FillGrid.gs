@@ -197,6 +197,52 @@ function isFillGridSheetName_(sheetName) {
   return quarterIdFromFillGridSheetName_(sheetName) !== null;
 }
 
+/**
+ * 用途：正規化並驗證由前端（`google.script.run`）收到的季度 ID。凡是
+ *   client-facing 的 API 一律要用這個函式處理輸入，不可以把收到的值
+ *   原樣當成乾淨的季度 ID 使用。
+ *
+ *   ⚠️ 這是實測事故的直接修法：`ui/FillConflict.html` 曾經用
+ *   `JSON.stringify(quarterId)` 產生一段 JS 字面值常數，卻透過**會轉義**
+ *   的 HtmlService 輸出標籤印出，導致雙引號被當成一般字元跳脫，
+ *   `QUARTER_ID` 變成連引號一起的字串（例如 `"2027T4"` 而不是
+ *   `2027T4`）。那次是樣板標籤用錯，這裡是**第二層防線**——就算未來
+ *   又有類似的編碼疏失，或者使用者不知怎樣把帶引號／空白的值傳進來，
+ *   伺服器端也要能剝掉這些雜訊，剝完仍然不合法格式就要直接拒絕，
+ *   不可以讓它靜靜地在下游查無資料。
+ * Args:
+ *   raw {*} 原始輸入值。
+ * Returns:
+ *   {string} 正規化後的季度 ID（例如 `'2027T4'`）。
+ * Raises:
+ *   Error（`code: 'INVALID_QUARTER_ID'`）如果去除引號與空白之後仍然不符合
+ *     「四位年份 + T + 一位數字」的格式。
+ */
+function normalizeQuarterId_(raw) {
+  var s = String(raw === null || raw === undefined ? '' : raw).trim();
+
+  // 剝掉最多一層包住整個字串的成對單／雙引號（例如樣板轉義出錯時
+  // 出現的 `"2027T4"`、`'2027T4'`）。
+  if (s.length >= 2) {
+    var first = s.charAt(0);
+    var last = s.charAt(s.length - 1);
+    if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
+      s = s.slice(1, -1).trim();
+    }
+  }
+
+  if (!/^\d{4}T\d$/.test(s)) {
+    var err = new Error(
+      'normalizeQuarterId_：季度 ID 格式不正確（應該是「四位年份T一位數字」，例如 2027T4），實際收到「'
+      + String(raw === null || raw === undefined ? '' : raw) + '」。'
+    );
+    err.code = 'INVALID_QUARTER_ID';
+    throw err;
+  }
+
+  return s;
+}
+
 // =====================================================================
 // 純函式層：由職事表與 BulletinWeeks 組出格子表應有的內容
 // =====================================================================

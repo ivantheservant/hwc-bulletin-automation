@@ -24,7 +24,8 @@ const {
   fillGridColumnDefs_, fillGridEditableKeys_, fillGridReadOnlyKeys_, fillGridCellText_,
   fillGridSheetName_, quarterIdFromFillGridSheetName_, isFillGridSheetName_,
   buildFillSnapshotIndex_, fillSnapshotKey_, buildFillGridHeaderRows_,
-  fillGridColumnIndex_, fillGridColumnDefAt_, buildFillProgressByGroup_, FILL_SYNC_STATUS
+  fillGridColumnIndex_, fillGridColumnDefAt_, buildFillProgressByGroup_, FILL_SYNC_STATUS,
+  normalizeQuarterId_
 } = pureSandbox;
 void buildFillHeaderRowsAlias;
 
@@ -175,6 +176,27 @@ test('欄位定義：五個群組齊備，次序正確', function () {
     if (groups.indexOf(d.group) === -1) groups.push(d.group);
   });
   assertArrayEqual(groups, ['基本', '崇拜程序', '上週人數', '事奉與獻花', '其他']);
+});
+
+// =====================================================================
+// normalizeQuarterId_：伺服器端第二道防線（事故十五）
+// =====================================================================
+
+test('normalizeQuarterId_：乾淨的季度 ID 原樣通過', function () {
+  assert.strictEqual(normalizeQuarterId_('2027T4'), '2027T4');
+});
+
+test('normalizeQuarterId_：剝掉包住整個字串的雙引號／單引號／頭尾空白', function () {
+  assert.strictEqual(normalizeQuarterId_('"2027T4"'), '2027T4');
+  assert.strictEqual(normalizeQuarterId_("'2027T4'"), '2027T4');
+  assert.strictEqual(normalizeQuarterId_('  2027T4  '), '2027T4');
+});
+
+test('normalizeQuarterId_：格式不合（例如工作表名稱、空字串、亂打）一律拋錯', function () {
+  ['Fill_2027T4', '', 'abc', '2027-T4', '27T4'].forEach(function (bad) {
+    assert.throws(function () { normalizeQuarterId_(bad); }, /季度 ID 格式不正確/,
+      '「' + bad + '」應該要拋錯');
+  });
 });
 
 test('buildFillGridHeaderRows_：三行標題，群組合併範圍正確', function () {
