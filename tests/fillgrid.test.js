@@ -170,12 +170,12 @@ test('欄位定義：12 個人數欄與 ATTENDANCE_DATE 都是純文字欄', fun
     'ATTENDANCE_DATE 一定要純文字，否則 2027-11-07 會被 Sheets 轉成 Date');
 });
 
-test('欄位定義：五個群組齊備，次序正確', function () {
+test('欄位定義：六個群組齊備，次序正確（浸禮合堂一定排在最後）', function () {
   const groups = [];
   fillGridColumnDefs_().forEach(function (d) {
     if (groups.indexOf(d.group) === -1) groups.push(d.group);
   });
-  assertArrayEqual(groups, ['基本', '崇拜程序', '上週人數', '事奉與獻花', '其他']);
+  assertArrayEqual(groups, ['基本', '崇拜程序', '上週人數', '事奉與獻花', '其他', '浸禮合堂']);
 });
 
 // =====================================================================
@@ -835,6 +835,85 @@ test('處理衝突：選「暫不處理」→ 完全不動，下次仍然報成�
 
   const plan = env.sandbox.computeFillSyncPlan_(QUARTER_ID);
   assert.strictEqual(plan.conflictCount, 1, '暫不處理的格子下次一定要再問一次');
+});
+
+// =====================================================================
+// 浸禮副框六欄（合併版 prompt 第 1 部分）
+// =====================================================================
+
+test('浸禮六欄：格子表有齊六欄，全部歸在「浸禮合堂」群組', function () {
+  const defs = fillGridColumnDefs_();
+  const baptismDefs = defs.filter(function (d) { return d.group === '浸禮合堂'; });
+  assertArrayEqual(
+    baptismDefs.map(function (d) { return d.key; }),
+    pureSandbox.baptismBoxFieldKeys_()
+  );
+  assert.strictEqual(baptismDefs.length, 6);
+});
+
+test('浸禮六欄：一定排在**最後面**（中間插欄會令既有格子表的資料整排錯開）', function () {
+  const defs = fillGridColumnDefs_();
+  const lastSix = defs.slice(-6).map(function (d) { return d.key; });
+  assertArrayEqual(lastSix, pureSandbox.baptismBoxFieldKeys_());
+});
+
+test('浸禮六欄：全部是可編輯欄，而且都是 BulletinWeeks 的機器鍵', function () {
+  const editable = fillGridEditableKeys_();
+  const weekKeys = pureSandbox.COLUMNS.BULLETIN_WEEKS.keys;
+  pureSandbox.baptismBoxFieldKeys_().forEach(function (key) {
+    assert.ok(editable.indexOf(key) !== -1, key + ' 應該可以同步回 BulletinWeeks');
+    assert.ok(weekKeys.indexOf(key) !== -1, key + ' 應該是 BulletinWeeks 的機器鍵');
+  });
+});
+
+test('浸禮六欄：中文標題與 baptismBoxFieldDefs_() 一致（只有一份標題真相）', function () {
+  const labelByKey = {};
+  fillGridColumnDefs_().forEach(function (d) { labelByKey[d.key] = d.label; });
+  pureSandbox.baptismBoxFieldDefs_().forEach(function (def) {
+    assert.strictEqual(labelByKey[def.key], def.label, def.key + ' 的中文標題不一致');
+  });
+});
+
+test('浸禮六欄：格子表填了值 → 同步 PUSH 回 BulletinWeeks 並記 AuditLog', function () {
+  const env = makeSyncedEnv();
+  setGridCell(env, '2027-11-07', 'BAPTISM_OFFICIANT', '甲');
+  setGridCell(env, '2027-11-07', 'BAPTISM_MEMBERS', '乙 丙 丁');
+
+  const plan = env.sandbox.syncFillGrid_(QUARTER_ID);
+  assert.strictEqual(plan.conflictCount, 0);
+  assert.strictEqual(plan.pushCount, 2);
+
+  const week = env.sandbox.readSheet('BulletinWeeks').filter(function (r) {
+    return env.sandbox.fillGridCellText_(r.SERVICE_DATE) === '2027-11-07';
+  })[0];
+  assert.strictEqual(week.BAPTISM_OFFICIANT, '甲');
+  assert.strictEqual(week.BAPTISM_MEMBERS, '乙 丙 丁', '多人欄位原樣存，不加尊稱、不重排');
+
+  const pushed = env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'FILL_SYNC_PUSH'; });
+  assert.ok(pushed.some(function (r) { return r.FIELD === 'BAPTISM_MEMBERS'; }), 'AuditLog 要逐格記錄');
+});
+
+test('浸禮六欄：系統那邊改過 → 同步 PULL 回格子表', function () {
+  const env = makeSyncedEnv();
+  setSystemCell(env, '2027-11-07', 'MEMBERSHIP_MEMBERS', '戊 己');
+
+  const plan = env.sandbox.syncFillGrid_(QUARTER_ID);
+  assert.strictEqual(plan.pullCount, 1);
+
+  const row = env.sandbox.readFillGridRows_(QUARTER_ID)
+    .filter(function (r) { return r.isoDate === '2027-11-07'; })[0];
+  assert.strictEqual(row.values.MEMBERSHIP_MEMBERS, '戊 己');
+});
+
+test('浸禮六欄：兩邊都改過 → 照樣走三方比對報衝突，不會偷偷覆蓋', function () {
+  const env = makeSyncedEnv();
+  setGridCell(env, '2027-11-07', 'CHILD_DEDICATION_CHILDREN', '格子表的');
+  setSystemCell(env, '2027-11-07', 'CHILD_DEDICATION_CHILDREN', '系統的');
+
+  const plan = env.sandbox.syncFillGrid_(QUARTER_ID);
+  assert.strictEqual(plan.conflictCount, 1);
+  assert.strictEqual(plan.pushCount, 0);
+  assert.strictEqual(plan.pullCount, 0);
 });
 
 // =====================================================================

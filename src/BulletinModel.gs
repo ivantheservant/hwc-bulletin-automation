@@ -139,6 +139,14 @@ function buildBulletinModel_(isoDate) {
     prayerRows: readSheet(SHEETS.PRAYERS),
     fellowshipRows: readSheet(SHEETS.FELLOWSHIPS),
     financeRows: readSheet(SHEETS.FINANCE),
+    // 浸禮副框的**單人**欄位要套尊稱，走的是跟事奉框人手覆寫姓名完全
+    // 同一條路徑（resolveOverrideDisplay_ 按姓名查 PersonDisplay），所以
+    // 尊稱開關也沿用第 1 頁那一個——副框就在第 1 頁。
+    baptismOptions: {
+      personDisplayRows: readSheet(SHEETS.PERSON_DISPLAY),
+      withHonorific: normalizeBoolean_(getConfig(CONFIG_KEYS.HONORIFIC_ON_PAGE1, 'TRUE')) === true,
+      targetDate: targetDate
+    },
     config: {
       dateFormatCover: getConfig(CONFIG_KEYS.DATE_FORMAT_COVER, 'yyyy 年 MM 月 dd 日'),
       dateFormatInline: getConfig(CONFIG_KEYS.DATE_FORMAT_INLINE, 'dd/MM/yyyy'),
@@ -196,6 +204,13 @@ function emptyBulletinModel_(isoDate, overrides) {
     // 已經排版過的結果，取不回原值。與其在 BulletinRender.gs 再讀一次
     // 工作表（那樣就會有兩個真相、而且多一次 IO），不如由模型一次帶出來。
     weekFields: {},
+    // 浸禮合堂副框六欄的**顯示文字**（單人欄位已套尊稱、多人欄位原樣）。
+    // 六個鍵一定齊全，沒有值的是空字串——見 src/BaptismBox.gs。
+    baptism: {},
+    // 這一週是不是浸禮合堂——填寫介面靠這個旗標決定要不要顯示副框六欄。
+    // 判斷依據是 `templateId`（由 resolveProgramTemplateId_() 算出來的
+    // 單一真相），不是在別處再比對一次特別主日的關鍵詞。
+    isBaptismSunday: false,
     attendance: { columns: [], rows: [] },
     nextWeekDuty: [],
     // 第六輪新增：週報與職事表的比對結果（見 src/RosterDiff.gs）。
@@ -269,6 +284,19 @@ function assembleBulletinModel_(input) {
   };
 
   model.attendance = buildAttendanceTable_(week, config.cantoneseSubColumnLabel || '主堂');
+
+  // 浸禮合堂副框六欄。單人欄位的尊稱要用 `PersonDisplay`，那是 IO 層讀好
+  // 之後透過 `input.baptismOptions` 傳進來的（純函式層不自己讀工作表）。
+  //
+  // ⚠️ `warnings` 一定要覆寫成本函式**自己那一份**（上面 `.slice()` 出來的
+  // 複本），不可以沿用 `input.baptismOptions.warnings`——查不到姓名的
+  // warning 會被推進呼叫方那個原始陣列，而模型帶出去的是複本，結果
+  // warning 靜靜不見（缺失被當成正常值靜靜過，見 docs/已知bug類型.md 第 2 類）。
+  model.isBaptismSunday = isBaptismTemplateId_(model.templateId);
+  model.baptism = buildBaptismBoxFields_(
+    week,
+    Object.assign({}, input.baptismOptions || {}, { warnings: warnings })
+  );
 
   model.flowers = {
     thisWeek: String(week.FLOWER_THIS_WEEK || ''),

@@ -116,6 +116,20 @@ function fillGridColumnDefs_() {
   add('其他', 'WEEKLY_BIBLE_READING', '本週讀經');
   add('其他', 'NOTES', '備註');
 
+  // ---- 浸禮合堂（只有浸禮合堂那一週要填，其餘主日留空）----
+  //
+  // ⚠️ 這六欄**一定要加在最後面**，不可以插在中間：`ensureFillGridSheet_()`
+  // 只重寫第 1–3 行標題，不會搬動第 4 行起的資料，在中間插欄會令既有格子表
+  // 的資料整排錯開。理由與 `COLUMNS.BULLETIN_WEEKS` 尾端那幾欄完全一樣。
+  //
+  // ⚠️ 格子表是「一季一張、一個主日一行」，欄是整季共用的，做不到「只在
+  // 浸禮那一行顯示」——所以六欄一律存在，靠群組標題「浸禮合堂」讓幹事一眼
+  // 看出「不是浸禮主日就不用理」。真正會按主日隱藏的是**填寫介面**（Web App），
+  // 見 `src/ui/Script.html` 的 `applyBaptismPanelVisibility()`。
+  baptismBoxFieldDefs_().forEach(function (def) {
+    add('浸禮合堂', def.key, def.label);
+  });
+
   return defs;
 }
 

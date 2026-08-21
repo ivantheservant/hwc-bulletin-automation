@@ -525,6 +525,10 @@ function loadWeekForWebApp_(isoDate) {
       nextWeekDuty: model.nextWeekDuty,
       special: model.special,
       templateId: model.templateId,
+      // 前端靠這個旗標決定要不要顯示「浸禮合堂副框」那一段。刻意由伺服器
+      // 算好（`isBaptismTemplateId_()`），不讓前端自己拿 templateId 去跟
+      // 字面值比——那樣範本 ID 一改就會有一處漏改。
+      isBaptismSunday: model.isBaptismSunday === true,
       rosterVersionUsed: model.rosterVersionUsed,
       rosterIsOfficial: model.rosterIsOfficial,
       program: model.program

@@ -269,6 +269,28 @@
 
     renderEditableDutyBox(readOnly.dutyBoxPage1);
     renderDutyTable('nextWeekDutyBody', readOnly.nextWeekDuty);
+    applyBaptismPanelVisibility(readOnly.isBaptismSunday === true);
+  }
+
+  /**
+   * 用途：按這一週是不是浸禮合堂，決定要不要顯示副框那一段。
+   *
+   *   ⚠️ **只是隱藏，不是停用、更不是清空**：面板內六個輸入框仍然在 DOM
+   *   內，仍然會被 collectWeekFields() 讀出來、原樣送回伺服器存返。如果
+   *   隱藏時順手把值清走，幹事把某一週的範本由浸禮改成平常再改返，
+   *   原本填好的受浸名單就會靜靜不見。
+   *
+   *   判斷用的是伺服器算好的 `readOnly.isBaptismSunday`，不是前端自己拿
+   *   `templateId` 去跟字面值比——範本 ID 只准有一個真相來源。
+   * Args:
+   *   isBaptism {boolean}
+   * Returns:
+   *   （無）
+   */
+  function applyBaptismPanelVisibility(isBaptism) {
+    var panel = document.getElementById('baptismPanel');
+    if (!panel) return;
+    panel.classList.toggle('hidden', !isBaptism);
   }
 
   /**

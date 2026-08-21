@@ -33,6 +33,26 @@ var PROGRAM_TEMPLATE_ID_ANNIVERSARY_ = 'TPL_ANNIVERSARY';
 var PROGRAM_CALL_TO_WORSHIP_SOURCE_ = 'FIELD:CALL_TEXT';
 
 /**
+ * 用途：判斷一個程序範本 ID 是不是「浸禮三堂聯合崇拜」。
+ *
+ *   ⚠️ 收歸一處的理由：「這一週是不是浸禮合堂」有三個地方要問——填寫
+ *   介面要決定顯不顯示副框六欄、資料模型要標旗標、Word 渲染要挑範本。
+ *   三處各自跟字面值比一次就是同一個狀態有三個真相來源（見
+ *   docs/已知bug類型.md 第 3 類），日後範本 ID 一改就會有地方漏改。
+ *
+ *   真正「什麼算浸禮」的規則（關鍵詞）在 Config
+ *   `TEMPLATE_KEYWORDS_BAPTISM`，由 `resolveProgramTemplateId_()` 求值；
+ *   本函式只負責認出它算出來的結果。
+ * Args:
+ *   templateId {?string} 程序範本 ID（`model.templateId`）。
+ * Returns:
+ *   {boolean}
+ */
+function isBaptismTemplateId_(templateId) {
+  return String(templateId || '') === PROGRAM_TEMPLATE_ID_BAPTISM_;
+}
+
+/**
  * 用途：程序表的真正入口。讀 `ProgramTemplates` 工作表與相關 Config，
  *   推斷（或沿用）範本 ID，再交給純函式層逐行求值。
  * Args:

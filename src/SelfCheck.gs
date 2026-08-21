@@ -163,6 +163,72 @@ function selfCheckConfigItems_() {
 // =====================================================================
 
 /**
+ * 用途：算出「本季待填欄位總數」的**逐主日彙總**——每個有待填欄位的
+ *   主日一筆，不是每個欄位一行。**這是修正報告被明細擠爆的核心**（見
+ *   `docs/已知bug類型.md`「報告被自己的明細擠爆」）：完整的逐欄位明細
+ *   移去選單「本季待填清單」（`buildQuarterMissingFieldsReportLines_()`），
+ *   自我檢測報告只印精簡摘要。
+ * Args:
+ *   serviceDates {{isoDate:string}[]} `listQuarterServiceDates_()` 的輸出。
+ * Returns:
+ *   {{perDate:{isoDate:string, count:number, line:string}[], totalMissing:number}}
+ *     `perDate` 只含「有待填」的主日，依 `serviceDates` 原本次序；
+ *     `line` 括號內最多列 3 個欄位中文名，超過 3 個加「等」。
+ */
+function selfCheckMissingSummaryByDate_(serviceDates) {
+  var perDate = [];
+  var totalMissing = 0;
+
+  (serviceDates || []).forEach(function (sd) {
+    try {
+      var missing = buildBulletinModel_(sd.isoDate).missing || [];
+      if (missing.length === 0) return;
+      totalMissing += missing.length;
+      var topLabels = missing.slice(0, 3).map(function (m) { return m.label; });
+      var suffix = missing.length > 3 ? ' 等' : '';
+      perDate.push({
+        isoDate: sd.isoDate,
+        count: missing.length,
+        line: sd.isoDate + '　' + missing.length + ' 項待填（' + topLabels.join('、') + suffix + '）'
+      });
+    } catch (perDateErr) {
+      // 單一主日算不出來不應該讓整個自我檢測失敗，忽略即可——
+      // 那個主日本身的問題會在其他檢測項目或演練報告裡看得到。
+    }
+  });
+
+  return { perDate: perDate, totalMissing: totalMissing };
+}
+
+/**
+ * 用途：把 `selfCheckMissingSummaryByDate_()` 的逐主日彙總行，截到
+ *   Config `SELFCHECK_MISSING_DETAIL_ROWS`（預設 20）以內，超過的部分
+ *   以「尚有 N 項未列出」帶過——`N` 是被截掉那些主日的**待填欄位總數**
+ *   （不是被截掉的主日數，「項」跟本項目訊息「N 項（共 M 個主日）」
+ *   用同一個單位一致），並指路到選單「本季待填清單」查完整明細。
+ * Args:
+ *   perDate {{isoDate:string, count:number, line:string}[]}
+ *     `selfCheckMissingSummaryByDate_()` 回傳的 `perDate`。
+ * Returns:
+ *   {string[]} 明細行；被截斷時最後一行是提示句。
+ */
+function selfCheckCapMissingSummary_(perDate) {
+  var maxRows = normalizeInt_(getConfig(CONFIG_KEYS.SELFCHECK_MISSING_DETAIL_ROWS, '20'));
+  if (!maxRows || maxRows < 1) maxRows = 20;
+
+  if (perDate.length <= maxRows) {
+    return perDate.map(function (d) { return d.line; });
+  }
+
+  var shown = perDate.slice(0, maxRows);
+  var hidden = perDate.slice(maxRows);
+  var hiddenFieldsCount = hidden.reduce(function (sum, d) { return sum + d.count; }, 0);
+
+  return shown.map(function (d) { return d.line; })
+    .concat(['尚有 ' + hiddenFieldsCount + ' 項未列出，請用選單「本季待填清單」查看完整明細。']);
+}
+
+/**
  * 用途：資料類的全部檢測項目。
  *
  *   ⚠️ 「尊稱未設定人數」與「待填欄位總數」一律用同一個
@@ -214,24 +280,12 @@ function selfCheckDataItems_(quarterResolution) {
 
     try {
       var serviceDates = listQuarterServiceDates_(currentQuarterId);
-      var totalMissing = 0;
-      var missingDetail = [];
-      serviceDates.forEach(function (sd) {
-        try {
-          (buildBulletinModel_(sd.isoDate).missing || []).forEach(function (m) {
-            totalMissing++;
-            missingDetail.push(sd.isoDate + '　' + m.label + '（' + m.field + '）');
-          });
-        } catch (perDateErr) {
-          // 單一主日算不出來不應該讓整個自我檢測失敗，忽略即可——
-          // 那個主日本身的問題會在其他檢測項目或演練報告裡看得到。
-        }
-      });
+      var missingSummary = selfCheckMissingSummaryByDate_(serviceDates);
       items.push(selfCheckItem_(
         '本季（' + currentQuarterId + '）待填欄位總數',
-        totalMissing === 0 ? S.GREEN : S.YELLOW,
-        totalMissing + ' 項（共 ' + serviceDates.length + ' 個主日）。',
-        missingDetail
+        missingSummary.totalMissing === 0 ? S.GREEN : S.YELLOW,
+        missingSummary.totalMissing + ' 項（共 ' + serviceDates.length + ' 個主日）。',
+        selfCheckCapMissingSummary_(missingSummary.perDate)
       ));
     } catch (err) {
       items.push(selfCheckItem_('本季待填欄位總數', S.YELLOW, '無法計算：' + ((err && err.message) ? err.message : String(err))));
@@ -414,34 +468,196 @@ function runSelfCheck_() {
 }
 
 /**
+ * 用途：算出這一輪報告實際要用的行數上限——`SELFCHECK_MAX_ROWS` 與
+ *   `DIAGNOSTICS_MAX_ROWS` 兩者取較小值（防止使用者把前者填得比後者
+ *   還大，變相繞過 `Diagnostics` 本身的上限）。
+ * Args: （無）
+ * Returns:
+ *   {{maxRows:number, clampNote:string}} `clampNote` 只在真的發生取小值
+ *   時才有內容，否則是空字串。
+ */
+function selfCheckResolveMaxRows_() {
+  var configured = normalizeInt_(getConfig(CONFIG_KEYS.SELFCHECK_MAX_ROWS, '140'));
+  if (!configured || configured < 1) configured = 140;
+  var diagnosticsMax = normalizeInt_(getConfig(CONFIG_KEYS.DIAGNOSTICS_MAX_ROWS, '380'));
+  if (!diagnosticsMax || diagnosticsMax < 1) diagnosticsMax = 380;
+
+  if (configured > diagnosticsMax) {
+    return {
+      maxRows: diagnosticsMax,
+      clampNote: '⚠️ SELFCHECK_MAX_ROWS（' + configured + '）大於 DIAGNOSTICS_MAX_ROWS（'
+        + diagnosticsMax + '），已改用較小值 ' + diagnosticsMax + '。'
+    };
+  }
+  return { maxRows: configured, clampNote: '' };
+}
+
+/**
+ * 用途：一個檢測項目的明細（`item.detail`）因為報告行數上限放不下、
+ *   必須截斷時，最後一行提示句要用的文字——「本季待填欄位總數」那一項
+ *   用「主日」講清楚單位（明細本身就是逐主日彙總行，見
+ *   `selfCheckMissingSummaryByDate_()`），其餘項目用通用措辭。
+ * Args:
+ *   itemLabel {string} 檢測項目的 `label`。
+ *   hiddenCount {number} 被截掉的行數。
+ * Returns:
+ *   {string}
+ */
+function selfCheckDetailTruncationTrailer_(itemLabel, hiddenCount) {
+  if (itemLabel.indexOf('待填欄位總數') !== -1) {
+    return '尚有 ' + hiddenCount + ' 個主日未列出。';
+  }
+  return '（尚有 ' + hiddenCount + ' 行未顯示，報告行數已達上限。）';
+}
+
+/**
  * 用途：把 `runSelfCheck_()` 的結果排版成 `Diagnostics` 報告的內容行。
  *
  *   ⚠️ 區段標題一律用全形括號「【…】」，不可以用 `===` 開頭——見
  *   docs/已知bug類型.md 事故六。
  *
- *   ⚠️ 每個項目若有 `detail`（尊稱未設定名單、待填欄位明細），逐行
- *   縮排列在該項目下方——行數上限交給 `writeDiagnosticsReport_()`
- *   既有的 `DIAGNOSTICS_MAX_ROWS` 截斷機制統一處理，這裡不用另外截斷。
+ *   ⚠️ **兩段式：逐項結果優先，明細其次**（見
+ *   `docs/已知bug類型.md`「報告被自己的明細擠爆」）。先把每一個檢測
+ *   項目的結論行（不含 `detail`）全部組好，這一段**保證完整寫入**；
+ *   剩餘的行數額度（`SELFCHECK_MAX_ROWS` 與 `DIAGNOSTICS_MAX_ROWS`
+ *   取較小值，扣掉結論段用掉的行數）才拿來依序寫各項目的 `detail`，
+ *   放不下就在那個項目的明細最後補一行「尚有 N 個未列出」然後整份
+ *   報告到此為止——不可以讓後面的檢測項目（觸發器、範本對帳、
+ *   ErrorLog／SendLog／AuditLog）因為前面某一項明細太長而被擠出報告。
  * Args:
  *   summary {Object} `runSelfCheck_()` 的回傳值。
  * Returns:
  *   {string[]}
  */
 function buildSelfCheckReportLines_(summary) {
-  var lines = [];
   var qr = summary.quarterResolution;
+  var rows = selfCheckResolveMaxRows_();
 
-  lines.push('檢測季度：' + (qr.ok ? qr.quarterId : '（未能決定）') + '　來源：' + (qr.ok ? qr.sourceLabel : '四層全部失敗'));
-  lines.push('');
-  lines.push('【總覽】');
-  lines.push('🟢 ' + summary.greenCount + ' 項　🟡 ' + summary.yellowCount + ' 項　🔴 ' + summary.redCount + ' 項');
-  lines.push('');
-  lines.push('【逐項結果】');
+  // ---- 第一段：逐項結果（保證全部寫入，不含明細）----
+  var header = [];
+  header.push('檢測季度：' + (qr.ok ? qr.quarterId : '（未能決定）') + '　來源：' + (qr.ok ? qr.sourceLabel : '四層全部失敗'));
+  if (rows.clampNote) header.push(rows.clampNote);
+  header.push('');
+  header.push('【總覽】');
+  header.push('🟢 ' + summary.greenCount + ' 項　🟡 ' + summary.yellowCount + ' 項　🔴 ' + summary.redCount + ' 項');
+  header.push('');
+  header.push('【逐項結果】');
   summary.items.forEach(function (item) {
-    lines.push(item.status + '　' + item.label + '　' + item.message);
-    (item.detail || []).forEach(function (d) { lines.push('　　' + d); });
+    header.push(item.status + '　' + item.label + '　' + item.message);
   });
-  return lines;
+
+  // ---- 第二段：明細，用剩餘額度依序寫，放不下就截斷並停止 ----
+  var remaining = rows.maxRows - header.length;
+  var detailLines = [];
+
+  for (var i = 0; i < summary.items.length && remaining > 0; i++) {
+    var item = summary.items[i];
+    var det = item.detail || [];
+    if (det.length === 0) continue;
+
+    if (det.length <= remaining) {
+      det.forEach(function (d) { detailLines.push('　　' + d); });
+      remaining -= det.length;
+    } else {
+      var shown = det.slice(0, Math.max(0, remaining - 1));
+      shown.forEach(function (d) { detailLines.push('　　' + d); });
+      detailLines.push('　　' + selfCheckDetailTruncationTrailer_(item.label, det.length - shown.length));
+      remaining = 0;
+    }
+  }
+
+  return header.concat(detailLines);
+}
+
+// =====================================================================
+// 本季待填清單（完整明細，不受 SELFCHECK_MISSING_DETAIL_ROWS 限制）
+// =====================================================================
+
+/**
+ * 用途：組出「本季待填清單」報告的內容行——**完整**逐欄位明細（每個
+ *   欄位一行），供「完成度自我檢測」報告的精簡彙總被截斷時，Ivan 另外
+ *   撳這個選單查完整清單。自己先截斷到 `DIAGNOSTICS_MAX_ROWS`，不倚賴
+ *   `writeDiagnosticsReport_()` 的通用截斷訊息——理由同
+ *   `buildRosterQuarterReportLines_()`（`src/RosterDiagnostics.gs`）：
+ *   這裡要準確講「尚有幾多項」，不是幾多行。
+ * Args:
+ *   quarterId {string} 季度 ID。
+ *   sourceLabel {string} 這個季度 ID 的來源說明（人手輸入或
+ *     `resolveWorkingQuarter_()` 的 `sourceLabel`），純粹是報告第一行
+ *     的說明文字，不影響查詢邏輯。
+ * Returns:
+ *   {string[]}
+ * Raises:
+ *   Error 如果 `ROSTER_SPREADSHEET_ID` 未設定，或職事表讀取失敗（見
+ *     `listQuarterServiceDates_()`）。
+ */
+function buildQuarterMissingFieldsReportLines_(quarterId, sourceLabel) {
+  var lines = ['本季待填清單：' + quarterId + '　來源：' + sourceLabel, ''];
+
+  var serviceDates = listQuarterServiceDates_(quarterId);
+  var itemLines = [];
+  serviceDates.forEach(function (sd) {
+    try {
+      (buildBulletinModel_(sd.isoDate).missing || []).forEach(function (m) {
+        itemLines.push(sd.isoDate + '　' + m.label + '（' + m.field + '）');
+      });
+    } catch (perDateErr) {
+      itemLines.push(sd.isoDate + '　（無法計算：' + ((perDateErr && perDateErr.message) ? perDateErr.message : String(perDateErr)) + '）');
+    }
+  });
+
+  if (itemLines.length === 0) {
+    lines.push('（本季沒有待填欄位。）');
+    return lines;
+  }
+
+  var maxRows = normalizeInt_(getConfig(CONFIG_KEYS.DIAGNOSTICS_MAX_ROWS, '380'));
+  if (!maxRows || maxRows < 1) maxRows = 380;
+  var budget = maxRows - lines.length;
+
+  if (itemLines.length <= budget) {
+    return lines.concat(itemLines);
+  }
+
+  var shown = itemLines.slice(0, Math.max(0, budget - 1));
+  return lines.concat(shown).concat(['尚有 ' + (itemLines.length - shown.length) + ' 項未列出。']);
+}
+
+/**
+ * 用途：選單項目「本季待填清單」的處理函式。問一個季度 ID（預設值取
+ *   `resolveWorkingQuarter_()`），輸出該季**完整**待填欄位明細到
+ *   `Diagnostics`（報告名稱「本季待填清單」）。**唯讀**。
+ * Args: （無）
+ * Returns:
+ *   {void}
+ */
+function menuShowQuarterMissingFieldsList_() {
+  var ui = SpreadsheetApp.getUi();
+  try {
+    var quarterResolution = resolveWorkingQuarter_();
+    var defaultQuarterId = quarterResolution.ok ? quarterResolution.quarterId : '';
+    var resp = ui.prompt(
+      '本季待填清單',
+      '請輸入季度 ID' + (defaultQuarterId ? '（例如 ' + defaultQuarterId + '）' : '（例如 2027T4）') + '：',
+      ui.ButtonSet.OK_CANCEL
+    );
+    if (resp.getSelectedButton() !== ui.Button.OK) return;
+
+    var typed = resp.getResponseText().trim();
+    var quarterId = typed || defaultQuarterId;
+    if (!quarterId) {
+      ui.alert('請輸入季度 ID。');
+      return;
+    }
+
+    var sourceLabel = (!typed && quarterResolution.ok) ? quarterResolution.sourceLabel : '人手輸入';
+    var lines = buildQuarterMissingFieldsReportLines_(quarterId, sourceLabel);
+    writeDiagnosticsReport_('本季待填清單', lines);
+    ui.alert('本季待填清單', '季度：' + quarterId + '\n\n完整清單已寫入 Diagnostics 工作表。', ui.ButtonSet.OK);
+  } catch (err) {
+    logMenuError_('menuShowQuarterMissingFieldsList_', err);
+    ui.alert('本季待填清單失敗', enrichAuthError_(err), ui.ButtonSet.OK);
+  }
 }
 
 // =====================================================================

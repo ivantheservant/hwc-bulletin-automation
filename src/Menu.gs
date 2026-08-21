@@ -52,6 +52,7 @@ function onOpen() {
     .addItem('檢查範本佔位符', 'menuInspectTemplatePlaceholders_')
     .addItem('全季流程演練', 'menuRunQuarterRehearsal_')
     .addItem('完成度自我檢測', 'menuRunSelfCheck_')
+    .addItem('本季待填清單', 'menuShowQuarterMissingFieldsList_')
     .addItem('檢查授權範圍', 'menuCheckAuthorizationScopes_')
     .addSeparator()
     .addSubMenu(SpreadsheetApp.getUi().createMenu('季度填寫表')

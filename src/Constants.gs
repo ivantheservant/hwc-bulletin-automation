@@ -124,7 +124,13 @@ var COLUMNS = Object.freeze({
       '快照職事表版本', '快照時間',
       // prompt9 §1.6 之後新增：財務報告註腳／結餘（同樣加在最後面，
       // 理由跟上面第六輪那兩欄一樣）。
-      '財務報告註腳', '財務報告結餘'
+      '財務報告註腳', '財務報告結餘',
+      // 浸禮合堂副框六欄（同樣加在最後面，理由同上）。前三欄是**單人**
+      // 欄位（要經 PersonDisplay 尊稱機制），後三欄是**多人**欄位
+      // （空格分隔、原樣輸出，不加尊稱、不排序）——分別見
+      // src/BaptismBox.gs 的 baptismBoxFieldDefs_()。
+      '浸禮主禮', '入會禮主禮', '孩童奉獻禮主禮',
+      '受浸肢體', '入會肢體', '奉獻孩童'
     ],
     keys: [
       'SERVICE_DATE', 'QUARTER_ID', 'WEEK_OF_MONTH', 'SPECIAL_TYPE', 'PAGE_TITLE',
@@ -138,7 +144,9 @@ var COLUMNS = Object.freeze({
       'STATUS', 'ROSTER_VERSION_USED', 'DOC_ID', 'PDF_ID',
       'LAST_GENERATED_AT', 'SENT_AT', 'LAST_SAVED_AT', 'NOTES',
       'ROSTER_SNAPSHOT_VERSION', 'ROSTER_SNAPSHOT_AT',
-      'FINANCE_NOTE', 'FINANCE_BALANCE'
+      'FINANCE_NOTE', 'FINANCE_BALANCE',
+      'BAPTISM_OFFICIANT', 'MEMBERSHIP_OFFICIANT', 'CHILD_DEDICATION_OFFICIANT',
+      'BAPTISM_MEMBERS', 'MEMBERSHIP_MEMBERS', 'CHILD_DEDICATION_CHILDREN'
     ],
     types: [
       'DATE', 'TEXT', 'INT', 'TEXT', 'TEXT',
@@ -153,7 +161,9 @@ var COLUMNS = Object.freeze({
       'TEXT', 'TEXT', 'TEXT', 'TEXT',
       'DATE', 'DATE', 'DATE', 'TEXT',
       'INT', 'DATE',
-      'TEXT', 'TEXT'
+      'TEXT', 'TEXT',
+      'TEXT', 'TEXT', 'TEXT',
+      'TEXT', 'TEXT', 'TEXT'
     ],
     textFormatColumns: [
       'ATT_ENG_WORSHIP', 'ATT_CANE_WORSHIP', 'ATT_CANN_WORSHIP', 'ATT_MAN_WORSHIP',
@@ -434,8 +444,13 @@ var CONFIG_KEYS = Object.freeze({
   DUTY_PLACEHOLDER_MAX: 'DUTY_PLACEHOLDER_MAX',
   // ---- prompt9 §1.6 補漏：FINANCE_TITLE 的組字樣式 ----
   FINANCE_TITLE_PATTERN: 'FINANCE_TITLE_PATTERN',
+  // ---- 財政表首欄期別標籤（與 FINANCE_TITLE 用同一個月份來源）----
+  FINANCE_PERIOD_LABEL_PATTERN: 'FINANCE_PERIOD_LABEL_PATTERN',
   // ---- 完成度自我檢測季度推算補漏：手動指定「本季」 ----
-  WORKING_QUARTER_ID: 'WORKING_QUARTER_ID'
+  WORKING_QUARTER_ID: 'WORKING_QUARTER_ID',
+  // ---- 完成度自我檢測報告行數上限補漏：結論優先於明細 ----
+  SELFCHECK_MAX_ROWS: 'SELFCHECK_MAX_ROWS',
+  SELFCHECK_MISSING_DETAIL_ROWS: 'SELFCHECK_MISSING_DETAIL_ROWS'
 });
 
 // =====================================================================
@@ -527,10 +542,17 @@ var DEFAULTS = Object.freeze([
     note: '{{FINANCE_TITLE}} 佔位符的組字樣式；{{YEAR}}／{{MONTH}} 換成該主日「上一個月」的年份與月份（財務報告照慣例滯後一個月）'
   },
   {
+    key: CONFIG_KEYS.FINANCE_PERIOD_LABEL_PATTERN,
+    value: '{{MONTH}}月份',
+    note: '財政表首欄期別標籤樣式；{{YEAR}}／{{MONTH}} 換成該主日「上一個月」的年月，與 FINANCE_TITLE_PATTERN 用同一組數值（同一個 financeReportPreviousMonth_()）'
+  },
+  {
     key: CONFIG_KEYS.WORKING_QUARTER_ID,
     value: '',
     note: '手動指定系統預設使用的季度（例如 2027T4）。留空則自動推算：先試下一個要寄的主日，失敗則用 ROSTER_TEST_DATE，見 resolveWorkingQuarter_()'
-  }
+  },
+  { key: CONFIG_KEYS.SELFCHECK_MAX_ROWS, value: '140', note: '完成度自我檢測報告最多寫入 Diagnostics 幾多行；大於 DIAGNOSTICS_MAX_ROWS 時取兩者較小值' },
+  { key: CONFIG_KEYS.SELFCHECK_MISSING_DETAIL_ROWS, value: '20', note: '完成度自我檢測「本季待填欄位總數」逐主日彙總明細最多列幾多行，其餘以「尚有 N 項」帶過；完整明細見選單「本季待填清單」' }
 ]);
 
 // =====================================================================

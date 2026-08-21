@@ -15,6 +15,9 @@
 !/tools/
 !/.gitignore
 !/README.md
+# 一鍵部署批次檔。檔案內**沒有**任何 ID——部署 ID 另外放在
+# deployment-id.txt（見下面「不可公開」那一節），所以這個檔案可以公開。
+!/deploy.bat
 
 # ------------------------------------------------------------
 # 以下明確列出「已知」不可公開的項目。
@@ -25,6 +28,10 @@
 # .clasp.json：內含 Apps Script 專案的 scriptId
 .clasp.json
 .clasprc.json
+
+# deployment-id.txt：deploy.bat 要用的 Web App 部署 ID。
+# 前面的 /* 已經擋住，這裡再寫一次是防呆——這個檔案永遠不可以公開。
+deployment-id.txt
 
 # 憑證與金鑰
 *.pem

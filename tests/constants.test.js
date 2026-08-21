@@ -147,6 +147,41 @@ test('Fellowships 的 MEETING_DATE／MEETING_TIME 是 TEXT 型別（不是 DATE�
   });
 });
 
+test('BulletinWeeks 剛好 53 欄（原本 47 ＋ 浸禮副框 6）', function () {
+  assert.strictEqual(COLUMNS.BULLETIN_WEEKS.keys.length, 53);
+});
+
+test('BulletinWeeks：浸禮副框六欄一定在**最後面**（中間插欄會令既有資料整排錯開）', function () {
+  const def = COLUMNS.BULLETIN_WEEKS;
+  const expected = [
+    'BAPTISM_OFFICIANT', 'MEMBERSHIP_OFFICIANT', 'CHILD_DEDICATION_OFFICIANT',
+    'BAPTISM_MEMBERS', 'MEMBERSHIP_MEMBERS', 'CHILD_DEDICATION_CHILDREN'
+  ];
+  assert.strictEqual(JSON.stringify(def.keys.slice(-6)), JSON.stringify(expected));
+  // 六欄一律 TEXT（多人欄位是一串用空格分隔的姓名，絕對不可以是 DATE／INT）。
+  def.keys.slice(-6).forEach(function (k) {
+    assert.strictEqual(def.types[def.keys.indexOf(k)], 'TEXT', k + ' 必須是 TEXT 型別');
+  });
+});
+
+test('BulletinWeeks：浸禮副框六欄的中文標題與機器鍵一一對應，沒有錯位', function () {
+  const def = COLUMNS.BULLETIN_WEEKS;
+  const expectedHeaders = ['浸禮主禮', '入會禮主禮', '孩童奉獻禮主禮', '受浸肢體', '入會肢體', '奉獻孩童'];
+  assert.strictEqual(JSON.stringify(def.headers.slice(-6)), JSON.stringify(expectedHeaders));
+});
+
+test('CONFIG_KEYS 剛好 69 個（與 DEFAULTS 一一對應）', function () {
+  assert.strictEqual(Object.keys(CONFIG_KEYS).length, 69);
+});
+
+test('這一輪新增的 Config 鍵 FINANCE_PERIOD_LABEL_PATTERN 有定義、有預設值', function () {
+  assert.strictEqual(CONFIG_KEYS.FINANCE_PERIOD_LABEL_PATTERN, 'FINANCE_PERIOD_LABEL_PATTERN');
+  const entry = DEFAULTS.filter(function (d) { return d.key === 'FINANCE_PERIOD_LABEL_PATTERN'; })[0];
+  assert.ok(entry, 'DEFAULTS 應該有這個鍵');
+  assert.strictEqual(entry.value, '{{MONTH}}月份');
+  assert.ok(entry.note.indexOf('上一個月') !== -1, '說明欄要講明是「上一個月」：' + entry.note);
+});
+
 // =====================================================================
 // CONFIG_KEYS ⇄ DEFAULTS 一致性
 // =====================================================================
@@ -169,8 +204,8 @@ test('CONFIG_KEYS 每一個值都有對應的 DEFAULTS 項目（不會有「有�
   });
 });
 
-test('DEFAULTS 剛好 66 筆（prompt1 的 29 ＋ prompt2 的 1 ＋ prompt3 的 9 ＋ prompt4 的 4 ＋ prompt5 的 7 ＋ prompt6 的 1 ＋ prompt7 的 6 ＋ prompt8 的 8 － prompt8b 刪除的 2 ＋ prompt9 的 2 ＋ 自我檢測季度推算補漏的 1）', function () {
-  assert.strictEqual(DEFAULTS.length, 66);
+test('DEFAULTS 剛好 69 筆（prompt1 的 29 ＋ prompt2 的 1 ＋ prompt3 的 9 ＋ prompt4 的 4 ＋ prompt5 的 7 ＋ prompt6 的 1 ＋ prompt7 的 6 ＋ prompt8 的 8 － prompt8b 刪除的 2 ＋ prompt9 的 2 ＋ 自我檢測季度推算補漏的 1 ＋ 自我檢測報告行數上限補漏的 2 ＋ 財政期別標籤的 1）', function () {
+  assert.strictEqual(DEFAULTS.length, 69);
 });
 
 test('prompt8b：DOC_TEMPLATE_ID_NORMAL／DOC_TEMPLATE_ID_COMBINED 兩個廢棄鍵已從 CONFIG_KEYS 與 DEFAULTS 移除', function () {

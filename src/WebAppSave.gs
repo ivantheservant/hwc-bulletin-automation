@@ -87,7 +87,14 @@ function webAppWeekFieldKeys_() {
     'ATT_ENG_CHILD', 'ATT_CANE_CHILD', 'ATT_CANN_CHILD', 'ATT_MAN_CHILD',
     'FLOWER_THIS_WEEK', 'FLOWER_NEXT_WEEK', 'NEXT_WEEK_HEADING',
     'PRAYER_BLOCK_HEADING'
-  ];
+    // 浸禮合堂副框六欄接在後面。
+    //
+    // ⚠️ 六欄**一律在這份清單內**，即使那一週不是浸禮合堂——介面只是把
+    // 面板隱藏起來（`readOnly.isBaptismSunday` 為 false），欄位仍然會被
+    // 讀出來、原樣送回、原樣存回去。**隱藏不等於刪除**：如果把六欄從這份
+    // 清單剔走，非浸禮主日儲存一次就會把既有的浸禮資料洗掉（例如幹事把
+    // 某一週的範本由浸禮改回平常再改返），而且完全沒有提示。
+  ].concat(baptismBoxFieldKeys_());
 }
 
 /**

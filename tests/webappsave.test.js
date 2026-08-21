@@ -366,6 +366,69 @@ test('真正入口：家事報告刪一項再儲存 → 該行 ACTIVE=FALSE，�
 });
 
 // =====================================================================
+// 浸禮副框六欄（合併版 prompt 第 1 部分）
+// =====================================================================
+
+test('浸禮六欄：webAppWeekFieldKeys_() 有齊六欄（讀與存共用同一份清單）', function () {
+  const keys = sandbox.webAppWeekFieldKeys_();
+  sandbox.baptismBoxFieldKeys_().forEach(function (k) {
+    assert.ok(keys.indexOf(k) !== -1, k + ' 應該在填寫介面的可編輯欄清單內');
+  });
+});
+
+test('浸禮六欄：六欄一律留在清單內，即使那一週不是浸禮合堂（隱藏不等於刪除）', function () {
+  // 這條測試鎖住一個很容易做錯的「優化」：把六欄改成只在浸禮主日才列入
+  // 清單。那樣的話，非浸禮主日儲存一次就會把既有的浸禮資料洗掉，而且完全
+  // 沒有提示——介面只是把面板隱藏，欄位仍然要原樣讀出、原樣存回。
+  const keys = sandbox.webAppWeekFieldKeys_();
+  assert.strictEqual(typeof sandbox.webAppWeekFieldKeys_, 'function');
+  assert.strictEqual(sandbox.webAppWeekFieldKeys_.length, 0, '這個函式不應該收任何參數（不看是不是浸禮主日）');
+  assert.strictEqual(keys.length, new Set(keys).size, '不可以有重複的鍵');
+});
+
+test('浸禮六欄：儲存時原樣存進 BulletinWeeks，多人欄位不加尊稱、不重排', function () {
+  const env = makeEnv({
+    bulletinWeeks: [{ SERVICE_DATE: '2027-10-03', QUARTER_ID: '2027T4', WEEK_OF_MONTH: 1, STATUS: 'DRAFT' }]
+  });
+
+  env.sandbox.saveWeekFromWebApp_(basicPayload({
+    week: {
+      BAPTISM_OFFICIANT: '甲',
+      BAPTISM_MEMBERS: '丙 乙 丁',
+      MEMBERSHIP_OFFICIANT: '戊',
+      MEMBERSHIP_MEMBERS: '己',
+      CHILD_DEDICATION_OFFICIANT: '庚',
+      CHILD_DEDICATION_CHILDREN: '辛 壬'
+    }
+  }));
+
+  const week = env.sandbox.readSheet('BulletinWeeks')[0];
+  assert.strictEqual(week.BAPTISM_OFFICIANT, '甲');
+  assert.strictEqual(week.BAPTISM_MEMBERS, '丙 乙 丁', '多人欄位原樣存（次序不變、不加尊稱）');
+  assert.strictEqual(week.MEMBERSHIP_MEMBERS, '己');
+  assert.strictEqual(week.CHILD_DEDICATION_CHILDREN, '辛 壬');
+});
+
+test('浸禮六欄：改動會逐格寫入 AuditLog；沒有改動的不會', function () {
+  const env = makeEnv({
+    bulletinWeeks: [{
+      SERVICE_DATE: '2027-10-03', QUARTER_ID: '2027T4', WEEK_OF_MONTH: 1, STATUS: 'DRAFT',
+      BAPTISM_OFFICIANT: '甲', BAPTISM_MEMBERS: '乙'
+    }]
+  });
+
+  const result = env.sandbox.saveWeekFromWebApp_(basicPayload({
+    week: { BAPTISM_OFFICIANT: '甲', BAPTISM_MEMBERS: '乙 丙' } // 只有第二格改過
+  }));
+
+  const audit = env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'WEBAPP_SAVE_WEEK'; });
+  const fields = audit.map(function (r) { return r.FIELD; });
+  assert.ok(fields.indexOf('BAPTISM_MEMBERS') !== -1, '改過那一格要有記錄');
+  assert.strictEqual(fields.indexOf('BAPTISM_OFFICIANT'), -1, '沒有改動的那一格不可以有記錄');
+  assert.strictEqual(result.changedFieldCount, audit.length);
+});
+
+// =====================================================================
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail === 0 ? 0 : 1);

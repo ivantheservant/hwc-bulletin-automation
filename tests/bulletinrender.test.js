@@ -87,7 +87,12 @@ const REQUIRED_VALUE_KEYS = [
   'PRAYER_BLOCK_HEADING', 'WEEKLY_BIBLE_READING', 'CHURCH_NAME',
   'ROSTER_VERSION', 'GENERATED_AT',
   // 財務報告（prompt9 §1.6 補漏）
-  'FINANCE_TITLE', 'FINANCE_NOTE', 'FINANCE_BALANCE'
+  'FINANCE_TITLE', 'FINANCE_NOTE', 'FINANCE_BALANCE',
+  // 財政表首欄期別標籤（原本在範本內硬寫「11月份」）
+  'FINANCE_PERIOD_LABEL',
+  // 浸禮合堂副框六欄
+  'BAPTISM_OFFICIANT', 'MEMBERSHIP_OFFICIANT', 'CHILD_DEDICATION_OFFICIANT',
+  'BAPTISM_MEMBERS', 'MEMBERSHIP_MEMBERS', 'CHILD_DEDICATION_CHILDREN'
 ].concat(numberedKeys_('DUTY_', 20)).concat(numberedKeys_('NEXT_DUTY_', 20));
 
 function sampleModel(overrides) {
@@ -401,10 +406,10 @@ function makeEnv(o) {
   ownSheets.Config = ownSheetFor(boot, 'CONFIG', Object.keys(cfg).map(function (k) {
     return { KEY: k, VALUE: cfg[k], NOTE: '', EDITABLE: true };
   }));
-  ownSheets.BulletinWeeks = ownSheetFor(boot, 'BULLETIN_WEEKS', [{
+  ownSheets.BulletinWeeks = ownSheetFor(boot, 'BULLETIN_WEEKS', [Object.assign({
     SERVICE_DATE: isoDate, QUARTER_ID: '2027T4', WEEK_OF_MONTH: 1, STATUS: 'DRAFT',
     PROGRAM_TEMPLATE_ID: 'TPL_NORMAL', SERMON_TITLE: '因信稱義', PAGE_TITLE: '崇拜程序'
-  }]);
+  }, o.weekOverrides || {})]);
   ownSheets.PostDisplay = ownSheetFor(boot, 'POST_DISPLAY', boot.seedPostDisplayRows_());
   ownSheets.MergeGroups = ownSheetFor(boot, 'MERGE_GROUPS', boot.seedMergeGroupsRows_());
   ownSheets.ProgramTemplates = ownSheetFor(boot, 'PROGRAM_TEMPLATES', boot.seedProgramTemplatesRows_());
@@ -698,6 +703,90 @@ test('8b. buildTemplateInspectionLines_()：非 DUTY／NEXT_DUTY 的沒用到清
 
   assert.ok(text.indexOf('PROGRAM（正常') === -1, 'PROGRAM 沒用到不是「正常」，不應該被加註：' + text);
   assert.ok(text.indexOf('　系統提供、但範本沒有用到的清單') !== -1);
+});
+
+// =====================================================================
+// 9. 浸禮副框：由真正入口 generateBulletinDocx_() 一路走到成品 .docx
+// =====================================================================
+
+/** 造一個含浸禮副框的範本 XML（標籤與佔位符同格，跟真實範本一樣）。 */
+function baptismTemplateXml() {
+  return fx.documentXml(
+    fx.para(fx.run('{{SERMON_TITLE}}'))
+    + fx.table([
+      fx.row([
+        fx.cell(fx.para(fx.run('浸禮：{{BAPTISM_OFFICIANT}}'))),
+        fx.cell(fx.para(fx.run('入會禮：{{MEMBERSHIP_OFFICIANT}}')))
+      ]),
+      fx.row([
+        fx.cell(fx.para(fx.run('受浸肢體：{{BAPTISM_MEMBERS}}'))),
+        fx.cell(fx.para(fx.run('入會肢體：{{MEMBERSHIP_MEMBERS}}')))
+      ]),
+      fx.row([
+        fx.cell(fx.para(fx.run('孩童奉獻禮：{{CHILD_DEDICATION_OFFICIANT}}'))),
+        fx.cell(fx.para(fx.run('奉獻孩童：{{CHILD_DEDICATION_CHILDREN}}')))
+      ])
+    ])
+  );
+}
+
+test('9. 真正入口：浸禮副框單人欄位套尊稱、多人欄位原樣，成品不殘留 {{', function () {
+  const env = makeEnv({
+    templateXml: baptismTemplateXml(),
+    weekOverrides: {
+      BAPTISM_OFFICIANT: '陳大文',           // PersonDisplay 有這個人，尊稱「弟兄」
+      BAPTISM_MEMBERS: '陳大文 李小明',      // 多人欄位，一樣有陳大文，但不可以加尊稱
+      MEMBERSHIP_OFFICIANT: '陳大文'
+    }
+  });
+  const result = env.sandbox.generateBulletinDocx_('2027-11-07');
+  assert.strictEqual(result.ok, true, JSON.stringify(result));
+
+  const xml = documentXmlOf(result.blob);
+  assert.strictEqual(xml.indexOf('{{'), -1, '成品不可以殘留任何佔位符');
+
+  const text = visibleText(xml);
+  assert.ok(text.indexOf('浸禮：陳大文弟兄') !== -1, '單人欄位要套尊稱：' + text);
+  assert.ok(text.indexOf('受浸肢體：陳大文 李小明') !== -1,
+    '多人欄位要原樣輸出，不加尊稱、不排序：' + text);
+});
+
+test('9b. 真正入口：孩童兩格留空 → 成品第 3 列整列不見，標籤不會孤零零留下', function () {
+  const env = makeEnv({
+    templateXml: baptismTemplateXml(),
+    weekOverrides: { BAPTISM_OFFICIANT: '陳大文', BAPTISM_MEMBERS: '李小明' }
+  });
+  const result = env.sandbox.generateBulletinDocx_('2027-11-07');
+  assert.strictEqual(result.ok, true, JSON.stringify(result));
+
+  const text = visibleText(documentXmlOf(result.blob));
+  assert.ok(text.indexOf('孩童奉獻禮') === -1, '整列要被刪走：' + text);
+  assert.ok(text.indexOf('奉獻孩童') === -1, '整列要被刪走：' + text);
+  assert.ok(text.indexOf('入會禮') === -1, '同列空的那格要連標籤清空：' + text);
+  assert.ok(text.indexOf('浸禮：陳大文弟兄') !== -1, '有值那一格要留低：' + text);
+});
+
+test('9c. 真正入口：六格全部留空 → 整個副框表格不見，其餘內容照樣產生', function () {
+  const env = makeEnv({ templateXml: baptismTemplateXml() });
+  const result = env.sandbox.generateBulletinDocx_('2027-11-07');
+  assert.strictEqual(result.ok, true, JSON.stringify(result));
+
+  const xml = documentXmlOf(result.blob);
+  assert.strictEqual(xml.indexOf('<w:tbl>'), -1, '整個副框表格要消失');
+  assert.strictEqual(xml.indexOf('{{'), -1);
+  assert.ok(visibleText(xml).indexOf('因信稱義') !== -1, '副框以外的內容不受影響');
+});
+
+test('9d. 真正入口：FINANCE_PERIOD_LABEL 與 FINANCE_TITLE 由 Config 樣式產生，月份一致', function () {
+  const env = makeEnv({ templateXml: fx.documentXml(
+    fx.para(fx.run('{{FINANCE_TITLE}}')) + fx.para(fx.run('{{FINANCE_PERIOD_LABEL}}'))
+  ) });
+  const result = env.sandbox.generateBulletinDocx_('2027-11-07');
+  assert.strictEqual(result.ok, true, JSON.stringify(result));
+
+  const text = visibleText(documentXmlOf(result.blob));
+  assert.ok(text.indexOf('2027年 10月份') !== -1, '標題要用上一個月：' + text);
+  assert.ok(text.indexOf('10月份') !== -1, '首欄標籤要用同一個月：' + text);
 });
 
 // =====================================================================

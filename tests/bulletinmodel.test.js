@@ -89,6 +89,7 @@ function assemble(overrides) {
     fellowshipRows: o.fellowshipRows || [],
     financeRows: o.financeRows || [],
     config: o.config || DEFAULT_CONFIG,
+    baptismOptions: o.baptismOptions || {},
     formatDate: o.formatDate || formatDatePatternSimple_,
     warnings: o.warnings || []
   });
@@ -571,6 +572,53 @@ test('真正入口：BulletinWeeks 已指定範本 → 不覆蓋、不記 AuditL
 test('真正入口：isoDate 格式不對 → 拋錯', function () {
   var env = makeEnvironment({});
   assert.throws(function () { env.sandbox.buildBulletinModel_('2027/10/03'); });
+});
+
+// =====================================================================
+// 浸禮副框（合併版 prompt 第 1 部分）
+// =====================================================================
+
+test('浸禮：isBaptismSunday 由 templateId 決定（只有 TPL_COMBINED_BAPTISM 為 true）', function () {
+  assert.strictEqual(assemble({ templateId: 'TPL_COMBINED_BAPTISM' }).isBaptismSunday, true);
+  assert.strictEqual(assemble({ templateId: 'TPL_NORMAL' }).isBaptismSunday, false);
+  assert.strictEqual(assemble({ templateId: 'TPL_ANNIVERSARY' }).isBaptismSunday, false);
+});
+
+test('浸禮：model.baptism 六個鍵一定齊全，即使不是浸禮主日（隱藏不等於刪除）', function () {
+  var model = assemble({
+    templateId: 'TPL_NORMAL',
+    week: { BAPTISM_MEMBERS: '乙 丙' }
+  });
+  assertArrayEqual(Object.keys(model.baptism).sort(), sandbox.baptismBoxFieldKeys_().slice().sort());
+  assert.strictEqual(model.baptism.BAPTISM_MEMBERS, '乙 丙',
+    '不是浸禮主日一樣要把已填的值帶出來——版面上出不出現由渲染層決定，不是靠模型清空');
+});
+
+test('浸禮：單人欄位套尊稱、多人欄位原樣（由 baptismOptions 帶 PersonDisplay 進來）', function () {
+  var model = assemble({
+    templateId: 'TPL_COMBINED_BAPTISM',
+    week: { BAPTISM_OFFICIANT: '甲', BAPTISM_MEMBERS: '甲 乙' },
+    baptismOptions: {
+      withHonorific: true,
+      personDisplayRows: [
+        { PERSON_ID: 'P1', NAME_TC: '甲', HONORIFIC: '牧師', DISPLAY_OVERRIDE: '', EFFECTIVE_FROM: '', EFFECTIVE_TO: '', ACTIVE: true, NOTES: '' }
+      ],
+      targetDate: null
+    }
+  });
+  assert.strictEqual(model.baptism.BAPTISM_OFFICIANT, '甲牧師');
+  assert.strictEqual(model.baptism.BAPTISM_MEMBERS, '甲 乙', '多人欄位原樣，不加尊稱');
+});
+
+test('浸禮：單人欄位查不到姓名 → warning 進得到 model.warnings（不是進呼叫方那個原始陣列）', function () {
+  var model = assemble({
+    templateId: 'TPL_COMBINED_BAPTISM',
+    week: { BAPTISM_OFFICIANT: '查無此人' },
+    baptismOptions: { withHonorific: true, personDisplayRows: [], targetDate: null }
+  });
+  var hit = model.warnings.filter(function (w) { return w.code === 'OVERRIDE_NAME_NOT_IN_PERSON_DISPLAY'; });
+  assert.strictEqual(hit.length, 1, 'warning 一定要出現在模型帶出去的那一份，否則靜靜不見：'
+    + JSON.stringify(model.warnings));
 });
 
 // =====================================================================

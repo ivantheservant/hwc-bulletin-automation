@@ -134,23 +134,56 @@ function financeReportPreviousMonth_(isoDate) {
   return { year: year, month: month };
 }
 
+/** `{{FINANCE_PERIOD_LABEL}}` 沒有另外設定樣式時的預設值（財政表首欄期別標籤）。 */
+var FINANCE_PERIOD_LABEL_PATTERN_DEFAULT_ = '{{MONTH}}月份';
+
 /**
- * 用途：組出 `{{FINANCE_TITLE}}` 佔位符的值——把樣式字串內的
- *   `{{YEAR}}`／`{{MONTH}}` 換成 `financeReportPreviousMonth_()` 算出來的
- *   年份與月份。純函式。
+ * 用途：把一個「財務報告樣式字串」內的 `{{YEAR}}`／`{{MONTH}}` 換成
+ *   `financeReportPreviousMonth_()` 算出來的年份與月份。純函式。
+ *
+ *   ⚠️ **`{{FINANCE_TITLE}}` 與 `{{FINANCE_PERIOD_LABEL}}` 一律經過這一個
+ *   函式**，所以兩者的月份永遠一致。兩邊各自算一次月份就是同一個狀態有
+ *   兩個真相來源（docs/已知bug類型.md 第 3 類）——那樣的話標題印「10月份」
+ *   而首欄印「11月份」這種錯，要到印出來才會發現。
  * Args:
- *   pattern {string} Config `FINANCE_TITLE_PATTERN` 的原始樣式字串
- *     （例如 `'聖道堂綜合收支財務報告-{{YEAR}}年 {{MONTH}}月份'`）。
+ *   pattern {string} 原始樣式字串（例如
+ *     `'聖道堂綜合收支財務報告-{{YEAR}}年 {{MONTH}}月份'` 或 `'{{MONTH}}月份'`）。
  *   isoDate {string} 主日日期，yyyy-MM-dd，用來算「上一個月」。
  * Returns:
  *   {string} `isoDate` 格式不對（例如空模型）時回空字串。
  */
-function buildFinanceTitle_(pattern, isoDate) {
+function applyFinanceMonthPattern_(pattern, isoDate) {
   var prev = financeReportPreviousMonth_(isoDate);
   if (!prev) return '';
   return String(pattern || '')
     .split('{{YEAR}}').join(String(prev.year))
     .split('{{MONTH}}').join(String(prev.month));
+}
+
+/**
+ * 用途：組出 `{{FINANCE_TITLE}}` 佔位符的值。純函式。
+ * Args:
+ *   pattern {string} Config `FINANCE_TITLE_PATTERN` 的原始樣式字串。
+ *   isoDate {string} 主日日期，yyyy-MM-dd，用來算「上一個月」。
+ * Returns:
+ *   {string} `isoDate` 格式不對（例如空模型）時回空字串。
+ */
+function buildFinanceTitle_(pattern, isoDate) {
+  return applyFinanceMonthPattern_(pattern, isoDate);
+}
+
+/**
+ * 用途：組出 `{{FINANCE_PERIOD_LABEL}}` 佔位符的值——財政表首欄的期別
+ *   標籤（原本在範本內硬寫「11月份」，即是不論哪一期都印同一個月）。
+ *   純函式。
+ * Args:
+ *   pattern {string} Config `FINANCE_PERIOD_LABEL_PATTERN` 的原始樣式字串。
+ *   isoDate {string} 主日日期，yyyy-MM-dd，用來算「上一個月」。
+ * Returns:
+ *   {string} `isoDate` 格式不對（例如空模型）時回空字串。
+ */
+function buildFinancePeriodLabel_(pattern, isoDate) {
+  return applyFinanceMonthPattern_(pattern, isoDate);
 }
 
 /**
@@ -232,6 +265,24 @@ function buildRenderContext_(model, options) {
   values.FINANCE_TITLE = buildFinanceTitle_(financeTitlePattern, m.isoDate);
   values.FINANCE_NOTE = renderValueText_(week.FINANCE_NOTE);
   values.FINANCE_BALANCE = renderValueText_(week.FINANCE_BALANCE);
+
+  // 財政表首欄的期別標籤。**與 FINANCE_TITLE 共用同一個月份來源**
+  // （applyFinanceMonthPattern_ → financeReportPreviousMonth_），兩者
+  // 不可能算出不同的月份。
+  var financePeriodPattern = opts.financePeriodLabelPattern === undefined
+    ? FINANCE_PERIOD_LABEL_PATTERN_DEFAULT_
+    : opts.financePeriodLabelPattern;
+  values.FINANCE_PERIOD_LABEL = buildFinancePeriodLabel_(financePeriodPattern, m.isoDate);
+
+  // ---- 浸禮合堂副框六欄 ----
+  // 顯示文字（單人欄位的尊稱）已經由 buildBaptismBoxFields_() 在資料模型
+  // 層算好（那一層才讀得到 PersonDisplay），這裡只負責搬進佔位符表。
+  // ⚠️ 六個鍵一定要齊全（沒有值的是空字串）：副框的留空規則靠
+  // `isTruthyForTemplate_()` 判斷，缺鍵與空字串的處理完全不同。
+  var baptism = m.baptism || {};
+  baptismBoxFieldKeys_().forEach(function (key) {
+    values[key] = renderValueText_(baptism[key]);
+  });
 
   // ---- 編號事奉佔位符（prompt9 §1.2）----
   // ⚠️ 沒有提供 dutyPlaceholderMax 時用 20（跟 Config DUTY_PLACEHOLDER_MAX
@@ -410,7 +461,7 @@ function supportedListPlaceholders_() {
  *     代表那個範本還沒有設定。
  */
 function resolveWordTemplate_(templateId) {
-  if (templateId === PROGRAM_TEMPLATE_ID_BAPTISM_) {
+  if (isBaptismTemplateId_(templateId)) {
     return {
       configKey: CONFIG_KEYS.TEMPLATE_FILE_ID_COMBINED_BAPTISM,
       fileId: getConfig(CONFIG_KEYS.TEMPLATE_FILE_ID_COMBINED_BAPTISM, ''),
@@ -527,7 +578,8 @@ function generateBulletinDocx_(isoDate) {
     callFormat: getConfig(CONFIG_KEYS.CALL_TO_WORSHIP_FORMAT, '{{CALL_TEXT}}（{{CALL_REF}}）'),
     generatedAt: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm'),
     dutyPlaceholderMax: normalizeInt_(getConfig(CONFIG_KEYS.DUTY_PLACEHOLDER_MAX, '20')),
-    financeTitlePattern: getConfig(CONFIG_KEYS.FINANCE_TITLE_PATTERN, FINANCE_TITLE_PATTERN_DEFAULT_)
+    financeTitlePattern: getConfig(CONFIG_KEYS.FINANCE_TITLE_PATTERN, FINANCE_TITLE_PATTERN_DEFAULT_),
+    financePeriodLabelPattern: getConfig(CONFIG_KEYS.FINANCE_PERIOD_LABEL_PATTERN, FINANCE_PERIOD_LABEL_PATTERN_DEFAULT_)
   });
 
   var fileName = buildOutputFileName_(isoDate);
@@ -539,6 +591,10 @@ function generateBulletinDocx_(isoDate) {
       values: context.values,
       lists: context.lists,
       interleavedLists: interleavedListsConfig_(),
+      // 浸禮副框的留空規則。平常主日／堂慶範本沒有這個副框，
+      // applyOptionalLabelledCellRows_() 找不到佔位符就原樣回傳，
+      // 所以三個範本可以共用同一份設定。
+      optionalCellRows: baptismBoxRowGroups_(),
       missingValueMode: getConfig(CONFIG_KEYS.TEMPLATE_MISSING_VALUE_MODE, 'BLANK')
     });
     renderStats = result.stats;

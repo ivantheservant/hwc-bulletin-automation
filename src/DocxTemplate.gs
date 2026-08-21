@@ -1022,6 +1022,156 @@ function applyConditionalParagraphs_(xml, values) {
 }
 
 // =====================================================================
+// 「標籤與佔位符同屬一格」的選填副框
+// =====================================================================
+
+/**
+ * 用途：清空一個表格儲存格內全部 `<w:t>` 的文字，但保留儲存格／段落／
+ *   run 的結構與格式。
+ *
+ *   ⚠️ 一定要**保留結構**：OOXML 規定每個 `<w:tc>` 至少要有一個 `<w:p>`，
+ *   把段落刪光會令 Word 判定檔案損毀、開啟時要求修復（見
+ *   docs/已知bug類型.md 事故十六）。
+ * Args:
+ *   cellXml {string} 一個完整的 `<w:tc>...</w:tc>`。
+ * Returns:
+ *   {string}
+ */
+function clearCellTextKeepingStructure_(cellXml) {
+  return clearParagraphTextKeepingStructure_(String(cellXml || ''));
+}
+
+/**
+ * 用途：處理「標籤與佔位符寫在**同一格**」的選填副框——浸禮合堂範本第 1
+ *   頁那個 3 列 × 2 欄的表格就是這一種。
+ *
+ *   ─────────────────────────────────────────────────────────────────
+ *   為什麼不能用 `{{#IF:}}` 條件列解決
+ *   ─────────────────────────────────────────────────────────────────
+ *
+ *   副框每一格的文字是「`浸禮：{{BAPTISM_OFFICIANT}}`」——**標籤是範本上
+ *   的死字，不是佔位符**。單純把佔位符換成空字串，紙上就會剩下一個孤零零
+ *   的「浸禮：」，比空白更難看。所以留空時要把**整格文字**清掉，連標籤
+ *   一併清走。條件列 `{{#IF:}}` 只能整列去留，做不到「同一列一格保留、
+ *   另一格連標籤清空」，而且範本上根本沒有那些標記（範本已定稿，不改）。
+ *
+ *   三條規則（`rowGroups` 每個元素是一列的兩個機器鍵）：
+ *     1. 同一列**全部**欄位皆空 → **刪除整列**（標籤不可以孤零零留下）。
+ *     2. **全部**列都要刪、而且那個表格內沒有其他列 → **刪除整個表格**
+ *        （留一個空表格在紙上同樣難看；而且空表格容易踩中事故十六）。
+ *     3. 同一列只有部分欄位有值 → 該列保留，**空的那格連標籤一併清空**。
+ *
+ *   範本上找不到的機器鍵一律略過（例如平常主日範本根本沒有這個副框），
+ *   整份 XML 原樣回傳，不拋錯——同一套渲染流程要能跑三個不同的範本。
+ * Args:
+ *   xml {string} 要處理的 XML（建議已經跑過 `mergeRunsInParagraphs_()`，
+ *     否則被 Word 拆散的佔位符找不到）。
+ *   values {Object<string,*>} 佔位符 → 值。判斷「有沒有值」用
+ *     `isTruthyForTemplate_()`，與條件列同一套標準。
+ *   rowGroups {string[][]} 每個元素是一列，內含該列各格的機器鍵。
+ *     例如 `baptismBoxRowGroups_()`（`src/BaptismBox.gs`）。
+ * Returns:
+ *   {{xml:string, removedRows:number, clearedCells:number,
+ *     removedTables:number, found:boolean}} `found` 為 false 代表範本內
+ *     完全沒有這些佔位符（不是錯誤）。
+ */
+function applyOptionalLabelledCellRows_(xml, values, rowGroups) {
+  var source = String(xml || '');
+  var lookup = values || {};
+  var groups = rowGroups || [];
+  if (groups.length === 0) {
+    return { xml: source, removedRows: 0, clearedCells: 0, removedTables: 0, found: false };
+  }
+
+  var tcRanges = findElementRanges_(source, 'w:tc');
+  var trRanges = findElementRanges_(source, 'w:tr');
+  var tblRanges = findElementRanges_(source, 'w:tbl');
+
+  // ---- 逐列盤點：這一列有哪些格在範本內、各自空不空 ----
+  var plans = [];
+  groups.forEach(function (keys) {
+    var cells = [];
+    (keys || []).forEach(function (key) {
+      var placeholder = '{{' + key + '}}';
+      var at = source.indexOf(placeholder);
+      if (at === -1) return; // 這個範本沒有這一格，略過
+      var owningTc = innermostRangeContaining_(tcRanges, at);
+      if (!owningTc) return; // 佔位符不在表格內：不屬於本函式處理的形態
+      cells.push({ key: key, at: at, tc: owningTc, filled: isTruthyForTemplate_(lookup[key]) });
+    });
+    if (cells.length === 0) return;
+
+    var owningTr = innermostRangeContaining_(trRanges, cells[0].at);
+    if (!owningTr) return;
+
+    plans.push({
+      tr: owningTr,
+      tbl: innermostRangeContaining_(tblRanges, cells[0].at),
+      cells: cells,
+      allEmpty: cells.every(function (c) { return !c.filled; })
+    });
+  });
+
+  if (plans.length === 0) {
+    return { xml: source, removedRows: 0, clearedCells: 0, removedTables: 0, found: false };
+  }
+
+  // ---- 規則 2：全部列都要刪，而且那個表格沒有其他列 → 整個表格刪掉 ----
+  if (plans.every(function (p) { return p.allEmpty; })) {
+    var firstTbl = plans[0].tbl;
+    var sameTable = firstTbl && plans.every(function (p) {
+      return p.tbl && p.tbl.start === firstTbl.start && p.tbl.end === firstTbl.end;
+    });
+    if (sameTable) {
+      // 只有「這個表格裡的列全部都在 plans 內」才可以整個刪——表格內若還有
+      // 其他列（例如標題列），整個刪會連那些一併丟掉。
+      var rowsInTable = trRanges.filter(function (r) {
+        return r.start >= firstTbl.start && r.end <= firstTbl.end;
+      });
+      if (rowsInTable.length === plans.length) {
+        return {
+          xml: applyRangeEdits_(source, [{ start: firstTbl.start, end: firstTbl.end, text: '' }]),
+          removedRows: 0,
+          clearedCells: 0,
+          removedTables: 1,
+          found: true
+        };
+      }
+    }
+  }
+
+  // ---- 規則 1 與 3：逐列處理 ----
+  var edits = [];
+  var removedRows = 0;
+  var clearedCells = 0;
+
+  plans.forEach(function (p) {
+    if (p.allEmpty) {
+      removedRows++;
+      edits.push({ start: p.tr.start, end: p.tr.end, text: '' });
+      return;
+    }
+    p.cells.forEach(function (c) {
+      if (c.filled) return;
+      clearedCells++;
+      edits.push({
+        start: c.tc.start,
+        end: c.tc.end,
+        text: clearCellTextKeepingStructure_(source.slice(c.tc.start, c.tc.end))
+      });
+    });
+  });
+
+  return {
+    xml: applyRangeEdits_(source, edits),
+    removedRows: removedRows,
+    clearedCells: clearedCells,
+    removedTables: 0,
+    found: true
+  };
+}
+
+// =====================================================================
 // 總入口
 // =====================================================================
 
@@ -1048,19 +1198,27 @@ function applyConditionalParagraphs_(xml, values) {
  *      專門鎖住這個次序。
  *   4. `applyConditionalRows_` / `applyConditionalParagraphs_`　條件去留。
  *      排在展開之後，才能對「展開出來的列／段」也生效。
+ *   4b. `applyOptionalLabelledCellRows_`　選填副框（標籤與佔位符同格）。
+ *      **一定要排在單值替換之前**：留空的那一格要連標籤一併清走，如果
+ *      先做單值替換，佔位符已經變成空字串，就分不出「這一格本來有沒有
+ *      值」，紙上會剩下孤零零的標籤。
  *   5. `replaceSimplePlaceholders_`　最後才替換單值。
  *
  * Args:
  *   xml {string} `word/document.xml` 的原始內容。
  *   context {{values:Object, lists:Object, missingValueMode:(string|undefined),
- *            interleavedLists:(Object<string,string>|undefined)}}
+ *            interleavedLists:(Object<string,string>|undefined),
+ *            optionalCellRows:(string[][]|undefined)}}
  *     `values` 是單值佔位符表；`lists` 是清單名稱 → 資料陣列；
  *     `missingValueMode` 見 `replaceSimplePlaceholders_()`；
  *     `interleavedLists` 是「清單名稱 → 全寬旗標欄位名」，列在裡面的
- *     清單會走交錯展開（例如 `{ PROGRAM: 'IS_FULL_WIDTH' }`）。
+ *     清單會走交錯展開（例如 `{ PROGRAM: 'IS_FULL_WIDTH' }`）；
+ *     `optionalCellRows` 是選填副框的列分組，見
+ *     `applyOptionalLabelledCellRows_()`。
  * Returns:
  *   {{xml:string, stats:{replacedCount:number, expandedRows:number,
- *     removedRows:number, removedParagraphs:number, missingKeys:string[],
+ *     removedRows:number, removedParagraphs:number, clearedCells:number,
+ *     removedTables:number, missingKeys:string[],
  *     broken:Object[], lists:Object<string,number>},
  *     warnings:{code:string,message:string}[]}}
  * Raises:
@@ -1122,6 +1280,10 @@ function renderDocumentXml_(xml, context) {
   var condParagraphs = applyConditionalParagraphs_(working, values);
   working = condParagraphs.xml;
 
+  // ---- 4b. 選填副框（標籤與佔位符同格，一定要在單值替換之前）----
+  var optionalCells = applyOptionalLabelledCellRows_(working, values, ctx.optionalCellRows || []);
+  working = optionalCells.xml;
+
   // ---- 5. 單值替換（最後）----
   var simple = replaceSimplePlaceholders_(working, values, ctx.missingValueMode || 'BLANK');
   working = simple.xml;
@@ -1139,8 +1301,10 @@ function renderDocumentXml_(xml, context) {
     stats: {
       replacedCount: simple.replacedCount,
       expandedRows: expandedRows,
-      removedRows: condRows.removed,
+      removedRows: condRows.removed + optionalCells.removedRows,
       removedParagraphs: condParagraphs.removed,
+      clearedCells: optionalCells.clearedCells,
+      removedTables: optionalCells.removedTables,
       missingKeys: simple.missingKeys,
       broken: broken,
       lists: listStats

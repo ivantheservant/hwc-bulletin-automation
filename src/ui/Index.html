@@ -154,6 +154,35 @@
       </div>
     </section>
 
+    <section class="panel hidden" id="baptismPanel">
+      <h2>丙之二、浸禮合堂（副框）</h2>
+      <p class="hint">
+        只有浸禮三堂聯合崇拜那一週才需要填。三個「主禮」是<strong>一位</strong>，會自動套用尊稱；
+        三個名單欄可以填<strong>多位</strong>，用空格分隔，<strong>原樣印出</strong>（不會自動加尊稱、不會重新排序）。
+        留空的一行不會印在週報上，六格全部留空整個副框都不會出現。
+      </p>
+      <div class="field-grid">
+        <label>浸禮主禮
+          <input type="text" data-field="BAPTISM_OFFICIANT">
+        </label>
+        <label class="field-wide">受浸肢體
+          <input type="text" data-field="BAPTISM_MEMBERS" placeholder="多位請用空格分隔">
+        </label>
+        <label>入會禮主禮
+          <input type="text" data-field="MEMBERSHIP_OFFICIANT">
+        </label>
+        <label class="field-wide">入會肢體
+          <input type="text" data-field="MEMBERSHIP_MEMBERS" placeholder="多位請用空格分隔">
+        </label>
+        <label>孩童奉獻禮主禮
+          <input type="text" data-field="CHILD_DEDICATION_OFFICIANT">
+        </label>
+        <label class="field-wide">奉獻孩童
+          <input type="text" data-field="CHILD_DEDICATION_CHILDREN" placeholder="多位請用空格分隔">
+        </label>
+      </div>
+    </section>
+
     <section class="panel">
       <h2>丁、家事報告</h2>
       <div id="announcementsList" class="repeatable-list"></div>
