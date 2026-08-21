@@ -24,30 +24,56 @@ var SELF_CHECK_STATUS_ = Object.freeze({ GREEN: '🟢', YELLOW: '🟡', RED: '�
  *   label {string} 項目名稱。
  *   status {string} `SELF_CHECK_STATUS_` 其中一個值。
  *   message {string} 一句說明。
+ *   detail {string[]=} 選填，寫入 `Diagnostics` 的明細行（例如尊稱未設定
+ *     名單、待填欄位明細）——只在報告內容出現，不影響對話框顯示的三個
+ *     數字。省略時等於沒有明細。
  * Returns:
- *   {{label:string, status:string, message:string}}
+ *   {{label:string, status:string, message:string, detail:string[]}}
  */
-function selfCheckItem_(label, status, message) {
-  return { label: label, status: status, message: message };
+function selfCheckItem_(label, status, message, detail) {
+  return { label: label, status: status, message: message, detail: detail || [] };
 }
 
 /**
- * 用途：算出「本季」——用來檢查「本季待填欄位總數」與「尊稱未設定人數」
- *   的季度 ID。以 `guessNextBulletinSendIso_()`（下一次要寄的主日）為準，
- *   猜不到就退回 Config `ROSTER_TEST_DATE`。
- * Args: （無）
+ * 用途：「檢測季度」這一項的中文說明短語，依 `resolveWorkingQuarter_()`
+ *   實際用了哪一層而不同。
+ * Args:
+ *   source {string} `resolveWorkingQuarter_()` 回傳的 `source`。
  * Returns:
- *   {?string} 職事表讀不到／未設定時回 `null`。
+ *   {string}
  */
-function selfCheckResolveCurrentQuarterId_() {
-  var refDate = guessNextBulletinSendIso_() || getConfig(CONFIG_KEYS.ROSTER_TEST_DATE, '2027-10-03');
-  try {
-    var snapshot = readRosterSnapshot_(refDate);
-    if (snapshot.notConfigured || !snapshot.quarterId) return null;
-    return snapshot.quarterId;
-  } catch (err) {
-    return null;
+function selfCheckQuarterSourcePhrase_(source) {
+  var phrases = {
+    NEXT_SEND_SUNDAY: '由下一個要寄的主日推算',
+    ROSTER_TEST_DATE: '職事表沒有下一個主日的資料，改用設定值 ROSTER_TEST_DATE 推算',
+    CONFIG_OVERRIDE: '設定值 WORKING_QUARTER_ID 指定',
+    BULLETIN_WEEKS_LATEST: '前三層都推算失敗，改用 BulletinWeeks 現有資料推算'
+  };
+  return phrases[source] || source;
+}
+
+/**
+ * 用途：「檢測季度」這一項檢測——把 `resolveWorkingQuarter_()` 的結果
+ *   排版成一句人看得懂的說明。**不可以靜靜退回而不講用了哪一層**（見
+ *   `docs/已知bug類型.md` 第 27 條的同一類問題：靜靜退回沒有錯誤訊息）。
+ * Args:
+ *   quarterResolution {Object} `resolveWorkingQuarter_()` 的回傳值。
+ * Returns:
+ *   {{label:string, status:string, message:string, detail:string[]}}
+ */
+function selfCheckQuarterItem_(quarterResolution) {
+  var S = SELF_CHECK_STATUS_;
+  var qr = quarterResolution;
+
+  if (!qr.ok) {
+    return selfCheckItem_('檢測季度', S.YELLOW, '四層推算全部失敗，見下方明細。', qr.notes);
   }
+
+  var message = '本季 ' + qr.quarterId + '（' + selfCheckQuarterSourcePhrase_(qr.source) + '）';
+  if (qr.source === 'CONFIG_OVERRIDE' && qr.notes.some(function (n) { return n.indexOf('找不到') !== -1; })) {
+    message += '　⚠️ 設定值指定的季度在職事表找不到，請確認 WORKING_QUARTER_ID 是否打錯。';
+  }
+  return selfCheckItem_('檢測季度', S.GREEN, message, qr.notes);
 }
 
 // =====================================================================
@@ -138,12 +164,17 @@ function selfCheckConfigItems_() {
 
 /**
  * 用途：資料類的全部檢測項目。
+ *
+ *   ⚠️ 「尊稱未設定人數」與「待填欄位總數」一律用同一個
+ *   `quarterResolution.quarterId`——不可以任何一項自己再猜一次季度，
+ *   否則兩項可能各自報不同季的數字，見 `docs/已知bug類型.md` 第 3 類。
  * Args:
- *   currentQuarterId {?string} `selfCheckResolveCurrentQuarterId_()` 的結果。
+ *   quarterResolution {Object} `resolveWorkingQuarter_()` 的回傳值，由
+ *     `runSelfCheck_()` 只算一次、向下傳給本函式。
  * Returns:
- *   {{label:string, status:string, message:string}[]}
+ *   {{label:string, status:string, message:string, detail:string[]}[]}
  */
-function selfCheckDataItems_(currentQuarterId) {
+function selfCheckDataItems_(quarterResolution) {
   var items = [];
   var S = SELF_CHECK_STATUS_;
 
@@ -156,16 +187,26 @@ function selfCheckDataItems_(currentQuarterId) {
     Object.keys(quarterIds).length + ' 季、' + weekRows.length + ' 個主日。'
   ));
 
+  var currentQuarterId = quarterResolution.ok ? quarterResolution.quarterId : null;
+
   if (currentQuarterId) {
     var personDisplayRows = readSheet(SHEETS.PERSON_DISPLAY);
     try {
-      var refDate = guessNextBulletinSendIso_() || getConfig(CONFIG_KEYS.ROSTER_TEST_DATE, '2027-10-03');
-      var quarterInfo = listRosterQuarterAssignedPersons_(refDate);
+      // ⚠️ listRosterQuarterAssignedPersons_() 要的是一個「屬於這一季的
+      // 主日日期」，不是季度 ID 本身——沿用 listRosterServiceDatesForQuarter_()
+      // 取這一季隨便一個（第一個）主日，不重寫「日期查季度」那一套邏輯，
+      // 也不會因為用了跟「待填欄位總數」不同的日期而算出不同的季度。
+      var quarterDates = listRosterServiceDatesForQuarter_(currentQuarterId);
+      if (quarterDates.length === 0) {
+        throw new Error('職事表 ServiceDates 找不到季度「' + currentQuarterId + '」的任何主日。');
+      }
+      var quarterInfo = listRosterQuarterAssignedPersons_(quarterDates[0]);
       var missingHonorific = buildHonorificMissingList_(quarterInfo.persons, personDisplayRows);
       items.push(selfCheckItem_(
         'PersonDisplay 尊稱未設定人數',
         missingHonorific.length === 0 ? S.GREEN : S.YELLOW,
-        missingHonorific.length + ' 人（本季共 ' + quarterInfo.persons.length + ' 人有事奉）。'
+        missingHonorific.length + ' 人（本季共 ' + quarterInfo.persons.length + ' 人有事奉）。',
+        missingHonorific.map(function (p) { return p.personId + '　' + (p.nameTC || '（無姓名）'); })
       ));
     } catch (err) {
       items.push(selfCheckItem_('PersonDisplay 尊稱未設定人數', S.YELLOW, '無法計算：' + ((err && err.message) ? err.message : String(err))));
@@ -174,9 +215,13 @@ function selfCheckDataItems_(currentQuarterId) {
     try {
       var serviceDates = listQuarterServiceDates_(currentQuarterId);
       var totalMissing = 0;
+      var missingDetail = [];
       serviceDates.forEach(function (sd) {
         try {
-          totalMissing += (buildBulletinModel_(sd.isoDate).missing || []).length;
+          (buildBulletinModel_(sd.isoDate).missing || []).forEach(function (m) {
+            totalMissing++;
+            missingDetail.push(sd.isoDate + '　' + m.label + '（' + m.field + '）');
+          });
         } catch (perDateErr) {
           // 單一主日算不出來不應該讓整個自我檢測失敗，忽略即可——
           // 那個主日本身的問題會在其他檢測項目或演練報告裡看得到。
@@ -185,14 +230,15 @@ function selfCheckDataItems_(currentQuarterId) {
       items.push(selfCheckItem_(
         '本季（' + currentQuarterId + '）待填欄位總數',
         totalMissing === 0 ? S.GREEN : S.YELLOW,
-        totalMissing + ' 項（共 ' + serviceDates.length + ' 個主日）。'
+        totalMissing + ' 項（共 ' + serviceDates.length + ' 個主日）。',
+        missingDetail
       ));
     } catch (err) {
       items.push(selfCheckItem_('本季待填欄位總數', S.YELLOW, '無法計算：' + ((err && err.message) ? err.message : String(err))));
     }
   } else {
-    items.push(selfCheckItem_('PersonDisplay 尊稱未設定人數', S.YELLOW, '職事表未設定或讀不到，無法計算。'));
-    items.push(selfCheckItem_('本季待填欄位總數', S.YELLOW, '職事表未設定或讀不到，無法計算。'));
+    items.push(selfCheckItem_('PersonDisplay 尊稱未設定人數', S.YELLOW, '未能決定季度，見『檢測季度』一項。'));
+    items.push(selfCheckItem_('本季待填欄位總數', S.YELLOW, '未能決定季度，見『檢測季度』一項。'));
   }
 
   [
@@ -335,16 +381,22 @@ function selfCheckLogItems_() {
  * 用途：「完成度自我檢測」的真正入口。跑完設定／資料／功能／紀錄四大類
  *   全部檢測項目，寫入 `Diagnostics`（報告名稱「完成度自我檢測」）。
  *   **唯讀**，不寫入任何資料。
+ *
+ *   ⚠️ `resolveWorkingQuarter_()`（`src/QuarterResolve.gs`）**只叫一次**，
+ *   結果向下傳給 `selfCheckDataItems_()`——不可以任何一個檢測項自己
+ *   再猜一次季度，見 `docs/已知bug類型.md` 第 3 類。
  * Args: （無）
  * Returns:
- *   {{items:Object[], greenCount:number, yellowCount:number, redCount:number}}
+ *   {{items:Object[], greenCount:number, yellowCount:number, redCount:number,
+ *     quarterResolution:Object}}
  */
 function runSelfCheck_() {
-  var currentQuarterId = selfCheckResolveCurrentQuarterId_();
+  var quarterResolution = resolveWorkingQuarter_();
 
   var items = []
     .concat(selfCheckConfigItems_())
-    .concat(selfCheckDataItems_(currentQuarterId))
+    .concat([selfCheckQuarterItem_(quarterResolution)])
+    .concat(selfCheckDataItems_(quarterResolution))
     .concat(selfCheckFeatureItems_())
     .concat(selfCheckLogItems_());
 
@@ -353,7 +405,10 @@ function runSelfCheck_() {
   var yellowCount = items.filter(function (i) { return i.status === S.YELLOW; }).length;
   var redCount = items.filter(function (i) { return i.status === S.RED; }).length;
 
-  var summary = { items: items, greenCount: greenCount, yellowCount: yellowCount, redCount: redCount };
+  var summary = {
+    items: items, greenCount: greenCount, yellowCount: yellowCount, redCount: redCount,
+    quarterResolution: quarterResolution
+  };
   writeDiagnosticsReport_('完成度自我檢測', buildSelfCheckReportLines_(summary));
   return summary;
 }
@@ -363,6 +418,10 @@ function runSelfCheck_() {
  *
  *   ⚠️ 區段標題一律用全形括號「【…】」，不可以用 `===` 開頭——見
  *   docs/已知bug類型.md 事故六。
+ *
+ *   ⚠️ 每個項目若有 `detail`（尊稱未設定名單、待填欄位明細），逐行
+ *   縮排列在該項目下方——行數上限交給 `writeDiagnosticsReport_()`
+ *   既有的 `DIAGNOSTICS_MAX_ROWS` 截斷機制統一處理，這裡不用另外截斷。
  * Args:
  *   summary {Object} `runSelfCheck_()` 的回傳值。
  * Returns:
@@ -370,12 +429,17 @@ function runSelfCheck_() {
  */
 function buildSelfCheckReportLines_(summary) {
   var lines = [];
+  var qr = summary.quarterResolution;
+
+  lines.push('檢測季度：' + (qr.ok ? qr.quarterId : '（未能決定）') + '　來源：' + (qr.ok ? qr.sourceLabel : '四層全部失敗'));
+  lines.push('');
   lines.push('【總覽】');
   lines.push('🟢 ' + summary.greenCount + ' 項　🟡 ' + summary.yellowCount + ' 項　🔴 ' + summary.redCount + ' 項');
   lines.push('');
   lines.push('【逐項結果】');
   summary.items.forEach(function (item) {
     lines.push(item.status + '　' + item.label + '　' + item.message);
+    (item.detail || []).forEach(function (d) { lines.push('　　' + d); });
   });
   return lines;
 }

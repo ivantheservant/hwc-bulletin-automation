@@ -285,14 +285,18 @@ function buildRehearsalReportLines_(summary) {
 function menuRunQuarterRehearsal_() {
   var ui = SpreadsheetApp.getUi();
   try {
+    // 預設值沿用單一真相來源 resolveWorkingQuarter_()（見 src/QuarterResolve.gs），
+    // 不自己另外猜——理由同 guessRosterTestQuarterId_()。
+    var quarterResolution = resolveWorkingQuarter_();
+    var defaultQuarterId = quarterResolution.ok ? quarterResolution.quarterId : '';
     var resp = ui.prompt(
       '全季流程演練',
-      '請輸入季度 ID（例如 2027T4）：',
+      '請輸入季度 ID' + (defaultQuarterId ? '（例如 ' + defaultQuarterId + '）' : '（例如 2027T4）') + '：',
       ui.ButtonSet.OK_CANCEL
     );
     if (resp.getSelectedButton() !== ui.Button.OK) return;
 
-    var quarterId = resp.getResponseText().trim();
+    var quarterId = resp.getResponseText().trim() || defaultQuarterId;
     if (!quarterId) {
       ui.alert('全季流程演練', '季度 ID 不可以是空的。', ui.ButtonSet.OK);
       return;

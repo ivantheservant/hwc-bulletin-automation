@@ -206,6 +206,15 @@ test('18. 全部齊備（設定齊全、範本乾淨、資料夾存在、觸發�
   assert.strictEqual(redItems.length, 0, '不應該有任何 🔴：' + JSON.stringify(redItems));
 });
 
+test('17l. 「檢測季度」項一定存在，且職事表與 BulletinWeeks 都是 fillEnv 預設的 2027T4 時是 🟢', function () {
+  const env = makeEnv({});
+  const summary = env.sandbox.runSelfCheck_();
+  const item = findItem(summary, '檢測季度')[0];
+  assert.ok(item, '「檢測季度」這一項應該一定存在');
+  assert.strictEqual(item.status, '🟢');
+  assert.ok(item.message.indexOf('2027T4') !== -1, item.message);
+});
+
 // =====================================================================
 // checkAuthorizationScopes_()：檢查授權範圍
 // =====================================================================

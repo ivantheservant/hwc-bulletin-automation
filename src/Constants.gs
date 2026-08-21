@@ -433,7 +433,9 @@ var CONFIG_KEYS = Object.freeze({
   // ---- prompt9 新增：編號事奉佔位符上限 ----
   DUTY_PLACEHOLDER_MAX: 'DUTY_PLACEHOLDER_MAX',
   // ---- prompt9 §1.6 補漏：FINANCE_TITLE 的組字樣式 ----
-  FINANCE_TITLE_PATTERN: 'FINANCE_TITLE_PATTERN'
+  FINANCE_TITLE_PATTERN: 'FINANCE_TITLE_PATTERN',
+  // ---- 完成度自我檢測季度推算補漏：手動指定「本季」 ----
+  WORKING_QUARTER_ID: 'WORKING_QUARTER_ID'
 });
 
 // =====================================================================
@@ -523,6 +525,11 @@ var DEFAULTS = Object.freeze([
     key: CONFIG_KEYS.FINANCE_TITLE_PATTERN,
     value: '聖道堂綜合收支財務報告-{{YEAR}}年 {{MONTH}}月份',
     note: '{{FINANCE_TITLE}} 佔位符的組字樣式；{{YEAR}}／{{MONTH}} 換成該主日「上一個月」的年份與月份（財務報告照慣例滯後一個月）'
+  },
+  {
+    key: CONFIG_KEYS.WORKING_QUARTER_ID,
+    value: '',
+    note: '手動指定系統預設使用的季度（例如 2027T4）。留空則自動推算：先試下一個要寄的主日，失敗則用 ROSTER_TEST_DATE，見 resolveWorkingQuarter_()'
   }
 ]);
 

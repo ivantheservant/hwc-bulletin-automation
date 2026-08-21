@@ -83,22 +83,18 @@ function menuTestReadRosterQuarter_() {
 }
 
 /**
- * 用途：用 Config 的 ROSTER_TEST_DATE 呼叫一次快照，猜一個預設的
- *   QuarterID 給「測試讀取職事表（全季）」的輸入框用。猜不到（例如尚未
- *   設定職事表位置、或該日期找不到）就回空字串，讓使用者自己輸入，
- *   不能讓整個選單項目因此失敗。
+ * 用途：猜一個預設的 QuarterID，給「測試讀取職事表（全季）」「建立本季
+ *   空白週報」兩個選單的輸入框用。**沿用單一真相來源**
+ *   `resolveWorkingQuarter_()`（`src/QuarterResolve.gs`）——不自己另外
+ *   推算，理由見該函式的 docstring 與 `docs/已知bug類型.md` 第 3 類。
+ *   猜不到就回空字串，讓使用者自己輸入，不能讓整個選單項目因此失敗。
  * Args: （無）
  * Returns:
  *   {string}
  */
 function guessRosterTestQuarterId_() {
-  try {
-    var testDate = getConfig(CONFIG_KEYS.ROSTER_TEST_DATE, '2027-10-03');
-    var probe = readRosterSnapshot_(testDate);
-    return probe.quarterId || '';
-  } catch (err) {
-    return '';
-  }
+  var qr = resolveWorkingQuarter_();
+  return qr.ok ? qr.quarterId : '';
 }
 
 /**

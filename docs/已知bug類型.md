@@ -1185,6 +1185,82 @@ else if (body.indexOf('#IF:') === 0) { type = 'IF'; name = body.slice(4); }
 
 ---
 
+## 事故二十：「完成度自我檢測」的季度推算沒有退回機制，職事表缺一年資料就整個報不出來，而且兩個檢測項各自猜了一次
+
+發生日期：2026-08-21（事故十九解決之後，Ivan 用真實資料實測「完成度自我
+檢測」發現）
+
+### 現象
+
+職事表沒有 2026 年的資料時，「完成度自我檢測」的「PersonDisplay 尊稱
+未設定人數」與「本季待填欄位總數」兩項雙雙顯示「無法計算」，各記一個 🟡，
+而且報告完全沒有講「為什麼算不到」——只看得到結果，看不出是職事表真的
+沒資料、還是別的原因。
+
+### 根因
+
+`selfCheckResolveCurrentQuarterId_()`（原本在 `SelfCheck.gs`）只有一條
+推算路徑：「下一個要寄的主日」推算不到就退回 Config `ROSTER_TEST_DATE`，
+兩者都要職事表剛好有那個日期的資料才算成功，沒有更後面的退路——一旦
+職事表缺這一年的資料（例如年度交接期，新一年的職事表還沒排出來），
+兩層都失敗，直接回 `null`，兩個檢測項只能顯示「無法計算」，**沒有任何
+中間狀態**（例如「改用其他季度的資料」）。
+
+而且 `selfCheckDataItems_()` 內部「尊稱未設定人數」那一段又**自己重新
+算了一次** `refDate`（`guessNextBulletinSendIso_() || getConfig(ROSTER_TEST_DATE)`），
+跟 `runSelfCheck_()` 最上層算的 `currentQuarterId` 是兩次獨立呼叫——
+理論上兩次應該永遠算出同一個結果，但這是**兩個真相來源**（見本文件
+「本專案要反覆自問的 bug class」第 3 條），日後兩段程式碼只要有一段
+改動了推算規則而漏改另一段，就會出現「尊稱未設定」跟「待填欄位總數」
+報不同季的怪事，而且沒有任何機制會提醒。
+
+### 修法
+
+1. 新增 `src/QuarterResolve.gs`，把季度推算收成**單一真相來源**
+   `resolveWorkingQuarter_()`，四層依序退回：
+   Config `WORKING_QUARTER_ID` 手動指定 → 下一個要寄的主日 →
+   `ROSTER_TEST_DATE` → `BulletinWeeks` 現有資料裡主日數最多且最接近
+   今日的季度。全部失敗才回 `ok:false`，而且**每一層都留一句中文
+   note**，講清楚試過什麼、為什麼不成功——不可以靜靜退回不講理由
+   （呼應本文件第 2 條「缺失被當成正常值靜靜過」）。
+2. `runSelfCheck_()` 現在**只呼叫一次** `resolveWorkingQuarter_()`，
+   把結果向下傳給 `selfCheckDataItems_()`；後者不再自己重算
+   `refDate`，兩個檢測項共用同一個 `quarterId`，消除了兩個真相來源。
+3. 報告新增「檢測季度」這一項，訊息明確講出用了哪一層、為什麼
+   （例如「本季 2026T3（職事表沒有下一個主日的資料，改用設定值
+   ROSTER_TEST_DATE 推算）」），並在 `Diagnostics` 報告最上方加一行
+   摘要，方便一眼看出這次算出來的「本季」是哪一季、怎麼算出來的。
+4. `guessRosterTestQuarterId_()`（`RosterDiagnostics.gs`，「測試讀取
+   職事表（全季）」「建立本季空白週報」兩個選單的預設值來源）改成
+   直接呼叫 `resolveWorkingQuarter_()`，消除另一處獨立的「猜季度」
+   邏輯——這正是本文件反覆強調的「找出全部推算同一件事的地方，
+   收歸一處」。
+
+### 留低咗啲乜
+
+- `src/QuarterResolve.gs`：`resolveWorkingQuarter_()` 與其四層各自的
+  輔助函式（`tryResolveQuarterForIsoDate_()`／`checkQuarterExistsInRoster_()`／
+  `pickLatestBulletinWeeksQuarter_()`）。
+- `src/SelfCheck.gs`：`runSelfCheck_()`／`selfCheckDataItems_()`／新增
+  `selfCheckQuarterItem_()`；`selfCheckResolveCurrentQuarterId_()` 整個
+  刪除（不留相容殼子，因為確定沒有其他呼叫方）。
+- `src/RosterDiagnostics.gs`：`guessRosterTestQuarterId_()` 改為委派
+  `resolveWorkingQuarter_()`。
+- `src/Rehearsal.gs`：`menuRunQuarterRehearsal_()` 補上由
+  `resolveWorkingQuarter_()` 算出的預設季度 ID（原本完全沒有預設值）。
+- `tests/quarterresolve.test.js`：15 個測試，涵蓋四層各自成功／失敗、
+  格式不符退回下一層、`WORKING_QUARTER_ID` 覆寫（含指定季度不存在）、
+  由 `runSelfCheck_()` 真正入口驗證兩項共用同一個 `quarterId`、
+  `Diagnostics` 截斷機制仍然生效。
+- **沒有改動** `autoCreateNextQuarterFillGrids_()`（「下一季提示」）：
+  查過之後發現它根本不是「由日期猜季度」這一類——它是直接掃描
+  `BulletinWeeks` 已有的全部季度、找出還沒建立填寫表的那些，每一季
+  都會處理到，不是只挑「當前一季」，所以不適用
+  `resolveWorkingQuarter_()`（那是「猜一個代表性的季度」，語意跟
+  「列出全部欠缺的季度」不同）。見 `docs/待確認事項.md`。
+
+---
+
 ## 本專案要反覆自問的 bug class
 
 寫任何一行程式碼之前，先自問這次會不會踩中以下任何一項：
@@ -1340,3 +1416,12 @@ else if (body.indexOf('#IF:') === 0) { type = 'IF'; name = body.slice(4); }
     是靜靜落到預設分支，不會有任何錯誤訊息。幫這種「互斥前綴」寫分類
     測試時，也要把程式碼裡實際存在的每一個分支逐一對照著寫，不要憑
     印象數「應該有幾種」，見事故十九。
+28. **只有一條推算路徑、沒有退回機制，遇到資料缺口就整個算不到。**
+    「由這一刻的日期反推某個業務狀態」（例如「本季是哪一季」）這種
+    推算，不能假設「現在」永遠找得到對應的資料——資料可能因為年度
+    交接、遷移期、測試環境等原因暫時缺一段。凡是這類推算，都要設計
+    成**有明確次序的多層退回**，每一層失敗都要留一句人看得懂的原因，
+    不可以直接回 `null`／空字串就沒有下文；而且**同一個業務狀態只准
+    有一個推算函式**，其他任何地方需要同一個答案都要呼叫它，不可以
+    各自重新猜一次——猜的規則一旦之後改動，沒有同步改到的地方就會
+    悄悄報出不一致的答案，見事故二十。
