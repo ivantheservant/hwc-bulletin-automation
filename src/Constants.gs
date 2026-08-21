@@ -121,7 +121,10 @@ var COLUMNS = Object.freeze({
       // 起的資料。在中間插欄的話，既有資料的欄位位置會整排錯開，原本
       // 「備註」那一格會被當成新欄位讀出來。加在最後面是唯一不會動到
       // 既有資料的做法。
-      '快照職事表版本', '快照時間'
+      '快照職事表版本', '快照時間',
+      // prompt9 §1.6 之後新增：財務報告註腳／結餘（同樣加在最後面，
+      // 理由跟上面第六輪那兩欄一樣）。
+      '財務報告註腳', '財務報告結餘'
     ],
     keys: [
       'SERVICE_DATE', 'QUARTER_ID', 'WEEK_OF_MONTH', 'SPECIAL_TYPE', 'PAGE_TITLE',
@@ -134,7 +137,8 @@ var COLUMNS = Object.freeze({
       'NEXT_WEEK_HEADING', 'FLOWER_THIS_WEEK', 'FLOWER_NEXT_WEEK', 'PRAYER_BLOCK_HEADING', 'WEEKLY_BIBLE_READING',
       'STATUS', 'ROSTER_VERSION_USED', 'DOC_ID', 'PDF_ID',
       'LAST_GENERATED_AT', 'SENT_AT', 'LAST_SAVED_AT', 'NOTES',
-      'ROSTER_SNAPSHOT_VERSION', 'ROSTER_SNAPSHOT_AT'
+      'ROSTER_SNAPSHOT_VERSION', 'ROSTER_SNAPSHOT_AT',
+      'FINANCE_NOTE', 'FINANCE_BALANCE'
     ],
     types: [
       'DATE', 'TEXT', 'INT', 'TEXT', 'TEXT',
@@ -148,7 +152,8 @@ var COLUMNS = Object.freeze({
       'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT',
       'TEXT', 'TEXT', 'TEXT', 'TEXT',
       'DATE', 'DATE', 'DATE', 'TEXT',
-      'INT', 'DATE'
+      'INT', 'DATE',
+      'TEXT', 'TEXT'
     ],
     textFormatColumns: [
       'ATT_ENG_WORSHIP', 'ATT_CANE_WORSHIP', 'ATT_CANN_WORSHIP', 'ATT_MAN_WORSHIP',
@@ -426,7 +431,9 @@ var CONFIG_KEYS = Object.freeze({
   FILL_RECONCILE_HOURS: 'FILL_RECONCILE_HOURS',
   FILL_AUTO_CREATE_NEXT_QUARTER: 'FILL_AUTO_CREATE_NEXT_QUARTER',
   // ---- prompt9 新增：編號事奉佔位符上限 ----
-  DUTY_PLACEHOLDER_MAX: 'DUTY_PLACEHOLDER_MAX'
+  DUTY_PLACEHOLDER_MAX: 'DUTY_PLACEHOLDER_MAX',
+  // ---- prompt9 §1.6 補漏：FINANCE_TITLE 的組字樣式 ----
+  FINANCE_TITLE_PATTERN: 'FINANCE_TITLE_PATTERN'
 });
 
 // =====================================================================
@@ -511,7 +518,12 @@ var DEFAULTS = Object.freeze([
   { key: CONFIG_KEYS.PROTECTION_EDITOR_EMAILS, value: '', note: '即使在受保護的工作表也可以編輯的電郵（逗號分隔）；留空代表只有擁有者' },
   { key: CONFIG_KEYS.FILL_RECONCILE_HOURS, value: '6', note: '填寫表定時對帳觸發器每隔幾多小時跑一次' },
   { key: CONFIG_KEYS.FILL_AUTO_CREATE_NEXT_QUARTER, value: 'TRUE', note: '每週寄送流程發現職事表有未建立填寫表的季度時，是否自動建立並寄出填寫邀請' },
-  { key: CONFIG_KEYS.DUTY_PLACEHOLDER_MAX, value: '20', note: 'DUTY_01..NN／NEXT_DUTY_01..NN 編號事奉佔位符的上限；超出實際事奉行數的一律輸出空字串' }
+  { key: CONFIG_KEYS.DUTY_PLACEHOLDER_MAX, value: '20', note: 'DUTY_01..NN／NEXT_DUTY_01..NN 編號事奉佔位符的上限；超出實際事奉行數的一律輸出空字串' },
+  {
+    key: CONFIG_KEYS.FINANCE_TITLE_PATTERN,
+    value: '聖道堂綜合收支財務報告-{{YEAR}}年 {{MONTH}}月份',
+    note: '{{FINANCE_TITLE}} 佔位符的組字樣式；{{YEAR}}／{{MONTH}} 換成該主日「上一個月」的年份與月份（財務報告照慣例滯後一個月）'
+  }
 ]);
 
 // =====================================================================

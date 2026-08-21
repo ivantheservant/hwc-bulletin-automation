@@ -33,7 +33,9 @@ const sandbox = loadAllSrcFilesInOrder(GAS_STUBS);
 const {
   buildRenderContext_, buildCallCombined_, buildRenderLists_,
   supportedValuePlaceholderNames_, supportedListPlaceholders_,
-  buildOutputFileName_, programFullWidthFlagKey_, interleavedListsConfig_
+  buildOutputFileName_, programFullWidthFlagKey_, interleavedListsConfig_,
+  financeReportPreviousMonth_, buildFinanceTitle_,
+  inspectTemplatePlaceholders_, buildTemplateInspectionLines_
 } = sandbox;
 
 let pass = 0;
@@ -83,7 +85,9 @@ const REQUIRED_VALUE_KEYS = [
   'NEXT_WEEK_HEADING', 'NEXT_WEEK_DATE', 'FLOWER_THIS_WEEK', 'FLOWER_NEXT_WEEK',
   // 其他
   'PRAYER_BLOCK_HEADING', 'WEEKLY_BIBLE_READING', 'CHURCH_NAME',
-  'ROSTER_VERSION', 'GENERATED_AT'
+  'ROSTER_VERSION', 'GENERATED_AT',
+  // 財務報告（prompt9 §1.6 補漏）
+  'FINANCE_TITLE', 'FINANCE_NOTE', 'FINANCE_BALANCE'
 ].concat(numberedKeys_('DUTY_', 20)).concat(numberedKeys_('NEXT_DUTY_', 20));
 
 function sampleModel(overrides) {
@@ -105,7 +109,8 @@ function sampleModel(overrides) {
       WEEKLY_BIBLE_READING: '',
       ATT_ENG_WORSHIP: '120', ATT_CANE_WORSHIP: '85', ATT_CANN_WORSHIP: '--', ATT_MAN_WORSHIP: '40',
       ATT_ENG_PRAYER: '15', ATT_CANE_PRAYER: '20', ATT_CANN_PRAYER: '--', ATT_MAN_PRAYER: '8',
-      ATT_ENG_CHILD: '30', ATT_CANE_CHILD: '12', ATT_CANN_CHILD: '--', ATT_MAN_CHILD: '5'
+      ATT_ENG_CHILD: '30', ATT_CANE_CHILD: '12', ATT_CANN_CHILD: '--', ATT_MAN_CHILD: '5',
+      FINANCE_NOTE: '結餘已扣除下月預算', FINANCE_BALANCE: '$12,345.67'
     },
     program: [
       { itemName: '序樂', content: '安靜', posture: '眾 立', fullWidth: false },
@@ -157,6 +162,10 @@ test('1c. buildRenderContext_()：值取自資料模型的正確位置', functio
   assert.strictEqual(context.values.ROSTER_VERSION, '12');
   assert.strictEqual(context.values.CHURCH_NAME, '聖道堂');
   assert.strictEqual(context.values.CANTONESE_SUBCOLUMN_LABEL, '主堂');
+  assert.strictEqual(context.values.FINANCE_NOTE, '結餘已扣除下月預算');
+  assert.strictEqual(context.values.FINANCE_BALANCE, '$12,345.67');
+  assert.strictEqual(context.values.FINANCE_TITLE, '聖道堂綜合收支財務報告-2027年 10月份',
+    '主日是 2027-11-07，財務報告照慣例滯後一個月，應該印上一個月（10 月）');
 });
 
 test('1d. buildRenderContext_()：全部值都是字串（範本替換只接受字串）', function () {
@@ -608,6 +617,87 @@ test('5n. 真正入口：職事表未設定 → 明確講是職事表未設定�
   assert.strictEqual(result.ok, false);
   assert.strictEqual(result.reason, 'ROSTER_NOT_CONFIGURED');
   assert.ok(result.message.indexOf('ROSTER_SPREADSHEET_ID') !== -1);
+});
+
+// =====================================================================
+// 6. 財務報告佔位符：financeReportPreviousMonth_() / buildFinanceTitle_()
+// =====================================================================
+
+test('6. financeReportPreviousMonth_()：一般情況，上一個月同一年', function () {
+  assertArrayEqual(financeReportPreviousMonth_('2027-11-07'), { year: 2027, month: 10 });
+});
+
+test('6b. financeReportPreviousMonth_()：跨年——1 月的上一個月是去年 12 月', function () {
+  assertArrayEqual(financeReportPreviousMonth_('2027-01-03'), { year: 2026, month: 12 });
+});
+
+test('6c. financeReportPreviousMonth_()：格式不對回 null，不拋錯', function () {
+  assert.strictEqual(financeReportPreviousMonth_(''), null);
+  assert.strictEqual(financeReportPreviousMonth_(undefined), null);
+  assert.strictEqual(financeReportPreviousMonth_('不是日期'), null);
+});
+
+test('6d. buildFinanceTitle_()：套用 Config 預設樣式，一般情況', function () {
+  assert.strictEqual(
+    buildFinanceTitle_('聖道堂綜合收支財務報告-{{YEAR}}年 {{MONTH}}月份', '2027-11-07'),
+    '聖道堂綜合收支財務報告-2027年 10月份'
+  );
+});
+
+test('6e. buildFinanceTitle_()：跨年情況套進樣式', function () {
+  assert.strictEqual(
+    buildFinanceTitle_('聖道堂綜合收支財務報告-{{YEAR}}年 {{MONTH}}月份', '2027-01-03'),
+    '聖道堂綜合收支財務報告-2026年 12月份'
+  );
+});
+
+test('6f. buildFinanceTitle_()：isoDate 格式不對 → 空字串，不拋錯', function () {
+  assert.strictEqual(buildFinanceTitle_('聖道堂綜合收支財務報告-{{YEAR}}年 {{MONTH}}月份', ''), '');
+});
+
+// =====================================================================
+// 7. #EACHP:（段落層清單標記）對帳——事故十九
+// =====================================================================
+
+test('7. inspectTemplatePlaceholders_()：#EACHP:ANNOUNCEMENT 對帳為「有提供」，不是缺失', function () {
+  const templateXml = fx.documentXml(fx.para(fx.run('{{#EACHP:ANNOUNCEMENT}}{{ANNOUNCEMENT.TEXT}}')));
+  const env = makeEnv({ templateXml: templateXml });
+  const report = env.sandbox.inspectTemplatePlaceholders_();
+  const normal = report.templates.filter(function (t) { return t.configKey === 'TEMPLATE_FILE_ID_NORMAL'; })[0];
+
+  assert.ok(normal.usedLists.indexOf('ANNOUNCEMENT') !== -1, 'ANNOUNCEMENT 要被認出是範本用到的清單');
+  assert.strictEqual(normal.unknownLists.indexOf('ANNOUNCEMENT'), -1, '不可以被誤報成系統不提供的清單');
+});
+
+test('7b. findPlaceholders_()：#EACHP: 分類為 EACHP，不是 SIMPLE（事故十九的根因）', function () {
+  const list = sandbox.findPlaceholders_(fx.documentXml(fx.para(fx.run('{{#EACHP:ANNOUNCEMENT}}'))));
+  assertArrayEqual(list, [{ name: 'ANNOUNCEMENT', type: 'EACHP', raw: '{{#EACHP:ANNOUNCEMENT}}' }]);
+});
+
+// =====================================================================
+// 8. DUTY／NEXT_DUTY「系統提供但範本沒有用到」要標成正常
+// =====================================================================
+
+test('8. buildTemplateInspectionLines_()：DUTY／NEXT_DUTY 標成「（正常，範本改用編號佔位符）」', function () {
+  const templateXml = fx.documentXml(fx.para(fx.run('{{SERMON_TITLE}}')));
+  const env = makeEnv({ templateXml: templateXml });
+  const report = env.sandbox.inspectTemplatePlaceholders_();
+  const lines = env.sandbox.buildTemplateInspectionLines_(report);
+  const text = lines.join('\n');
+
+  assert.ok(text.indexOf('DUTY（正常，範本改用編號佔位符）') !== -1, text);
+  assert.ok(text.indexOf('NEXT_DUTY（正常，範本改用編號佔位符）') !== -1, text);
+});
+
+test('8b. buildTemplateInspectionLines_()：非 DUTY／NEXT_DUTY 的沒用到清單不會被加註', function () {
+  const templateXml = fx.documentXml(fx.para(fx.run('{{SERMON_TITLE}}')));
+  const env = makeEnv({ templateXml: templateXml });
+  const report = env.sandbox.inspectTemplatePlaceholders_();
+  const lines = env.sandbox.buildTemplateInspectionLines_(report);
+  const text = lines.join('\n');
+
+  assert.ok(text.indexOf('PROGRAM（正常') === -1, 'PROGRAM 沒用到不是「正常」，不應該被加註：' + text);
+  assert.ok(text.indexOf('　系統提供、但範本沒有用到的清單') !== -1);
 });
 
 // =====================================================================

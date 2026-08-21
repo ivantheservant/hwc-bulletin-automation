@@ -1100,6 +1100,91 @@ MIME（`application/vnd.openxmlformats-officedocument.wordprocessingml.document`
 
 ---
 
+## 事故十九：`findPlaceholders_` 認得 `#EACH:` 前綴，但認不出 `#EACHP:`——多字元前綴要照字串長度由長到短比對
+
+發生日期：2026-08-21（事故十八解決之後，Ivan 撳「檢查範本佔位符」實測
+發現）
+
+### 現象
+
+Ivan 用真實範本跑「檢查範本佔位符」，報告講「範本用到但系統不提供」
+有 5 個，其中兩個是 `#EACHP:ANNOUNCEMENT`、`#EACHP:PRAYER`——但這兩個
+清單系統明明有提供（`supportedListPlaceholders_()` 有列出
+`ANNOUNCEMENT`／`PRAYER`），範本也確實是照 prompt9 新增的段落層清單
+語法 `{{#EACHP:LIST}}` 寫的，理論上應該對得上才對。
+
+### 根因
+
+`findPlaceholders_()`（`src/DocxTemplate.gs`）原本判斷前綴的寫法是：
+
+```js
+if (body.indexOf('#EACH:') === 0) { type = 'EACH'; name = body.slice(6); }
+else if (body.indexOf('#IF:') === 0) { ... }
+```
+
+`'#EACHP:ANNOUNCEMENT'.indexOf('#EACH:')` 的結果是 `-1`，不是 `0`——
+因為字串比對是逐字元對齊，`#EACH:` 第 6 個字元是 `:`，而
+`#EACHP:ANNOUNCEMENT` 第 6 個字元是 `P`，兩者對不上，`indexOf` 找不到
+這個子字串出現在開頭。既然 `#EACH:` 這個分支不成立，`#IF:`／`#IFP:`
+兩個分支當然也不成立（字串裡根本沒有 `#IF`），程式碼於是落到最後的
+預設值：`type = 'SIMPLE'`，`name` 維持成整段字串（含 `#EACHP:` 這個
+字面前綴）。
+
+這個偽造出來的「單值佔位符」名稱是 `'#EACHP:ANNOUNCEMENT'`，拿去跟
+`supportedValuePlaceholderNames_()` 對——那份清單裡當然不會有任何
+帶 `#` 開頭的名字，於是誤報成「範本用到但系統不提供」。真正該對的
+`usedLists`（清單標記）完全沒被算進去，`ANNOUNCEMENT`／`PRAYER` 這兩個
+清單反而在錯誤的欄位（單值）裡消失。
+
+`#IFP:`／`#IF:` 兩者也是同樣的「短前綴先比對、長前綴永遠比對不到」
+陷阱，只是範本剛好沒用到 `#IFP:` 段落條件標記，所以沒有一併觸發。
+
+### 修法
+
+`findPlaceholders_()` 改成先比對**較長、較特定**的前綴，比對不到才
+退回比對較短的前綴：
+
+```js
+if (body.indexOf('#EACHP:') === 0) { type = 'EACHP'; name = body.slice(7); }
+else if (body.indexOf('#EACH:') === 0) { type = 'EACH'; name = body.slice(6); }
+else if (body.indexOf('#IFP:') === 0) { type = 'IFP'; name = body.slice(5); }
+else if (body.indexOf('#IF:') === 0) { type = 'IF'; name = body.slice(4); }
+```
+
+`#EACHP:` 排在 `#EACH:` 之前、`#IFP:` 排在 `#IF:` 之前——凡是一個
+前綴是另一個前綴的字首延伸（`#EACH:` 是 `#EACHP:` 拿掉 `P:` 換成
+`:` 的結果，兩者共享 `#EACH` 這五個字元），比對次序一定要長的在前，
+不然短的分支會先「假裝」比對成功。
+
+同時修正 `inspectTemplatePlaceholders_()`：`usedLists` 原本只收
+`type === 'EACH'`，改成 `type === 'EACH' || type === 'EACHP'`——
+段落層與列層清單標記，對「系統有沒有提供這個清單」而言是同一件事，
+範本選哪一種展開方式純粹是排版考量，不應該影響對帳結果。
+
+### 留低咗啲乜
+
+- `src/DocxTemplate.gs`：`findPlaceholders_()` 前綴比對次序，docstring
+  講明「一律不可以歸入 `'SIMPLE'`」。
+- `src/BulletinRender.gs`：`inspectTemplatePlaceholders_()` 的
+  `usedLists` 同時收 `EACH`／`EACHP`。
+- `tests/docxtemplate.test.js`：`findPlaceholders_` 的「六種類型都認得
+  出來」測試原本只測了五種（漏了 `EACHP`），已經補上——這正是這個
+  bug 能夠混進來、Node 測試卻沒有事先攔住的原因：**測試矩陣本身漏了
+  一個型別，不是邏輯本身沒測。** 幫「一組互斥前綴」寫分類測試時，
+  一定要把清單跟程式碼裡實際存在的分支逐一對照，而不是憑印象數
+  「應該有幾種」。
+- `tests/bulletinrender.test.js`：新增 `#EACHP:ANNOUNCEMENT` 對帳為
+  「有提供」的整合測試（由真正入口 `inspectTemplatePlaceholders_()`
+  叫下去）。
+- 同一輪也一併補上 `buildRenderContext_()` 漏掉的
+  `FINANCE_TITLE`／`FINANCE_NOTE`／`FINANCE_BALANCE` 三個單值佔位符
+  （prompt9 §1.6 原本就要求，前一輪漏做），以及 `DUTY`／`NEXT_DUTY`
+  兩個清單在「系統提供但範本沒用到」報告裡加註
+  「（正常，範本改用編號佔位符）」——這兩件事跟本事故是同一份使用者
+  回報帶出來的，但成因各自獨立，不算同一個 bug class。
+
+---
+
 ## 本專案要反覆自問的 bug class
 
 寫任何一行程式碼之前，先自問這次會不會踩中以下任何一項：
@@ -1248,3 +1333,10 @@ MIME（`application/vnd.openxmlformats-officedocument.wordprocessingml.document`
     「看起來合理其實很嚴格」的隱性要求，讓假替身**至少一樣嚴格**——
     寧可假替身太兇、逼自己在測試裡先修好，也不要假替身太鬆放過真正的
     問題。
+27. **（prompt9 補漏新增）用 `indexOf(prefix) === 0` 判斷一組互相是
+    字首延伸的多字元前綴（例如 `#EACH:` 與 `#EACHP:`）時，比對次序
+    一定要由長到短。** 短前綴排在前面，長前綴的輸入永遠會在短前綴那一
+    關就比對失敗（字元對不齊），根本輪不到自己的分支——而且失敗的方式
+    是靜靜落到預設分支，不會有任何錯誤訊息。幫這種「互斥前綴」寫分類
+    測試時，也要把程式碼裡實際存在的每一個分支逐一對照著寫，不要憑
+    印象數「應該有幾種」，見事故十九。

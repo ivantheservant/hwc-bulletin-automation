@@ -108,6 +108,51 @@ function buildNumberedDutyValues_(prefix, rows, max) {
   return out;
 }
 
+/** `{{FINANCE_TITLE}}` 沒有另外設定 `financeTitlePattern` 時的預設樣式。 */
+var FINANCE_TITLE_PATTERN_DEFAULT_ = '聖道堂綜合收支財務報告-{{YEAR}}年 {{MONTH}}月份';
+
+/**
+ * 用途：算出「這個主日的財務報告要顯示的月份」——固定是**上一個月**
+ *   （財務報告照慣例滯後一個月結算），並處理年份跨年（1 月的上一個月
+ *   是去年 12 月）。純函式。
+ * Args:
+ *   isoDate {string} 主日日期，yyyy-MM-dd。
+ * Returns:
+ *   {?{year:number, month:number}} `month` 不補零（`1` 不是 `'01'`）；
+ *     `isoDate` 格式不對時回 `null`。
+ */
+function financeReportPreviousMonth_(isoDate) {
+  var m = /^(\d{4})-(\d{2})-\d{2}$/.exec(String(isoDate || ''));
+  if (!m) return null;
+
+  var year = Number(m[1]);
+  var month = Number(m[2]) - 1;
+  if (month < 1) {
+    month = 12;
+    year -= 1;
+  }
+  return { year: year, month: month };
+}
+
+/**
+ * 用途：組出 `{{FINANCE_TITLE}}` 佔位符的值——把樣式字串內的
+ *   `{{YEAR}}`／`{{MONTH}}` 換成 `financeReportPreviousMonth_()` 算出來的
+ *   年份與月份。純函式。
+ * Args:
+ *   pattern {string} Config `FINANCE_TITLE_PATTERN` 的原始樣式字串
+ *     （例如 `'聖道堂綜合收支財務報告-{{YEAR}}年 {{MONTH}}月份'`）。
+ *   isoDate {string} 主日日期，yyyy-MM-dd，用來算「上一個月」。
+ * Returns:
+ *   {string} `isoDate` 格式不對（例如空模型）時回空字串。
+ */
+function buildFinanceTitle_(pattern, isoDate) {
+  var prev = financeReportPreviousMonth_(isoDate);
+  if (!prev) return '';
+  return String(pattern || '')
+    .split('{{YEAR}}').join(String(prev.year))
+    .split('{{MONTH}}').join(String(prev.month));
+}
+
 /**
  * 用途：把資料模型轉成 Word 範本要用的佔位符表。**純函式**。
  *
@@ -176,6 +221,17 @@ function buildRenderContext_(model, options) {
   values.CHURCH_NAME = renderValueText_(opts.churchName);
   values.ROSTER_VERSION = renderValueText_(m.rosterVersionUsed);
   values.GENERATED_AT = renderValueText_(opts.generatedAt);
+
+  // ---- 財務報告（prompt9 §1.6 補漏）----
+  // ⚠️ financeTitlePattern 沒提供時用跟 Config FINANCE_TITLE_PATTERN 一致
+  // 的預設值——理由同上面 dutyPlaceholderMax：純函式層不讀 Config，真正
+  // 入口（generateBulletinDocx_()）會把 Config 的實際值傳進 opts。
+  var financeTitlePattern = opts.financeTitlePattern === undefined
+    ? FINANCE_TITLE_PATTERN_DEFAULT_
+    : opts.financeTitlePattern;
+  values.FINANCE_TITLE = buildFinanceTitle_(financeTitlePattern, m.isoDate);
+  values.FINANCE_NOTE = renderValueText_(week.FINANCE_NOTE);
+  values.FINANCE_BALANCE = renderValueText_(week.FINANCE_BALANCE);
 
   // ---- 編號事奉佔位符（prompt9 §1.2）----
   // ⚠️ 沒有提供 dutyPlaceholderMax 時用 20（跟 Config DUTY_PLACEHOLDER_MAX
@@ -470,7 +526,8 @@ function generateBulletinDocx_(isoDate) {
     cantoneseSubColumnLabel: getConfig(CONFIG_KEYS.CANTONESE_SUBCOLUMN_LABEL, '主堂'),
     callFormat: getConfig(CONFIG_KEYS.CALL_TO_WORSHIP_FORMAT, '{{CALL_TEXT}}（{{CALL_REF}}）'),
     generatedAt: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm'),
-    dutyPlaceholderMax: normalizeInt_(getConfig(CONFIG_KEYS.DUTY_PLACEHOLDER_MAX, '20'))
+    dutyPlaceholderMax: normalizeInt_(getConfig(CONFIG_KEYS.DUTY_PLACEHOLDER_MAX, '20')),
+    financeTitlePattern: getConfig(CONFIG_KEYS.FINANCE_TITLE_PATTERN, FINANCE_TITLE_PATTERN_DEFAULT_)
   });
 
   var fileName = buildOutputFileName_(isoDate);
@@ -576,8 +633,11 @@ function inspectTemplatePlaceholders_() {
       entry.usedValues = entry.placeholders
         .filter(function (p) { return p.type === 'SIMPLE'; })
         .map(function (p) { return p.name; });
+      // ⚠️ #EACHP:（段落層清單）跟 #EACH:（列層清單）用同一套對帳——
+      // 兩者都是「這個清單名稱系統有沒有提供」，範本用哪一種展開方式
+      // 純粹是排版選擇，不應該影響對帳結果。
       entry.usedLists = entry.placeholders
-        .filter(function (p) { return p.type === 'EACH'; })
+        .filter(function (p) { return p.type === 'EACH' || p.type === 'EACHP'; })
         .map(function (p) { return p.name.replace(/_FW$/, ''); })
         .filter(function (name, i, arr) { return arr.indexOf(name) === i; });
 
@@ -593,6 +653,35 @@ function inspectTemplatePlaceholders_() {
   });
 
   return { templates: templates, supportedValues: supportedValues, supportedLists: supportedLists };
+}
+
+/**
+ * 用途：清單名稱系統有提供、但**預期範本不會用到**的清單——不是缺漏，
+ *   是設計上就改用其他寫法。目前只有 `DUTY`／`NEXT_DUTY`：prompt9 §1.2
+ *   新增了編號單值佔位符 `DUTY_01`..`DUTY_NN`／`NEXT_DUTY_01`..`NN`
+ *   （固定位置的事奉框），範本改用那一組之後，`{{#EACH:DUTY}}`／
+ *   `{{#EACH:NEXT_DUTY}}` 這兩個清單標記自然不會再出現。寫成函式延遲
+ *   求值，理由同其餘 seed／設定小工具（見 docs/已知bug類型.md 事故一）。
+ * Args: （無）
+ * Returns:
+ *   {string[]}
+ */
+function expectedUnusedListNames_() {
+  return ['DUTY', 'NEXT_DUTY'];
+}
+
+/**
+ * 用途：把「系統提供、但範本沒有用到的清單」報告行裡，`expectedUnusedListNames_()`
+ *   列出的清單標成「這是正常的，不是缺漏」，避免每次看報告都要重新
+ *   判斷一次「這個是不是真的問題」。
+ * Args:
+ *   name {string} 清單名稱。
+ * Returns:
+ *   {string}
+ */
+function annotateExpectedUnusedList_(name) {
+  if (expectedUnusedListNames_().indexOf(name) === -1) return name;
+  return name + '（正常，範本改用編號佔位符）';
 }
 
 /**
@@ -641,7 +730,7 @@ function buildTemplateInspectionLines_(report) {
     lines.push('　系統提供、但範本沒有用到（' + t.unusedValues.length + '）：'
       + (t.unusedValues.join('　') || '（無）'));
     lines.push('　系統提供、但範本沒有用到的清單（' + t.unusedLists.length + '）：'
-      + (t.unusedLists.join('　') || '（無）'));
+      + (t.unusedLists.map(annotateExpectedUnusedList_).join('　') || '（無）'));
 
     if (t.broken.length > 0) {
       lines.push('　⚠️ 疑似被切斷的佔位符（' + t.broken.length + '）——這些永遠不會被替換，會原樣印出來：');

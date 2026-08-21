@@ -614,23 +614,27 @@ test('14b. 清單資料的值含 {{ }} 同樣不會被二次替換', function ()
 // findPlaceholders_
 // =====================================================================
 
-test('findPlaceholders_：五種類型都認得出來，而且去重', function () {
-  const xml = '<w:t>{{SERMON_TITLE}}{{SERMON_TITLE}}{{#EACH:PROGRAM}}{{PROGRAM.ITEM}}{{#IF:A}}{{#IFP:B}}</w:t>';
+test('findPlaceholders_：六種類型都認得出來，而且去重', function () {
+  const xml = '<w:t>{{SERMON_TITLE}}{{SERMON_TITLE}}{{#EACH:PROGRAM}}{{#EACHP:ANNOUNCEMENT}}'
+    + '{{PROGRAM.ITEM}}{{#IF:A}}{{#IFP:B}}</w:t>';
   const found = findPlaceholders_(xml);
   const byType = {};
   found.forEach(function (p) { byType[p.type] = (byType[p.type] || 0) + 1; });
   assert.strictEqual(byType.SIMPLE, 1, '重複的只算一次');
   assert.strictEqual(byType.EACH, 1);
+  assert.strictEqual(byType.EACHP, 1, '事故十九：#EACHP: 以前會落到 SIMPLE，name 還帶著 # 前綴');
   assert.strictEqual(byType.FIELD, 1);
   assert.strictEqual(byType.IF, 1);
   assert.strictEqual(byType.IFP, 1);
 });
 
-test('findPlaceholders_：name 已經去掉前綴', function () {
-  const found = findPlaceholders_('<w:t>{{#EACH:PROGRAM}}{{#IF:CHOIR_TITLE}}</w:t>');
+test('findPlaceholders_：name 已經去掉前綴（含 #EACHP:）', function () {
+  const found = findPlaceholders_('<w:t>{{#EACH:PROGRAM}}{{#EACHP:ANNOUNCEMENT}}{{#IF:CHOIR_TITLE}}</w:t>');
   const each = found.filter(function (p) { return p.type === 'EACH'; })[0];
+  const eachp = found.filter(function (p) { return p.type === 'EACHP'; })[0];
   const cond = found.filter(function (p) { return p.type === 'IF'; })[0];
   assert.strictEqual(each.name, 'PROGRAM');
+  assert.strictEqual(eachp.name, 'ANNOUNCEMENT');
   assert.strictEqual(cond.name, 'CHOIR_TITLE');
 });
 

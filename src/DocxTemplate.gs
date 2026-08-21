@@ -422,13 +422,26 @@ function mergeRunsInParagraphs_(xml) {
 
 /**
  * 用途：列出 XML 內出現過的全部佔位符（去重，含類型）。
+ *
+ *   ⚠️ **標記類（`#EACH:`／`#EACHP:`／`#IF:`／`#IFP:`）一律不可以歸入
+ *   `'SIMPLE'`**——那樣會被對帳邏輯當成「範本用到的單值佔位符」去跟
+ *   `supportedValuePlaceholderNames_()` 比對，一定對不上（那份清單裡
+ *   根本不會有帶 `#` 開頭的名字），誤報成「範本用到但系統不提供」。
+ *   `#EACH:` 與 `#EACHP:` 是**清單標記**（分別對應列層／段落層展開，
+ *   見 `expandEachRows_()`／`expandEachParagraphs_()`），`#IF:` 與
+ *   `#IFP:` 是**條件標記**（分別對應條件列／條件段落）——四種都要先
+ *   認出前綴、剝掉前綴才算出 `name`。事故十九就是 `#EACHP:` 這個前綴
+ *   當時沒有對到任何一個分支、落到最後的 `'SIMPLE'` 預設值，見
+ *   docs/已知bug類型.md。
  * Args:
  *   xml {string} `word/document.xml` 的內容（建議先跑過
  *     `mergeRunsInParagraphs_()`，否則被切斷的佔位符找不到）。
  * Returns:
  *   {{name:string, type:string, raw:string}[]} `type` 是
- *     `'SIMPLE'`（`{{KEY}}`）／`'EACH'`（`{{#EACH:LIST}}`）／
- *     `'IF'`（`{{#IF:KEY}}`）／`'IFP'`（`{{#IFP:KEY}}`）／
+ *     `'SIMPLE'`（`{{KEY}}`）／`'EACH'`（`{{#EACH:LIST}}`，清單標記）／
+ *     `'EACHP'`（`{{#EACHP:LIST}}`，清單標記，段落層）／
+ *     `'IF'`（`{{#IF:KEY}}`，條件標記）／
+ *     `'IFP'`（`{{#IFP:KEY}}`，條件標記）／
  *     `'FIELD'`（`{{LIST.FIELD}}`）。依 `raw` 字母序排序，方便比對。
  */
 function findPlaceholders_(xml) {
@@ -445,7 +458,11 @@ function findPlaceholders_(xml) {
 
     var type = 'SIMPLE';
     var name = body;
-    if (body.indexOf('#EACH:') === 0) { type = 'EACH'; name = body.slice('#EACH:'.length); }
+    // ⚠️ #EACHP: 一定要排在 #EACH: 前面判斷：雖然 '#EACHP:X'.indexOf('#EACH:')
+    // 本來就不會命中（第 6 個字元 'P' 跟 ':' 對不上），但兩個標記字面上
+    // 前綴很像，排錯次序日後很容易在改動時不小心踩到，寫死次序比較保險。
+    if (body.indexOf('#EACHP:') === 0) { type = 'EACHP'; name = body.slice('#EACHP:'.length); }
+    else if (body.indexOf('#EACH:') === 0) { type = 'EACH'; name = body.slice('#EACH:'.length); }
     else if (body.indexOf('#IFP:') === 0) { type = 'IFP'; name = body.slice('#IFP:'.length); }
     else if (body.indexOf('#IF:') === 0) { type = 'IF'; name = body.slice('#IF:'.length); }
     else if (body.indexOf('.') !== -1) { type = 'FIELD'; }
