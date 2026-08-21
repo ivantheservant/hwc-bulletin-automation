@@ -690,6 +690,116 @@ function expandEachRows_(xml, listName, rows) {
 }
 
 /**
+ * 用途：判斷一個段落是不是它所在表格儲存格（`<w:tc>`）**唯一**的段落。
+ *
+ *   ⚠️ OOXML 規定每個 `<w:tc>` 至少要有一個 `<w:p>`——如果一個段落範本
+ *   （`{{#EACHP:...}}`）剛好落在一個只有它自己一個段落的儲存格內，清單
+ *   為空時**不可以把它整個刪掉**，否則那個儲存格會變成零段落，Word 會
+ *   判定檔案損毀、要求修復。本專案造範本時就因為刪走表格內段落而踩過
+ *   這個坑，見 docs/已知bug類型.md。
+ *
+ *   判斷方式跟 `mergeRunsInParagraphs_()` 的「最內層擁有者」手法一致：
+ *   找出這個段落**最內層**的 `<w:tc>`，再看有多少個段落的最內層擁有者
+ *   是同一個 `<w:tc>`——只有一個就代表它是孤兒。
+ * Args:
+ *   xml {string} 整份 XML。
+ *   paragraphRange {{start:number, end:number}} 要判斷的段落範圍。
+ * Returns:
+ *   {boolean} 不在任何 `<w:tc>` 內（例如在文字方塊或頁首頁尾）一律回 `false`
+ *     ——那些地方沒有「至少一個段落」的規定，可以放心整段刪除。
+ */
+function isSoleParagraphInTableCell_(xml, paragraphRange) {
+  var tcRanges = findElementRanges_(xml, 'w:tc');
+  var owningTc = innermostRangeContaining_(tcRanges, paragraphRange.start);
+  if (!owningTc) return false;
+
+  var paragraphRanges = findElementRanges_(xml, 'w:p');
+  var siblingCount = 0;
+  paragraphRanges.forEach(function (p) {
+    var owner = innermostRangeContaining_(tcRanges, p.start);
+    if (owner && owner.start === owningTc.start && owner.end === owningTc.end) siblingCount++;
+  });
+
+  return siblingCount === 1;
+}
+
+/**
+ * 用途：清空一個段落內全部 `<w:t>` 的文字內容，但保留段落／run 的格式
+ *   （`<w:pPr>`／`<w:rPr>`）不動。
+ *
+ *   用於 `expandEachParagraphs_()` 清單為空、而這個段落又是表格儲存格
+ *   唯一段落的情況——不能刪段落，只能讓它看起來空白。
+ * Args:
+ *   paragraphXml {string} 一個完整的 `<w:p>...</w:p>`。
+ * Returns:
+ *   {string}
+ */
+function clearParagraphTextKeepingStructure_(paragraphXml) {
+  return String(paragraphXml || '').replace(/(<w:t\b[^>]*>)[\s\S]*?(<\/w:t>)/g, '$1$2');
+}
+
+/**
+ * 用途：展開一個**段落層**的重複清單（prompt9 §1.1）——與
+ *   `expandEachRows_()` 平行，差別是作用的元素是 `<w:p>` 而不是 `<w:tr>`。
+ *
+ *   一個 `<w:p>` 內若出現 `{{#EACHP:LIST_NAME}}`，該段落就是段落範本：
+ *   按清單長度複製整個段落，逐次替換 `{{LIST_NAME.FIELD}}`，移除標記
+ *   本身。
+ *
+ *   ⚠️ **清單為空的處理跟列範本不同**：
+ *     - 段落在表格儲存格內、而且是該格**唯一**的段落 → **不可以刪除**
+ *       （OOXML 規定每個 `<w:tc>` 至少要有一個 `<w:p>`），改為保留段落
+ *       但清空文字（見 `clearParagraphTextKeepingStructure_()`）。
+ *     - 其餘情況（不在表格內，或表格儲存格還有其他段落）→ 整個段落刪除，
+ *       跟列範本的行為一致。
+ * Args:
+ *   xml {string} 要處理的 XML。
+ *   listName {string} 清單名稱，例如 `'ANNOUNCEMENT'`。
+ *   rows {Object[]} 清單資料。
+ * Returns:
+ *   {{xml:string, expandedRows:number, found:boolean}} `found` 為 false
+ *     代表範本內根本沒有這個段落範本。
+ */
+function expandEachParagraphs_(xml, listName, rows) {
+  var source = String(xml || '');
+  var marker = '{{#EACHP:' + listName + '}}';
+  var markerIndex = source.indexOf(marker);
+  if (markerIndex === -1) return { xml: source, expandedRows: 0, found: false };
+
+  var paragraphRanges = findElementRanges_(source, 'w:p');
+  var templateRange = innermostRangeContaining_(paragraphRanges, markerIndex);
+  if (!templateRange) {
+    // 標記不在任何 <w:p> 內（理論上不會發生——XML 的文字節點一定在某個
+    // 段落裡）：把標記本身移走，不要留在成品上。
+    return { xml: source.split(marker).join(''), expandedRows: 0, found: false };
+  }
+
+  var templateXml = source.slice(templateRange.start, templateRange.end);
+  var list = rows || [];
+
+  if (list.length === 0) {
+    var replacement = isSoleParagraphInTableCell_(source, templateRange)
+      ? clearParagraphTextKeepingStructure_(templateXml.split(marker).join(''))
+      : '';
+    return {
+      xml: source.slice(0, templateRange.start) + replacement + source.slice(templateRange.end),
+      expandedRows: 0,
+      found: true
+    };
+  }
+
+  var rendered = list.map(function (row) {
+    return renderRowTemplate_(templateXml, row, [listName], [marker]);
+  }).join('');
+
+  return {
+    xml: source.slice(0, templateRange.start) + rendered + source.slice(templateRange.end),
+    expandedRows: list.length,
+    found: true
+  };
+}
+
+/**
  * 用途：**交錯**展開兩種列範本（prompt7 §5 的重點，本輪最容易做錯的地方）。
  *
  *   背景：崇拜程序表有兩種列——一般列（項目／內容／立坐三欄）與全寬列
@@ -909,14 +1019,18 @@ function applyConditionalParagraphs_(xml, values) {
  *      後面全部替換都會靜靜失敗**（見檔頭）。
  *   2. `findBrokenPlaceholders_`　收集成 warning，**不中斷**——一個壞掉
  *      的佔位符不應該讓整份週報生不出來，但一定要講出來。
- *   3. `expandEachRows_` / `expandInterleavedRows_`　先展開重複列。
- *      **⚠️ 一定要排在單值替換之前**：列範本內的 `{{PROGRAM.ITEM}}` 雖然
- *      不會被單值替換碰到（單值只認不含點的鍵），但列範本內也可能有
+ *   3. `expandInterleavedRows_` → `expandEachRows_` → `expandEachParagraphs_`
+ *      　依序展開重複列／段落（同一個清單名稱三者互斥，落在哪一種由範本
+ *      實際用的標記決定：交錯用的兩個 `{{#EACH:LIST}}`／`{{#EACH:LIST_FW}}`、
+ *      單純列範本用 `{{#EACH:LIST}}`、段落範本用 `{{#EACHP:LIST}}`）。
+ *      **⚠️ 一定要排在單值替換之前**：列／段範本內的 `{{PROGRAM.ITEM}}`
+ *      雖然不會被單值替換碰到（單值只認不含點的鍵），但範本內也可能有
  *      `{{CHURCH_NAME}}` 這類單值佔位符；先替換單值的話，那個值只會被
- *      填一次，複製出來的每一列就都是同一份，而且 `{{#EACH:}}` 標記
- *      還在原地。tests/docxtemplate.test.js 有一個測試專門鎖住這個次序。
+ *      填一次，複製出來的每一份就都是同一份，而且 `{{#EACH:}}`／
+ *      `{{#EACHP:}}` 標記還在原地。tests/docxtemplate.test.js 有一個測試
+ *      專門鎖住這個次序。
  *   4. `applyConditionalRows_` / `applyConditionalParagraphs_`　條件去留。
- *      排在展開之後，才能對「展開出來的列」也生效。
+ *      排在展開之後，才能對「展開出來的列／段」也生效。
  *   5. `replaceSimplePlaceholders_`　最後才替換單值。
  *
  * Args:
@@ -970,10 +1084,19 @@ function renderDocumentXml_(xml, context) {
       (interleavedResult.warnings || []).forEach(function (w) { warnings.push(w); });
       return;
     }
-    var result = expandEachRows_(working, listName, rows);
-    working = result.xml;
-    expandedRows += result.expandedRows;
-    listStats[listName] = result.expandedRows;
+
+    // 同一個清單名稱，範本可能用列範本（{{#EACH:}}）或段落範本
+    // （{{#EACHP:}}）——兩種標記字串不同，互不干擾，找不到自己的標記時
+    // 各自回 found:false、xml 原樣不動，所以兩個都跑一次是安全的。
+    var rowResult = expandEachRows_(working, listName, rows);
+    working = rowResult.xml;
+
+    var paragraphResult = expandEachParagraphs_(working, listName, rows);
+    working = paragraphResult.xml;
+
+    var expandedForList = rowResult.expandedRows + paragraphResult.expandedRows;
+    expandedRows += expandedForList;
+    listStats[listName] = expandedForList;
   });
 
   // ---- 4. 條件列與條件段落 ----

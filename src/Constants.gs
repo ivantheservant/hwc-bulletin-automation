@@ -180,9 +180,14 @@ var COLUMNS = Object.freeze({
   },
 
   FINANCE: {
-    headers: ['主日日期', '次序', '項目', '特殊海外奉獻', '慈惠', '有效'],
-    keys: ['SERVICE_DATE', 'SEQ_NO', 'ROW_LABEL', 'COL_SPECIAL_OVERSEAS', 'COL_HARDSHIP', 'ACTIVE'],
-    types: ['DATE', 'INT', 'TEXT', 'TEXT', 'TEXT', 'BOOLEAN']
+    headers: ['主日日期', '次序', '項目', '特殊海外奉獻', '慈惠', '欄三', '欄四', '欄五', '有效'],
+    // ⚠️ prompt9 §1.6 新增 COL3／COL4／COL5：範本用到 FINANCE 清單的
+    // LABEL、COL1、COL2、COL3、COL4 五個渲染欄位，其中 COL1／COL2 對應
+    // 既有的 COL_SPECIAL_OVERSEAS／COL_HARDSHIP（沿用舊機器鍵，舊資料
+    // 不受影響），COL3／COL4 對應這裡新增的 COL3／COL4。COL5 是保留欄，
+    // 目前沒有對應的渲染佔位符——見 docs/待確認事項.md 的說明。
+    keys: ['SERVICE_DATE', 'SEQ_NO', 'ROW_LABEL', 'COL_SPECIAL_OVERSEAS', 'COL_HARDSHIP', 'COL3', 'COL4', 'COL5', 'ACTIVE'],
+    types: ['DATE', 'INT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'BOOLEAN']
   },
 
   PERSON_DISPLAY: {
@@ -419,7 +424,9 @@ var CONFIG_KEYS = Object.freeze({
   FELLOWSHIP_DATE_PATTERN: 'FELLOWSHIP_DATE_PATTERN',
   PROTECTION_EDITOR_EMAILS: 'PROTECTION_EDITOR_EMAILS',
   FILL_RECONCILE_HOURS: 'FILL_RECONCILE_HOURS',
-  FILL_AUTO_CREATE_NEXT_QUARTER: 'FILL_AUTO_CREATE_NEXT_QUARTER'
+  FILL_AUTO_CREATE_NEXT_QUARTER: 'FILL_AUTO_CREATE_NEXT_QUARTER',
+  // ---- prompt9 新增：編號事奉佔位符上限 ----
+  DUTY_PLACEHOLDER_MAX: 'DUTY_PLACEHOLDER_MAX'
 });
 
 // =====================================================================
@@ -503,7 +510,8 @@ var DEFAULTS = Object.freeze([
   { key: CONFIG_KEYS.FELLOWSHIP_DATE_PATTERN, value: 'd/M', note: '由常設時間表產生團契聚會日期時的格式（會再接上空格與星期文字）' },
   { key: CONFIG_KEYS.PROTECTION_EDITOR_EMAILS, value: '', note: '即使在受保護的工作表也可以編輯的電郵（逗號分隔）；留空代表只有擁有者' },
   { key: CONFIG_KEYS.FILL_RECONCILE_HOURS, value: '6', note: '填寫表定時對帳觸發器每隔幾多小時跑一次' },
-  { key: CONFIG_KEYS.FILL_AUTO_CREATE_NEXT_QUARTER, value: 'TRUE', note: '每週寄送流程發現職事表有未建立填寫表的季度時，是否自動建立並寄出填寫邀請' }
+  { key: CONFIG_KEYS.FILL_AUTO_CREATE_NEXT_QUARTER, value: 'TRUE', note: '每週寄送流程發現職事表有未建立填寫表的季度時，是否自動建立並寄出填寫邀請' },
+  { key: CONFIG_KEYS.DUTY_PLACEHOLDER_MAX, value: '20', note: 'DUTY_01..NN／NEXT_DUTY_01..NN 編號事奉佔位符的上限；超出實際事奉行數的一律輸出空字串' }
 ]);
 
 // =====================================================================

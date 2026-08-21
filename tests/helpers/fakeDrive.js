@@ -47,9 +47,15 @@ function makeFakeBlob(text, name, contentType) {
  *   等等，因為測試最重要的斷言之一就是「這些檔案一個位元都沒有被動過」。
  * Args:
  *   documentXml {string} `word/document.xml` 的內容。
- *   options {{omitContentTypes:boolean=, documentEntryName:string=}=} 選填。
+ *   options {{omitContentTypes:boolean=, documentEntryName:string=,
+ *            contentTypesIndex:number=, templateContentType:string=}=} 選填。
  *     `omitContentTypes` 用來測「缺少 [Content_Types].xml 要拋錯」；
- *     `documentEntryName` 用來測「entry 名稱大小寫／前綴有差異也要找得到」。
+ *     `documentEntryName` 用來測「entry 名稱大小寫／前綴有差異也要找得到」；
+ *     `contentTypesIndex` 用來測 `moveContentTypesEntryFirst_()`——把
+ *     `[Content_Types].xml` 放在指定位置而不是永遠第一個（模擬
+ *     `Utilities.unzip()` 次序不保證的情況）；`templateContentType` 用來
+ *     測 MIME 檢查（例如傳 Google 文件的 MIME，模擬範本被 Drive 自動
+ *     轉換的情況）。
  * Returns:
  *   {Object} 假的 `.docx` blob，`__entries` 是 entry 清單。
  */
@@ -57,9 +63,6 @@ function buildFakeDocx(documentXml, options) {
   const opts = options || {};
   const entries = [];
 
-  if (!opts.omitContentTypes) {
-    entries.push(makeFakeBlob('<Types/>', '[Content_Types].xml'));
-  }
   entries.push(makeFakeBlob('<Relationships/>', '_rels/.rels'));
   entries.push(makeFakeBlob(documentXml, opts.documentEntryName || 'word/document.xml'));
   entries.push(makeFakeBlob('<w:styles/>', 'word/styles.xml'));
@@ -69,8 +72,13 @@ function buildFakeDocx(documentXml, options) {
   entries.push(makeFakeBlob('PNG-BINARY-DATA', 'word/media/image1.png'));
   entries.push(makeFakeBlob('JPEG-BINARY-DATA', 'word/media/image2.jpeg'));
 
+  if (!opts.omitContentTypes) {
+    var insertAt = opts.contentTypesIndex === undefined ? 0 : opts.contentTypesIndex;
+    entries.splice(insertAt, 0, makeFakeBlob('<Types/>', '[Content_Types].xml'));
+  }
+
   const blob = makeFakeBlob('FAKE-DOCX-ZIP', 'template.docx',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    opts.templateContentType || 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
   blob.__entries = entries;
   return blob;
 }
@@ -135,6 +143,7 @@ function makeFakeDriveApp(options) {
     if (!createdByFolder[folderId]) createdByFolder[folderId] = [];
     return {
       getId: function () { return folderId; },
+      getName: function () { return 'FAKE_FOLDER_' + folderId; },
       getFilesByName: function (name) {
         const matches = createdByFolder[folderId].filter(function (f) { return f.name === name; });
         let i = 0;

@@ -217,7 +217,8 @@ test('3c. unzipDocx_()：解壓失敗 → 訊息提示「確認是不是 .docx�
 });
 
 test('3d. renderDocxFromTemplate_()：zip 內找不到 document.xml → 拋錯並列出實際檔案清單', function () {
-  const weird = makeFakeBlob('FAKE', 'weird.docx');
+  const weird = makeFakeBlob('FAKE', 'weird.docx',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
   weird.__entries = [
     makeFakeBlob('<Types/>', '[Content_Types].xml'),
     makeFakeBlob('<x/>', 'xl/workbook.xml')

@@ -41,6 +41,33 @@ var DOCX_DOCUMENT_ENTRY_ = 'word/document.xml';
 var DOCX_MIME_TYPE_ = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
 /**
+ * 用途：確認一個資料夾 ID 開得到——供「完成度自我檢測」使用。
+ *
+ *   ⚠️ `DriveApp` 沒有直接的「檢查寫入權限」API；真正的寫入權限只有
+ *   實際新增一個檔案時才會確定知道，而這裡刻意不建立任何測試檔案
+ *   （避免留下垃圾）。所以這個檢查的意思是「開得到、讀得到名稱」，
+ *   不是嚴格保證「一定寫得進去」——這個限制記在
+ *   docs/待確認事項.md，供日後想加強時參考。
+ * Args:
+ *   folderId {string} 資料夾 ID。
+ * Returns:
+ *   {{ok:boolean, message:string}}
+ */
+function checkOutputFolderAccessible_(folderId) {
+  if (!folderId) return { ok: false, message: '尚未設定資料夾 ID。' };
+  try {
+    var folder = DriveApp.getFolderById(folderId);
+    return { ok: true, message: '可以開啟（' + folder.getName() + '）。' };
+  } catch (err) {
+    return {
+      ok: false,
+      message: '無法開啟資料夾（ID 開頭：' + maskFileId_(folderId) + '）：'
+        + scrubFileId_(err && err.message ? err.message : String(err), folderId)
+    };
+  }
+}
+
+/**
  * 用途：把檔案 ID 縮短成可以安全放進錯誤訊息的形式（只留前 8 個字元）。
  *
  *   ⚠️ 錯誤訊息會流到 `ErrorLog`／`Diagnostics`／對話框，而這個 repo 是
@@ -94,8 +121,9 @@ function readTemplateBlob_(fileId) {
   if (!fileId) {
     throw new Error('readTemplateBlob_：範本檔案 ID 是空的。請先在 Config 填入 Word 範本的檔案 ID。');
   }
+  var blob;
   try {
-    return DriveApp.getFileById(fileId).getBlob();
+    blob = DriveApp.getFileById(fileId).getBlob();
   } catch (err) {
     throw new Error(
       '無法讀取 Word 範本檔（ID 開頭：' + maskFileId_(fileId) + '）：'
@@ -103,6 +131,23 @@ function readTemplateBlob_(fileId) {
       + '。請檢查 Config 的範本檔案 ID 是否正確，以及本帳戶有沒有該檔案的檢視權限。'
     );
   }
+
+  // ⚠️ 最常見的事故來源：Google Drive 把上載的 .docx 自動轉換成 Google
+  // 文件格式（帳戶設定「將上載的檔案轉換為 Google 文件編輯器格式」開著
+  // 的話），或者 Ivan 不小心貼了 Google 文件本身的檔案 ID。兩種情況
+  // `getBlob()` 都不會拋錯，但 MIME 類型不是 Word 檔——不檢查的話，
+  // 後面 `Utilities.unzip()` 會用一個更難懂的「不是合法 zip」錯誤失敗，
+  // 完全看不出真正原因。
+  var contentType = blob.getContentType();
+  if (contentType !== DOCX_MIME_TYPE_) {
+    throw new Error(
+      '範本檔案不是 Word 檔（目前是 ' + contentType + '）。如果它被 Google Drive 轉換成 Google 文件，'
+      + '請在 Drive 設定關閉「將上載的檔案轉換為 Google 文件編輯器格式」，刪除已轉換的檔案，'
+      + '重新上載原本的 .docx，再更新 Config 的檔案 ID。'
+    );
+  }
+
+  return blob;
 }
 
 /**
@@ -190,6 +235,39 @@ function assertDocxHasContentTypes_(entries) {
 }
 
 /**
+ * 用途：把 `[Content_Types].xml` 移到陣列最前面，其餘 entry **保持原本
+ *   的相對次序**，不多不少。
+ *
+ *   ⚠️ `Utilities.unzip()` 回傳的次序不保證 `[Content_Types].xml` 排第一
+ *   （見 `findDocumentEntryIndex_()` 檔頭的說明），但真正的 `.docx`
+ *   （由 Word／Office 產生）zip 內第一個 entry**一定**是它——這是 Word
+ *   認得出「這是一個有效的 OOXML 檔案」的其中一個依據。壓縮的時候如果
+ *   照抄 `unzip()` 的原始次序，就有機會把它排到別的位置，Word 開啟時
+ *   可能要求修復。
+ * Args:
+ *   entries {{name:string, blob:Blob}[]} entry 清單。
+ * Returns:
+ *   {{name:string, blob:Blob}[]} 新陣列（不修改原陣列）；找不到
+ *     `[Content_Types].xml` 時原樣回傳（`assertDocxHasContentTypes_()`
+ *     會在呼叫方那一層先擋住這種情況）。
+ */
+function moveContentTypesEntryFirst_(entries) {
+  var list = (entries || []).slice();
+  var index = -1;
+  for (var i = 0; i < list.length; i++) {
+    if (String(list[i].name || '').replace(/\\/g, '/').split('/').pop() === DOCX_CONTENT_TYPES_ENTRY_) {
+      index = i;
+      break;
+    }
+  }
+  if (index <= 0) return list;
+
+  var entry = list.splice(index, 1)[0];
+  list.unshift(entry);
+  return list;
+}
+
+/**
  * 用途：把一批 entry 壓縮回一個 `.docx` blob。
  *
  *   ⚠️ 除了呼叫方明確換掉的那一個 entry 之外，其餘 blob 一律**原物**
@@ -205,7 +283,8 @@ function assertDocxHasContentTypes_(entries) {
 function zipDocx_(entries, filename) {
   assertDocxHasContentTypes_(entries);
 
-  var blobs = (entries || []).map(function (e) { return e.blob.setName(e.name); });
+  var ordered = moveContentTypesEntryFirst_(entries);
+  var blobs = ordered.map(function (e) { return e.blob.setName(e.name); });
   var zipped;
   try {
     zipped = Utilities.zip(blobs, filename);

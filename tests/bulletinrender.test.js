@@ -55,7 +55,17 @@ function assertArrayEqual(actual, expected, message) {
   assert.strictEqual(JSON.stringify(actual), JSON.stringify(expected), message);
 }
 
-/** prompt7 §5.1 列明的全部單值佔位符。 */
+/** 由 1 補到兩位數，供組出 DUTY_01..NN／NEXT_DUTY_01..NN 用。 */
+function numberedKeys_(prefix, max) {
+  const out = [];
+  for (let i = 1; i <= max; i++) {
+    const s = String(i);
+    out.push(prefix + (s.length < 2 ? '0' + s : s));
+  }
+  return out;
+}
+
+/** prompt7 §5.1 列明的全部單值佔位符，加上 prompt9 §1.2 新增的編號事奉佔位符。 */
 const REQUIRED_VALUE_KEYS = [
   // 封面與標題
   'SERVICE_DATE_COVER', 'PAGE_TITLE', 'SPECIAL_TYPE',
@@ -74,7 +84,7 @@ const REQUIRED_VALUE_KEYS = [
   // 其他
   'PRAYER_BLOCK_HEADING', 'WEEKLY_BIBLE_READING', 'CHURCH_NAME',
   'ROSTER_VERSION', 'GENERATED_AT'
-];
+].concat(numberedKeys_('DUTY_', 20)).concat(numberedKeys_('NEXT_DUTY_', 20));
 
 function sampleModel(overrides) {
   return Object.assign({
@@ -108,7 +118,7 @@ function sampleModel(overrides) {
     announcements: [{ seqNo: 10, text: '第一則' }, { seqNo: 20, text: '第二則' }],
     prayerBlock: { heading: '代禱事項', items: [{ seqNo: 10, text: '為宣教士禱告' }] },
     fellowships: [{ fellowshipName: '彼得團', meetingDate: '7/11 星期日', meetingTime: '4:30pm', content: '講道分享' }],
-    finance: [{ rowLabel: '奉獻', specialOverseas: '100', hardship: '200' }],
+    finance: [{ rowLabel: '奉獻', specialOverseas: '100', hardship: '200', col3: '300', col4: '400' }],
     missing: [],
     warnings: []
   }, overrides || {});
@@ -203,7 +213,7 @@ test('2e. buildRenderLists_()：七個清單全部提供，欄位名稱符合 §
   assertArrayEqual(Object.keys(lists.DUTY[0]).sort(), ['LABEL', 'NAMES']);
   assertArrayEqual(Object.keys(lists.ANNOUNCEMENT[0]).sort(), ['NO', 'TEXT']);
   assertArrayEqual(Object.keys(lists.FELLOWSHIP[0]).sort(), ['CONTENT', 'DATE', 'NAME', 'TIME']);
-  assertArrayEqual(Object.keys(lists.FINANCE[0]).sort(), ['COL1', 'COL2', 'LABEL']);
+  assertArrayEqual(Object.keys(lists.FINANCE[0]).sort(), ['COL1', 'COL2', 'COL3', 'COL4', 'LABEL']);
 });
 
 test('2f. buildRenderLists_()：ANNOUNCEMENT／PRAYER 的 NO 由 1 開始重新編號（不是用 SEQ_NO）', function () {

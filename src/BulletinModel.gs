@@ -290,7 +290,12 @@ function assembleBulletinModel_(input) {
         seqNo: r.SEQ_NO,
         rowLabel: String(r.ROW_LABEL || ''),
         specialOverseas: String(r.COL_SPECIAL_OVERSEAS || ''),
-        hardship: String(r.COL_HARDSHIP || '')
+        hardship: String(r.COL_HARDSHIP || ''),
+        // prompt9 §1.6 新增：COL3／COL4 對應範本的 {{FINANCE.COL3}}／
+        // {{FINANCE.COL4}}。COL5 目前沒有對應的渲染欄位，見
+        // docs/待確認事項.md 的說明，這裡不帶出來。
+        col3: String(r.COL3 || ''),
+        col4: String(r.COL4 || '')
       };
     });
 

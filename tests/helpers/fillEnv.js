@@ -363,11 +363,23 @@ function makeFillEnv(options) {
     }
   };
 
+  // prompt9：全季演練需要在同一個環境內同時具備格子表能力（本檔案的
+  // FakeSpreadsheetApp）與 Word 產生能力（DriveApp／Utilities.zip／unzip），
+  // 所以額外開放 `options.driveApp`／`options.utilitiesZip` 讓呼叫方注入
+  // ——兩者預設不提供，不影響既有只測格子表的測試。`utilitiesZip` 只補
+  // `zip`／`unzip`／`newBlob` 三個方法，**不覆蓋**本檔案 `BASE_STUBS.Utilities`
+  // 真正實作日期格式化的 `formatDate`（假的 Word 附件 zip 用途跟真正的
+  // 日期格式化完全獨立，不應該讓其中一個蓋掉另一個）。
+  const utilitiesForSandbox = o.utilitiesZip
+    ? Object.assign({}, BASE_STUBS.Utilities, o.utilitiesZip)
+    : BASE_STUBS.Utilities;
+
   const sandbox = loadAllSrcFilesInOrder(Object.assign({}, BASE_STUBS, {
     SpreadsheetApp: FakeSpreadsheetApp,
     MailApp: mail,
-    ScriptApp: FakeScriptApp
-  }));
+    ScriptApp: FakeScriptApp,
+    Utilities: utilitiesForSandbox
+  }, o.driveApp ? { DriveApp: o.driveApp } : {}));
 
   return {
     sandbox: sandbox, sheets: sheets, mail: mail, triggers: triggers,

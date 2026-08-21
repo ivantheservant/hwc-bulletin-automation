@@ -169,8 +169,8 @@ test('CONFIG_KEYS 每一個值都有對應的 DEFAULTS 項目（不會有「有�
   });
 });
 
-test('DEFAULTS 剛好 63 筆（prompt1 的 29 ＋ prompt2 的 1 ＋ prompt3 的 9 ＋ prompt4 的 4 ＋ prompt5 的 7 ＋ prompt6 的 1 ＋ prompt7 的 6 ＋ prompt8 的 8 － prompt8b 刪除的 2）', function () {
-  assert.strictEqual(DEFAULTS.length, 63);
+test('DEFAULTS 剛好 64 筆（prompt1 的 29 ＋ prompt2 的 1 ＋ prompt3 的 9 ＋ prompt4 的 4 ＋ prompt5 的 7 ＋ prompt6 的 1 ＋ prompt7 的 6 ＋ prompt8 的 8 － prompt8b 刪除的 2 ＋ prompt9 的 1）', function () {
+  assert.strictEqual(DEFAULTS.length, 64);
 });
 
 test('prompt8b：DOC_TEMPLATE_ID_NORMAL／DOC_TEMPLATE_ID_COMBINED 兩個廢棄鍵已從 CONFIG_KEYS 與 DEFAULTS 移除', function () {

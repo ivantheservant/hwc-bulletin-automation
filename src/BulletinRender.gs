@@ -60,6 +60,55 @@ function renderValueText_(value) {
 }
 
 /**
+ * 用途：把數字補成至少 `digits` 位，前面補 `0`（例如 `padDutyNumber_(3, 2)`
+ *   → `'03'`）。
+ * Args:
+ *   n {number} 1 起算的序號。
+ *   digits {number} 最少位數。
+ * Returns:
+ *   {string}
+ */
+function padDutyNumber_(n, digits) {
+  var s = String(n);
+  while (s.length < digits) s = '0' + s;
+  return s;
+}
+
+/**
+ * 用途：組出「編號事奉佔位符」——`DUTY_01`..`DUTY_NN`／
+ *   `NEXT_DUTY_01`..`NEXT_DUTY_NN`（prompt9 §1.2）。範本用的是固定位置的
+ *   事奉框（不是像 `{{#EACH:DUTY}}` 那樣的重複列），所以每個崗位要有
+ *   自己獨立的佔位符名稱。
+ *
+ *   ⚠️ **超出實際事奉行數的編號一律輸出空字串**，絕對不可以在成品 Word
+ *   留下 `{{DUTY_11}}` 這種原樣未替換的文字——`replaceSimplePlaceholders_()`
+ *   對「有提供這個鍵、值是空字串」與「完全沒有提供這個鍵」的處理不同
+ *   （後者會依 `TEMPLATE_MISSING_VALUE_MODE` 決定要不要保留原樣），所以
+ *   這裡一定要**把 1 到 max 每一個編號都當成鍵寫進 `values`**，即使值是
+ *   空字串。
+ * Args:
+ *   prefix {string} `'DUTY_'` 或 `'NEXT_DUTY_'`。
+ *   rows {Object[]} `dutyBoxPage1`／`nextWeekDuty`，每筆 `{label, text}`
+ *     （已經套用尊稱與合併規則）。
+ *   max {number} 上限（Config `DUTY_PLACEHOLDER_MAX`）。
+ * Returns:
+ *   {Object<string,string>} 佔位符名稱 → `'崗位名稱：姓名'` 整串，或空字串。
+ */
+function buildNumberedDutyValues_(prefix, rows, max) {
+  var list = rows || [];
+  var limit = Math.max(0, Number(max) || 0);
+  var digits = Math.max(2, String(limit).length);
+  var out = {};
+
+  for (var i = 1; i <= limit; i++) {
+    var key = prefix + padDutyNumber_(i, digits);
+    var row = list[i - 1];
+    out[key] = row ? (renderValueText_(row.label) + '：' + renderValueText_(row.text)) : '';
+  }
+  return out;
+}
+
+/**
  * 用途：把資料模型轉成 Word 範本要用的佔位符表。**純函式**。
  *
  *   完整的佔位符清單見 docs/佔位符對照表.md。這裡刻意把全部鍵都**明確
@@ -127,6 +176,15 @@ function buildRenderContext_(model, options) {
   values.CHURCH_NAME = renderValueText_(opts.churchName);
   values.ROSTER_VERSION = renderValueText_(m.rosterVersionUsed);
   values.GENERATED_AT = renderValueText_(opts.generatedAt);
+
+  // ---- 編號事奉佔位符（prompt9 §1.2）----
+  // ⚠️ 沒有提供 dutyPlaceholderMax 時用 20（跟 Config DUTY_PLACEHOLDER_MAX
+  // 的預設值一致）——這裡刻意用寫死的預設值而不是讀 Config，因為本函式
+  // 是純函式層，不可以碰 Apps Script 服務；真正入口
+  // （generateBulletinDocx_()）會把 Config 的實際值傳進 opts。
+  var dutyMax = opts.dutyPlaceholderMax === undefined ? 20 : Number(opts.dutyPlaceholderMax);
+  Object.assign(values, buildNumberedDutyValues_('DUTY_', m.dutyBoxPage1, dutyMax));
+  Object.assign(values, buildNumberedDutyValues_('NEXT_DUTY_', m.nextWeekDuty, dutyMax));
 
   return { values: values, lists: buildRenderLists_(m) };
 }
@@ -225,7 +283,9 @@ function buildRenderLists_(model) {
     return {
       LABEL: renderValueText_(row.rowLabel),
       COL1: renderValueText_(row.specialOverseas),
-      COL2: renderValueText_(row.hardship)
+      COL2: renderValueText_(row.hardship),
+      COL3: renderValueText_(row.col3),
+      COL4: renderValueText_(row.col4)
     };
   });
 
@@ -271,7 +331,7 @@ function supportedListPlaceholders_() {
     ANNOUNCEMENT: ['NO', 'TEXT'],
     PRAYER: ['NO', 'TEXT'],
     FELLOWSHIP: ['NAME', 'DATE', 'TIME', 'CONTENT'],
-    FINANCE: ['LABEL', 'COL1', 'COL2']
+    FINANCE: ['LABEL', 'COL1', 'COL2', 'COL3', 'COL4']
   };
   // 旗標欄位不是給範本用的（它只決定選哪一個列範本），所以不列出來。
   void flagKey;
@@ -409,7 +469,8 @@ function generateBulletinDocx_(isoDate) {
     churchName: getConfig(CONFIG_KEYS.CHURCH_NAME, ''),
     cantoneseSubColumnLabel: getConfig(CONFIG_KEYS.CANTONESE_SUBCOLUMN_LABEL, '主堂'),
     callFormat: getConfig(CONFIG_KEYS.CALL_TO_WORSHIP_FORMAT, '{{CALL_TEXT}}（{{CALL_REF}}）'),
-    generatedAt: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm')
+    generatedAt: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm'),
+    dutyPlaceholderMax: normalizeInt_(getConfig(CONFIG_KEYS.DUTY_PLACEHOLDER_MAX, '20'))
   });
 
   var fileName = buildOutputFileName_(isoDate);
