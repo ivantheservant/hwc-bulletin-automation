@@ -146,6 +146,34 @@ function menuResolveFillConflicts_() {
 }
 
 /**
+ * 用途：選單項目「檢查格子表外觀」的處理函式。**唯讀**——只讀取實際
+ *   套用的條件格式、凍結行欄、殘留註解、數字格式，寫入 `Diagnostics`，
+ *   不改動格子表任何一格。
+ * Args: （無）
+ * Returns:
+ *   {void}
+ */
+function menuCheckFillGridAppearance_() {
+  var ui = SpreadsheetApp.getUi();
+  try {
+    var quarterId = promptForQuarterId_(ui, '檢查格子表外觀');
+    if (!quarterId) return;
+
+    var facts = inspectFillGridAppearance_(quarterId);
+    writeDiagnosticsReport_('格子表外觀檢查', buildFillAppearanceReportLines_(facts));
+
+    ui.alert(
+      '檢查格子表外觀',
+      '已把「' + facts.sheetName + '」的條件格式與格式設定寫入 Diagnostics 工作表。',
+      ui.ButtonSet.OK
+    );
+  } catch (err) {
+    logMenuError_('menuCheckFillGridAppearance_', err);
+    ui.alert('檢查格子表外觀失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
+  }
+}
+
+/**
  * 用途：衝突對話框呼叫的伺服器端函式——把使用者的選擇寫入。
  *
  *   ⚠️ 「暫不處理」（`SKIP`）的格**完全不動**，快照也不更新，所以下一次
@@ -157,7 +185,8 @@ function menuResolveFillConflicts_() {
  *     `choice` 是 `'GRID'`（用格子表的值）／`'SYSTEM'`（用系統的值）／
  *     `'SKIP'`（暫不處理）。
  * Returns:
- *   {{ok:boolean, appliedGrid:number, appliedSystem:number, skipped:number}}
+ *   {{ok:boolean, appliedGrid:number, appliedSystem:number, skipped:number,
+ *     decisionsReceived:number, matchedConflicts:number, unmatched:number}}
  */
 function apiResolveFillConflicts(quarterId, decisions) {
   return withApiResult_(function () {
@@ -167,11 +196,20 @@ function apiResolveFillConflicts(quarterId, decisions) {
 
 /**
  * 用途：`apiResolveFillConflicts()` 的實作層。
+ *
+ *   ⚠️ 無論結果如何（就算全部 `SKIP`、就算 `decisions` 是空陣列），一律
+ *   寫一筆 `FILL_CONFLICT_RESOLVE_RUN` 總結記錄——這是 prompt8b 修的事故：
+ *   舊寫法只在真的套用了 `GRID`／`SYSTEM` 時才寫 `AuditLog`，導致「使用者
+ *   撳確定但送出的選擇仍然是 SKIP」這種情況完全沒有記錄，外表跟系統壞掉
+ *   一模一樣。`unmatched`（送來的 decision 對不上任何目前的衝突格）是
+ *   這筆總結記錄裡最重要的欄位：日後再遇到「撳了但沒反應」，看這個數字
+ *   就知道是前後端鍵值對不上，而不是使用者選錯。
  * Args:
  *   quarterId {string} 季度 ID。
  *   decisions {Object[]} 見 `apiResolveFillConflicts()`。
  * Returns:
- *   {{appliedGrid:number, appliedSystem:number, skipped:number}}
+ *   {{appliedGrid:number, appliedSystem:number, skipped:number,
+ *     decisionsReceived:number, matchedConflicts:number, unmatched:number}}
  */
 function resolveFillConflicts_(quarterId, decisions) {
   var plan = computeFillSyncPlan_(quarterId);
@@ -185,10 +223,15 @@ function resolveFillConflicts_(quarterId, decisions) {
   var appliedGrid = 0;
   var appliedSystem = 0;
   var skipped = 0;
+  var unmatched = 0;
+  var decisionList = decisions || [];
 
-  (decisions || []).forEach(function (decision) {
+  decisionList.forEach(function (decision) {
     var cell = byKey[fillSnapshotKey_(decision.isoDate, decision.fieldKey)];
-    if (!cell) return;
+    if (!cell) {
+      unmatched++;
+      return;
+    }
 
     if (decision.choice === 'GRID') {
       writeBulletinWeekField_(cell.isoDate, cell.fieldKey, cell.gridValue);
@@ -225,7 +268,29 @@ function resolveFillConflicts_(quarterId, decisions) {
 
   if (snapshotEntries.length > 0) writeFillSnapshotEntries_(quarterId, snapshotEntries);
 
-  return { appliedGrid: appliedGrid, appliedSystem: appliedSystem, skipped: skipped };
+  var matchedConflicts = appliedGrid + appliedSystem + skipped;
+  appendAuditLog_({
+    action: 'FILL_CONFLICT_RESOLVE_RUN',
+    sheetName: fillGridSheetName_(quarterId),
+    rowKey: quarterId,
+    notes: JSON.stringify({
+      decisionsReceived: decisionList.length,
+      matchedConflicts: matchedConflicts,
+      appliedGrid: appliedGrid,
+      appliedSystem: appliedSystem,
+      skipped: skipped,
+      unmatched: unmatched
+    })
+  });
+
+  return {
+    appliedGrid: appliedGrid,
+    appliedSystem: appliedSystem,
+    skipped: skipped,
+    decisionsReceived: decisionList.length,
+    matchedConflicts: matchedConflicts,
+    unmatched: unmatched
+  };
 }
 
 // =====================================================================

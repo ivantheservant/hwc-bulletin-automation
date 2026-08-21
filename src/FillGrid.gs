@@ -387,6 +387,18 @@ function ensureFillGridSheet_(quarterId) {
     sheet.getRange(FILL_GRID_FIRST_DATA_ROW_, i + 1, maxRows, 1).setNumberFormat('@');
   });
 
+  // 唯讀三欄舊版會留永久儲存格註解（prompt8b 之前的寫法），現在改用浮動
+  // toast，每次刷新都清乾淨，避免之前累積的註解永遠留在格上。
+  var lastDataRow = sheet.getLastRow();
+  if (lastDataRow >= FILL_GRID_FIRST_DATA_ROW_) {
+    var dataRowCount = lastDataRow - FILL_GRID_FIRST_DATA_ROW_ + 1;
+    fillGridReadOnlyKeys_().forEach(function (key) {
+      var col = fillGridColumnIndex_(key);
+      if (col <= 0) return;
+      sheet.getRange(FILL_GRID_FIRST_DATA_ROW_, col, dataRowCount, 1).clearNote();
+    });
+  }
+
   return { sheet: sheet, created: created };
 }
 
@@ -531,4 +543,125 @@ function readFillGridRows_(quarterId) {
   });
 
   return out;
+}
+
+// =====================================================================
+// 格子表外觀檢查（唯讀，prompt8b 第 5 部分）
+// =====================================================================
+
+/**
+ * 用途：讀取季度填寫表**實際套用**的條件格式規則、凍結行欄、唯讀欄殘留
+ *   註解數、人數欄數字格式，作為「檢查格子表外觀」選單的事實來源。
+ *
+ *   ⚠️ 純粹讀取，不寫入任何一格——第八輪的條件格式（特別主日整行淺黃、
+ *   已填格子淺綠）從未在真實 Sheets 驗證過，這個函式讓 Ivan 不用肉眼估，
+ *   看報告就知道對不對。
+ * Args:
+ *   quarterId {string} 季度 ID。
+ * Returns:
+ *   {Object} 見函式內回傳物件的欄位，交給 `buildFillAppearanceReportLines_()`
+ *     格式化成報告文字。
+ * Raises:
+ *   Error 如果該季度的格子表還沒有建立。
+ */
+function inspectFillGridAppearance_(quarterId) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheetName = fillGridSheetName_(quarterId);
+  var sheet = ss.getSheetByName(sheetName);
+  if (!sheet) {
+    throw new Error('inspectFillGridAppearance_：找不到工作表「' + sheetName + '」，請先用「建立／刷新季度填寫表」建立。');
+  }
+
+  var conditionalFormatRules = sheet.getConditionalFormatRules().map(function (rule) {
+    var ranges = rule.getRanges().map(function (r) { return r.getA1Notation(); });
+    var condition = rule.getBooleanCondition();
+    if (!condition) {
+      return { ranges: ranges, criteriaType: '（非布林條件，未支援解析）', criteriaValues: [], background: '' };
+    }
+    return {
+      ranges: ranges,
+      criteriaType: String(condition.getCriteriaType()),
+      criteriaValues: (condition.getCriteriaValues() || []).map(function (v) { return String(v); }),
+      background: condition.getBackground() || ''
+    };
+  });
+
+  var lastDataRow = sheet.getLastRow();
+  var readOnlyNoteCounts = {};
+  fillGridReadOnlyKeys_().forEach(function (key) {
+    var col = fillGridColumnIndex_(key);
+    readOnlyNoteCounts[key] = 0;
+    if (col <= 0 || lastDataRow < FILL_GRID_FIRST_DATA_ROW_) return;
+    var rowCount = lastDataRow - FILL_GRID_FIRST_DATA_ROW_ + 1;
+    var notes = sheet.getRange(FILL_GRID_FIRST_DATA_ROW_, col, rowCount, 1).getNotes();
+    notes.forEach(function (row) {
+      if (row[0]) readOnlyNoteCounts[key]++;
+    });
+  });
+
+  // 只看 12 個人數欄，`ATTENDANCE_DATE` 雖然也是純文字欄但不屬於「12 個
+  // 人數欄」，prompt8b 只要求檢查這 12 欄。
+  var attendanceColumnFormats = fillGridColumnDefs_()
+    .filter(function (def) { return def.plainText && def.key !== 'ATTENDANCE_DATE'; })
+    .map(function (def) {
+      var col = fillGridColumnIndex_(def.key);
+      var format = (col > 0 && lastDataRow >= FILL_GRID_FIRST_DATA_ROW_)
+        ? sheet.getRange(FILL_GRID_FIRST_DATA_ROW_, col).getNumberFormat() : '';
+      return { key: def.key, label: def.label, numberFormat: format, isPlainText: format === '@' };
+    });
+
+  return {
+    quarterId: quarterId,
+    sheetName: sheetName,
+    frozenRows: sheet.getFrozenRows(),
+    frozenColumns: sheet.getFrozenColumns(),
+    conditionalFormatRules: conditionalFormatRules,
+    readOnlyNoteCounts: readOnlyNoteCounts,
+    attendanceColumnFormats: attendanceColumnFormats
+  };
+}
+
+/**
+ * 用途：把 `inspectFillGridAppearance_()` 讀到的事實格式化成
+ *   `Diagnostics` 報告的文字行。獨立成純函式，方便不經過真實 Sheets API
+ *   也測得到格式化規則。
+ * Args:
+ *   facts {Object} `inspectFillGridAppearance_()` 的回傳值。
+ * Returns:
+ *   {string[]} 逐行的報告文字。
+ */
+function buildFillAppearanceReportLines_(facts) {
+  var lines = [];
+  lines.push('季度：' + facts.quarterId + '（' + facts.sheetName + '）');
+  lines.push('');
+
+  lines.push('「凍結行／欄」');
+  lines.push('凍結行數：' + facts.frozenRows + '　凍結欄數：' + facts.frozenColumns);
+  lines.push('');
+
+  lines.push('「條件格式規則」（共 ' + facts.conditionalFormatRules.length + ' 條）');
+  if (facts.conditionalFormatRules.length === 0) {
+    lines.push('（沒有任何條件格式規則——如果預期應該有特別主日整行淺黃、已填格子淺綠，這裡是空的就代表沒套用成功。）');
+  } else {
+    facts.conditionalFormatRules.forEach(function (rule, i) {
+      lines.push((i + 1) + '. 範圍：' + rule.ranges.join('、'));
+      lines.push('　條件類型：' + rule.criteriaType);
+      if (rule.criteriaValues.length > 0) lines.push('　條件公式／參數：' + rule.criteriaValues.join('、'));
+      lines.push('　背景色：' + (rule.background || '（未設定）'));
+    });
+  }
+  lines.push('');
+
+  lines.push('「唯讀欄殘留註解」');
+  fillGridReadOnlyKeys_().forEach(function (key) {
+    lines.push(key + '：' + facts.readOnlyNoteCounts[key] + ' 個');
+  });
+  lines.push('');
+
+  lines.push('「人數欄數字格式（應為純文字 @）」');
+  facts.attendanceColumnFormats.forEach(function (col) {
+    lines.push(col.label + '（' + col.key + '）：' + (col.numberFormat || '（空白）') + (col.isPlainText ? '　✓' : '　⚠️ 不是純文字'));
+  });
+
+  return lines;
 }

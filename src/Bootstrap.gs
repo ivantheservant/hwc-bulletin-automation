@@ -35,6 +35,7 @@ function initializeAllSheets() {
 
   writeReadmeContent_(ss);
 
+  var deprecatedCleanup = cleanupDeprecatedConfigKeys_();
   var configKeysAdded = seedConfigDefaults_();
   var seedRowsAdded = {
     POST_DISPLAY: seedPostDisplay_(),
@@ -47,6 +48,8 @@ function initializeAllSheets() {
   var summary = {
     sheetsEnsured: sheetIds.length,
     configKeysAdded: configKeysAdded,
+    configKeysRemoved: deprecatedCleanup.removed,
+    deprecatedConfigWarnings: deprecatedCleanup.warnings,
     seedRowsAdded: seedRowsAdded
   };
 
@@ -57,6 +60,70 @@ function initializeAllSheets() {
   });
 
   return summary;
+}
+
+/**
+ * 用途：一次性清走已廢棄且沒有值的 Config 設定鍵。本專案第一次刪
+ *   Config 鍵——目前只有 `DOC_TEMPLATE_ID_NORMAL`／`DOC_TEMPLATE_ID_COMBINED`
+ *   兩個（第一輪為「Google Docs 範本 → PDF」而設，第七輪已改用
+ *   `TEMPLATE_FILE_ID_*`，程式碼已無任何引用）。
+ *
+ *   ⚠️ 只有值為空字串才會刪：如果 Ivan 已經在這兩格填了值，代表這是有
+ *   意義的資料，靜靜刪掉等於丟掉使用者的設定（見 docs/已知bug類型.md：
+ *   刪 Config 鍵之前一定要確認沒有值）。值不為空時保留該行，回傳一則
+ *   警告文字交由呼叫方寫進 Diagnostics 提醒人手確認。
+ *
+ *   刻意寫死鍵名字串，不透過 `CONFIG_KEYS`——這兩個鍵已經從
+ *   `CONFIG_KEYS` 移除，這裡是它們在程式碼裡最後一次出現，純粹是為了
+ *   清理已經寫入試算表的舊資料。
+ * Args: （無）
+ * Returns:
+ *   {{removed:string[], warnings:string[]}} `removed` 是實際被刪除的設定
+ *     鍵；`warnings` 是值不為空、因此保留但需要人手確認的提示文字。
+ */
+function cleanupDeprecatedConfigKeys_() {
+  var DEPRECATED_KEYS = ['DOC_TEMPLATE_ID_NORMAL', 'DOC_TEMPLATE_ID_COMBINED'];
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ensureSheet_(ss, 'CONFIG');
+  var lastRow = sheet.getLastRow();
+  var removed = [];
+  var warnings = [];
+
+  if (lastRow < 3) return { removed: removed, warnings: warnings };
+
+  var values = sheet.getRange(3, 1, lastRow - 2, 2).getValues();
+  var rowsToDelete = [];
+
+  values.forEach(function (row, idx) {
+    var key = coerceConfigRawValue_(row[0]);
+    if (DEPRECATED_KEYS.indexOf(key) === -1) return;
+
+    var value = coerceConfigRawValue_(row[1]);
+    var rowNo = idx + 3;
+
+    if (value === '') {
+      rowsToDelete.push(rowNo);
+      removed.push(key);
+      appendAuditLog_({
+        action: 'CONFIG_KEY_REMOVE', sheetName: SHEETS.CONFIG,
+        rowKey: key, field: 'KEY',
+        oldValue: key, newValue: '',
+        notes: '一次性清理：已廢棄的設定鍵，值為空，自動刪除。'
+      });
+    } else {
+      warnings.push('設定鍵「' + key + '」已廢棄但仍有值（' + value + '），請人手確認後刪除。');
+    }
+  });
+
+  // 由大到小刪，避免刪除之後行號往前移動，影響尚未處理的行號。
+  rowsToDelete.sort(function (a, b) { return b - a; }).forEach(function (rowNo) {
+    sheet.deleteRow(rowNo);
+  });
+
+  if (rowsToDelete.length > 0) clearConfigCache_();
+
+  return { removed: removed, warnings: warnings };
 }
 
 /**
@@ -131,6 +198,14 @@ function writeInitializeDiagnosticsReport_(summary) {
   lines.push('執行時間：' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss'));
   lines.push('已建立／確認工作表數：' + summary.sheetsEnsured);
   lines.push('Config 新增設定鍵：' + summary.configKeysAdded);
+  if (summary.configKeysRemoved && summary.configKeysRemoved.length > 0) {
+    lines.push('Config 一次性清理刪除的廢棄設定鍵：' + summary.configKeysRemoved.join('、'));
+  }
+  if (summary.deprecatedConfigWarnings && summary.deprecatedConfigWarnings.length > 0) {
+    lines.push('');
+    lines.push('廢棄設定鍵仍有值，需要人手確認（' + summary.deprecatedConfigWarnings.length + ' 筆）：');
+    summary.deprecatedConfigWarnings.forEach(function (w) { lines.push('－' + w); });
+  }
   Object.keys(summary.seedRowsAdded).forEach(function (id) {
     lines.push(SHEETS[id] + ' 新增行數：' + summary.seedRowsAdded[id]);
   });

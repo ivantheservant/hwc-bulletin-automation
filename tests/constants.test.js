@@ -14,6 +14,7 @@
 
 const assert = require('assert');
 const { loadAllSrcFilesInOrder } = require('./helpers/loadGas');
+const { makeFakeSheet, makeFakeSpreadsheet } = require('./helpers/fakeSpreadsheet');
 
 // 一律按 Apps Script 實際的載入次序（檔名字母序）載入全部 src/*.gs，
 // 不要自己手動只列 Constants.gs、自選次序——見 tests/helpers/loadGas.js
@@ -33,6 +34,10 @@ const { SHEETS, COLUMNS, SHEET_ID_BY_NAME, CONFIG_KEYS, DEFAULTS, COLUMN_TYPES }
 
 let pass = 0;
 let fail = 0;
+
+function assertArrayEqual(actual, expected, message) {
+  assert.strictEqual(JSON.stringify(actual), JSON.stringify(expected), message);
+}
 
 function test(name, fn) {
   try {
@@ -164,8 +169,17 @@ test('CONFIG_KEYS 每一個值都有對應的 DEFAULTS 項目（不會有「有�
   });
 });
 
-test('DEFAULTS 剛好 65 筆（prompt1 的 29 ＋ prompt2 的 1 ＋ prompt3 的 9 ＋ prompt4 的 4 ＋ prompt5 的 7 ＋ prompt6 的 1 ＋ prompt7 的 6 ＋ prompt8 的 8）', function () {
-  assert.strictEqual(DEFAULTS.length, 65);
+test('DEFAULTS 剛好 63 筆（prompt1 的 29 ＋ prompt2 的 1 ＋ prompt3 的 9 ＋ prompt4 的 4 ＋ prompt5 的 7 ＋ prompt6 的 1 ＋ prompt7 的 6 ＋ prompt8 的 8 － prompt8b 刪除的 2）', function () {
+  assert.strictEqual(DEFAULTS.length, 63);
+});
+
+test('prompt8b：DOC_TEMPLATE_ID_NORMAL／DOC_TEMPLATE_ID_COMBINED 兩個廢棄鍵已從 CONFIG_KEYS 與 DEFAULTS 移除', function () {
+  assert.strictEqual(CONFIG_KEYS.DOC_TEMPLATE_ID_NORMAL, undefined);
+  assert.strictEqual(CONFIG_KEYS.DOC_TEMPLATE_ID_COMBINED, undefined);
+  DEFAULTS.forEach(function (d) {
+    assert.notStrictEqual(d.key, 'DOC_TEMPLATE_ID_NORMAL');
+    assert.notStrictEqual(d.key, 'DOC_TEMPLATE_ID_COMBINED');
+  });
 });
 
 // =====================================================================
@@ -176,8 +190,6 @@ test('ID 類的 DEFAULTS 一律 seed 成空字串，不可以寫死真實值', f
   const idLikeKeys = [
     CONFIG_KEYS.ROSTER_SPREADSHEET_ID,
     CONFIG_KEYS.BULLETIN_OUTPUT_FOLDER_ID,
-    CONFIG_KEYS.DOC_TEMPLATE_ID_NORMAL,
-    CONFIG_KEYS.DOC_TEMPLATE_ID_COMBINED,
     // 第七輪新增的三個 Word 範本檔案 ID，同樣受這條硬規則約束
     CONFIG_KEYS.TEMPLATE_FILE_ID_NORMAL,
     CONFIG_KEYS.TEMPLATE_FILE_ID_COMBINED_BAPTISM,
@@ -198,6 +210,101 @@ test('DEFAULTS 內沒有任何一個值看起來像真實的 Google 試算表／
       'DEFAULTS 的 key「' + d.key + '」的值「' + d.value + '」形狀很像真實 ID，必須是空字串'
     );
   });
+});
+
+// =====================================================================
+// prompt8b 第 4 部分：cleanupDeprecatedConfigKeys_() 的一次性清理邏輯
+// =====================================================================
+
+/**
+ * 用途：造一個具備 Config／AuditLog 兩張假工作表的 SpreadsheetApp，供
+ *   cleanupDeprecatedConfigKeys_() 測試使用（它會讀寫 Config、並透過
+ *   appendAuditLog_() 寫 AuditLog）。
+ * Args:
+ *   configRows {Object[]} Config 工作表的初始資料列（KEY／VALUE／NOTE／EDITABLE）。
+ * Returns:
+ *   {{sandbox:Object, configSheet:Object, auditSheet:Object}}
+ */
+function makeCleanupTestEnv_(configRows) {
+  const sandboxForColumns = loadAllSrcFilesInOrder(GAS_STUBS);
+  const configSheet = makeFakeSheet(
+    sandboxForColumns.COLUMNS.CONFIG.headers, sandboxForColumns.COLUMNS.CONFIG.keys, configRows
+  );
+  const auditSheet = makeFakeSheet(
+    sandboxForColumns.COLUMNS.AUDIT_LOG.headers, sandboxForColumns.COLUMNS.AUDIT_LOG.keys, []
+  );
+  const FakeApp = {
+    getActiveSpreadsheet: function () {
+      return makeFakeSpreadsheet({ Config: configSheet, AuditLog: auditSheet });
+    }
+  };
+  const s = loadAllSrcFilesInOrder(Object.assign({}, GAS_STUBS, { SpreadsheetApp: FakeApp }));
+  return { sandbox: s, configSheet: configSheet, auditSheet: auditSheet };
+}
+
+/**
+ * 用途：把假 AuditLog 工作表目前的全部資料列讀成物件陣列，方便斷言。
+ * Args:
+ *   auditSheet {Object} makeFakeSheet() 造出的假 AuditLog 工作表。
+ *   keys {string[]} AuditLog 的機器鍵順序。
+ * Returns:
+ *   {Object[]}
+ */
+function readFakeAuditRows_(auditSheet, keys) {
+  const lastRow = auditSheet.getLastRow();
+  if (lastRow < 3) return [];
+  const raw = auditSheet.getRange(3, 1, lastRow - 2, keys.length).getValues();
+  return raw.map(function (row) {
+    const obj = {};
+    keys.forEach(function (k, i) { obj[k] = row[i]; });
+    return obj;
+  });
+}
+
+test('cleanupDeprecatedConfigKeys_()：值為空的廢棄鍵會被刪除，並寫一筆 CONFIG_KEY_REMOVE', function () {
+  const env = makeCleanupTestEnv_([
+    { KEY: 'DRY_RUN', VALUE: 'TRUE', NOTE: '', EDITABLE: true },
+    { KEY: 'DOC_TEMPLATE_ID_NORMAL', VALUE: '', NOTE: '', EDITABLE: true },
+    { KEY: 'DOC_TEMPLATE_ID_COMBINED', VALUE: '', NOTE: '', EDITABLE: true }
+  ]);
+
+  const result = env.sandbox.cleanupDeprecatedConfigKeys_();
+
+  assertArrayEqual(result.removed.slice().sort(), ['DOC_TEMPLATE_ID_COMBINED', 'DOC_TEMPLATE_ID_NORMAL']);
+  assertArrayEqual(result.warnings, []);
+
+  // Config 工作表應該只剩下 DRY_RUN 這一行資料。
+  const remainingKeys = env.configSheet.getRange(3, 1, env.configSheet.getLastRow() - 2, 1)
+    .getValues().map(function (r) { return r[0]; });
+  assertArrayEqual(remainingKeys, ['DRY_RUN']);
+
+  const auditRows = readFakeAuditRows_(env.auditSheet, env.sandbox.COLUMNS.AUDIT_LOG.keys);
+  const removeRows = auditRows.filter(function (r) { return r.ACTION === 'CONFIG_KEY_REMOVE'; });
+  assert.strictEqual(removeRows.length, 2, '兩個廢棄鍵都應該各寫一筆 CONFIG_KEY_REMOVE');
+});
+
+test('cleanupDeprecatedConfigKeys_()：值不為空的廢棄鍵不會被刪除，改為回傳警告', function () {
+  const env = makeCleanupTestEnv_([
+    { KEY: 'DRY_RUN', VALUE: 'TRUE', NOTE: '', EDITABLE: true },
+    { KEY: 'DOC_TEMPLATE_ID_NORMAL', VALUE: '1AbCsomeRealLookingId', NOTE: '', EDITABLE: true },
+    { KEY: 'DOC_TEMPLATE_ID_COMBINED', VALUE: '', NOTE: '', EDITABLE: true }
+  ]);
+
+  const result = env.sandbox.cleanupDeprecatedConfigKeys_();
+
+  assertArrayEqual(result.removed, ['DOC_TEMPLATE_ID_COMBINED']);
+  assert.strictEqual(result.warnings.length, 1);
+  assert.ok(result.warnings[0].indexOf('DOC_TEMPLATE_ID_NORMAL') !== -1);
+
+  // 有值的那一行必須保留，不可以被靜靜丟掉。
+  const remainingKeys = env.configSheet.getRange(3, 1, env.configSheet.getLastRow() - 2, 1)
+    .getValues().map(function (r) { return r[0]; });
+  assert.ok(remainingKeys.indexOf('DOC_TEMPLATE_ID_NORMAL') !== -1, '有值的廢棄鍵不可以被刪除');
+
+  const auditRows = readFakeAuditRows_(env.auditSheet, env.sandbox.COLUMNS.AUDIT_LOG.keys);
+  const removeRows = auditRows.filter(function (r) { return r.ACTION === 'CONFIG_KEY_REMOVE'; });
+  assert.strictEqual(removeRows.length, 1, '只有真的被刪除的那一個鍵才會寫 CONFIG_KEY_REMOVE');
+  assert.strictEqual(removeRows[0].ROW_KEY, 'DOC_TEMPLATE_ID_COMBINED');
 });
 
 // =====================================================================

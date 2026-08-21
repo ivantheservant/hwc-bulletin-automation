@@ -7,6 +7,11 @@
   ⚠️ 系統**不會**自作主張選任何一邊——兩邊都改過的時候，只有人知道
   哪一個才是對的。這個對話框存在的唯一理由就是把那個選擇交還給人。
 
+  ⚠️ 三個選項一律不預選，「確定」要等每一行都有明確選擇才能撳——
+  「暫不處理」曾經是預設值，結果使用者以為自己選了別的，實際送出的
+  全部都是「暫不處理」，系統完全沒有反應也沒有記錄，外表跟壞掉一樣
+  （見 docs/已知bug類型.md「預設值等於什麼都不做」的介面）。
+
   ⚠️ 本檔案的 HTML 註解內不可以出現字面上的樣板標籤符號（見
   docs/已知bug類型.md 的 bug class 第 1 項）——樣板引擎不理註解。
 -->
@@ -17,12 +22,13 @@
 <style>
   body {
     font-family: 'Microsoft JhengHei', 'PingFang TC', sans-serif;
-    font-size: 13px;
+    font-size: 15px;
+    line-height: 1.6;
     margin: 0;
     padding: 12px 16px;
     color: #222;
   }
-  h2 { font-size: 15px; margin: 0 0 0.4em; }
+  h2 { font-size: 17px; margin: 0 0 0.4em; }
   .intro {
     background: #fdeceb;
     color: #8c231c;
@@ -34,31 +40,35 @@
   .toolbar { margin-bottom: 0.6em; display: flex; gap: 0.4em; align-items: center; flex-wrap: wrap; }
   button {
     font-family: inherit;
-    font-size: 13px;
-    padding: 0.35em 0.9em;
+    font-size: 15px;
+    padding: 8px 16px;
     border: 1px solid #c6c9cd;
     border-radius: 4px;
     background: #fff;
     cursor: pointer;
   }
   button.primary { background: #1a73e8; color: #fff; border-color: #1a73e8; }
-  button.small { font-size: 12px; padding: 0.2em 0.6em; }
+  button.small { font-size: 14px; padding: 6px 12px; }
   button:disabled { opacity: 0.5; cursor: default; }
   .table-wrap { max-height: 380px; overflow-y: auto; border: 1px solid #e1e3e7; border-radius: 4px; }
   table { width: 100%; border-collapse: collapse; }
   th, td {
     border-bottom: 1px solid #eceef0;
-    padding: 6px 8px;
+    padding: 8px 10px;
     text-align: left;
     vertical-align: top;
+    font-size: 15px;
   }
   th { background: #f6f7f8; position: sticky; top: 0; font-weight: bold; }
   td.value { max-width: 220px; word-break: break-word; }
-  .snapshot { color: #888; font-size: 12px; }
+  .snapshot { color: #888; font-size: 14px; }
   .choices { white-space: nowrap; }
   .choices label { margin-right: 0.7em; cursor: pointer; }
-  .actions { margin-top: 0.8em; display: flex; justify-content: flex-end; gap: 0.5em; align-items: center; }
-  #status { margin-right: auto; color: #555; }
+  .summary-row { margin-top: 0.8em; font-size: 15px; }
+  .hint { font-size: 14px; color: #555; margin-left: 0.6em; }
+  .hint.ready { color: #1a7a34; font-weight: bold; }
+  .actions { margin-top: 0.5em; display: flex; justify-content: flex-end; gap: 0.5em; align-items: center; }
+  #status { margin-right: auto; color: #555; font-size: 15px; }
 </style>
 </head>
 <body>
@@ -92,15 +102,21 @@
     </table>
   </div>
 
+  <div class="summary-row" id="summary"></div>
+
   <div class="actions">
     <span id="status"></span>
-    <button type="button" onclick="google.script.host.close()">取消</button>
-    <button type="button" class="primary" id="confirmBtn" onclick="submitDecisions()">確定</button>
+    <span class="hint" id="hint"></span>
+    <button type="button" id="cancelBtn" onclick="google.script.host.close()">取消</button>
+    <button type="button" class="primary" id="confirmBtn" disabled onclick="submitDecisions()">確定</button>
   </div>
 
 <script>
   var QUARTER_ID = <?= JSON.stringify(quarterId) ?>;
   var CONFLICTS = <?!= conflictsJson ?>;
+
+  // 每一項目前的選擇；null 代表這一行還沒有人選過。
+  var decisions = CONFLICTS.map(function () { return null; });
 
   /**
    * 用途：把文字轉成安全嵌入 HTML 的形式。
@@ -116,8 +132,9 @@
   }
 
   /**
-   * 用途：渲染衝突清單。預設一律是「暫不處理」——系統不可以替使用者
-   *   預先選好任何一邊，否則撳「確定」就會不小心蓋掉東西。
+   * 用途：渲染衝突清單。**一律不預選任何選項**——系統不可以替使用者
+   *   預先選好任何一邊，否則撳「確定」就會不小心蓋掉東西（或者以為
+   *   自己選了、其實送出的是預設值）。
    * Returns: {void}
    */
   function render() {
@@ -128,63 +145,120 @@
         + '<td class="value">' + esc(c.gridValue || '（空白）') + '</td>'
         + '<td class="value">' + esc(c.systemValue || '（空白）') + '</td>'
         + '<td class="choices">'
-        + '<label><input type="radio" name="c' + i + '" value="GRID"> 填寫表</label>'
-        + '<label><input type="radio" name="c' + i + '" value="SYSTEM"> 系統</label>'
-        + '<label><input type="radio" name="c' + i + '" value="SKIP" checked> 暫不處理</label>'
+        + '<label><input type="radio" name="c' + i + '" value="GRID" onchange="onChoiceChange(' + i + ', this.value)"> 填寫表</label>'
+        + '<label><input type="radio" name="c' + i + '" value="SYSTEM" onchange="onChoiceChange(' + i + ', this.value)"> 系統</label>'
+        + '<label><input type="radio" name="c' + i + '" value="SKIP" onchange="onChoiceChange(' + i + ', this.value)"> 暫不處理</label>'
         + '</td>'
         + '</tr>';
     }).join('');
     document.getElementById('rows').innerHTML = html;
+    updateSummary();
   }
 
   /**
-   * 用途：整批設定全部項目的選擇。
+   * 用途：單一項目的選擇被使用者改變時更新內部狀態，並重新計算摘要
+   *   與「確定」按鈕是否可撳。
+   * Args:
+   *   index {number} 這一項在 CONFLICTS 內的位置。
+   *   choice {string} 'GRID'／'SYSTEM'／'SKIP'
+   * Returns: {void}
+   */
+  function onChoiceChange(index, choice) {
+    decisions[index] = choice;
+    updateSummary();
+  }
+
+  /**
+   * 用途：整批設定全部項目的選擇，並同步更新摘要（證明按鈕真的生效）。
    * Args: choice {string} 'GRID'／'SYSTEM'／'SKIP'
    * Returns: {void}
    */
   function setAll(choice) {
     CONFLICTS.forEach(function (c, i) {
+      decisions[i] = choice;
       var radios = document.getElementsByName('c' + i);
       for (var j = 0; j < radios.length; j++) {
         radios[j].checked = (radios[j].value === choice);
       }
     });
+    updateSummary();
   }
 
   /**
-   * 用途：收集使用者的選擇並送去伺服器。
+   * 用途：重新計算「將套用」摘要、「尚有 N 行未選擇」提示，以及「確定」
+   *   按鈕是否可撳——每一行都必須有明確選擇（含「暫不處理」本身）才行。
+   * Returns: {void}
+   */
+  function updateSummary() {
+    var gridCount = 0, systemCount = 0, skipCount = 0, unselected = 0;
+    decisions.forEach(function (d) {
+      if (d === 'GRID') gridCount++;
+      else if (d === 'SYSTEM') systemCount++;
+      else if (d === 'SKIP') skipCount++;
+      else unselected++;
+    });
+
+    document.getElementById('summary').textContent =
+      '將套用：填寫表 ' + gridCount + ' 格　系統 ' + systemCount + ' 格　暫不處理 ' + skipCount + ' 格';
+
+    var hint = document.getElementById('hint');
+    var confirmBtn = document.getElementById('confirmBtn');
+    if (unselected > 0) {
+      hint.textContent = '尚有 ' + unselected + ' 行未選擇';
+      hint.className = 'hint';
+      confirmBtn.disabled = true;
+    } else {
+      hint.textContent = '可以確定';
+      hint.className = 'hint ready';
+      confirmBtn.disabled = false;
+    }
+  }
+
+  /**
+   * 用途：收集使用者的選擇並送去伺服器；成功之後**不自動關閉對話框**，
+   *   把結果清楚顯示出來，改由使用者自己撳「關閉」——一定要讓使用者
+   *   看到系統做了什麼才關閉視窗。
    * Returns: {void}
    */
   function submitDecisions() {
-    var decisions = CONFLICTS.map(function (c, i) {
-      var radios = document.getElementsByName('c' + i);
-      var choice = 'SKIP';
-      for (var j = 0; j < radios.length; j++) {
-        if (radios[j].checked) choice = radios[j].value;
-      }
-      return { isoDate: c.isoDate, fieldKey: c.fieldKey, choice: choice };
+    var payload = CONFLICTS.map(function (c, i) {
+      return { isoDate: c.isoDate, fieldKey: c.fieldKey, choice: decisions[i] };
     });
 
     document.getElementById('confirmBtn').disabled = true;
+    document.getElementById('cancelBtn').disabled = true;
     document.getElementById('status').textContent = '處理中…';
 
     google.script.run
       .withSuccessHandler(function (resp) {
+        document.getElementById('cancelBtn').disabled = false;
         if (!resp.ok) {
           document.getElementById('status').textContent = '失敗：' + resp.error.message;
           document.getElementById('confirmBtn').disabled = false;
           return;
         }
         var d = resp.data;
-        document.getElementById('status').textContent =
-          '已套用填寫表 ' + d.appliedGrid + ' 格、系統 ' + d.appliedSystem + ' 格，暫不處理 ' + d.skipped + ' 格。';
-        setTimeout(function () { google.script.host.close(); }, 1500);
+        var message;
+        if (d.appliedGrid === 0 && d.appliedSystem === 0) {
+          message = '你全部選了「暫不處理」，所以一格都沒有改動。';
+        } else {
+          message = '已套用：填寫表 ' + d.appliedGrid + ' 格、系統 ' + d.appliedSystem
+            + ' 格；暫不處理 ' + d.skipped + ' 格（下次同步仍然會問）。';
+        }
+        document.getElementById('status').textContent = message;
+        document.getElementById('hint').textContent = '';
+
+        var confirmBtn = document.getElementById('confirmBtn');
+        confirmBtn.textContent = '關閉';
+        confirmBtn.disabled = false;
+        confirmBtn.onclick = function () { google.script.host.close(); };
       })
       .withFailureHandler(function (err) {
         document.getElementById('status').textContent = '失敗：' + (err && err.message ? err.message : err);
         document.getElementById('confirmBtn').disabled = false;
+        document.getElementById('cancelBtn').disabled = false;
       })
-      .apiResolveFillConflicts(QUARTER_ID, decisions);
+      .apiResolveFillConflicts(QUARTER_ID, payload);
   }
 
   render();

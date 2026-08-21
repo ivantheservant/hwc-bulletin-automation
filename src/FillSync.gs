@@ -521,11 +521,41 @@ function onFillGridEdit_(e) {
 }
 
 /**
+ * 用途：算出格子表某一行「真正」的主日日期。當這次編輯的範圍覆蓋到
+ *   `_DATE` 欄本身時，不可以相信目前讀到的儲存格內容——那有可能是使用者
+ *   剛打錯的值——改用這一行在格子表的**位置**對照職事表這一季的主日
+ *   清單反推。
+ *
+ *   ⚠️ 這是 prompt8b 第 3 部分修的根因：舊寫法一律讀 `_DATE` 儲存格的
+ *   現值，如果使用者剛剛編輯的就是那一格，讀到的是**打錯的值**，不但
+ *   `AuditLog` 的 `ROW_KEY` 記錯，連「還原」本身都會把錯的值原封不動
+ *   寫回去（因為「正確值」也是從同一個被污染的讀值算出來的）。
+ * Args:
+ *   sheet {Sheet} 格子表。
+ *   rowNo {number} 行號。
+ *   quarterId {string} 季度 ID。
+ *   dateColTouched {boolean} 這次編輯的範圍有沒有覆蓋 `_DATE` 欄。
+ *   getQuarterServiceDates {function(): Object[]} 惰性讀取職事表這一季
+ *     主日清單的函式（只有真的需要時才呼叫，避免每次編輯都讀一整季）。
+ * Returns:
+ *   {string} 那一行的真正主日日期；完全推不出來時回空字串。
+ */
+function resolveFillGridRowTrueDate_(sheet, rowNo, quarterId, dateColTouched, getQuarterServiceDates) {
+  var cellText = fillGridCellText_(sheet.getRange(rowNo, fillGridColumnIndex_('_DATE')).getValue()).trim();
+  if (!dateColTouched) return cellText;
+
+  var serviceDates = getQuarterServiceDates();
+  var dataRowIndex = rowNo - FILL_GRID_FIRST_DATA_ROW_;
+  var trueEntry = serviceDates[dataRowIndex];
+  return trueEntry ? trueEntry.isoDate : cellText;
+}
+
+/**
  * 用途：處理格子表的一次編輯（可能是一格，也可能是多格貼上）。
  *
  *   逐格處理：
- *     - 唯讀欄（`_DATE`／`_WEEK`／`_SPECIAL`）→ **還原原值**並在那一格
- *       加註解說明不可編輯。
+ *     - 唯讀欄（`_DATE`／`_WEEK`／`_SPECIAL`）→ **還原原值**並顯示浮動
+ *       提示說明不可編輯。
  *     - 可編輯欄 → 寫回 `BulletinWeeks`、更新快照、記 `AuditLog`。
  * Args:
  *   sheet {Sheet} 格子表。
@@ -544,13 +574,24 @@ function applyFillGridEdit_(sheet, range, quarterId) {
   var reverted = 0;
   var snapshotEntries = [];
 
+  // 只有這次編輯真的覆蓋到 `_DATE` 欄時，才需要用職事表主日清單反推真正
+  // 日期——惰性讀取（`quarterServiceDatesCache` 只在第一次用到時才讀），
+  // 避免每一次普通編輯都額外讀一整季的職事表。
+  var dateColIndex = fillGridColumnIndex_('_DATE');
+  var dateColTouched = dateColIndex >= startCol && dateColIndex < startCol + numCols;
+  var quarterServiceDatesCache = null;
+  var getQuarterServiceDates = function () {
+    if (!quarterServiceDatesCache) quarterServiceDatesCache = listQuarterServiceDates_(quarterId);
+    return quarterServiceDatesCache;
+  };
+
   for (var r = 0; r < numRows; r++) {
     var rowNo = startRow + r;
     // 標題三行被改不關同步的事（`ensureFillGridSheet_()` 會在下次刷新時
     // 補回正確的標題）。
     if (rowNo < FILL_GRID_FIRST_DATA_ROW_) continue;
 
-    var isoDate = fillGridCellText_(sheet.getRange(rowNo, fillGridColumnIndex_('_DATE')).getValue()).trim();
+    var isoDate = resolveFillGridRowTrueDate_(sheet, rowNo, quarterId, dateColTouched, getQuarterServiceDates);
     if (!isoDate) continue;
 
     for (var c = 0; c < numCols; c++) {
@@ -589,11 +630,17 @@ function applyFillGridEdit_(sheet, range, quarterId) {
 }
 
 /**
- * 用途：把被改動的唯讀欄還原成正確的值，並在那一格加註解說明不可編輯。
+ * 用途：把被改動的唯讀欄還原成正確的值，並用浮動提示說明不可編輯。
  *
  *   ⚠️ 為什麼要還原而不是靜靜接受：這三欄的內容來自職事表，改了**完全
  *   沒有效果**（下次刷新就會被蓋回去）。留住一個永遠不會生效的值，會讓
- *   幹事以為自己改到了東西。還原＋加註解才講得清楚。
+ *   幹事以為自己改到了東西。還原＋提示才講得清楚。
+ *
+ *   ⚠️ 改用 `toast()`（5 秒自動消失）而不是永久儲存格註解：舊寫法
+ *   `setNote()` 就算之後把值改回正確，註解仍然永久留在格上，累積成一堆
+ *   垃圾（見 prompt8b 實測現象）。`isoDate` 由呼叫方
+ *   （`applyFillGridEdit_()`）保證是那一行**真正**的主日日期，不會是被
+ *   污染的使用者輸入值。
  * Args:
  *   cell {Range} 被改動的那一格。
  *   def {Object} 欄位定義。
@@ -613,16 +660,16 @@ function revertReadOnlyFillGridCell_(cell, def, isoDate, quarterId) {
   }
 
   cell.setValue(sanitizeCellText_(correct));
-  cell.setNote(
-    '「' + def.label + '」不可以編輯。\n'
-    + '這一欄的內容來自職事表，改動不會有任何效果，已經自動還原。\n'
-    + '如果職事表的資料不對，請直接到職事表更正。'
+  SpreadsheetApp.getActiveSpreadsheet().toast(
+    '「' + def.label + '」是唯讀欄，已還原原值。這三欄由職事表決定，要改請在職事表更正。',
+    '唯讀欄位',
+    5
   );
 
   appendAuditLog_({
     action: 'FILL_GRID_REVERT_READONLY', sheetName: fillGridSheetName_(quarterId),
     rowKey: isoDate, field: def.key,
     oldValue: '', newValue: correct,
-    notes: '唯讀欄被編輯，已自動還原並加註解。'
+    notes: '唯讀欄被編輯，已自動還原並顯示浮動提示。'
   });
 }

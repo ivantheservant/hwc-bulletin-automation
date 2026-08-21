@@ -54,6 +54,7 @@ function onOpen() {
       .addItem('建立／刷新季度填寫表', 'menuCreateOrRefreshFillGrid_')
       .addItem('立即同步季度填寫表', 'menuSyncFillGrid_')
       .addItem('處理填寫表衝突', 'menuResolveFillConflicts_')
+      .addItem('檢查格子表外觀', 'menuCheckFillGridAppearance_')
       .addSeparator()
       .addItem('整理清單次序', 'menuResequenceLists_')
       .addItem('由常設時間表產生本季團契', 'menuGenerateFellowships_')

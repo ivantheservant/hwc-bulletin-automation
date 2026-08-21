@@ -141,6 +141,25 @@ function makeFillGridSheet(sandbox, rows) {
         },
         setNote: function (text) { notes[r + ',' + c] = text; return this; },
         getNote: function () { return notes[r + ',' + c] || ''; },
+        // 真正的 GAS `Range.clearNote()`／`getNotes()` 作用在範圍**每一格**，
+        // 不是只有左上角那一格——prompt8b「清走唯讀欄所有既有註解」用的是
+        // 多行範圍（`getRange(startRow, col, rowCount, 1)`），假物件一定要
+        // 照真實語意才測得出來。
+        clearNote: function () {
+          for (let i = 0; i < numRows; i++) {
+            for (let j = 0; j < numCols; j++) delete notes[(r + i) + ',' + (c + j)];
+          }
+          return this;
+        },
+        getNotes: function () {
+          const out = [];
+          for (let i = 0; i < numRows; i++) {
+            const rowArr = [];
+            for (let j = 0; j < numCols; j++) rowArr.push(notes[(r + i) + ',' + (c + j)] || '');
+            out.push(rowArr);
+          }
+          return out;
+        },
         setDataValidation: function (v) { validations[c] = v; return this; },
         clearDataValidations: function () { delete validations[c]; return this; },
         clearContent: function () {
@@ -251,7 +270,10 @@ function makeFillEnv(options) {
   };
 
   const insertedSheets = [];
+  const toasts = [];
   const spreadsheet = {
+    __toasts: toasts,
+    toast: function (message, title, timeoutSeconds) { toasts.push({ message: message, title: title, timeoutSeconds: timeoutSeconds }); },
     getUrl: function () { return 'https://docs.google.com/spreadsheets/d/FAKE/edit'; },
     getSheetByName: function (name) { return sheets[name] || null; },
     getSheets: function () {
@@ -349,7 +371,7 @@ function makeFillEnv(options) {
 
   return {
     sandbox: sandbox, sheets: sheets, mail: mail, triggers: triggers,
-    insertedSheets: insertedSheets,
+    insertedSheets: insertedSheets, toasts: toasts,
     quarterId: QUARTER_ID, serviceDates: SERVICE_DATES
   };
 }

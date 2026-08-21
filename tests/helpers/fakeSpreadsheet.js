@@ -123,6 +123,8 @@ function makeFakeSheet(headers, keys, rowObjects) {
     getMaxRows: function () { return Math.max(data.length, 1000); },
     getFrozenRows: function () { return frozenRows; },
     setFrozenRows: function (n) { frozenRows = n; },
+    // prompt8b：一次性清理廢棄 Config 鍵需要真的刪掉一整行（1 起算）。
+    deleteRow: function (rowNo) { data.splice(rowNo - 1, 1); },
     getRange: function (r, c, numRows, numCols) {
       numRows = numRows || 1;
       numCols = numCols || 1;

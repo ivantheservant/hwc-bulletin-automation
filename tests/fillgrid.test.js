@@ -426,7 +426,7 @@ function editEvent(env, rowNo, colNo, numRows, numCols) {
   };
 }
 
-test('3. 唯讀欄 _WEEK 被改 → 自動還原成職事表的值，並加註解', function () {
+test('3. 唯讀欄 _WEEK 被改 → 自動還原成職事表的值，並顯示浮動提示（不加永久註解）', function () {
   const env = makeSyncedEnv();
   const sheet = env.sheets['Fill_' + QUARTER_ID];
   const weekCol = env.sandbox.fillGridColumnIndex_('_WEEK');
@@ -436,28 +436,31 @@ test('3. 唯讀欄 _WEEK 被改 → 自動還原成職事表的值，並加註�
   env.sandbox.onFillGridEdit_(editEvent(env, rowNo, weekCol));
 
   assert.strictEqual(String(sheet.getRange(rowNo, weekCol).getValue()), '1', '應該還原成職事表算出來的第 1 個主日');
-  assert.ok(sheet.getRange(rowNo, weekCol).getNote().indexOf('不可以編輯') !== -1, '要加註解說明');
+  assert.strictEqual(sheet.getRange(rowNo, weekCol).getNote(), '', 'prompt8b：不應該再加永久儲存格註解');
+  assert.ok(env.toasts.some(function (t) { return t.message.indexOf('唯讀欄') !== -1; }), '要顯示浮動提示');
   assert.ok(env.sandbox.readSheet('AuditLog').some(function (r) { return r.ACTION === 'FILL_GRID_REVERT_READONLY'; }));
 });
 
-test('3b. 唯讀欄 _DATE 被改 → 還原（用那一行原本的主日日期）', function () {
+test('3b. 唯讀欄 _DATE 被改 → 用那一行在格子表的位置反推真正日期，立即還原（不是打入的錯值）', function () {
   const env = makeSyncedEnv();
   const sheet = env.sheets['Fill_' + QUARTER_ID];
   const dateCol = env.sandbox.fillGridColumnIndex_('_DATE');
 
-  // ⚠️ _DATE 被改之後，那一行就找不到主日了，所以先記住原值再改。
   const original = String(sheet.getRange(4, dateCol).getValue());
   assert.strictEqual(original, '2027-11-07');
 
-  sheet.getRange(4, dateCol).setValue('亂改的');
+  sheet.getRange(4, dateCol).setValue('2027-10-06');
   env.sandbox.onFillGridEdit_(editEvent(env, 4, dateCol));
 
-  // _DATE 被改成非日期之後，applyFillGridEdit_ 讀不到 isoDate 就會略過
-  // 那一行——這是刻意的保守行為（沒有主日就不知道要寫回哪一行）。
-  // 真正的還原由下一次「建立／刷新季度填寫表」處理。
-  env.sandbox.createOrRefreshFillGrid_(QUARTER_ID);
+  // prompt8b 修的根因：即使使用者剛打錯 _DATE 本身，還原也不可以照抄
+  // 剛打錯的值——必須用這一行的**位置**對照職事表反推出真正日期。
   assert.strictEqual(String(sheet.getRange(4, dateCol).getValue()), '2027-11-07',
-    '刷新之後 _DATE 一定要還原成職事表的日期');
+    '不需要等下一次刷新，onFillGridEdit_ 當下就要還原成正確日期');
+
+  const revertRow = env.sandbox.readSheet('AuditLog').filter(function (r) {
+    return r.ACTION === 'FILL_GRID_REVERT_READONLY';
+  }).pop();
+  assert.strictEqual(revertRow.ROW_KEY, '2027-11-07', 'ROW_KEY 要記那一行原本的主日日期，不是使用者剛打入的錯值');
 });
 
 test('3c. 可編輯欄被改 → 寫回 BulletinWeeks，不會被當成唯讀欄還原', function () {
@@ -480,6 +483,22 @@ test('3d. onFillGridEdit_：標題三行被改不會影響資料', function () {
   const before = JSON.stringify(env.sandbox.readSheet('BulletinWeeks'));
   env.sandbox.onFillGridEdit_(editEvent(env, 2, 5));
   assert.strictEqual(JSON.stringify(env.sandbox.readSheet('BulletinWeeks')), before);
+});
+
+test('3e.「建立／刷新季度填寫表」會清走唯讀三欄既有的殘留註解（舊版留下的垃圾）', function () {
+  const env = makeSyncedEnv();
+  const sheet = env.sheets['Fill_' + QUARTER_ID];
+  const weekCol = env.sandbox.fillGridColumnIndex_('_WEEK');
+  const specialCol = env.sandbox.fillGridColumnIndex_('_SPECIAL');
+
+  // 模擬舊版留下的永久註解垃圾。
+  sheet.getRange(4, weekCol).setNote('「當月第幾主日」不可以編輯。');
+  sheet.getRange(5, specialCol).setNote('「特別主日」不可以編輯。');
+
+  env.sandbox.createOrRefreshFillGrid_(QUARTER_ID);
+
+  assert.strictEqual(sheet.getRange(4, weekCol).getNote(), '', '刷新之後應該清乾淨');
+  assert.strictEqual(sheet.getRange(5, specialCol).getNote(), '', '刷新之後應該清乾淨');
 });
 
 // =====================================================================
