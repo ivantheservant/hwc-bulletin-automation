@@ -72,7 +72,21 @@ function makeEnv(options) {
   }
 
   const FakeApp = { getActiveSpreadsheet: function () { return makeFakeSpreadsheet(sheets); } };
-  return loadAllSrcFilesInOrder(Object.assign({}, GAS_STUBS, { SpreadsheetApp: FakeApp }));
+  const sandbox = loadAllSrcFilesInOrder(Object.assign({}, GAS_STUBS, { SpreadsheetApp: FakeApp }));
+  // ⚠️ 一併帶出假工作表：真實 Sheets 會把 sanitizeCellText_() 加的前導
+  // 單引號當成格式標記吃掉，所以「有沒有跳脫過」要看
+  // `__escapedValues`，不可以靠讀回來的值判斷。見
+  // tests/helpers/fakeSpreadsheet.js 的 applyTextFormatMarker()。
+  sandbox.__sheets = sheets;
+  return sandbox;
+}
+
+/** 斷言某個值寫入指定工作表時真的經過了 sanitizeCellText_()。 */
+function assertWasEscaped(env, sheetName, value) {
+  assert.ok(
+    env.__sheets[sheetName].__escapedValues.has(value),
+    '「' + value + '」寫入 ' + sheetName + ' 時應該經過 sanitizeCellText_()'
+  );
 }
 
 // =====================================================================
@@ -152,9 +166,10 @@ test('appendErrorLog_：MESSAGE／DETAIL 以 = 開頭 → 寫入時有前導單�
 
   var rows = sb.readSheet('ErrorLog');
   var row = rows[rows.length - 1];
-  assert.strictEqual(row.MESSAGE, "'=1+1 這不是公式");
-  assert.strictEqual(row.DETAIL, "'=HYPERLINK(\"http://example.invalid\")");
-  assert.notStrictEqual(row.MESSAGE.charAt(0), '=');
+  assert.strictEqual(row.MESSAGE, '=1+1 這不是公式');
+  assert.strictEqual(row.DETAIL, '=HYPERLINK("http://example.invalid")');
+  assertWasEscaped(sb, 'ErrorLog', '=1+1 這不是公式');
+  assertWasEscaped(sb, 'ErrorLog', '=HYPERLINK("http://example.invalid")');
 });
 
 test('appendErrorLog_：ACTOR 沒有提供時用 Session.getActiveUser()，一樣經過 sanitizeCellText_', function () {
@@ -170,10 +185,12 @@ test('appendErrorLog_：ACTOR 沒有提供時用 Session.getActiveUser()，一�
   var sb = loadAllSrcFilesInOrder(Object.assign({}, actorStubs, {
     SpreadsheetApp: { getActiveSpreadsheet: function () { return makeFakeSpreadsheet(sheets); } }
   }));
+  sb.__sheets = sheets;
 
   sb.appendErrorLog_({ source: sb.ERROR_LOG_SOURCE.MENU, functionName: 'f', errorCode: 'E', message: 'm' });
   var row = sb.readSheet('ErrorLog')[0];
-  assert.strictEqual(row.ACTOR, "'=actor@x.com");
+  assert.strictEqual(row.ACTOR, '=actor@x.com');
+  assertWasEscaped(sb, 'ErrorLog', '=actor@x.com');
 });
 
 // =====================================================================

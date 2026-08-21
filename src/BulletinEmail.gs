@@ -2,45 +2,65 @@
  * BulletinEmail.gs
  *
  * 週報郵件的內容：附件介面、HTML／純文字正文、範本佔位符替換。
- * 全部函式除 `renderBulletinAttachment_()`（要讀 Config 決定要不要接
- * Google Docs 範本）之外，其餘都是**純函式**，不碰 Apps Script 服務，
- * 方便在 Node 直接測試。
+ * 全部函式除 `renderBulletinAttachment_()`（要讀 Config、產生 Word 附件）
+ * 之外，其餘都是**純函式**，不碰 Apps Script 服務，方便在 Node 直接測試。
  *
- * ⚠️ 本檔案完全不寫 `DocumentApp` 程式碼——三份週報 `.docx` 原檔還沒有
- * 提供，真正的「Google Docs 範本 → PDF」下一輪才做。`renderBulletinAttachment_()`
- * 是接上去的**唯一位置**：現在只判斷「有沒有範本 ID」，有的話固定回
- * `NOT_IMPLEMENTED`，下一輪只需要在那個分支裡面填實作，呼叫端
- * （`Mailer.gs`）完全不用改。
+ * ⚠️ 本檔案完全不寫 `DocumentApp` 程式碼，也不產生 PDF。第七輪起
+ * `renderBulletinAttachment_()` 會產生 **Word（`.docx`）附件**——原因見
+ * src/DocxTemplate.gs 檔頭的決策記錄（簡言之：轉 PDF 一定要先過 Google
+ * Docs 格式，那一步會把版面重做一次）。真正的渲染在
+ * `src/BulletinRender.gs`／`src/DocxTemplate.gs`／`src/DocxIo.gs`，
+ * 本檔案只是接上去的**唯一位置**，呼叫端（`Mailer.gs`）完全不用改。
+ *
+ * ⚠️ 附件一向是**錦上添花**：正文永遠輸出完整週報內容，附件產不出來
+ * 只會記一個 `reason`，絕對不可以連累整封郵件寄不出去。
  */
 
 'use strict';
 
 /**
- * 用途：週報附件的介面。本輪只實作「未有範本」的分支——真正的
- *   Google Docs 範本渲染留給下一輪，這個函式就是接上去的唯一位置。
+ * 用途：週報附件的介面——第七輪起會真正產生 Word（`.docx`）附件。
+ *
+ *   ⚠️ **附件是 `.docx` 而不是 PDF**，這是刻意的決定：Apps Script 沒有
+ *   辦法把 `.docx` 轉成 PDF，唯一途徑是先轉成 Google Docs 格式，而那一步
+ *   會丟失文字方塊與圓角矩形、破壞 A5 兩頁併印與三欄 section、把港式
+ *   字型代換掉——等於把版面重做一次。教會現行做法本來就是用 Word 開檔
+ *   再印，所以直接交付 `.docx`，版面 100% 不變。詳見
+ *   src/DocxTemplate.gs 檔頭的決策記錄。
+ *
+ *   星期一的審閱電郵因此是：HTML 正文給堂委看內容（一直都有），
+ *   **另加一個 `.docx` 附件**給幹事排版用。
+ *
+ *   範本 ID 未設定時維持第五輪的行為（`{ok:false, reason:'NO_TEMPLATE'}`），
+ *   郵件照樣寄得出去、正文照樣是完整週報內容——附件一向是錦上添花，
+ *   不可以因為附件產不出來就不寄信。
  * Args:
- *   model {Object} `buildBulletinModel_()` 的輸出，用 `model.templateId`
- *     判斷這一週是平常主日還是三堂聯合崇拜（浸禮／堂慶），藉此決定要看
- *     Config 的 `DOC_TEMPLATE_ID_NORMAL` 還是 `DOC_TEMPLATE_ID_COMBINED`。
+ *   model {Object} `buildBulletinModel_()` 的輸出。用 `model.templateId`
+ *     決定要用平常主日、浸禮合堂還是堂慶合堂的 Word 範本。
  * Returns:
- *   {{ok:boolean, blob:(Blob|undefined), reason:(string|undefined)}}
- *     `ok:false` 時 `reason` 是 `'NO_TEMPLATE'`（對應的 Config 範本 ID
- *     留空）或 `'NOT_IMPLEMENTED'`（範本 ID 有填，但範本渲染功能本輪
- *     還沒做）。本輪 `ok` 永遠是 `false`，`blob` 永遠不會出現。
+ *   {{ok:boolean, blob:(Blob|undefined), fileName:(string|undefined),
+ *     reason:(string|undefined), detail:(string|undefined)}}
+ *     `ok:false` 時 `reason` 是 `'NO_TEMPLATE'`（Config 範本 ID 留空）
+ *     或 `'RENDER_FAILED'`（產生過程出錯，`detail` 是原因）。
  */
 function renderBulletinAttachment_(model) {
-  var isCombined = model && (model.templateId === PROGRAM_TEMPLATE_ID_BAPTISM_ || model.templateId === PROGRAM_TEMPLATE_ID_ANNIVERSARY_);
-  var configKey = isCombined ? CONFIG_KEYS.DOC_TEMPLATE_ID_COMBINED : CONFIG_KEYS.DOC_TEMPLATE_ID_NORMAL;
-  var templateId = getConfig(configKey, '');
-
-  if (!templateId) {
+  var template = resolveWordTemplate_(model && model.templateId);
+  if (!template.fileId) {
     return { ok: false, reason: 'NO_TEMPLATE' };
   }
 
-  // 範本 ID 已經填了，但本輪完全不寫 DocumentApp 程式碼——下一輪要做的
-  // 事就是把這裡換成真正的「複製範本 → 填佔位符 → 匯出 PDF」，並回傳
-  // `{ ok: true, blob: pdfBlob }`。
-  return { ok: false, reason: 'NOT_IMPLEMENTED' };
+  // ⚠️ 包一層 try/catch：附件產不出來（範本壞了、Drive 沒權限……）
+  // **不可以連累整封郵件寄不出去**。呼叫方（Mailer.gs）本來就會把
+  // `reason` 記進 SendLog，正文也照樣是完整的週報內容。
+  try {
+    var result = generateBulletinDocx_(model.isoDate);
+    if (!result.ok) {
+      return { ok: false, reason: 'RENDER_FAILED', detail: result.message || result.reason };
+    }
+    return { ok: true, blob: result.blob, fileName: result.fileName };
+  } catch (err) {
+    return { ok: false, reason: 'RENDER_FAILED', detail: (err && err.message) ? err.message : String(err) };
+  }
 }
 
 /**
@@ -51,7 +71,9 @@ function renderBulletinAttachment_(model) {
  *   {string}
  */
 function attachmentReasonText_(reason) {
-  if (reason === 'NO_TEMPLATE') return '尚未設定 Google Docs 範本';
+  if (reason === 'NO_TEMPLATE') return '尚未設定 Word 範本，請在 Config 填入範本檔案 ID';
+  if (reason === 'RENDER_FAILED') return '產生 Word 附件時出錯';
+  // 第七輪之前的代碼，舊的 SendLog 記錄仍然可能有，保留翻譯。
   if (reason === 'NOT_IMPLEMENTED') return '範本渲染功能尚未實作';
   return reason || '原因不明';
 }
@@ -179,7 +201,7 @@ function buildBulletinEmailHtml_(model, options) {
   if (!attachment.ok) {
     parts.push(
       '<p style="background:#fff3cd;color:#7a5c00;padding:0.6em 1em;border-radius:4px;">'
-      + '本週未附上 PDF（原因：' + esc(attachmentReasonText_(attachment.reason)) + '），'
+      + '本週未附上 Word 檔（原因：' + esc(attachmentReasonText_(attachment.reason)) + '），'
       + '以下為週報內容全文，供各位先行審閱。</p>'
     );
   }
@@ -283,7 +305,7 @@ function buildBulletinEmailPlainText_(model, options) {
   lines.push('');
 
   if (!attachment.ok) {
-    lines.push('本週未附上 PDF（原因：' + attachmentReasonText_(attachment.reason) + '），以下為週報內容全文，供各位先行審閱。');
+    lines.push('本週未附上 Word 檔（原因：' + attachmentReasonText_(attachment.reason) + '），以下為週報內容全文，供各位先行審閱。');
     lines.push('');
   }
 

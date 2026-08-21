@@ -53,8 +53,8 @@ const validTypes = Object.keys(COLUMN_TYPES).map(function (k) { return COLUMN_TY
 // SHEETS ⇄ COLUMNS 一致性
 // =====================================================================
 
-test('SHEETS 剛好定義 20 張工作表', function () {
-  assert.strictEqual(sheetIds.length, 20);
+test('SHEETS 剛好定義 23 張工作表', function () {
+  assert.strictEqual(sheetIds.length, 23);
 });
 
 test('每個 SHEETS 的 key 在 COLUMNS 都有對應定義，且沒有多餘的 COLUMNS key', function () {
@@ -164,8 +164,8 @@ test('CONFIG_KEYS 每一個值都有對應的 DEFAULTS 項目（不會有「有�
   });
 });
 
-test('DEFAULTS 剛好 51 筆（prompt1 的 29 ＋ prompt2 的 ROSTER_TEST_DATE ＋ prompt3 的 9 個規則設定 ＋ prompt4 的 4 個填寫介面設定 ＋ prompt5 的 7 個電郵設定 ＋ prompt6 的 CONFLICT_NOTICE_GROUPS）', function () {
-  assert.strictEqual(DEFAULTS.length, 51);
+test('DEFAULTS 剛好 65 筆（prompt1 的 29 ＋ prompt2 的 1 ＋ prompt3 的 9 ＋ prompt4 的 4 ＋ prompt5 的 7 ＋ prompt6 的 1 ＋ prompt7 的 6 ＋ prompt8 的 8）', function () {
+  assert.strictEqual(DEFAULTS.length, 65);
 });
 
 // =====================================================================
@@ -177,7 +177,11 @@ test('ID 類的 DEFAULTS 一律 seed 成空字串，不可以寫死真實值', f
     CONFIG_KEYS.ROSTER_SPREADSHEET_ID,
     CONFIG_KEYS.BULLETIN_OUTPUT_FOLDER_ID,
     CONFIG_KEYS.DOC_TEMPLATE_ID_NORMAL,
-    CONFIG_KEYS.DOC_TEMPLATE_ID_COMBINED
+    CONFIG_KEYS.DOC_TEMPLATE_ID_COMBINED,
+    // 第七輪新增的三個 Word 範本檔案 ID，同樣受這條硬規則約束
+    CONFIG_KEYS.TEMPLATE_FILE_ID_NORMAL,
+    CONFIG_KEYS.TEMPLATE_FILE_ID_COMBINED_BAPTISM,
+    CONFIG_KEYS.TEMPLATE_FILE_ID_ANNIVERSARY
   ];
   const byKey = {};
   DEFAULTS.forEach(function (d) { byKey[d.key] = d.value; });

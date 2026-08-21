@@ -64,8 +64,20 @@ var SHEETS = Object.freeze({
   SEND_LOG: 'SendLog',
   ERROR_LOG: 'ErrorLog',
   DUTY_OVERRIDE: 'DutyOverride',
-  CONFLICT_NOTICE_LOG: 'ConflictNoticeLog'
+  CONFLICT_NOTICE_LOG: 'ConflictNoticeLog',
+  FELLOWSHIP_DEFAULTS: 'FellowshipDefaults',
+  FILL_SNAPSHOT: 'FillSnapshot',
+  FILL_BACKUP: 'FillBackup'
 });
+
+/**
+ * 季度集中填寫表的工作表名稱前綴。實際名稱是 `Fill_<QuarterID>`
+ * （例如 `Fill_2027T4`），一季一張，所以不可能列在 `SHEETS` 內。
+ *
+ * ⚠️ `onFillGridEdit_()` 靠這個前綴判斷「這次編輯關不關我事」，
+ * 改動它等於改動觸發器的行為，一定要同步更新 docs/季度填寫表使用說明.md。
+ */
+var FILL_GRID_SHEET_PREFIX = 'Fill_';
 
 // =====================================================================
 // COLUMNS：工作表 key → { headers, keys, types, textFormatColumns? }
@@ -280,6 +292,46 @@ var COLUMNS = Object.freeze({
     headers: ['時間', '主日日期', '崗位', '位次', '指紋', '職事表現值', '備註'],
     keys: ['TIMESTAMP', 'SERVICE_DATE', 'POST_ID', 'SLOT_INDEX', 'FINGERPRINT', 'ROSTER_VALUE', 'NOTES'],
     types: ['DATE', 'DATE', 'TEXT', 'INT', 'TEXT', 'TEXT', 'TEXT']
+  },
+
+  // 第八輪新增：本週團契聚會的「常設時間表」。由它自動產生整季的
+  // `Fellowships` 資料列，幹事只需要改例外。
+  FELLOWSHIP_DEFAULTS: {
+    headers: ['團契名稱', '出現規則', '星期文字', '日期偏移', '時間', '預設週會內容', '排序', '有效'],
+    keys: ['FELLOWSHIP_NAME', 'RECURRENCE', 'DAY_LABEL', 'DAY_OFFSET', 'TIME_TEXT', 'DEFAULT_CONTENT', 'SORT_ORDER', 'ACTIVE'],
+    types: ['TEXT', 'TEXT', 'TEXT', 'INT', 'TEXT', 'TEXT', 'INT', 'BOOLEAN'],
+    // TIME_TEXT 是 `4:30pm`／`10:00AM` 這種寫法，一定要強制純文字，
+    // 否則 Sheets 會把它轉成時間值，再讀出來就變成一個 Date。
+    textFormatColumns: ['TIME_TEXT']
+  },
+
+  // 第八輪新增：季度填寫表與 BulletinWeeks 之間做**三方比對**用的快照。
+  //
+  // ⚠️ 這張表就是「不可以用兩方比較判斷衝突」那條規則的實體。格子表現值
+  // 與 BulletinWeeks 現值不同是**正常的**（其中一邊改過），一定要有
+  // 「上次同步時兩邊都是什麼」這個第三方基準，才分得出「只有一邊改過」
+  // 與「兩邊都改過」。跟 `DutyOverride.ROSTER_VALUE_AT_OVERRIDE` 是同一
+  // 個道理，見 src/RosterDiff.gs 與 src/FillSync.gs 的說明。
+  FILL_SNAPSHOT: {
+    headers: ['季度', '主日日期', '欄位', '值', '快照時間'],
+    keys: ['QUARTER_ID', 'SERVICE_DATE', 'FIELD_KEY', 'VALUE', 'SNAPSHOT_AT'],
+    types: ['TEXT', 'DATE', 'TEXT', 'TEXT', 'DATE'],
+    // VALUE 存的是使用者填的原文（可能是 `--`、`前:5 / 後:120`、
+    // `2027-11-07` 這種會被 Sheets 誤判的字串），一律強制純文字。
+    textFormatColumns: ['VALUE']
+  },
+
+  // 第八輪新增：季度資料的版本備份，可以還原。
+  //
+  // ⚠️ `PAYLOAD_JSON` 單格上限 50000 字元，超過就分拆成多行
+  // （`BACKUP_ID` 相同、`PART_NO` 遞增），還原時按 `PART_NO` 串回來。
+  // Google Sheets 單格硬上限是 50000 字元，超過會**靜靜截斷**，
+  // 那樣備份就變成一份還原不到的假記錄——比沒有備份更危險。
+  FILL_BACKUP: {
+    headers: ['備份編號', '分段', '季度', '建立時間', '建立者', '觸發原因', '內容', '行數'],
+    keys: ['BACKUP_ID', 'PART_NO', 'QUARTER_ID', 'CREATED_AT', 'CREATED_BY', 'REASON', 'PAYLOAD_JSON', 'ROW_COUNT'],
+    types: ['TEXT', 'INT', 'TEXT', 'DATE', 'TEXT', 'TEXT', 'TEXT', 'INT'],
+    textFormatColumns: ['PAYLOAD_JSON']
   }
 
 });
@@ -353,7 +405,23 @@ var CONFIG_KEYS = Object.freeze({
   SEND_BLOCK_IF_SCHEMA_OUTDATED: 'SEND_BLOCK_IF_SCHEMA_OUTDATED',
   EMAIL_TEMPLATE_ID: 'EMAIL_TEMPLATE_ID',
   // ---- 第六輪新增：週報與職事表的分歧處理 ----
-  CONFLICT_NOTICE_GROUPS: 'CONFLICT_NOTICE_GROUPS'
+  CONFLICT_NOTICE_GROUPS: 'CONFLICT_NOTICE_GROUPS',
+  // ---- 第七輪新增：Word（OOXML）範本渲染 ----
+  TEMPLATE_FILE_ID_NORMAL: 'TEMPLATE_FILE_ID_NORMAL',
+  TEMPLATE_FILE_ID_COMBINED_BAPTISM: 'TEMPLATE_FILE_ID_COMBINED_BAPTISM',
+  TEMPLATE_FILE_ID_ANNIVERSARY: 'TEMPLATE_FILE_ID_ANNIVERSARY',
+  TEMPLATE_MISSING_VALUE_MODE: 'TEMPLATE_MISSING_VALUE_MODE',
+  OUTPUT_FILE_NAME_PATTERN: 'OUTPUT_FILE_NAME_PATTERN',
+  RENDER_BLOCK_IF_MISSING_FIELDS: 'RENDER_BLOCK_IF_MISSING_FIELDS',
+  // ---- 第八輪新增：季度集中填寫表、雙向同步、版本備份、填寫邀請 ----
+  FILL_BACKUP_KEEP: 'FILL_BACKUP_KEEP',
+  FILL_INVITE_GROUPS: 'FILL_INVITE_GROUPS',
+  FILL_CONFLICT_GROUPS: 'FILL_CONFLICT_GROUPS',
+  FILL_RESPONSIBILITY_NOTE: 'FILL_RESPONSIBILITY_NOTE',
+  FELLOWSHIP_DATE_PATTERN: 'FELLOWSHIP_DATE_PATTERN',
+  PROTECTION_EDITOR_EMAILS: 'PROTECTION_EDITOR_EMAILS',
+  FILL_RECONCILE_HOURS: 'FILL_RECONCILE_HOURS',
+  FILL_AUTO_CREATE_NEXT_QUARTER: 'FILL_AUTO_CREATE_NEXT_QUARTER'
 });
 
 // =====================================================================
@@ -419,7 +487,27 @@ var DEFAULTS = Object.freeze([
   { key: CONFIG_KEYS.SEND_BLOCK_IF_SCHEMA_OUTDATED, value: 'TRUE', note: '工作表結構落後時拒絕寄送' },
   { key: CONFIG_KEYS.EMAIL_TEMPLATE_ID, value: 'TPL_WEEKLY_BULLETIN', note: '用哪一個 EmailTemplates 範本' },
   // ---- 第六輪新增：週報與職事表的分歧處理 ----
-  { key: CONFIG_KEYS.CONFLICT_NOTICE_GROUPS, value: 'ADMIN', note: '職事表分歧提醒信要寄給哪幾個 Recipients.GROUP_NAME（逗號分隔）' }
+  { key: CONFIG_KEYS.CONFLICT_NOTICE_GROUPS, value: 'ADMIN', note: '職事表分歧提醒信要寄給哪幾個 Recipients.GROUP_NAME（逗號分隔）' },
+  // ---- 第七輪新增：Word（OOXML）範本渲染 ----
+  { key: CONFIG_KEYS.TEMPLATE_FILE_ID_NORMAL, value: '', note: '平常主日 Word 範本（.docx）的雲端硬碟檔案 ID' },
+  { key: CONFIG_KEYS.TEMPLATE_FILE_ID_COMBINED_BAPTISM, value: '', note: '浸禮三堂聯合崇拜 Word 範本的雲端硬碟檔案 ID' },
+  { key: CONFIG_KEYS.TEMPLATE_FILE_ID_ANNIVERSARY, value: '', note: '堂慶三堂聯合崇拜 Word 範本的雲端硬碟檔案 ID' },
+  { key: CONFIG_KEYS.TEMPLATE_MISSING_VALUE_MODE, value: 'BLANK', note: '範本佔位符找不到值時：BLANK 換成空字串／KEEP 原樣保留／ERROR 拋錯' },
+  { key: CONFIG_KEYS.OUTPUT_FILE_NAME_PATTERN, value: '{{SERVICE_DATE}}_粵語堂週報.docx', note: '產生的 Word 檔名樣式，可用 {{SERVICE_DATE}} 佔位符' },
+  { key: CONFIG_KEYS.RENDER_BLOCK_IF_MISSING_FIELDS, value: 'FALSE', note: '有待填欄位時是否拒絕產生 Word 週報' },
+  // ---- 第八輪新增：季度集中填寫表、雙向同步、版本備份、填寫邀請 ----
+  { key: CONFIG_KEYS.FILL_BACKUP_KEEP, value: '20', note: 'FillBackup 每一季保留幾多個備份，超過就刪最舊的' },
+  { key: CONFIG_KEYS.FILL_INVITE_GROUPS, value: 'ADMIN,CC,DB,IT,WORSHIP', note: '季度填寫邀請要寄給哪幾個 Recipients.GROUP_NAME（逗號分隔）' },
+  { key: CONFIG_KEYS.FILL_CONFLICT_GROUPS, value: 'ADMIN', note: '填寫表同步衝突提醒要寄給哪幾個 Recipients.GROUP_NAME（逗號分隔）' },
+  {
+    key: CONFIG_KEYS.FILL_RESPONSIBILITY_NOTE,
+    value: '詩歌由領詩填寫；講題與經文由幹事填寫；家事報告與代禱事項由幹事整理',
+    note: '填寫邀請信內說明「哪些欄位由誰負責」的那一句'
+  },
+  { key: CONFIG_KEYS.FELLOWSHIP_DATE_PATTERN, value: 'd/M', note: '由常設時間表產生團契聚會日期時的格式（會再接上空格與星期文字）' },
+  { key: CONFIG_KEYS.PROTECTION_EDITOR_EMAILS, value: '', note: '即使在受保護的工作表也可以編輯的電郵（逗號分隔）；留空代表只有擁有者' },
+  { key: CONFIG_KEYS.FILL_RECONCILE_HOURS, value: '6', note: '填寫表定時對帳觸發器每隔幾多小時跑一次' },
+  { key: CONFIG_KEYS.FILL_AUTO_CREATE_NEXT_QUARTER, value: 'TRUE', note: '每週寄送流程發現職事表有未建立填寫表的季度時，是否自動建立並寄出填寫邀請' }
 ]);
 
 // =====================================================================
@@ -444,12 +532,49 @@ var HONORIFIC = Object.freeze({
   NONE: ''
 });
 
-/** Recipients.GROUP_NAME 允許的取值。 */
+/**
+ * Recipients.GROUP_NAME 允許的取值。
+ *
+ * `IT` 與 `WORSHIP`（領詩）是第八輪新增的——季度填寫表的邀請要寄給
+ * 領詩（填整季詩歌）與 IT，所以要有對應的組別。
+ */
 var RECIPIENT_GROUP = Object.freeze({
   CC: 'CC',
   DB: 'DB',
   ADMIN: 'ADMIN',
-  TEST: 'TEST'
+  TEST: 'TEST',
+  IT: 'IT',
+  WORSHIP: 'WORSHIP'
+});
+
+/**
+ * `FillBackup.REASON` 允許的取值——每一個都對應一個會自動備份的動作。
+ * 見 src/FillBackup.gs 的說明。
+ */
+var FILL_BACKUP_REASON = Object.freeze({
+  BEFORE_CREATE_GRID: 'BEFORE_CREATE_GRID',
+  BEFORE_RESEQUENCE: 'BEFORE_RESEQUENCE',
+  BEFORE_FETCH_FROM_ROSTER: 'BEFORE_FETCH_FROM_ROSTER',
+  BEFORE_GENERATE_FELLOWSHIPS: 'BEFORE_GENERATE_FELLOWSHIPS',
+  BEFORE_RESTORE: 'BEFORE_RESTORE',
+  MANUAL: 'MANUAL'
+});
+
+/**
+ * 季度填寫表三方比對的四種結果。
+ *
+ * | 值 | 條件 | 處理 |
+ * |---|---|---|
+ * | `SAME` | 兩邊都跟快照一樣 | 不做任何事 |
+ * | `PUSH` | 只有格子表改過 | 寫回 `BulletinWeeks` |
+ * | `PULL` | 只有 `BulletinWeeks` 改過（例如經 Web App） | 刷新格子表 |
+ * | `CONFLICT` | **兩邊都改過** | 列出兩個值由使用者選，**不自動蓋任何一邊** |
+ */
+var FILL_SYNC_STATUS = Object.freeze({
+  SAME: 'SAME',
+  PUSH: 'PUSH',
+  PULL: 'PULL',
+  CONFLICT: 'CONFLICT'
 });
 
 /**
@@ -464,10 +589,19 @@ var CONTENT_SOURCE_PREFIX = Object.freeze({
   BLANK: 'BLANK'
 });
 
-/** ProgramTemplates.CONDITION 的前綴／固定值。 */
+/**
+ * `ProgramTemplates.CONDITION` 與 `FellowshipDefaults.RECURRENCE` 共用的
+ * 前綴／固定值。
+ *
+ * ⚠️ 兩張表刻意共用**同一個求值器**（`evaluateProgramCondition_()`），
+ * 不是各自寫一套——「第 2、4 個主日」這種規則在兩處的意思必須完全一樣，
+ * 各寫一套遲早會分岔。`WEEK_NOT_IN:` 是第八輪為團契常設時間表加的，
+ * 程序範本同樣用得到。
+ */
 var CONDITION_TYPE = Object.freeze({
   ALWAYS: 'ALWAYS',
   WEEK_IN_PREFIX: 'WEEK_IN:',
+  WEEK_NOT_IN_PREFIX: 'WEEK_NOT_IN:',
   IF_FIELD_PREFIX: 'IF_FIELD:',
   NEVER: 'NEVER'
 });

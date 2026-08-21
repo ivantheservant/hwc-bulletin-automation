@@ -39,7 +39,35 @@ function toRealmSafeCellValue(value) {
     if (d.length < 2) d = '0' + d;
     return y + '-' + mo + '-' + d;
   }
+
   return value;
+}
+
+/**
+ * 用途：模仿真實 Sheets 對「前導單引號」的處理。
+ *
+ *   ⚠️ 真的 Google Sheets 會把開頭那個 `'` 當成**格式標記**（意思是
+ *   「這一格當純文字，不要當公式」）吃掉，`getValue()` 讀回來是**沒有**
+ *   那個單引號的。
+ *
+ *   不模仿的話，`sanitizeCellText_()` 為了防公式注入而加的單引號會被假
+ *   工作表當成內容存起來——使用者填的 `--` 讀回來變成 `'--`，而且每寫
+ *   一次就多一個。第八輪的同步比對會因此永遠判定「有改動」，來回推個
+ *   不停。那是假替身的落差，不是程式的 bug。
+ *
+ *   跳脫過的值會記進 `escapedValues`，讓「證明 sanitizeCellText_ 真的被
+ *   呼叫了」這類測試仍然驗證得到——**驗證的是行為，不是儲存格式**。
+ * Args:
+ *   value {*} 要寫入的值。
+ *   escapedValues {Set=} 選填，用來記錄「這個值曾經被跳脫過」。
+ * Returns:
+ *   {*} 字串前導單引號會被吃掉，其餘原樣回傳。
+ */
+function applyTextFormatMarker(value, escapedValues) {
+  if (typeof value !== 'string' || value.charAt(0) !== "'") return value;
+  var stripped = value.slice(1);
+  if (escapedValues) escapedValues.add(stripped);
+  return stripped;
 }
 
 /**
@@ -58,7 +86,38 @@ function makeFakeSheet(headers, keys, rowObjects) {
     return keys.map(function (k) { return obj[k] === undefined ? '' : obj[k]; });
   }));
   var frozenRows = 0;
+  // 記住哪些值曾經被 sanitizeCellText_() 跳脫過（見 applyTextFormatMarker）。
+  var escapedValues = new Set();
+  // 第八輪的填寫邀請要組 `#gid=` 直達連結，所以假工作表也要有一個
+  // sheetId。用內容長度湊一個穩定的假值就夠——測試只驗證「連結裡面
+  // 真的有 #gid=」，不驗證那個數字本身。
+  var fakeSheetId = 100000 + (headers.length * 1000) + keys.length;
+  var sheetName = '';
   return {
+    __escapedValues: escapedValues,
+    getSheetId: function () { return fakeSheetId; },
+    getName: function () { return sheetName; },
+    setName: function (n) { sheetName = n; return this; },
+    // 第八輪的「設定工作表保護」要用。假物件只需要記住「保護過幾多次」
+    // 與「例外編輯者是誰」，真正的權限行為由 Google 負責，測不到也不用測。
+    __protections: [],
+    getProtections: function () { return this.__protections.slice(); },
+    protect: function () {
+      var self = this;
+      var record = { description: '', editors: [] };
+      self.__protections.push(record);
+      return {
+        setDescription: function (d) { record.description = d; return this; },
+        getEditors: function () { return record.editors.slice(); },
+        removeEditors: function () { record.editors = []; return this; },
+        addEditors: function (list) { record.editors = record.editors.concat(list); return this; },
+        canEdit: function () { return true; },
+        remove: function () {
+          var i = self.__protections.indexOf(record);
+          if (i !== -1) self.__protections.splice(i, 1);
+        }
+      };
+    },
     getLastRow: function () { return data.length; },
     getLastColumn: function () { return keys.length; },
     getMaxRows: function () { return Math.max(data.length, 1000); },
@@ -87,7 +146,7 @@ function makeFakeSheet(headers, keys, rowObjects) {
             var rowIdx = r - 1 + i;
             while (data.length <= rowIdx) data.push([]);
             for (var j = 0; j < values[i].length; j++) {
-              data[rowIdx][c - 1 + j] = toRealmSafeCellValue(values[i][j]);
+              data[rowIdx][c - 1 + j] = applyTextFormatMarker(toRealmSafeCellValue(values[i][j]), escapedValues);
             }
           }
           return this;
@@ -102,7 +161,7 @@ function makeFakeSheet(headers, keys, rowObjects) {
         },
         setValue: function (value) {
           while (data.length <= r - 1) data.push([]);
-          data[r - 1][c - 1] = toRealmSafeCellValue(value);
+          data[r - 1][c - 1] = applyTextFormatMarker(toRealmSafeCellValue(value), escapedValues);
           return this;
         },
         clearContent: function () {
@@ -138,4 +197,12 @@ function makeFakeSpreadsheet(sheetsByName) {
   };
 }
 
-module.exports = { makeFakeSheet: makeFakeSheet, makeFakeSpreadsheet: makeFakeSpreadsheet };
+module.exports = {
+  makeFakeSheet: makeFakeSheet,
+  makeFakeSpreadsheet: makeFakeSpreadsheet,
+  // 第八輪的季度填寫表要自己造一張三行標題的假工作表（見
+  // tests/helpers/fillEnv.js），那邊的 setValue／setValues 一樣要經過
+  // 這個正規化，否則會出現 Date 跨 realm 與前導單引號兩種假失敗。
+  toRealmSafeCellValue: toRealmSafeCellValue,
+  applyTextFormatMarker: applyTextFormatMarker
+};

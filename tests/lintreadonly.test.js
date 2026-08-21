@@ -174,18 +174,71 @@ test('lint() 只在 RosterRead.gs 檢查寫入方法，其他檔案不受這條�
 });
 
 // =====================================================================
-// 規則 3：全 src/ 不准出現 DriveApp
+// 規則 3：DriveApp 只准出現在 DocxIo.gs（第七輪起）
 // =====================================================================
 
-test('lint() 會捉到任何一個檔案出現 DriveApp', function () {
+test('lint() 會捉到 DocxIo.gs 以外的檔案出現 DriveApp', function () {
   withFixture({
     'Other.gs': "'use strict';\nfunction bad_() {\n  return DriveApp.getFileById('x');\n}\n"
   }, function (tmpDir) {
     const result = lint(tmpDir);
-    const hit = result.violations.filter(function (v) { return v.rule === 'DRIVE_APP_USAGE'; });
+    const hit = result.violations.filter(function (v) { return v.rule === 'DRIVE_APP_OUTSIDE_DOCX_IO'; });
     assert.strictEqual(hit.length, 1);
     assert.strictEqual(hit[0].file, 'Other.gs');
     assert.strictEqual(hit[0].line, 3);
+  });
+});
+
+test('lint() 不會誤判 DocxIo.gs 自己用 DriveApp（第七輪起的唯一例外）', function () {
+  withFixture({
+    'DocxIo.gs': "'use strict';\nfunction ok_() {\n  return DriveApp.getFileById('x').getBlob();\n}\n"
+  }, function (tmpDir) {
+    const result = lint(tmpDir);
+    const hit = result.violations.filter(function (v) { return v.rule === 'DRIVE_APP_OUTSIDE_DOCX_IO'; });
+    assert.deepStrictEqual(hit, []);
+  });
+});
+
+test('lint() 仍然會捉到 DocxIo.gs 內出現 openById(（規則 1 對它一樣生效）', function () {
+  withFixture({
+    'DocxIo.gs': "'use strict';\nfunction bad_() {\n  return SpreadsheetApp.openById('x');\n}\n"
+  }, function (tmpDir) {
+    const result = lint(tmpDir);
+    const hit = result.violations.filter(function (v) { return v.rule === 'OPEN_BY_ID_OUTSIDE_ROSTER_READ'; });
+    assert.strictEqual(hit.length, 1);
+    assert.strictEqual(hit[0].file, 'DocxIo.gs');
+  });
+});
+
+// =====================================================================
+// 規則 4：DocxIo.gs 拿不到職事表 ID
+// =====================================================================
+
+test('lint() 會捉到 DocxIo.gs 內引用 ROSTER_SPREADSHEET_ID', function () {
+  withFixture({
+    'DocxIo.gs': [
+      "'use strict';",
+      'function bad_() {',
+      '  var id = getConfig(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, String(1));',
+      '  return DriveApp.getFileById(id);',
+      '}',
+      ''
+    ].join('\n')
+  }, function (tmpDir) {
+    const result = lint(tmpDir);
+    const hit = result.violations.filter(function (v) { return v.rule === 'ROSTER_ID_IN_DRIVE_APP_FILE'; });
+    assert.strictEqual(hit.length, 1, JSON.stringify(result.violations, null, 2));
+    assert.strictEqual(hit[0].line, 3);
+  });
+});
+
+test('lint() 只在 DocxIo.gs 檢查職事表 ID，其他檔案照舊可以引用它', function () {
+  withFixture({
+    'RosterRead.gs': "'use strict';\nfunction ok_() {\n  return getConfig(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, String(1));\n}\n"
+  }, function (tmpDir) {
+    const result = lint(tmpDir);
+    const hit = result.violations.filter(function (v) { return v.rule === 'ROSTER_ID_IN_DRIVE_APP_FILE'; });
+    assert.deepStrictEqual(hit, []);
   });
 });
 

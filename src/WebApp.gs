@@ -535,6 +535,9 @@ function loadWeekForWebApp_(isoDate) {
     // 第六輪：週報與職事表的比對結果。前端用 `conflictCount` 顯示頂部
     // 的「衝突 N 項」，用 `rows` 展開比對清單。
     rosterDiff: model.rosterDiff,
+    // 第八輪：直達本季季度填寫表的連結。格子表未建立時是空字串，
+    // 前端就不顯示那個按鈕——顯示一條開不到的連結比不顯示更差。
+    fillGridUrl: buildFillGridUrlForWebApp_(model.quarterId),
     // 「重新讀取職事表」按鈕成功之後要顯示的文案；一律算好給前端，
     // 前端只在那個按鈕的情境下使用，一般切換主日時不理會這個欄位。
     rosterReloadMessage: buildRosterReloadMessage_(model.rosterVersionUsed, model.rosterIsOfficial)
@@ -678,6 +681,24 @@ function previewProgramForWebApp_(isoDate, draftFields) {
   var draftWeek = Object.assign({}, weekRow, draftFields || {});
   var program = buildProgramTable_(draftWeek, snapshot);
   return { templateId: program.templateId, rows: program.rows };
+}
+
+/**
+ * 用途：組出直達本季季度填寫表的網址，給填寫介面頂部那個按鈕用。
+ *
+ *   ⚠️ 格子表**未建立**時回空字串，前端就不顯示那個按鈕——顯示一條開
+ *   不到的連結，比不顯示更差（使用者會以為系統壞了）。
+ * Args:
+ *   quarterId {?string} 這一週所屬的季度。
+ * Returns:
+ *   {string} 找不到季度或格子表時回空字串。
+ */
+function buildFillGridUrlForWebApp_(quarterId) {
+  if (!quarterId) return '';
+  var sheetName = fillGridSheetName_(quarterId);
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss.getSheetByName(sheetName)) return '';
+  return buildSheetDeepLink_(sheetName);
 }
 
 // =====================================================================

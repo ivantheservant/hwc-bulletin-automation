@@ -9,8 +9,14 @@
  * 函式同樣在 WebApp.gs），第五輪加了電郵與自動寄送相關的五個項目（處理
  * 函式在 Mailer.gs／Trigger.gs），第六輪加了一個檢查職事表分歧的項目
  * （處理函式在 RosterDiff.gs），第六b輪加了三個 PersonDisplay／尊稱設定
- * 相關的項目（處理函式在 HonorificSetup.gs）。Apps Script 全部檔案共用
- * 一個全域命名空間，選單引用哪個檔案定義的函式都可以。
+ * 相關的項目（處理函式在 HonorificSetup.gs），第七輪加了兩個 Word 範本
+ * 渲染的項目（處理函式在 BulletinRender.gs），第八輪加了一個「季度填寫表」
+ * 子選單（處理函式在 FillMenu.gs）。Apps Script 全部檔案共用一個全域
+ * 命名空間，選單引用哪個檔案定義的函式都可以。
+ *
+ * ⚠️ 第八輪的項目放在**子選單**：主選單已經有 16 個項目，再平鋪下去會
+ * 長到看不到底。子選單一律用 `SpreadsheetApp.getUi().createMenu()` 現造，
+ * 不可以寫成頂層常數（載入次序，見 docs/已知bug類型.md 事故一）。
  *
  * ⚠️ 每個 `menuXxx_()` 的 catch 分支都要呼叫 `logMenuError_()`
  * （`src/ErrorLog.gs`）寫一筆 `ErrorLog`（`SOURCE='MENU'`），再顯示
@@ -41,6 +47,28 @@ function onOpen() {
     .addItem('預覽本週週報資料', 'menuPreviewBulletinModel_')
     .addItem('檢查職事表分歧', 'menuCheckRosterDiff_')
     .addItem('開啟填寫介面', 'menuOpenWebApp_')
+    .addItem('產生本週週報（Word）', 'menuGenerateBulletinDocx_')
+    .addItem('檢查範本佔位符', 'menuInspectTemplatePlaceholders_')
+    .addSeparator()
+    .addSubMenu(SpreadsheetApp.getUi().createMenu('季度填寫表')
+      .addItem('建立／刷新季度填寫表', 'menuCreateOrRefreshFillGrid_')
+      .addItem('立即同步季度填寫表', 'menuSyncFillGrid_')
+      .addItem('處理填寫表衝突', 'menuResolveFillConflicts_')
+      .addSeparator()
+      .addItem('整理清單次序', 'menuResequenceLists_')
+      .addItem('由常設時間表產生本季團契', 'menuGenerateFellowships_')
+      .addSeparator()
+      .addItem('立即備份本季', 'menuBackupQuarter_')
+      .addItem('還原到某個備份', 'menuRestoreQuarter_')
+      .addSeparator()
+      .addItem('寄出季度填寫邀請', 'menuSendFillInvite_')
+      .addItem('檢查未建立的季度', 'menuCheckMissingQuarters_')
+      .addItem('設定工作表保護', 'menuApplySheetProtection_')
+      .addSeparator()
+      .addItem('安裝填寫表同步觸發器', 'menuInstallFillEditTrigger_')
+      .addItem('移除填寫表同步觸發器', 'menuRemoveFillEditTrigger_')
+      .addItem('安裝填寫表對帳觸發器', 'menuInstallFillReconcileTrigger_')
+      .addItem('移除填寫表對帳觸發器', 'menuRemoveFillReconcileTrigger_'))
     .addItem('試寄下週週報（依 DRY_RUN 設定）', 'menuTestSendBulletin_')
     .addItem('預覽週報郵件內容', 'menuPreviewBulletinEmail_')
     .addItem('安裝自動寄送觸發器', 'menuInstallSendTrigger_')

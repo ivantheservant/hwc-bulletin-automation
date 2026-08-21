@@ -136,7 +136,24 @@ function makeEnv() {
     })()
   };
   var FakeApp = { getActiveSpreadsheet: function () { return makeFakeSpreadsheet(sheets); } };
-  return loadAllSrcFilesInOrder(Object.assign({}, GAS_STUBS, { SpreadsheetApp: FakeApp }));
+  var sandbox = loadAllSrcFilesInOrder(Object.assign({}, GAS_STUBS, { SpreadsheetApp: FakeApp }));
+  // ⚠️ 一併帶出假工作表本身：真實 Sheets 會把 sanitizeCellText_() 加的
+  // 前導單引號當成**格式標記**吃掉（`getValue()` 讀回來沒有它），所以
+  // 「有沒有跳脫過」不可以靠讀回來的值判斷——要看假工作表記下的
+  // `__escapedValues`。見 tests/helpers/fakeSpreadsheet.js 的
+  // applyTextFormatMarker()。
+  sandbox.__sheets = sheets;
+  return sandbox;
+}
+
+/**
+ * 斷言某個值寫入指定工作表時真的經過了 sanitizeCellText_()。
+ */
+function assertWasEscaped(env, sheetName, value, message) {
+  assert.ok(
+    env.__sheets[sheetName].__escapedValues.has(value),
+    message || ('「' + value + '」寫入 ' + sheetName + ' 時應該經過 sanitizeCellText_()')
+  );
 }
 
 test('真正入口：writeDiagnosticsReport_() 寫入以 = 開頭的行 → 工作表上的值有前導單引號，不是原始的 = 開頭', function () {
@@ -146,8 +163,9 @@ test('真正入口：writeDiagnosticsReport_() 寫入以 = 開頭的行 → 工�
   var rows = env.readSheet('Diagnostics');
   var titleRow = rows.filter(function (r) { return r.CONTENT.indexOf('基本資料') !== -1; })[0];
   assert.ok(titleRow, '應該找得到那一行');
-  assert.strictEqual(titleRow.CONTENT, "'=== 基本資料 ===", 'CONTENT 應該有前導單引號，證明 sanitizeCellText_ 真的被呼叫了');
-  assert.notStrictEqual(titleRow.CONTENT.charAt(0), '=', '不可以原始 = 開頭寫入工作表');
+  assert.strictEqual(titleRow.CONTENT, '=== 基本資料 ===', '讀回來應該是原文（真實 Sheets 會把格式標記吃掉）');
+  assertWasEscaped(env, 'Diagnostics', '=== 基本資料 ===',
+    'CONTENT 應該經過 sanitizeCellText_()，否則 Sheets 會把它當成公式求值');
 
   var normalRow = rows.filter(function (r) { return r.CONTENT.indexOf('正常的一行') !== -1; })[0];
   assert.strictEqual(normalRow.CONTENT, '正常的一行', '不需要跳脫的內容不應該被多加單引號');
@@ -157,7 +175,8 @@ test('真正入口：writeDiagnosticsReport_() 的 reportName 若以 = 開頭同
   var env = makeEnv();
   env.writeDiagnosticsReport_('=惡意報告名稱', ['內容']);
   var rows = env.readSheet('Diagnostics');
-  assert.strictEqual(rows[0].REPORT_NAME, "'=惡意報告名稱");
+  assert.strictEqual(rows[0].REPORT_NAME, '=惡意報告名稱');
+  assertWasEscaped(env, 'Diagnostics', '=惡意報告名稱');
 });
 
 test('真正入口：appendAuditLog_() 的 OLD_VALUE／NEW_VALUE 若以 = 開頭 → 寫入時有前導單引號', function () {
@@ -173,8 +192,8 @@ test('真正入口：appendAuditLog_() 的 OLD_VALUE／NEW_VALUE 若以 = 開頭
 
   var rows = env.readSheet('AuditLog');
   assert.strictEqual(rows.length, 1);
-  assert.strictEqual(rows[0].NEW_VALUE, "'=HYPERLINK(\"http://example.invalid\")");
-  assert.notStrictEqual(rows[0].NEW_VALUE.charAt(0), '=');
+  assert.strictEqual(rows[0].NEW_VALUE, '=HYPERLINK("http://example.invalid")');
+  assertWasEscaped(env, 'AuditLog', '=HYPERLINK("http://example.invalid")');
 });
 
 test('真正入口：appendAuditLog_() 的 ACTION／NOTES 等一般欄位一樣經過 sanitizeCellText_（正常內容不受影響）', function () {

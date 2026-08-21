@@ -131,6 +131,7 @@ function buildBulletinModel_(isoDate) {
     week: week,
     templateId: program.templateId,
     program: program.rows,
+    recitation: program.recitation,
     dutyBoxPage1: dutyBoxPage1,
     nextWeekDuty: nextWeekDuty,
     rosterDiff: diff,
@@ -184,6 +185,17 @@ function emptyBulletinModel_(isoDate, overrides) {
     },
     dutyBoxPage1: [],
     program: [],
+    // 第七輪新增：誦讀內容（Word 範本的 {{RECITATION}} 佔位符要用；
+    // 誦讀那一格不一定在程序表內，所以另外單獨帶一份）。
+    recitation: '',
+    // 第七輪新增：`BulletinWeeks` 該主日那一行的原始欄位值。
+    //
+    // ⚠️ 為什麼要把原始行也放進模型：Word 範本有大量佔位符
+    // （{{SERMON_TITLE}}、{{HYMN_PRAISE}}、12 個人數欄……）要的就是那一格
+    // **未經加工**的值。模型其他部分（header／attendance／program）是
+    // 已經排版過的結果，取不回原值。與其在 BulletinRender.gs 再讀一次
+    // 工作表（那樣就會有兩個真相、而且多一次 IO），不如由模型一次帶出來。
+    weekFields: {},
     attendance: { columns: [], rows: [] },
     nextWeekDuty: [],
     // 第六輪新增：週報與職事表的比對結果（見 src/RosterDiff.gs）。
@@ -232,6 +244,8 @@ function assembleBulletinModel_(input) {
     templateId: input.templateId || null,
     dutyBoxPage1: input.dutyBoxPage1 || [],
     program: input.program || [],
+    recitation: input.recitation || '',
+    weekFields: week,
     nextWeekDuty: input.nextWeekDuty || [],
     rosterDiff: input.rosterDiff || {
       isoDate: input.isoDate, rosterVersion: null, snapshotVersion: null,

@@ -75,7 +75,23 @@ function buildProgramTable_(week, snapshot) {
     callFormat: getConfig(CONFIG_KEYS.CALL_TO_WORSHIP_FORMAT, '{{text}}（{{ref}}）')
   });
 
-  return { templateId: resolved.templateId, inferred: resolved.inferred, rows: rows };
+  return {
+    templateId: resolved.templateId,
+    inferred: resolved.inferred,
+    rows: rows,
+    // 第七輪新增：誦讀內容另外單獨算一次給資料模型用。
+    // 程序表本身是靠 `AUTO:RECITATION` 這個 CONTENT_SOURCE 在逐行求值時
+    // 算出來的，但 Word 範本有一個獨立的 `{{RECITATION}}` 佔位符（誦讀那
+    // 一格不一定在程序表內），所以要在這裡再算一次交出去。兩條路徑呼叫
+    // 的是**同一個** resolveRecitationContent_()，不會出現兩套規則。
+    recitation: resolveRecitationContent_(
+      week || {},
+      snapshot ? snapshot.isoDate : '',
+      recitationGroups,
+      recitationValues,
+      '誦讀（資料模型）'
+    )
+  };
 }
 
 /**
@@ -233,7 +249,14 @@ function buildProgramTableRows_(input) {
  *   | `ALWAYS` | 一定出現 |
  *   | `NEVER` | 一定不出現 |
  *   | `WEEK_IN:2,4` | 只在 `weekOfMonth` 屬於清單時出現 |
+ *   | `WEEK_NOT_IN:1` | 只在 `weekOfMonth` **不**屬於清單時出現 |
  *   | `IF_FIELD:CHOIR_TITLE` | 只在 `BulletinWeeks` 該欄有值（非空白）時出現 |
+ *
+ *   ⚠️ 第八輪起，`FellowshipDefaults.RECURRENCE`（團契常設時間表的出現
+ *   規則）**共用這一個求值器**，不是另外寫一套——「第 2、4 個主日」這種
+ *   規則在兩處的意思必須完全一樣，各寫一套遲早會分岔。所以 `ctx.row`
+ *   可能是程序範本的一行，也可能是團契常設時間表的一行，
+ *   `programRowLocation_()` 兩種都要講得出位置。
  * Args:
  *   condition {string} `ProgramTemplates.CONDITION` 的值。
  *   ctx {{week:Object, weekOfMonth:?number, row:Object}}
@@ -250,6 +273,15 @@ function evaluateProgramCondition_(condition, ctx) {
   if (raw === CONDITION_TYPE.ALWAYS) return true;
   if (raw === CONDITION_TYPE.NEVER) return false;
 
+  // ⚠️ 一定要先比 WEEK_NOT_IN:，再比 WEEK_IN:——`'WEEK_NOT_IN:1'` 的開頭
+  // 不是 `'WEEK_IN:'`，所以其實不會互相配錯，但把長的排前面是防止日後
+  // 有人改動時不小心引入前綴包含的問題。
+  if (raw.indexOf(CONDITION_TYPE.WEEK_NOT_IN_PREFIX) === 0) {
+    var notInRaw = raw.slice(CONDITION_TYPE.WEEK_NOT_IN_PREFIX.length);
+    var excludedWeeks = parseConfigIntList_(notInRaw, where + ' 的 CONDITION');
+    return excludedWeeks.indexOf(ctx.weekOfMonth) === -1;
+  }
+
   if (raw.indexOf(CONDITION_TYPE.WEEK_IN_PREFIX) === 0) {
     var listRaw = raw.slice(CONDITION_TYPE.WEEK_IN_PREFIX.length);
     var weeks = parseConfigIntList_(listRaw, where + ' 的 CONDITION');
@@ -264,7 +296,7 @@ function evaluateProgramCondition_(condition, ctx) {
 
   throw new Error(
     '程序範本 ' + where + ' 的 CONDITION「' + raw + '」無法辨識。'
-    + '可用語法：ALWAYS、NEVER、WEEK_IN:<逗號分隔週次>、IF_FIELD:<BulletinWeeks 機器鍵>。'
+    + '可用語法：ALWAYS、NEVER、WEEK_IN:<逗號分隔週次>、WEEK_NOT_IN:<逗號分隔週次>、IF_FIELD:<BulletinWeeks 機器鍵>。'
   );
 }
 

@@ -40,7 +40,8 @@ function initializeAllSheets() {
     POST_DISPLAY: seedPostDisplay_(),
     MERGE_GROUPS: seedMergeGroups_(),
     PROGRAM_TEMPLATES: seedProgramTemplates_(),
-    EMAIL_TEMPLATES: seedEmailTemplates_()
+    EMAIL_TEMPLATES: seedEmailTemplates_(),
+    FELLOWSHIP_DEFAULTS: seedFellowshipDefaults_()
   };
 
   var summary = {
@@ -101,10 +102,14 @@ function readmeContentLines_() {
   'Finance：月度財政報告項目，人手填寫。',
   'PersonDisplay：會友姓名的尊稱與顯示覆寫規則。可以透過「由職事表建立 PersonDisplay 骨架」「套用尊稱對照表」選單自動建立與填入，也可以人手調整。',
   'HonorificLookup：Ivan 人手貼上的「姓名 → 尊稱」對照表，配合「套用尊稱對照表」選單使用，系統不會自動填入任何一行。',
+  'FellowshipDefaults：團契聚會的常設時間表，配合「由常設時間表產生本季團契」選單使用；系統已預先填入三行，人手可調整。',
+  'FillSnapshot：季度填寫表與 BulletinWeeks 做三方比對用的快照，系統寫，人手唯讀（不要人手改動，會令同步判斷出錯）。',
+  'FillBackup：季度資料的版本備份，可以用「還原到某個備份」還原；保留數目見 Config 的 FILL_BACKUP_KEEP。',
+  'Fill_<季度>：季度集中填寫表（例如 Fill_2027T4），一季一張，一行一個主日、一欄一個欄位；前三欄唯讀，其餘可填。用法見 docs/季度填寫表使用說明.md。',
   'PostDisplay：崗位在週報第 1、3 頁的顯示名稱、次序與合併規則，系統已預先填入 16 個崗位，日後如有調整由人手修改。',
   'MergeGroups：PostDisplay 使用的合併組定義（例如「主席及報告」「影音」），系統已預先填入，人手可調整連接符等設定。',
   'ProgramTemplates：崇拜程序範本，系統已預先填入平常主日／浸禮聯合崇拜／堂慶聯合崇拜三個範本，人手可視需要增補其他範本。',
-  'Recipients：週報收件人名單（堂委、執事、幹事），系統不會自動填入任何一行，需要 Ivan 自行填寫。',
+  'Recipients：週報收件人名單（堂委 CC、執事 DB、幹事 ADMIN、IT、領詩 WORSHIP），系統不會自動填入任何一行，需要 Ivan 自行填寫。',
   'EmailTemplates：寄送週報用的電郵範本，系統已預先填入一個預設範本，人手可修改文字內容。',
   'Diagnostics：系統唯讀診斷報告存放處，每次執行會清空重寫，只保留最新一次的內容，行數上限見 Config 的 DIAGNOSTICS_MAX_ROWS。',
   'AuditLog：系統對試算表所做的每一次寫入異動記錄，逐格記錄，只會新增、不會刪除或覆寫。',
@@ -190,6 +195,17 @@ function seedProgramTemplates_() {
  */
 function seedEmailTemplates_() {
   return seedMissingRows_(SHEETS.EMAIL_TEMPLATES, 'TEMPLATE_ID', seedEmailTemplatesRows_());
+}
+
+/**
+ * 用途：把 seedFellowshipDefaultsRows_() 回傳的資料內尚未存在的
+ *   FELLOWSHIP_NAME 補進 FellowshipDefaults 工作表。
+ * Args: （無）
+ * Returns:
+ *   {number} 新增的行數。
+ */
+function seedFellowshipDefaults_() {
+  return seedMissingRows_(SHEETS.FELLOWSHIP_DEFAULTS, 'FELLOWSHIP_NAME', seedFellowshipDefaultsRows_());
 }
 
 /**
@@ -458,6 +474,56 @@ function seedEmailTemplatesRows_() {
       ].join('\n'),
       ACTIVE: true,
       NOTES: ''
+    }
+  ];
+}
+
+/**
+ * 用途：`FellowshipDefaults` 的 3 行常設時間表 seed 資料，取自實際樣本。
+ *   寫成函式延遲求值——這裡用到 `CONDITION_TYPE`（Constants.gs 宣告），
+ *   而 Bootstrap.gs 按檔名字母序排在 Constants.gs **前面**，寫成頂層
+ *   常數會讀到 `undefined`（見 readmeContentLines_() 與
+ *   docs/已知bug類型.md 事故一）。
+ *
+ *   ⚠️ 這三行是**起點，不是定案**——Ivan 之後自行調整。系統只會補缺行，
+ *   不會覆蓋已存在的行，所以改完之後再撳「初始化工作表」也不會被蓋掉。
+ * Args: （無）
+ * Returns:
+ *   {Object[]} FellowshipDefaults 的 seed 資料列。
+ */
+function seedFellowshipDefaultsRows_() {
+  return [
+    {
+      FELLOWSHIP_NAME: '彼得團 (北岸 Albany Community Hub)',
+      // 每個主日都有，第一個主日除外
+      RECURRENCE: CONDITION_TYPE.WEEK_NOT_IN_PREFIX + '1',
+      DAY_LABEL: '星期日',
+      DAY_OFFSET: 0,
+      TIME_TEXT: '4:30pm',
+      DEFAULT_CONTENT: '講道分享',
+      SORT_ORDER: 10,
+      ACTIVE: true
+    },
+    {
+      FELLOWSHIP_NAME: '以諾團 (歡迎子女在 18 歲以下的成人參加)',
+      RECURRENCE: CONDITION_TYPE.WEEK_IN_PREFIX + '2',
+      DAY_LABEL: '星期日',
+      DAY_OFFSET: 0,
+      TIME_TEXT: '1:45PM',
+      DEFAULT_CONTENT: '查經',
+      SORT_ORDER: 20,
+      ACTIVE: true
+    },
+    {
+      FELLOWSHIP_NAME: '喜樂團 (粵語長者)',
+      RECURRENCE: CONDITION_TYPE.WEEK_IN_PREFIX + '2,4',
+      // 聚會日是主日之後的星期五，所以偏移 5 天
+      DAY_LABEL: '星期五',
+      DAY_OFFSET: 5,
+      TIME_TEXT: '10:00AM',
+      DEFAULT_CONTENT: '團契聚會',
+      SORT_ORDER: 30,
+      ACTIVE: true
     }
   ];
 }

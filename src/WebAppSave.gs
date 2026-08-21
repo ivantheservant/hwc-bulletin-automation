@@ -491,11 +491,103 @@ function saveWeekFromWebApp_(payload) {
 
   auditEntries.forEach(function (entry) { appendAuditLog_(entry); });
 
+  // ⚠️ 第八輪：儲存之後一定要更新 `FillSnapshot`。
+  //
+  // 沒有這一步的話，下一次季度填寫表同步會看到「系統的值與快照不同」，
+  // 而如果幹事同時在格子表改過另一樣東西，就會被誤判成**兩邊都改過**
+  // ＝衝突——明明只是這裡儲存過一次。
+  //
+  // **這一點最容易漏**（填寫介面與格子表是兩個看似無關的功能），
+  // tests/fillgrid.test.js 有一個測試專門盯住它。
+  refreshFillSnapshotAfterSave_(isoDate, ops.weekChanges);
+
   return {
     lastSavedAt: canonicalSaveToken_(newTimestamp),
     changedFieldCount: auditEntries.length,
     message: buildSaveResultMessage_(auditEntries.length)
   };
+}
+
+/**
+ * 用途：填寫介面儲存之後，把改動過的欄位同步到季度填寫表——**同時**
+ *   刷新格子表那一格與 `FillSnapshot`，讓兩邊立即重新一致。
+ *
+ * ─────────────────────────────────────────────────────────────────────
+ * ⚠️ 為什麼一定要「格子表與快照一齊更新」，不可以只更新快照
+ * ─────────────────────────────────────────────────────────────────────
+ *
+ * `FillSnapshot` 的語意是**「兩邊上一次一致時的值」**。只把快照推到系統
+ * 的新值、而格子表仍然停在舊值的話，這個語意就被破壞了——下一次三方
+ * 比對會看到「格子表 ≠ 快照」，於是把**根本沒有人改過的舊值**判定成
+ * 「格子表改過」，然後 `PUSH` 回去，把填寫介面剛剛存好的內容蓋掉。
+ *
+ * 正確做法是**令兩邊真的重新一致**：把新值同時寫進格子表與快照。
+ *
+ * ⚠️ 但如果格子表那一格**本身有未同步的改動**（格子表現值 ≠ 快照），
+ * 就**一格都不動**——那是真正的「兩邊都改過」，要留給下一次同步報成
+ * 衝突由人決定，不可以在這裡靜靜蓋掉幹事在格子表打的字。
+ *
+ * ⚠️ 整個函式包 try/catch：同步失敗**不可以**令使用者的儲存失敗——
+ * 資料已經寫進 `BulletinWeeks` 了，那才是唯一真相。最壞的後果只是下次
+ * 同步多報一格衝突，由人手處理一下就好。失敗會記一筆 `ErrorLog`。
+ * Args:
+ *   isoDate {string} 主日日期，yyyy-MM-dd。
+ *   weekChanges {{field:string, newValue:*}[]} 這次真的改動過的欄位。
+ * Returns:
+ *   {void}
+ */
+function refreshFillSnapshotAfterSave_(isoDate, weekChanges) {
+  var changes = weekChanges || [];
+  if (changes.length === 0) return;
+
+  try {
+    var quarterId = lookupQuarterIdForIsoDate_(isoDate);
+    if (!quarterId) return;
+
+    var gridSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(fillGridSheetName_(quarterId));
+    // 格子表還未建立：沒有東西要同步，快照也沒有意義（建立格子表時會
+    // 由現況重新寫一次快照）。
+    if (!gridSheet) return;
+
+    var gridRow = readFillGridRows_(quarterId)
+      .filter(function (r) { return r.isoDate === isoDate; })[0];
+    if (!gridRow) return;
+
+    var snapshotIndex = buildFillSnapshotIndex_(readFillSnapshotRows_(), quarterId);
+
+    // 只處理真的屬於格子表的欄位——填寫介面可以改的欄位比格子表多
+    // （例如清單類），那些不在 `FillSnapshot` 的管轄範圍內。
+    var gridKeys = {};
+    fillGridEditableKeys_().forEach(function (k) { gridKeys[k] = true; });
+
+    var entries = [];
+    changes.forEach(function (change) {
+      if (!gridKeys[change.field]) return;
+
+      var key = fillSnapshotKey_(isoDate, change.field);
+      var snapshotValue = Object.prototype.hasOwnProperty.call(snapshotIndex, key) ? snapshotIndex[key] : null;
+      var gridValue = fillGridCellText_(gridRow.values[change.field]);
+
+      // 格子表那一格有未同步的改動 ⇒ 真正的「兩邊都改過」，留給同步
+      // 報成衝突，這裡一格都不動。
+      if (snapshotValue !== null && gridValue !== snapshotValue) return;
+
+      var newValue = fillGridCellText_(change.newValue);
+      var col = fillGridColumnIndex_(change.field);
+      if (col > 0) gridSheet.getRange(gridRow.rowNo, col).setValue(sanitizeCellText_(newValue));
+      entries.push({ isoDate: isoDate, fieldKey: change.field, value: newValue });
+    });
+
+    if (entries.length > 0) writeFillSnapshotEntries_(quarterId, entries);
+  } catch (err) {
+    appendErrorLog_({
+      source: ERROR_LOG_SOURCE.SERVER,
+      functionName: 'refreshFillSnapshotAfterSave_',
+      errorCode: (err && err.code) || 'ERROR',
+      message: (err && err.message) ? err.message : String(err),
+      detail: buildErrorDetail_(err, { argsSummary: 'isoDate=' + isoDate })
+    });
+  }
 }
 
 /**

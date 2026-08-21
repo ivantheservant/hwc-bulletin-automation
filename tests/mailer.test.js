@@ -11,7 +11,7 @@
  * 4. 有任何失敗時 STATUS 不會變成 SENT
  * 5. 配額不足 → 一封都不寄並拋錯
  * 6. schema 落後且開關為 TRUE → 拒絕寄送
- * 7. 附件不可用 → 照樣寄，郵件正文含「未附上 PDF」的說明
+ * 7. 附件不可用 → 照樣寄，郵件正文含「未附上 Word 檔」的說明
  * 8. 由真正入口 sendBulletinForDate_() 叫下去（本檔案全部測試都是）
  *
  * 執行方式：node tests/mailer.test.js
@@ -314,10 +314,10 @@ test('工作表結構落後但 SEND_BLOCK_IF_SCHEMA_OUTDATED=FALSE：不因結�
 });
 
 // =====================================================================
-// 7. 附件不可用 → 照樣寄，郵件正文含「未附上 PDF」的說明
+// 7. 附件不可用 → 照樣寄，郵件正文含「未附上 Word 檔」的說明
 // =====================================================================
 
-test('附件不可用（DOC_TEMPLATE_ID_NORMAL 留空）：照樣寄送成功，HTML 正文含「未附上 PDF」的說明', function () {
+test('附件不可用（TEMPLATE_FILE_ID_NORMAL 留空）：照樣寄送成功，HTML 正文含「未附上 Word 檔」的說明', function () {
   const env = makeEnv({ config: { DRY_RUN: 'FALSE' } });
   const result = env.sandbox.sendBulletinForDate_(env.isoDate, {});
 
@@ -326,8 +326,8 @@ test('附件不可用（DOC_TEMPLATE_ID_NORMAL 留空）：照樣寄送成功，
   assert.strictEqual(result.sentCount, 2, '附件不可用不應該阻止寄送');
 
   const htmlBody = env.mailApp.calls[0].htmlBody;
-  assert.ok(htmlBody.indexOf('未附上 PDF') !== -1, htmlBody);
-  assert.ok(htmlBody.indexOf('尚未設定 Google Docs 範本') !== -1, htmlBody);
+  assert.ok(htmlBody.indexOf('未附上 Word 檔') !== -1, htmlBody);
+  assert.ok(htmlBody.indexOf('尚未設定 Word 範本') !== -1, htmlBody);
 });
 
 test('附件不可用時，sendEmail 呼叫不應該帶 attachments 欄位', function () {

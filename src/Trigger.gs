@@ -62,6 +62,20 @@ function weeklyBulletinSendTrigger_() {
       });
     }
 
+    // 第八輪：職事表出現了新季度而還未建立填寫表的話，自動建立並寄出
+    // 填寫邀請。同樣包一層 try/catch——這件事失敗不應該連累週報寄送。
+    try {
+      autoCreateNextQuarterFillGrids_();
+    } catch (fillErr) {
+      appendErrorLog_({
+        source: ERROR_LOG_SOURCE.TRIGGER,
+        functionName: 'weeklyBulletinSendTrigger_/autoCreateNextQuarterFillGrids_',
+        errorCode: (fillErr && fillErr.code) || 'ERROR',
+        message: (fillErr && fillErr.message) ? fillErr.message : String(fillErr),
+        detail: buildErrorDetail_(fillErr)
+      });
+    }
+
     sendBulletinForDate_(targetIso, {});
   } catch (err) {
     appendErrorLog_({

@@ -60,6 +60,13 @@ const SAFE_DOMAIN_PATTERNS = [
   /^script\.google\.com$/i,
   /^docs\.google\.com$/i,
   /^drive\.google\.com$/i,
+  // OOXML（.docx）嘅命名空間 URI。呢啲係國際標準寫死嘅字串，唔係一個
+  // 真係連得到嘅網站，亦都完全冇可能係教會網域——第七輪嘅 Word 範本
+  // 渲染一定會喺 XML 入面出現。
+  /^schemas\.openxmlformats\.org$/i,
+  /^schemas\.microsoft\.com$/i,
+  /^purl\.org$/i,
+  /^www\.w3\.org$/i,
   /^developers\.google\.com$/i,
   /^(www\.)?github\.com$/i,
   /^raw\.githubusercontent\.com$/i,

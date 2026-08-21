@@ -660,8 +660,30 @@
     renderReadOnly(data.readOnly);
     renderStats(data.missing, data.warnings, data.lastSavedAt);
     renderConflictStat(data.rosterDiff);
+    renderFillGridLink(data.fillGridUrl);
     renderProgramPreview(data.readOnly.program);
     setLoaded(true);
+  }
+
+  /**
+   * 用途：顯示／隱藏頂部的「開啟本季填寫表」連結（第八輪）。
+   *
+   *   ⚠️ 網址是空字串（格子表未建立）時**隱藏整個按鈕**——顯示一條開
+   *   不到的連結比不顯示更差，使用者會以為系統壞了。
+   * Args:
+   *   url {string} 直達季度填寫表的網址；空字串代表未建立。
+   * Returns:
+   *   {void}
+   */
+  function renderFillGridLink(url) {
+    var link = document.getElementById('fillGridLink');
+    if (!url) {
+      link.classList.add('hidden');
+      link.removeAttribute('href');
+      return;
+    }
+    link.href = url;
+    link.classList.remove('hidden');
   }
 
   function reloadRosterOnly() {
