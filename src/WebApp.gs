@@ -241,7 +241,7 @@ function withApiResult_(fn, context) {
     return { ok: true, data: fn() };
   } catch (err) {
     var errorCode = (err && err.code) || 'ERROR';
-    var message = (err && err.message) ? err.message : String(err);
+    var message = enrichAuthError_(err);
     appendErrorLog_({
       source: ERROR_LOG_SOURCE.SERVER,
       functionName: (context && context.functionName) || '',
@@ -830,7 +830,7 @@ function menuOpenWebApp_() {
     );
   } catch (err) {
     logMenuError_('menuOpenWebApp_', err);
-    ui.alert('開啟填寫介面失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
+    ui.alert('開啟填寫介面失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
 }
 
@@ -856,6 +856,6 @@ function menuCheckSheetSchema_() {
     );
   } catch (err) {
     logMenuError_('menuCheckSheetSchema_', err);
-    ui.alert('檢查工作表結構失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
+    ui.alert('檢查工作表結構失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
 }

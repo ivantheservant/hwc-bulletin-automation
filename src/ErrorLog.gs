@@ -86,6 +86,39 @@ function buildErrorDetail_(err, context) {
   return parts.join('\n');
 }
 
+/** 授權範圍不足時，Apps Script／Google 服務常見的錯誤訊息關鍵字。 */
+var AUTH_ERROR_KEYWORDS_ = ['permission', 'authorization', 'Required permissions'];
+
+/**
+ * 用途：判斷一個例外是不是「授權範圍不足」造成的；是的話在訊息後面
+ *   加一句操作指引，供選單對話框與 API 回傳的錯誤訊息共用。
+ *
+ *   ⚠️ 為什麼會有這一類錯誤：Apps Script 的授權令牌只在**使用者當初
+ *   授權那一刻**問過「這個腳本要用到以下服務，你同意嗎？」。如果之後
+ *   新增的程式碼第一次用到某個服務（例如這一輪第一次用到
+ *   `DriveApp`），既有的授權令牌不會自動擴大——一定要
+ *   `src/appsscript.json` 明確列出 `oauthScopes`，Apps Script 才會在
+ *   範圍改變時要求使用者重新授權；就算列了，**已經核發的舊令牌本身
+ *   仍然要等使用者重新走一次授權畫面**才會拿到新範圍。這個函式的
+ *   訊息指引就是講給使用者聽：出現這個錯誤時要去哪裡重新授權，而不是
+ *   把它當成程式壞了去查半天。
+ * Args:
+ *   err {*} 被攔到的例外物件（或任意值）。
+ * Returns:
+ *   {string} 原本的錯誤訊息；偵測到是授權問題時，後面會多一段指引。
+ */
+function enrichAuthError_(err) {
+  var message = (err && err.message) ? String(err.message) : String(err === null || err === undefined ? '' : err);
+
+  var isAuthError = AUTH_ERROR_KEYWORDS_.some(function (keyword) {
+    return message.toLowerCase().indexOf(keyword.toLowerCase()) !== -1;
+  });
+  if (!isAuthError) return message;
+
+  return message + '　⚠️ 這是授權範圍問題。請開啟 Apps Script 編輯器，在函式下拉選單揀任何一個'
+    + '函式，撳執行，完成授權畫面之後再試。若仍然失敗，需要重新部署網頁應用程式。';
+}
+
 /**
  * 用途：選單 `menuXxx_()` 的 catch 分支專用的小工具——把一次選單執行的
  *   例外寫成一筆 `ErrorLog`（`SOURCE='MENU'`），呼叫方仍然要自己接著

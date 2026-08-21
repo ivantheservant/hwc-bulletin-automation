@@ -218,6 +218,57 @@ test('真正入口：ErrorLog 工作表不存在時，withApiResult_() 仍然正
 });
 
 // =====================================================================
+// 4. enrichAuthError_()：授權範圍不足的錯誤要加一句指引
+// =====================================================================
+
+test('enrichAuthError_：含 permission 字樣的錯誤（實測遇到的 DriveApp 授權訊息）→ 加一句指引', function () {
+  var sb = makeEnv();
+  var err = new Error(
+    'You do not have permission to call DriveApp.getFileById. Required permissions: '
+    + '(https://www.googleapis.com/auth/drive.readonly || https://www.googleapis.com/auth/drive)'
+  );
+  var message = sb.enrichAuthError_(err);
+
+  assert.ok(message.indexOf('You do not have permission to call DriveApp.getFileById') !== -1,
+    '原本的錯誤訊息要保留：' + message);
+  assert.ok(message.indexOf('授權範圍問題') !== -1, '要加授權範圍的指引：' + message);
+  assert.ok(message.indexOf('Apps Script 編輯器') !== -1, '要講清楚去哪裡重新授權：' + message);
+  assert.ok(message.indexOf('重新部署網頁應用程式') !== -1, '要提到部署 Web App 這條路：' + message);
+});
+
+test('enrichAuthError_：一般錯誤（不含 permission／authorization 字樣）→ 原樣回傳，不會多加任何字', function () {
+  var sb = makeEnv();
+  var err = new Error('BulletinWeeks 找不到 2027-11-07 這一行');
+  var message = sb.enrichAuthError_(err);
+
+  assert.strictEqual(message, 'BulletinWeeks 找不到 2027-11-07 這一行', '一般錯誤不應該被加上授權指引');
+});
+
+test('enrichAuthError_：不分大小寫比對（"Authorization required" 這類寫法也要抓到）', function () {
+  var sb = makeEnv();
+  var message = sb.enrichAuthError_(new Error('Authorization required to perform that action.'));
+  assert.ok(message.indexOf('授權範圍問題') !== -1, message);
+});
+
+test('enrichAuthError_：err 不是 Error 物件（例如純字串）也不會拋錯', function () {
+  var sb = makeEnv();
+  assert.doesNotThrow(function () {
+    var message = sb.enrichAuthError_('you do not have permission to do that');
+    assert.ok(message.indexOf('授權範圍問題') !== -1, message);
+  });
+});
+
+test('withApiResult_：拋出授權範圍錯誤時，回傳給前端的 error.message 也帶有指引', function () {
+  var sb = makeEnv();
+  var resp = sb.withApiResult_(function () {
+    throw new Error('You do not have permission to call DriveApp.getFileById.');
+  }, { functionName: 'testFn' });
+
+  assert.strictEqual(resp.ok, false);
+  assert.ok(resp.error.message.indexOf('授權範圍問題') !== -1, resp.error.message);
+});
+
+// =====================================================================
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail === 0 ? 0 : 1);

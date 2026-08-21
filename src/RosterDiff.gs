@@ -368,6 +368,6 @@ function menuCheckRosterDiff_() {
     );
   } catch (err) {
     logMenuError_('menuCheckRosterDiff_', err);
-    ui.alert('檢查職事表分歧失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
+    ui.alert('檢查職事表分歧失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
 }

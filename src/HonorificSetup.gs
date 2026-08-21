@@ -487,7 +487,7 @@ function menuBuildPersonDisplaySkeleton_() {
     );
   } catch (err) {
     logMenuError_('menuBuildPersonDisplaySkeleton_', err);
-    ui.alert('建立 PersonDisplay 骨架失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
+    ui.alert('建立 PersonDisplay 骨架失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
 }
 
@@ -515,7 +515,7 @@ function menuApplyHonorificLookup_() {
     );
   } catch (err) {
     logMenuError_('menuApplyHonorificLookup_', err);
-    ui.alert('套用尊稱對照表失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
+    ui.alert('套用尊稱對照表失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
 }
 
@@ -558,6 +558,6 @@ function menuHonorificMissingReport_() {
     );
   } catch (err) {
     logMenuError_('menuHonorificMissingReport_', err);
-    ui.alert('尊稱未設定報告失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
+    ui.alert('尊稱未設定報告失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
 }

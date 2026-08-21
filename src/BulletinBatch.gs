@@ -301,6 +301,6 @@ function menuGenerateQuarterBulletinsBatch_() {
     ui.alert('產生本季全部週報', lines.join('\n'), ui.ButtonSet.OK);
   } catch (err) {
     logMenuError_('menuGenerateQuarterBulletinsBatch_', err);
-    ui.alert('產生本季全部週報失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
+    ui.alert('產生本季全部週報失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
 }

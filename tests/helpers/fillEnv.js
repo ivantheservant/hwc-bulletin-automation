@@ -275,6 +275,7 @@ function makeFillEnv(options) {
     __toasts: toasts,
     toast: function (message, title, timeoutSeconds) { toasts.push({ message: message, title: title, timeoutSeconds: timeoutSeconds }); },
     getUrl: function () { return 'https://docs.google.com/spreadsheets/d/FAKE/edit'; },
+    getName: function () { return 'FAKE_SPREADSHEET'; },
     getSheetByName: function (name) { return sheets[name] || null; },
     getSheets: function () {
       return Object.keys(sheets).map(function (name) {

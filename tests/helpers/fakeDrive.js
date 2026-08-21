@@ -115,9 +115,12 @@ function makeFakeUtilities(options) {
 /**
  * 用途：造一個假的 `DriveApp`。
  * Args:
- *   options {{files:Object<string,Object>=, folders:Object<string,Object>=}=}
+ *   options {{files:Object<string,Object>=, folders:Object<string,Object>=,
+ *            rootAccessError:Error=}=}
  *     `files` 是「檔案 ID → blob」；`folders` 是「資料夾 ID → 任意物件」
- *     （內容不重要，存在與否才重要）。
+ *     （內容不重要，存在與否才重要）；`rootAccessError` 選填，提供時
+ *     `getRootFolder()` 會拋出這個例外（模擬 `probeDriveAccess_()` 授權
+ *     不足的情況）。
  * Returns:
  *   {{DriveApp:Object, listFolderFiles:function(string):Object[],
  *     createdFiles:Object[]}}
@@ -169,6 +172,10 @@ function makeFakeDriveApp(options) {
           throw new Error('找不到檔案：' + id);
         }
         return makeFileHandle(id, files[id]);
+      },
+      getRootFolder: function () {
+        if (opts.rootAccessError) throw opts.rootAccessError;
+        return makeFolderHandle('ROOT');
       },
       getFolderById: function (id) {
         if (!Object.prototype.hasOwnProperty.call(folders, id)) {

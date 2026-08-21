@@ -40,7 +40,8 @@ function makeEnv(options) {
 
   const drive = makeFakeDriveApp({
     files: files,
-    folders: o.folderExists === false ? {} : { [FAKE_FOLDER_ID]: {} }
+    folders: o.folderExists === false ? {} : { [FAKE_FOLDER_ID]: {} },
+    rootAccessError: o.rootAccessError
   });
 
   const config = Object.assign({
@@ -203,6 +204,58 @@ test('18. 全部齊備（設定齊全、範本乾淨、資料夾存在、觸發�
   const summary = env.sandbox.runSelfCheck_();
   const redItems = summary.items.filter(function (i) { return i.status === '🔴'; });
   assert.strictEqual(redItems.length, 0, '不應該有任何 🔴：' + JSON.stringify(redItems));
+});
+
+// =====================================================================
+// checkAuthorizationScopes_()：檢查授權範圍
+// =====================================================================
+
+test('checkAuthorizationScopes_：全部服務都叫得動 → 5 項全部 ok:true', function () {
+  const env = makeEnv({});
+  const results = env.sandbox.checkAuthorizationScopes_();
+  assert.strictEqual(results.length, 5);
+  results.forEach(function (r) {
+    assert.strictEqual(r.ok, true, r.item + '：' + r.message);
+  });
+});
+
+test('checkAuthorizationScopes_：DriveApp 授權不足 → 那一項 ok:false，訊息帶授權指引，其餘服務不受影響', function () {
+  const authErr = new Error('You do not have permission to call DriveApp.getFileById.');
+  const env = makeEnv({ rootAccessError: authErr });
+  const results = env.sandbox.checkAuthorizationScopes_();
+
+  const driveItem = results.filter(function (r) { return r.item.indexOf('DriveApp') !== -1; })[0];
+  assert.strictEqual(driveItem.ok, false);
+  assert.ok(driveItem.message.indexOf('授權範圍問題') !== -1, driveItem.message);
+
+  const others = results.filter(function (r) { return r.item.indexOf('DriveApp') === -1; });
+  others.forEach(function (r) { assert.strictEqual(r.ok, true, r.item + '：' + r.message); });
+});
+
+test('buildAuthorizationScopeReportLines_：全部可用時的摘要行；有失敗時列出失敗數與逐項結果', function () {
+  const env = makeEnv({});
+  const okLines = env.sandbox.buildAuthorizationScopeReportLines_([
+    { item: 'A', ok: true, message: '可用。' }
+  ]);
+  assert.ok(okLines[0].indexOf('全部可用') !== -1, okLines[0]);
+
+  const mixedLines = env.sandbox.buildAuthorizationScopeReportLines_([
+    { item: 'A', ok: true, message: '可用。' },
+    { item: 'B', ok: false, message: '授權範圍問題，去 Apps Script 編輯器重新授權。' }
+  ]);
+  assert.ok(mixedLines[0].indexOf('1 項未授權') !== -1, mixedLines[0]);
+  assert.ok(mixedLines.some(function (l) { return l.indexOf('✗ 未授權') !== -1 && l.indexOf('B') !== -1; }));
+});
+
+test('menuCheckAuthorizationScopes_：把結果寫進 Diagnostics（報告名稱「檢查授權範圍」）', function () {
+  const authErr = new Error('Authorization is required to perform that action.');
+  const env = makeEnv({ rootAccessError: authErr });
+  env.sandbox.menuCheckAuthorizationScopes_();
+
+  const diagnostics = env.sandbox.readSheet('Diagnostics');
+  const rows = diagnostics.filter(function (r) { return r.REPORT_NAME === '檢查授權範圍'; });
+  assert.ok(rows.length > 0);
+  assert.ok(rows.some(function (r) { return r.CONTENT.indexOf('DriveApp') !== -1; }));
 });
 
 // =====================================================================

@@ -707,7 +707,7 @@ function menuGenerateBulletinDocx_() {
     ui.alert('已產生週報（Word）', lines.join('\n'), ui.ButtonSet.OK);
   } catch (err) {
     logMenuError_('menuGenerateBulletinDocx_', err);
-    ui.alert('產生週報失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
+    ui.alert('產生週報失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
 }
 
@@ -753,6 +753,6 @@ function menuInspectTemplatePlaceholders_() {
     );
   } catch (err) {
     logMenuError_('menuInspectTemplatePlaceholders_', err);
-    ui.alert('檢查範本佔位符失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
+    ui.alert('檢查範本佔位符失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
 }

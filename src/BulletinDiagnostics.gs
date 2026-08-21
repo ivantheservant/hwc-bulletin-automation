@@ -51,7 +51,7 @@ function menuCreateBlankBulletinWeeks_() {
     );
   } catch (err) {
     logMenuError_('menuCreateBlankBulletinWeeks_', err);
-    ui.alert('建立本季空白週報失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
+    ui.alert('建立本季空白週報失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
 }
 
@@ -182,7 +182,7 @@ function menuPreviewBulletinModel_() {
     writeDiagnosticsReport_('週報資料模型預覽', buildBulletinModelReportLines_(model));
   } catch (err) {
     logMenuError_('menuPreviewBulletinModel_', err);
-    ui.alert('預覽本週週報資料失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
+    ui.alert('預覽本週週報資料失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
 }
 

@@ -967,6 +967,73 @@ OOXML 規定每個 `<w:tc>`（表格儲存格）**至少要有一個 `<w:p>`**�
 
 ---
 
+## 事故十七：第一次用到新的 Google 服務，既有授權令牌不會自動擴大，`appsscript.json` 沒列 `oauthScopes` 就不會強制重新授權
+
+發生日期：2026-08-21（prompt9 之後，Ivan 第一次撳「檢查範本佔位符」
+實測發現）
+
+### 現象
+
+prompt9 那一輪第一次讓程式碼用到 `DriveApp`（讀 Word 範本、寫輸出
+檔案）。Ivan 撳「檢查範本佔位符」，對話框沒有正常顯示結果，而是報錯：
+
+```
+You do not have permission to call DriveApp.getFileById.
+Required permissions: (https://www.googleapis.com/auth/drive.readonly ||
+https://www.googleapis.com/auth/drive)
+```
+
+### 根因
+
+Apps Script 的授權令牌**只在使用者當初授權那一刻**問過「這個腳本要用
+到以下服務，你同意嗎？」，那次同意涵蓋的是**當時程式碼實際會用到的
+服務**。之後新增的程式碼如果第一次用到一個新服務，既有令牌不會自動
+擴大——這件事本身沒有問題，是設計如此；問題是**`src/appsscript.json`
+當時沒有明確列出 `oauthScopes`**。沒有明確列出時，Apps Script 用
+「自動掃描程式碼推斷範圍」這條路徑，而**既有的授權狀態不會因為推斷出
+的範圍變大就主動要求重新授權**——使用者完全沒有機會被提示「這次操作
+需要新的權限，請重新同意」，直到真的呼叫到那個服務才在執行期間爆出
+一個看起來像伺服器錯誤、其實是授權問題的訊息。
+
+### 修法
+
+1. `src/appsscript.json` 明確列出 `oauthScopes`（試算表、雲端硬碟、
+   選單對話框、觸發器、寄信、使用者電郵六項，逐項注意只列真正用到的，
+   不要多列）——明確列出範圍之後，範圍改變時 Apps Script 才會在下次
+   執行要求重新授權。
+2. 加共用函式 `enrichAuthError_()`（`src/ErrorLog.gs`）：偵測錯誤訊息
+   含 `permission`／`authorization`／`Required permissions` 字樣，
+   在訊息後面加一句操作指引，讓使用者一看就知道要去哪裡重新授權，
+   不會誤以為是程式壞了。這個函式取代了全部**選單處理函式**與
+   `withApiResult_()` 原本各自 `String(err && err.message ? ... )`
+   的寫法，37 處呼叫全部改用同一個函式——**同一個狀態的正規化邏輯只
+   准存在一份**（見反覆自問清單第 12 項），不然日後只改了其中幾處，
+   訊息會不一致。
+3. 新增選單「檢查授權範圍」：主動逐一試探性呼叫全部用得到的服務，
+   讓使用者不用等到操作到一半才發現授權有問題。
+
+### 留低咗啲乜
+
+- `src/appsscript.json` 的 `oauthScopes`。
+- `src/ErrorLog.gs` 的 `enrichAuthError_()`、`AUTH_ERROR_KEYWORDS_`。
+- `src/SelfCheck.gs` 的 `authorizationScopeProbes_()`／
+  `checkAuthorizationScopes_()`／`menuCheckAuthorizationScopes_()`。
+- `src/DocxIo.gs` 的 `probeDriveAccess_()`——⚠️ 函式名稱刻意不叫
+  `probeDriveAppAccess_`：那個名稱裡剛好完整包含字面上的
+  `DriveApp` 四個字，會被 `tools/lint-readonly-roster.js` 的規則 3
+  （「DriveApp 只准出現在 DocxIo.gs」）誤判成違規——那條規則是單純
+  字串比對，不分辨那是服務呼叫還是識別碼的一部分。**任何要在
+  `DocxIo.gs` 以外的檔案提到／呼叫 Drive 相關能力時，函式名稱與字串
+  標籤都要避開連續出現「DriveApp」這個字面組合**，這一輪就是在
+  `tests/selfcheck.test.js` 寫測試的過程中先被 lint 擋下來才發現的。
+- `tests/errorlog.test.js`：`enrichAuthError_()` 的測試。
+- `tests/selfcheck.test.js`：`checkAuthorizationScopes_()` 的測試，
+  連帶在 `tests/helpers/fakeDrive.js` 補了 `getRootFolder()`（含
+  `rootAccessError` 選項模擬授權失敗）、`tests/helpers/fillEnv.js`
+  補了假試算表的 `getName()`。
+
+---
+
 ## 本專案要反覆自問的 bug class
 
 寫任何一行程式碼之前，先自問這次會不會踩中以下任何一項：
@@ -1093,3 +1160,18 @@ OOXML 規定每個 `<w:tc>`（表格儲存格）**至少要有一個 `<w:p>`**�
     危險，容易漏改其中一處。凡是收到這類外部輸入的伺服器端 API，也要
     在自己那一層做第二重防線（剝雜訊、驗格式、不合格式就明確拋錯），
     不要假設前端一定會把值傳乾淨。
+24. **（prompt9 新增）程式碼第一次用到新的 Google 服務，忘記同步更新
+    `appsscript.json` 的 `oauthScopes`。** 沒有明確列出範圍時，Apps
+    Script 用「自動掃描推斷」，既有授權不會因為推斷出的範圍變大就主動
+    要求重新授權，使用者要到真正呼叫那個服務時才會撞到一個看起來像
+    伺服器錯誤、其實是授權不足的訊息。**任何 PR／輪次只要新增了呼叫
+    `DriveApp`／`MailApp`／`ScriptApp` 等新服務的程式碼，都要同時檢查
+    `oauthScopes` 有沒有列齊**，並提醒使用者這次部署後需要重新授權
+    一次。
+25. **（prompt9 新增）`tools/lint-readonly-roster.js` 的
+    `DriveApp` 檢查是單純的字串比對，會被識別碼名稱裡剛好包含
+    「DriveApp」四個字連續出現而誤判。** 幫 Drive 相關的輔助函式、
+    變數、字串標籤命名時，要刻意避開讓「Drive」跟緊接的「App」連在
+    一起（例如 `probeDriveAccess_` 而不是 `probeDriveAppAccess_`），
+    不只是這一個 lint 規則的問題——任何用簡單字串比對做邊界檢查的
+    工具，都要在動筆前搜一下新名稱會不會意外含有被禁的關鍵字組合。

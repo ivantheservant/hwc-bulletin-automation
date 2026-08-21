@@ -305,7 +305,7 @@ function menuTestSendBulletin_() {
     );
   } catch (err) {
     logMenuError_('menuTestSendBulletin_', err);
-    ui.alert('試寄失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
+    ui.alert('試寄失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
 }
 
@@ -351,6 +351,6 @@ function menuPreviewBulletinEmail_() {
     ui.showModalDialog(output, '預覽週報郵件內容（' + isoDate + '）');
   } catch (err) {
     logMenuError_('menuPreviewBulletinEmail_', err);
-    ui.alert('預覽週報郵件內容失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
+    ui.alert('預覽週報郵件內容失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
 }

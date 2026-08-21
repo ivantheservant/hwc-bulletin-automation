@@ -60,6 +60,10 @@ const SAFE_DOMAIN_PATTERNS = [
   /^script\.google\.com$/i,
   /^docs\.google\.com$/i,
   /^drive\.google\.com$/i,
+  // Google 官方 API 網域，`appsscript.json` 的 `oauthScopes` 一定要用
+  // 完整網址寫（例如 https://www.googleapis.com/auth/drive）——第九輪
+  // 補授權範圍設定時第一次出現。
+  /^(www\.)?googleapis\.com$/i,
   // OOXML（.docx）嘅命名空間 URI。呢啲係國際標準寫死嘅字串，唔係一個
   // 真係連得到嘅網站，亦都完全冇可能係教會網域——第七輪嘅 Word 範本
   // 渲染一定會喺 XML 入面出現。

@@ -52,6 +52,7 @@ function onOpen() {
     .addItem('檢查範本佔位符', 'menuInspectTemplatePlaceholders_')
     .addItem('全季流程演練', 'menuRunQuarterRehearsal_')
     .addItem('完成度自我檢測', 'menuRunSelfCheck_')
+    .addItem('檢查授權範圍', 'menuCheckAuthorizationScopes_')
     .addSeparator()
     .addSubMenu(SpreadsheetApp.getUi().createMenu('季度填寫表')
       .addItem('建立／刷新季度填寫表', 'menuCreateOrRefreshFillGrid_')
@@ -106,7 +107,7 @@ function menuInitializeAllSheets_() {
     ui.alert('初始化完成', lines.join('\n'), ui.ButtonSet.OK);
   } catch (err) {
     logMenuError_('menuInitializeAllSheets_', err);
-    ui.alert('初始化失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
+    ui.alert('初始化失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
 }
 
@@ -132,7 +133,7 @@ function menuReloadConfig_() {
     ui.alert('目前設定值（共 ' + keys.length + ' 項）', lines.join('\n'), ui.ButtonSet.OK);
   } catch (err) {
     logMenuError_('menuReloadConfig_', err);
-    ui.alert('讀取設定失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
+    ui.alert('讀取設定失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
 }
 

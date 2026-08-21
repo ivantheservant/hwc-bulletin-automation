@@ -66,7 +66,7 @@ function menuCreateOrRefreshFillGrid_() {
     ui.alert('季度填寫表', lines.join('\n'), ui.ButtonSet.OK);
   } catch (err) {
     logMenuError_('menuCreateOrRefreshFillGrid_', err);
-    ui.alert('建立季度填寫表失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
+    ui.alert('建立季度填寫表失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
 }
 
@@ -103,7 +103,7 @@ function menuSyncFillGrid_() {
     ui.alert('同步完成', lines.join('\n'), ui.ButtonSet.OK);
   } catch (err) {
     logMenuError_('menuSyncFillGrid_', err);
-    ui.alert('同步失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
+    ui.alert('同步失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
 }
 
@@ -141,7 +141,7 @@ function menuResolveFillConflicts_() {
     );
   } catch (err) {
     logMenuError_('menuResolveFillConflicts_', err);
-    ui.alert('處理填寫表衝突失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
+    ui.alert('處理填寫表衝突失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
 }
 
@@ -169,7 +169,7 @@ function menuCheckFillGridAppearance_() {
     );
   } catch (err) {
     logMenuError_('menuCheckFillGridAppearance_', err);
-    ui.alert('檢查格子表外觀失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
+    ui.alert('檢查格子表外觀失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
 }
 
@@ -369,7 +369,7 @@ function menuBackupQuarter_() {
     );
   } catch (err) {
     logMenuError_('menuBackupQuarter_', err);
-    ui.alert('備份失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
+    ui.alert('備份失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
 }
 
@@ -451,7 +451,7 @@ function menuRestoreQuarter_() {
     );
   } catch (err) {
     logMenuError_('menuRestoreQuarter_', err);
-    ui.alert('還原失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
+    ui.alert('還原失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
 }
 
@@ -491,7 +491,7 @@ function menuResequenceLists_() {
     );
   } catch (err) {
     logMenuError_('menuResequenceLists_', err);
-    ui.alert('整理清單次序失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
+    ui.alert('整理清單次序失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
 }
 
@@ -523,7 +523,7 @@ function menuGenerateFellowships_() {
     ui.alert('由常設時間表產生本季團契', lines.join('\n'), ui.ButtonSet.OK);
   } catch (err) {
     logMenuError_('menuGenerateFellowships_', err);
-    ui.alert('產生團契聚會失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
+    ui.alert('產生團契聚會失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
 }
 
@@ -562,7 +562,7 @@ function menuSendFillInvite_() {
     );
   } catch (err) {
     logMenuError_('menuSendFillInvite_', err);
-    ui.alert('寄出填寫邀請失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
+    ui.alert('寄出填寫邀請失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
 }
 
@@ -592,7 +592,7 @@ function menuApplySheetProtection_() {
     ui.alert('設定工作表保護', lines.join('\n'), ui.ButtonSet.OK);
   } catch (err) {
     logMenuError_('menuApplySheetProtection_', err);
-    ui.alert('設定工作表保護失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
+    ui.alert('設定工作表保護失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
 }
 
@@ -624,7 +624,7 @@ function menuCheckMissingQuarters_() {
     );
   } catch (err) {
     logMenuError_('menuCheckMissingQuarters_', err);
-    ui.alert('檢查未建立的季度失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
+    ui.alert('檢查未建立的季度失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
 }
 
@@ -662,7 +662,7 @@ function menuInstallFillEditTrigger_() {
     );
   } catch (err) {
     logMenuError_('menuInstallFillEditTrigger_', err);
-    ui.alert('安裝觸發器失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
+    ui.alert('安裝觸發器失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
 }
 
@@ -679,7 +679,7 @@ function menuRemoveFillEditTrigger_() {
     ui.alert('移除填寫表同步觸發器', '已移除 ' + removed + ' 個觸發器。', ui.ButtonSet.OK);
   } catch (err) {
     logMenuError_('menuRemoveFillEditTrigger_', err);
-    ui.alert('移除觸發器失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
+    ui.alert('移除觸發器失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
 }
 
@@ -712,7 +712,7 @@ function menuInstallFillReconcileTrigger_() {
     );
   } catch (err) {
     logMenuError_('menuInstallFillReconcileTrigger_', err);
-    ui.alert('安裝對帳觸發器失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
+    ui.alert('安裝對帳觸發器失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
 }
 
@@ -729,6 +729,6 @@ function menuRemoveFillReconcileTrigger_() {
     ui.alert('移除填寫表對帳觸發器', '已移除 ' + removed + ' 個觸發器。', ui.ButtonSet.OK);
   } catch (err) {
     logMenuError_('menuRemoveFillReconcileTrigger_', err);
-    ui.alert('移除對帳觸發器失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
+    ui.alert('移除對帳觸發器失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
 }

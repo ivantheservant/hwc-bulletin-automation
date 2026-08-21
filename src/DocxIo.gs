@@ -41,6 +41,23 @@ var DOCX_DOCUMENT_ENTRY_ = 'word/document.xml';
 var DOCX_MIME_TYPE_ = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
 /**
+ * 用途：試探性確認目前的執行帳戶對 Drive 服務有沒有基本的存取範圍。
+ *   供「檢查授權範圍」使用——刻意不依賴任何 Config 設定值（不用讀
+ *   `BULLETIN_OUTPUT_FOLDER_ID` 之類的 ID），純粹只是想知道「DriveApp
+ *   這個服務本身叫不叫得動」，不代表已經檢查過任何實際檔案／資料夾。
+ * Args: （無）
+ * Returns:
+ *   {void}
+ * Raises:
+ *   Error 如果目前的授權範圍不包含 Drive（或其他任何原因導致呼叫失敗）——
+ *     原樣往上拋，呼叫方（`checkAuthorizationScopes_()`）會接住並判定
+ *     這一項「未授權」。
+ */
+function probeDriveAccess_() {
+  DriveApp.getRootFolder().getId();
+}
+
+/**
  * 用途：確認一個資料夾 ID 開得到——供「完成度自我檢測」使用。
  *
  *   ⚠️ `DriveApp` 沒有直接的「檢查寫入權限」API；真正的寫入權限只有

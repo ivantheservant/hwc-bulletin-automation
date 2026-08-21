@@ -319,6 +319,6 @@ function menuRunQuarterRehearsal_() {
     ui.alert('全季流程演練', lines.join('\n'), ui.ButtonSet.OK);
   } catch (err) {
     logMenuError_('menuRunQuarterRehearsal_', err);
-    ui.alert('全季流程演練失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
+    ui.alert('全季流程演練失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
 }

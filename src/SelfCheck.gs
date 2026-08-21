@@ -381,6 +381,75 @@ function buildSelfCheckReportLines_(summary) {
 }
 
 // =====================================================================
+// 檢查授權範圍
+// =====================================================================
+
+/**
+ * 用途：「檢查授權範圍」要逐一試探的服務清單與探測方式。寫成函式
+ *   延遲求值，不依賴 `.gs` 檔案載入次序（見 docs/已知bug類型.md 事故一）。
+ *
+ *   ⚠️ 每一個探測都要**最輕量、不產生副作用**——這是「有沒有權限」的
+ *   試探，不是功能測試，不可以順手寫入或刪除任何東西。`DriveApp` 不可以
+ *   在這個檔案直接呼叫（`tools/lint-readonly-roster.js` 規則 3 只准
+ *   `src/DocxIo.gs` 出現），所以透過 `probeDriveAccess_()` 間接呼叫。
+ * Args: （無）
+ * Returns:
+ *   {{item:string, probe:function():void}[]}
+ */
+function authorizationScopeProbes_() {
+  return [
+    { item: 'SpreadsheetApp（試算表）', probe: function () { SpreadsheetApp.getActiveSpreadsheet().getName(); } },
+    { item: 'DriveApp（雲端硬碟）', probe: function () { probeDriveAccess_(); } },
+    { item: 'MailApp（寄信配額查詢）', probe: function () { MailApp.getRemainingDailyQuota(); } },
+    { item: 'ScriptApp（觸發器清單）', probe: function () { ScriptApp.getProjectTriggers(); } },
+    { item: 'Session（目前使用者）', probe: function () { Session.getActiveUser().getEmail(); } }
+  ];
+}
+
+/**
+ * 用途：「檢查授權範圍」的真正入口。逐一試探性呼叫
+ *   `authorizationScopeProbes_()` 列出的服務，回報哪些可用、哪些授權
+ *   不足。**唯讀**。
+ * Args: （無）
+ * Returns:
+ *   {{item:string, ok:boolean, message:string}[]}
+ */
+function checkAuthorizationScopes_() {
+  return authorizationScopeProbes_().map(function (p) {
+    try {
+      p.probe();
+      return { item: p.item, ok: true, message: '可用。' };
+    } catch (err) {
+      return { item: p.item, ok: false, message: enrichAuthError_(err) };
+    }
+  });
+}
+
+/**
+ * 用途：把 `checkAuthorizationScopes_()` 的結果排版成 `Diagnostics`
+ *   報告的內容行。
+ *
+ *   ⚠️ 區段標題一律用全形括號「【…】」，不可以用 `===` 開頭——見
+ *   docs/已知bug類型.md 事故六。
+ * Args:
+ *   results {{item:string, ok:boolean, message:string}[]}
+ *     `checkAuthorizationScopes_()` 的回傳值。
+ * Returns:
+ *   {string[]}
+ */
+function buildAuthorizationScopeReportLines_(results) {
+  var lines = [];
+  var failedCount = results.filter(function (r) { return !r.ok; }).length;
+  lines.push('共 ' + results.length + ' 項，' + (failedCount === 0 ? '全部可用。' : failedCount + ' 項未授權或呼叫失敗。'));
+  lines.push('');
+  lines.push('【逐項結果】');
+  results.forEach(function (r) {
+    lines.push((r.ok ? '✓ 可用' : '✗ 未授權') + '　' + r.item + '　' + r.message);
+  });
+  return lines;
+}
+
+// =====================================================================
 // 選單處理函式
 // =====================================================================
 
@@ -402,6 +471,35 @@ function menuRunSelfCheck_() {
     );
   } catch (err) {
     logMenuError_('menuRunSelfCheck_', err);
-    ui.alert('完成度自我檢測失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
+    ui.alert('完成度自我檢測失敗', enrichAuthError_(err), ui.ButtonSet.OK);
+  }
+}
+
+/**
+ * 用途：選單項目「檢查授權範圍」的處理函式。**唯讀**。
+ * Args: （無）
+ * Returns:
+ *   {void}
+ */
+function menuCheckAuthorizationScopes_() {
+  var ui = SpreadsheetApp.getUi();
+  try {
+    var results = checkAuthorizationScopes_();
+    writeDiagnosticsReport_('檢查授權範圍', buildAuthorizationScopeReportLines_(results));
+
+    var failed = results.filter(function (r) { return !r.ok; });
+    if (failed.length === 0) {
+      ui.alert('檢查授權範圍', '全部 ' + results.length + ' 項服務都可以正常呼叫，授權範圍沒有問題。', ui.ButtonSet.OK);
+      return;
+    }
+
+    var lines = ['以下 ' + failed.length + ' 項未授權或呼叫失敗：', ''];
+    failed.forEach(function (r) { lines.push('　' + r.item + '：' + r.message); });
+    lines.push('');
+    lines.push('完整結果已寫入 Diagnostics 工作表。');
+    ui.alert('檢查授權範圍', lines.join('\n'), ui.ButtonSet.OK);
+  } catch (err) {
+    logMenuError_('menuCheckAuthorizationScopes_', err);
+    ui.alert('檢查授權範圍失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
 }

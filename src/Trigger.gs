@@ -211,7 +211,7 @@ function menuInstallSendTrigger_() {
     );
   } catch (err) {
     logMenuError_('menuInstallSendTrigger_', err);
-    ui.alert('安裝自動寄送觸發器失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
+    ui.alert('安裝自動寄送觸發器失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
 }
 
@@ -239,7 +239,7 @@ function menuRemoveSendTrigger_() {
     ui.alert('移除自動寄送觸發器', '已移除 ' + removed + ' 個觸發器。', ui.ButtonSet.OK);
   } catch (err) {
     logMenuError_('menuRemoveSendTrigger_', err);
-    ui.alert('移除自動寄送觸發器失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
+    ui.alert('移除自動寄送觸發器失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
 }
 
@@ -264,6 +264,6 @@ function menuShowTriggerStatus_() {
     ui.alert('查看觸發器狀態（共 ' + triggers.length + ' 個）', lines.join('\n'), ui.ButtonSet.OK);
   } catch (err) {
     logMenuError_('menuShowTriggerStatus_', err);
-    ui.alert('查看觸發器狀態失敗', String(err && err.message ? err.message : err), ui.ButtonSet.OK);
+    ui.alert('查看觸發器狀態失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
 }
