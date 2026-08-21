@@ -581,14 +581,30 @@ test('5i. 真正入口 inspectTemplatePlaceholders_()：未設定的範本回 co
   assert.ok(report.supportedValues.length > 0, '就算沒有範本，也要列得出系統提供哪些佔位符');
 });
 
-test('5j. 真正入口 inspectTemplatePlaceholders_()：偵測範本內被切斷的佔位符', function () {
+test('5j. 真正入口 inspectTemplatePlaceholders_()：run 之間夾住書籤的佔位符，對帳認得（跟渲染同一套整理）', function () {
+  // ⚠️ 對帳與渲染一定要用**同一個** prepareXmlForPlaceholders_()：以前
+  // 對帳只做 mergeRunsInParagraphs_()，所以這一段會被報成 broken；渲染
+  // 那邊加了第二道防線之後救得到，兩邊就會講兩套。這條測試鎖住「兩邊
+  // 同一個答案」。
   const templateXml = fx.documentXml(fx.para(
     fx.run('{{') + '<w:bookmarkStart w:id="1" w:name="x"/>' + fx.run('SERMON_TITLE}}')
   ));
   const env = makeEnv({ templateXml: templateXml });
   const report = env.sandbox.inspectTemplatePlaceholders_();
   const normal = report.templates.filter(function (t) { return t.configKey === 'TEMPLATE_FILE_ID_NORMAL'; })[0];
-  assert.strictEqual(normal.broken.length, 1);
+
+  assert.strictEqual(normal.broken.length, 0, '救得到就不應該再報成被切斷');
+  assert.ok(normal.usedValues.indexOf('SERMON_TITLE') !== -1, '要認得出這個範本用到 SERMON_TITLE');
+});
+
+test('5j-2. 真正入口 inspectTemplatePlaceholders_()：跨段落的佔位符救不到 → 如實報成被切斷', function () {
+  const templateXml = fx.documentXml(
+    fx.para(fx.run('{{SERMON')) + fx.para(fx.run('_TITLE}}'))
+  );
+  const env = makeEnv({ templateXml: templateXml });
+  const report = env.sandbox.inspectTemplatePlaceholders_();
+  const normal = report.templates.filter(function (t) { return t.configKey === 'TEMPLATE_FILE_ID_NORMAL'; })[0];
+  assert.strictEqual(normal.broken.length, 2, '真正救不到的一定要照報');
 });
 
 test('5k. renderBulletinAttachment_()：範本有設定時真的產生 .docx blob', function () {
@@ -787,6 +803,75 @@ test('9d. 真正入口：FINANCE_PERIOD_LABEL 與 FINANCE_TITLE 由 Config 樣�
   const text = visibleText(documentXmlOf(result.blob));
   assert.ok(text.indexOf('2027年 10月份') !== -1, '標題要用上一個月：' + text);
   assert.ok(text.indexOf('10月份') !== -1, '首欄標籤要用同一個月：' + text);
+});
+
+// =====================================================================
+// 10. 產出實掃驗證（prompt-fix-split-run-placeholders.md 第 2 部分）
+// =====================================================================
+
+test('10. 真正入口：正常產出 → residual.count 為 0，對話框寫「殘留佔位符：0 個」', function () {
+  const env = makeEnv({});
+  const result = env.sandbox.saveBulletinDocx_('2027-11-07');
+  assert.strictEqual(result.ok, true, JSON.stringify(result));
+  assert.strictEqual(result.residual.count, 0);
+
+  const lines = env.sandbox.buildGenerateResultDialogLines_('2027-11-07', result);
+  assert.ok(lines.some(function (l) { return l.indexOf('殘留佔位符：0 個') !== -1; }),
+    '對話框一定要有這一行：' + JSON.stringify(lines));
+});
+
+test('10b. 真正入口：範本用了系統不提供的清單標記 → 三個自報數字全部話冇事，但實掃捉到殘留', function () {
+  // ⚠️ 這條就是 Ivan 撞到嗰個情況的最小重現：紙上真係有 {{ 印出嚟，
+  // 但 replacedCount／missingKeys／broken 三個數字全部話冇問題。
+  const templateXml = fx.documentXml(
+    fx.para(fx.run('{{SERMON_TITLE}}'))
+    + fx.para(fx.run('{{#EACHP:NOT_A_REAL_LIST}}{{NOT_A_REAL_LIST.TEXT}}'))
+  );
+  const env = makeEnv({ templateXml: templateXml });
+  const result = env.sandbox.saveBulletinDocx_('2027-11-07');
+  assert.strictEqual(result.ok, true, JSON.stringify(result));
+
+  // 三個「自己數自己」的數字都話冇事⋯⋯
+  assert.strictEqual(result.stats.missingKeys.length, 0);
+  assert.strictEqual(result.stats.broken.length, 0);
+  // ⋯⋯但實掃捉到。
+  assert.strictEqual(result.residual.count, 2, JSON.stringify(result.residual));
+  assert.ok(result.residual.samples.length > 0);
+});
+
+test('10c. 真正入口：有殘留時對話框用警告措辭、列出頭三個，並寫入 ErrorLog', function () {
+  const templateXml = fx.documentXml(
+    fx.para(fx.run('{{#EACHP:NOT_A_REAL_LIST}}{{NOT_A_REAL_LIST.TEXT}}'))
+  );
+  const env = makeEnv({ templateXml: templateXml });
+  const result = env.sandbox.saveBulletinDocx_('2027-11-07');
+
+  const lines = env.sandbox.buildGenerateResultDialogLines_('2027-11-07', result);
+  const text = lines.join('\n');
+  assert.ok(text.indexOf('殘留佔位符：2 個') !== -1, text);
+  assert.ok(text.indexOf('⚠️') !== -1, '一定要用警告措辭：' + text);
+  assert.ok(text.indexOf('{{#EACHP:NOT_A_REAL_LIST}}') !== -1, '要列出實際殘留的內容：' + text);
+
+  const errors = env.sandbox.readSheet('ErrorLog')
+    .filter(function (r) { return r.ERROR_CODE === 'RESIDUAL_PLACEHOLDER'; });
+  assert.strictEqual(errors.length, 1, '殘留一定要留低痕跡，不可以只喺對話框講一次');
+
+  assert.ok(result.warnings.some(function (w) { return w.code === 'RESIDUAL_PLACEHOLDER'; }));
+});
+
+test('10d. 真正入口：範本佔位符被拆成格式不同的多個 run → 照樣填得到，殘留 0', function () {
+  const rprA = '<w:rPr><w:sz w:val="21"/></w:rPr>';
+  const rprB = '<w:rPr><w:sz w:val="22"/></w:rPr>';
+  const templateXml = fx.documentXml(fx.para(
+    fx.run('{{SERMON_', rprA) + fx.run('TITLE}}', rprB)
+  ));
+  const env = makeEnv({ templateXml: templateXml });
+  const result = env.sandbox.saveBulletinDocx_('2027-11-07');
+
+  assert.strictEqual(result.ok, true, JSON.stringify(result));
+  assert.strictEqual(result.residual.count, 0);
+  assert.strictEqual(result.stats.collapsedParagraphs, 1, '應該由第二道防線救回');
+  assert.ok(visibleText(documentXmlOf(result.blob)).indexOf('因信稱義') !== -1);
 });
 
 // =====================================================================

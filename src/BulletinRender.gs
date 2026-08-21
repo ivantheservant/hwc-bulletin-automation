@@ -602,15 +602,61 @@ function generateBulletinDocx_(isoDate) {
     return result.xml;
   });
 
+  // ---- 產出驗證：回頭實掃真正的產出，不是信上面那幾個數字 ----
+  // ⚠️ 這一步刻意排在渲染之後、回傳之前，而且**不共用渲染的任何假設**
+  // （重新解壓 blob）。理由見 scanDocxResidualPlaceholders_() 的說明。
+  var residual = scanDocxResidualPlaceholders_(rendered.blob);
+  if (residual.count !== 0) {
+    var residualMessage = buildResidualPlaceholderMessage_(fileName, template.label, residual);
+    renderWarnings = renderWarnings.concat([{ code: 'RESIDUAL_PLACEHOLDER', message: residualMessage }]);
+    // 殘留代表「印出來的紙上真的有 {{」——一定要留低痕跡，不可以只在
+    // 對話框講一次就算（對話框關掉就冇咗，見 docs/已知bug類型.md 第 13 條）。
+    appendErrorLog_({
+      source: ERROR_LOG_SOURCE.MENU,
+      functionName: 'generateBulletinDocx_',
+      errorCode: 'RESIDUAL_PLACEHOLDER',
+      message: residualMessage,
+      detail: JSON.stringify({ isoDate: isoDate, fileName: fileName, residual: residual })
+    });
+  }
+
   return {
     ok: true,
     blob: rendered.blob,
     fileName: fileName,
     templateLabel: template.label,
     stats: renderStats,
+    residual: residual,
     warnings: renderWarnings.concat(model.warnings || []),
     modelMissingCount: (model.missing || []).length
   };
+}
+
+/**
+ * 用途：把 `scanDocxResidualPlaceholders_()` 的結果排版成一句人看得懂的
+ *   警告訊息，對話框與 `ErrorLog` 共用同一句（只有一個真相來源）。
+ * Args:
+ *   fileName {string} 產生的檔名。
+ *   templateLabel {string} 用了哪一個範本（平常主日／浸禮／堂慶）。
+ *   residual {{count:number, samples:string[], parts:string[], error:string=}}
+ *     `scanDocxResidualPlaceholders_()` 的輸出。
+ * Returns:
+ *   {string}
+ */
+function buildResidualPlaceholderMessage_(fileName, templateLabel, residual) {
+  if (residual.count < 0) {
+    return '⚠️ 無法驗證產出（' + fileName + '）有沒有殘留佔位符：'
+      + (residual.error || '未知原因')
+      + '　請人手開一次那份 Word 確認紙上沒有 {{ 開頭的文字。';
+  }
+
+  var head = residual.samples.slice(0, 3);
+  return '⚠️ 產出（' + fileName + '，' + templateLabel + '範本）仍然殘留 '
+    + residual.count + ' 個佔位符，會原封不動印在紙上。'
+    + '頭 ' + head.length + ' 個：' + head.join('　')
+    + '　所在部件：' + residual.parts.join('、')
+    + '　多數成因：範本那一段被 Word 切成多個格式不同的 run，或者佔位符名稱打錯字。'
+    + '修法：在 Word 把那一段整段刪掉重新打一次，再撳「檢查範本佔位符」確認。';
 }
 
 /**
@@ -681,8 +727,11 @@ function inspectTemplatePlaceholders_() {
         return entry;
       }
 
-      // ⚠️ 一定要先合併 run 才盤點，否則被 Word 拆散的佔位符會漏報。
-      var xml = mergeRunsInParagraphs_(entries[index].blob.getDataAsString('UTF-8'));
+      // ⚠️ 一定要用**跟渲染完全同一個** prepareXmlForPlaceholders_() 才盤點：
+      // 被 Word 拆散的佔位符（尤其是拆成格式不同的多個 run 那一種）不整理
+      // 就會漏報，而且對帳與渲染一旦各用一套假設，就會出現「對帳報沒問題、
+      // 渲染卻填不到」——那正是這個系統最難查的一類錯。
+      var xml = prepareXmlForPlaceholders_(entries[index].blob.getDataAsString('UTF-8')).xml;
       entry.placeholders = findPlaceholders_(xml);
       entry.broken = findBrokenPlaceholders_(xml);
 
@@ -831,29 +880,73 @@ function menuGenerateBulletinDocx_() {
       return;
     }
 
-    var stats = result.stats || {};
-    var lines = [
-      '主日日期：' + isoDate,
-      '使用的範本：' + result.templateLabel,
-      '',
-      '替換的佔位符：' + (stats.replacedCount || 0) + ' 個',
-      '展開的列：' + (stats.expandedRows || 0) + ' 列',
-      '刪除的條件列／段落：' + (stats.removedRows || 0) + ' 列、' + (stats.removedParagraphs || 0) + ' 段',
-      '找不到值的佔位符：' + ((stats.missingKeys || []).length) + ' 個'
-        + ((stats.missingKeys || []).length > 0 ? '（' + stats.missingKeys.join('、') + '）' : ''),
-      '疑似被切斷的佔位符：' + ((stats.broken || []).length) + ' 個'
-        + ((stats.broken || []).length > 0 ? '　⚠️ 這些會原樣印出來，請檢查範本' : ''),
-      '待填欄位：' + (result.modelMissingCount || 0) + ' 個',
-      '',
-      '檔案：' + result.file.fileName,
-      result.file.url
-    ];
-
-    ui.alert('已產生週報（Word）', lines.join('\n'), ui.ButtonSet.OK);
+    var lines = buildGenerateResultDialogLines_(isoDate, result);
+    var residual = result.residual || { count: 0 };
+    // 產出真的有殘留時，連對話框標題都要講明——標題是唯一一定看得到的
+    // 部分，內文有機會被使用者一眼掃過去。
+    var title = residual.count === 0 ? '已產生週報（Word）' : '⚠️ 已產生週報，但產出有問題';
+    ui.alert(title, lines.join('\n'), ui.ButtonSet.OK);
   } catch (err) {
     logMenuError_('menuGenerateBulletinDocx_', err);
     ui.alert('產生週報失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
+}
+
+/**
+ * 用途：組出「已產生週報（Word）」對話框的內容行。抽成純函式，方便
+ *   測試直接驗證「殘留佔位符」那一行真的有出現、數字真的對。
+ *
+ *   ⚠️ 「殘留佔位符」那一行刻意排在**最前面**（在其餘統計之上）：其餘
+ *   數字全部是渲染過程自己算的，只有這一個是回頭實掃產出得出來的，也
+ *   只有它能證明紙上到底有沒有 `{{`。見
+ *   `scanDocxResidualPlaceholders_()` 與 docs/已知bug類型.md。
+ * Args:
+ *   isoDate {string} 主日日期。
+ *   result {Object} `saveBulletinDocx_()` 的回傳值。
+ * Returns:
+ *   {string[]}
+ */
+function buildGenerateResultDialogLines_(isoDate, result) {
+  var stats = result.stats || {};
+  var residual = result.residual || { count: 0, samples: [], parts: [] };
+  var lines = [
+    '主日日期：' + isoDate,
+    '使用的範本：' + result.templateLabel,
+    ''
+  ];
+
+  if (residual.count < 0) {
+    lines.push('殘留佔位符：⚠️ 驗證不到（' + (residual.error || '未知原因') + '）');
+    lines.push('　請人手開一次那份 Word，確認紙上沒有 {{ 開頭的文字。');
+    lines.push('');
+  } else if (residual.count > 0) {
+    lines.push('殘留佔位符：' + residual.count + ' 個　⚠️⚠️ 這些會原封不動印在紙上');
+    residual.samples.slice(0, 3).forEach(function (s) { lines.push('　　' + s); });
+    lines.push('　修法：在 Word 把那一段整段刪掉、一口氣重新打一次，');
+    lines.push('　再撳「檢查範本佔位符」確認。詳情已寫入 ErrorLog。');
+    lines.push('');
+  } else {
+    lines.push('殘留佔位符：0 個（已回頭掃描產出檔案確認）');
+    lines.push('');
+  }
+
+  lines.push('替換的佔位符：' + (stats.replacedCount || 0) + ' 個');
+  lines.push('展開的列：' + (stats.expandedRows || 0) + ' 列');
+  lines.push('刪除的條件列／段落：' + (stats.removedRows || 0) + ' 列、' + (stats.removedParagraphs || 0) + ' 段');
+  if ((stats.collapsedParagraphs || 0) > 0) {
+    lines.push('整段壓平的段落：' + stats.collapsedParagraphs + ' 段'
+      + '（範本那幾段的佔位符被 Word 切成格式不同的多個 run，已自動救回）');
+  }
+  lines.push('找不到值的佔位符：' + ((stats.missingKeys || []).length) + ' 個'
+    + ((stats.missingKeys || []).length > 0 ? '（' + stats.missingKeys.join('、') + '）' : ''));
+  lines.push('疑似被切斷的佔位符：' + ((stats.broken || []).length) + ' 個'
+    + ((stats.broken || []).length > 0 ? '　⚠️ 這些會原樣印出來，請檢查範本' : ''));
+  lines.push('待填欄位：' + (result.modelMissingCount || 0) + ' 個');
+  lines.push('');
+  lines.push('檔案：' + result.file.fileName);
+  lines.push(result.file.url);
+
+  return lines;
 }
 
 /**

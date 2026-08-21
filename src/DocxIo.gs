@@ -384,6 +384,75 @@ function renderDocxFromTemplate_(fileId, filename, transformXml) {
 }
 
 /**
+ * 用途：判斷一個 zip entry 名稱是不是「會印在紙上、可能藏住殘留佔位符」
+ *   的 XML 部件——正文、頁首、頁尾。
+ *
+ *   ⚠️ 文字方塊（`<w:txbxContent>`）不需要另外列：它本身就住在
+ *   `word/document.xml` 裡面，不是獨立的部件。真正獨立成檔的是頁首
+ *   （`word/header1.xml`…）與頁尾（`word/footer1.xml`…），週報的頁尾
+ *   將來有可能放 `{{GENERATED_AT}}` 之類，所以一併掃。
+ * Args:
+ *   name {string} entry 名稱。
+ * Returns:
+ *   {boolean}
+ */
+function isDocxTextPartName_(name) {
+  var lower = String(name || '').toLowerCase().replace(/\\/g, '/');
+  if (lower === DOCX_DOCUMENT_ENTRY_ || lower.slice(-'/document.xml'.length) === '/document.xml') return true;
+  return /(^|\/)(header|footer)\d*\.xml$/.test(lower);
+}
+
+/**
+ * 用途：**回頭掃描已經產生好的 `.docx`**，找出仍然殘留在紙上的佔位符。
+ *
+ *   ─────────────────────────────────────────────────────────────────
+ *   為什麼一定要重新解壓產出，而不是信渲染過程報的數字
+ *   ─────────────────────────────────────────────────────────────────
+ *
+ *   `replacedCount`／`missingKeys`／`broken` 三個數字全部由渲染流程**自己**
+ *   算出來，用的是跟渲染完全同一套假設。假設一旦錯（例如「佔位符一定
+ *   已經合併好」），三個數字會**一齊錯，而且一齊報沒事**——實際紙上有
+ *   `{{#EACHP:ANNOUNCEMENT}}` 原封不動印出來，對話框卻三個 0。
+ *
+ *   驗證函式與被驗證的邏輯用同一個假設，等於沒有驗證。所以這裡刻意
+ *   **重新解壓真正的產出 blob**，用最寬鬆的 `{{` 實掃——這條路徑跟渲染
+ *   沒有任何共用假設。見 docs/已知bug類型.md。
+ * Args:
+ *   blob {Blob} 已經產生好的 `.docx` blob。
+ * Returns:
+ *   {{count:number, samples:string[], parts:string[]}} `count` 是全部
+ *     文字部件加起來的殘留數；`samples` 是去重後的殘留片段（最多 10 個）；
+ *     `parts` 是有殘留的部件名稱。掃描本身失敗（例如壓縮結果讀不回來）
+ *     時回 `{count:-1, ...}`——**負數代表「驗證不到」，不是「沒問題」**，
+ *     呼叫方要照樣提出來，不可以當成 0。
+ */
+function scanDocxResidualPlaceholders_(blob) {
+  var totalCount = 0;
+  var samples = [];
+  var seen = {};
+  var parts = [];
+
+  try {
+    unzipDocx_(blob).forEach(function (entry) {
+      if (!isDocxTextPartName_(entry.name)) return;
+      var result = scanResidualPlaceholders_(entry.blob.getDataAsString('UTF-8'));
+      if (result.count === 0) return;
+      totalCount += result.count;
+      parts.push(entry.name);
+      result.samples.forEach(function (s) {
+        if (seen[s] || samples.length >= 10) return;
+        seen[s] = true;
+        samples.push(s);
+      });
+    });
+  } catch (err) {
+    return { count: -1, samples: [], parts: [], error: (err && err.message) ? err.message : String(err) };
+  }
+
+  return { count: totalCount, samples: samples, parts: parts };
+}
+
+/**
  * 用途：把檔名拆成「主檔名」與「副檔名」，供 `uniqueOutputFileName_()`
  *   在中間插入序號用。
  * Args:

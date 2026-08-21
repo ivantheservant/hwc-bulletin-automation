@@ -693,7 +693,10 @@ test('renderDocumentXml_：完整流程——合併 run、展開、條件、單�
   assert.strictEqual(result.xml.indexOf('{{'), -1, '成品不可以殘留任何佔位符');
 });
 
-test('renderDocumentXml_：被切斷的佔位符收集成 warning，但不中斷', function () {
+test('renderDocumentXml_：run 之間夾住書籤（合併不到）的佔位符，改由整段壓平救回', function () {
+  // ⚠️ 這個案例以前的行為是「偵測到 broken、記一筆 warning、原樣印出來」。
+  // 加入第二道防線（collapseSplitPlaceholderParagraphs_）之後，同一段會被
+  // 整段壓平，佔位符**真的填得到**——救得到當然好過只報一句警告。
   const xml = fx.documentXml(fx.para(
     fx.run('{{') + '<w:bookmarkStart w:id="1" w:name="x"/>' + fx.run('SERMON_TITLE}}')
   ));
@@ -701,7 +704,25 @@ test('renderDocumentXml_：被切斷的佔位符收集成 warning，但不中斷
   assert.doesNotThrow(function () {
     result = renderDocumentXml_(xml, { values: { SERMON_TITLE: 'X' }, lists: {} });
   });
-  assert.strictEqual(result.stats.broken.length, 1);
+  assert.strictEqual(result.stats.collapsedParagraphs, 1, '應該由第二道防線壓平一段');
+  assert.strictEqual(result.stats.broken.length, 0, '壓平之後就不再是「被切斷」');
+  assert.strictEqual(result.xml.indexOf('{{'), -1, '成品不可以殘留佔位符');
+  assert.ok(result.xml.indexOf('>X<') !== -1 || result.xml.indexOf('X') !== -1, '值要真的填得到');
+});
+
+test('renderDocumentXml_：跨兩個段落的佔位符救不到 → 仍然收集成 warning，但不中斷', function () {
+  // 真正救不到的情況：`{{` 在一段、`}}` 在另一段。整段壓平只作用於
+  // 單一段落內，跨段落的沒可能合併（合併了等於改動版面），所以這一種
+  // 仍然要如實報成 broken——這條測試就是「第二道防線唔可以掩蓋真問題」
+  // 的反向鎖。
+  const xml = fx.documentXml(
+    fx.para(fx.run('{{SERMON')) + fx.para(fx.run('_TITLE}}'))
+  );
+  let result;
+  assert.doesNotThrow(function () {
+    result = renderDocumentXml_(xml, { values: { SERMON_TITLE: 'X' }, lists: {} });
+  });
+  assert.strictEqual(result.stats.broken.length, 2, '有頭無尾＋有尾無頭，兩段各一');
   assert.ok(result.warnings.some(function (w) { return w.code === 'BROKEN_PLACEHOLDER'; }));
 });
 

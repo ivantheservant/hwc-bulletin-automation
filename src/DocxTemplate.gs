@@ -417,6 +417,251 @@ function mergeRunsInParagraphs_(xml) {
 }
 
 // =====================================================================
+// 整段合併文字：佔位符處理的唯一基準
+// =====================================================================
+
+/**
+ * 用途：佔位符的**唯一**辨識樣式。四種語法（`{{KEY}}`／`{{OBJ.FIELD}}`／
+ *   `{{#EACH:LIST}}`／`{{#EACHP:LIST}}`／`{{#IF:KEY}}`／`{{#IFP:KEY}}`）
+ *   全部由這一個樣式認出來——寫成函式而不是頂層 `var`，是因為正則物件
+ *   帶 `lastIndex` 狀態，共用同一個實例會互相干擾。
+ * Args: （無）
+ * Returns:
+ *   {RegExp} 帶 `g` 旗標的新實例。
+ */
+function placeholderScanPattern_() {
+  return /\{\{[#A-Z0-9_.:]+\}\}/g;
+}
+
+/**
+ * 用途：找出**屬於這一段自己**的 `<w:t>` 範圍——排除巢狀
+ *   `<w:txbxContent>`（文字方塊）內的那些。
+ *
+ *   ⚠️ 為什麼一定要排除：文字方塊內是**另一個段落**的內容。把它的文字
+ *   混進外層段落的合併字串，會造出一個現實中不存在的字串（外層的字尾
+ *   接上文字方塊的字頭），可能憑空拼出一個假的佔位符；寫回時更會把
+ *   文字方塊的內容整段搬到外層去。本份週報有 4–10 個文字方塊，這一點
+ *   不是理論風險。
+ * Args:
+ *   paragraphXml {string} 一個完整的 `<w:p>...</w:p>`。
+ * Returns:
+ *   {{start:number, end:number}[]} 依 `start` 由小到大排序，索引相對於
+ *     `paragraphXml` 本身。
+ */
+function paragraphOwnTextRanges_(paragraphXml) {
+  var source = String(paragraphXml || '');
+  var boxes = findElementRanges_(source, 'w:txbxContent');
+  return findElementRanges_(source, 'w:t').filter(function (t) {
+    return !boxes.some(function (b) { return b.start < t.start && b.end > t.end; });
+  });
+}
+
+/**
+ * 用途：取出一個 `<w:t>` 元素的文字內容（去掉開合標籤）。
+ * Args:
+ *   textNodeXml {string} 一個完整的 `<w:t ...>...</w:t>`。
+ * Returns:
+ *   {string} 自閉標籤（`<w:t/>`）或格式異常時回空字串。
+ */
+function textNodeContent_(textNodeXml) {
+  var whole = String(textNodeXml || '');
+  var openEnd = findTagEnd_(whole, 0);
+  var closeStart = whole.lastIndexOf('</w:t');
+  if (closeStart < openEnd) return '';
+  return whole.slice(openEnd, closeStart);
+}
+
+/**
+ * 用途：把一個段落**自己**的全部 `<w:t>` 文字串成一個字串——這就是
+ *   佔位符偵測與替換的**唯一基準**。
+ * Args:
+ *   paragraphXml {string} 一個完整的 `<w:p>...</w:p>`。
+ * Returns:
+ *   {string}
+ */
+function paragraphMergedText_(paragraphXml) {
+  var source = String(paragraphXml || '');
+  return paragraphOwnTextRanges_(source).map(function (r) {
+    return textNodeContent_(source.slice(r.start, r.end));
+  }).join('');
+}
+
+/**
+ * 用途：判斷一個段落內有沒有**被切開的佔位符**——也就是「整段合併之後
+ *   認得出來、但逐個 `<w:t>` 分開看就認不出來」的佔位符。
+ *
+ *   這個判斷就是「要不要動這一段」的閘門：`false` 的段落一律**原封不動**，
+ *   保住 Word 原本的逐 run 格式（例如同一段內一半粗體一半不粗體）。
+ *   只有真的被切開、非動不可的段落才會被壓平（見
+ *   `collapseParagraphTextIntoFirstNode_()`）。
+ * Args:
+ *   paragraphXml {string} 一個完整的 `<w:p>...</w:p>`。
+ * Returns:
+ *   {boolean}
+ */
+function paragraphHasSplitPlaceholder_(paragraphXml) {
+  var source = String(paragraphXml || '');
+  var ranges = paragraphOwnTextRanges_(source);
+  if (ranges.length < 2) return false;
+
+  var texts = ranges.map(function (r) { return textNodeContent_(source.slice(r.start, r.end)); });
+  var mergedCount = (texts.join('').match(placeholderScanPattern_()) || []).length;
+  var perNodeCount = texts.reduce(function (sum, t) {
+    return sum + (t.match(placeholderScanPattern_()) || []).length;
+  }, 0);
+
+  return mergedCount > perNodeCount;
+}
+
+/**
+ * 用途：把一個段落**自己**的全部 `<w:t>` 文字壓平到**第一個** `<w:t>`，
+ *   其餘設成空字串。
+ *
+ *   ⚠️ **保留第一個 run 的格式**：只改 `<w:t>` 的內容，`<w:rPr>`／
+ *   `<w:pPr>` 一律不動，所以整段會統一用第一個 run 的字型與大小。這是
+ *   有代價的（段落內原本的混合格式會被拉平），所以呼叫方一定要先用
+ *   `paragraphHasSplitPlaceholder_()` 把關——沒有被切開的段落不應該進來。
+ *
+ *   ⚠️ 第一個 `<w:t>` 一律補上 `xml:space="preserve"`：串起來之後空白的
+ *   位置變了，沒有這個屬性 Word 會把前後空白吃掉（理由同
+ *   `mergeRunsInParagraphs_()`）。
+ * Args:
+ *   paragraphXml {string} 一個完整的 `<w:p>...</w:p>`。
+ * Returns:
+ *   {string} 沒有任何屬於自己的 `<w:t>` 時原樣回傳。
+ */
+function collapseParagraphTextIntoFirstNode_(paragraphXml) {
+  var source = String(paragraphXml || '');
+  var ranges = paragraphOwnTextRanges_(source);
+  if (ranges.length === 0) return source;
+
+  var mergedText = ranges.map(function (r) {
+    return textNodeContent_(source.slice(r.start, r.end));
+  }).join('');
+
+  var edits = ranges.map(function (r, i) {
+    return {
+      start: r.start,
+      end: r.end,
+      text: i === 0 ? '<w:t xml:space="preserve">' + mergedText + '</w:t>' : '<w:t xml:space="preserve"></w:t>'
+    };
+  });
+
+  return applyRangeEdits_(source, edits);
+}
+
+/**
+ * 用途：把整份 XML 內**所有仍然有佔位符被切開**的段落壓平（見
+ *   `collapseParagraphTextIntoFirstNode_()`）。
+ *
+ *   ⚠️ 這是 `mergeRunsInParagraphs_()` 的**第二道防線**，不是取代它。
+ *   兩者的分工：
+ *     - `mergeRunsInParagraphs_()`　合併**格式完全相同**的相鄰 run。
+ *       絕大部分情況（Word 因為 rsid／拼寫檢查而切開）都在這一步復原，
+ *       而且**零格式損失**。
+ *     - 本函式　處理前一步救不到的情況——最常見是**被切開的幾個 run 格式
+ *       不一樣**（例如其中一個字元不小心變了字型大小、或者 `w:lang` 不同）。
+ *       那時只能壓平整段，用第一個 run 的格式。
+ *
+ *   ⚠️ **只動真的被切開的段落。** 沒有佔位符、或者佔位符本來就完整地
+ *   落在單一 `<w:t>` 內的段落，一律原封不動——那些段落壓平只有壞處
+ *   （拉平混合格式），沒有好處。
+ * Args:
+ *   xml {string} `word/document.xml` 的內容。
+ * Returns:
+ *   {{xml:string, collapsedParagraphs:number}}
+ */
+function collapseSplitPlaceholderParagraphs_(xml) {
+  var source = String(xml || '');
+  var paragraphRanges = findElementRanges_(source, 'w:p');
+  var edits = [];
+
+  paragraphRanges.forEach(function (p) {
+    var paragraphXml = source.slice(p.start, p.end);
+    if (!paragraphHasSplitPlaceholder_(paragraphXml)) return;
+    edits.push({ start: p.start, end: p.end, text: collapseParagraphTextIntoFirstNode_(paragraphXml) });
+  });
+
+  if (edits.length === 0) return { xml: source, collapsedParagraphs: 0 };
+
+  // ⚠️ 巢狀段落（文字方塊內的 `<w:p>` 落在外層 `<w:p>` 之內）會令兩個
+  // 範圍互相重疊，而 `applyRangeEdits_()` 明文要求範圍不可重疊。這裡只
+  // 保留**最外層**的那些：外層段落壓平時本來就會連同它內部的 XML 一齊
+  // 搬過去，而 `paragraphOwnTextRanges_()` 已經確保文字方塊內的 `<w:t>`
+  // 不會被外層當成自己的，兩者不會打架。
+  var outermost = edits.filter(function (e) {
+    return !edits.some(function (other) { return other.start < e.start && other.end >= e.end; });
+  });
+
+  return { xml: applyRangeEdits_(source, outermost), collapsedParagraphs: outermost.length };
+}
+
+/**
+ * 用途：把 `word/document.xml` 整理成「每一個佔位符都完整落在單一
+ *   `<w:t>` 內」的形態。**佔位符處理的唯一入口**——渲染
+ *   （`renderDocumentXml_()`）與範本對帳（`inspectTemplatePlaceholders_()`）
+ *   都一定要先經過它。
+ *
+ *   ⚠️ 兩邊共用同一個函式是硬性要求：對帳報「這個範本沒問題」而渲染卻
+ *   填不到，正正是因為兩條路徑對「佔位符長什麼樣」有不同假設（同一個
+ *   狀態有兩個真相來源，見 docs/已知bug類型.md 第 3 類）。
+ * Args:
+ *   xml {string} 原始 `word/document.xml`。
+ * Returns:
+ *   {{xml:string, collapsedParagraphs:number}} `collapsedParagraphs` 是
+ *     第二道防線實際壓平了幾多段（0 代表 `mergeRunsInParagraphs_()` 已經
+ *     全部救回來）。
+ */
+function prepareXmlForPlaceholders_(xml) {
+  var merged = mergeRunsInParagraphs_(String(xml || ''));
+  return collapseSplitPlaceholderParagraphs_(merged);
+}
+
+// =====================================================================
+// 產出殘留掃描
+// =====================================================================
+
+/**
+ * 用途：掃描一份**已經渲染完成**的 XML，找出仍然殘留的佔位符。
+ *
+ *   ⚠️ 這是**實掃**，不是由「替換了幾多個」倒推。兩者的分別就是這一輪
+ *   要修的核心問題：`replacedCount`／`missingKeys`／`broken` 三個數字
+ *   全部是渲染過程**自己**算出來的，跟渲染用的是同一套假設——假設錯了
+ *   三個數字會一齊錯，而且一齊報「沒事」。只有回頭掃描真正的產出，才
+ *   驗證得到「紙上還有沒有 `{{`」。見 docs/已知bug類型.md。
+ *
+ *   刻意用最寬鬆的 `{{` 而不是完整的佔位符樣式：殘留的東西可能本身就是
+ *   壞的（`{{SERMON_TITLE`、`{{ SERMON_TITLE }}`），用嚴格樣式反而會漏報。
+ * Args:
+ *   xml {string} 渲染後的 XML。
+ * Returns:
+ *   {{count:number, samples:string[]}} `count` 是 `{{` 的出現次數；
+ *     `samples` 是去重後的殘留片段（每個最多 40 字），依出現次序。
+ */
+function scanResidualPlaceholders_(xml) {
+  var source = String(xml || '');
+  var count = 0;
+  var samples = [];
+  var seen = {};
+
+  var at = source.indexOf('{{');
+  while (at !== -1) {
+    count++;
+    // 取到最近的 `}}`（含）為止，最多 40 字；沒有 `}}` 就取 40 字。
+    var closeAt = source.indexOf('}}', at);
+    var end = (closeAt !== -1 && closeAt - at <= 38) ? closeAt + 2 : at + 40;
+    var sample = source.slice(at, Math.min(end, at + 40));
+    if (!seen[sample]) {
+      seen[sample] = true;
+      samples.push(sample);
+    }
+    at = source.indexOf('{{', at + 2);
+  }
+
+  return { count: count, samples: samples };
+}
+
+// =====================================================================
 // 佔位符盤點
 // =====================================================================
 
@@ -1182,8 +1427,11 @@ function applyOptionalLabelledCellRows_(xml, values, rowGroups) {
  * ⚠️ 執行次序（次序錯會出事，改動這個函式之前先讀完這一段）
  * ─────────────────────────────────────────────────────────────────────
  *
- *   1. `mergeRunsInParagraphs_`　合併被 Word 拆散的 run。**不做這一步，
- *      後面全部替換都會靜靜失敗**（見檔頭）。
+ *   1. `prepareXmlForPlaceholders_`　把被 Word 拆散的佔位符整理成「每一個
+ *      都完整落在單一 `<w:t>` 內」。**不做這一步，後面全部替換都會靜靜
+ *      失敗**（見檔頭）。內含兩道：先 `mergeRunsInParagraphs_()`（合併
+ *      格式相同的相鄰 run，零格式損失），救不到的再
+ *      `collapseSplitPlaceholderParagraphs_()`（整段壓平）。
  *   2. `findBrokenPlaceholders_`　收集成 warning，**不中斷**——一個壞掉
  *      的佔位符不應該讓整份週報生不出來，但一定要講出來。
  *   3. `expandInterleavedRows_` → `expandEachRows_` → `expandEachParagraphs_`
@@ -1231,8 +1479,9 @@ function renderDocumentXml_(xml, context) {
   var interleaved = ctx.interleavedLists || {};
   var warnings = [];
 
-  // ---- 1. 合併被拆散的 run ----
-  var working = mergeRunsInParagraphs_(String(xml || ''));
+  // ---- 1. 把被拆散的佔位符整理成「每個都完整落在單一 <w:t> 內」 ----
+  var prepared = prepareXmlForPlaceholders_(String(xml || ''));
+  var working = prepared.xml;
 
   // ---- 2. 偵測被切斷的佔位符（只報告，不中斷）----
   var broken = findBrokenPlaceholders_(working);
@@ -1305,6 +1554,9 @@ function renderDocumentXml_(xml, context) {
       removedParagraphs: condParagraphs.removed,
       clearedCells: optionalCells.clearedCells,
       removedTables: optionalCells.removedTables,
+      // 第二道防線實際壓平了幾多段。>0 代表範本有佔位符被切開成**格式
+      // 不同**的多個 run（`mergeRunsInParagraphs_()` 救不到那一種）。
+      collapsedParagraphs: prepared.collapsedParagraphs,
       missingKeys: simple.missingKeys,
       broken: broken,
       lists: listStats

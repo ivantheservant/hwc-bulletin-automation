@@ -1338,6 +1338,133 @@ Web App、工作表保護、範本佔位符對帳、ErrorLog、SendLog、AuditLo
 
 ---
 
+## 事故二十二：驗證函式與被驗證的邏輯用同一個假設，等於沒有驗證
+
+發生日期：2026-08-22（Ivan 用最新 `TPL_NORMAL` 產生 `2027-11-07` 週報之後
+發現）
+
+### 現象
+
+產出的 `.docx` 上，這一整段原封不動印在紙上：
+
+```
+{{#EACHP:ANNOUNCEMENT}}{{ANNOUNCEMENT.NO}}. {{ANNOUNCEMENT.TEXT}}
+```
+
+但產生完的對話框報告：
+
+```
+替換的佔位符: 47 個
+找不到值的佔位符: 0 個
+疑似被切斷的佔位符: 0 個
+```
+
+**三個數字全部話冇事，實際上有三個佔位符原封不動印咗出嚟。**
+
+### 根因（兩層，要分開講）
+
+#### 第一層：報告本身冇驗證能力
+
+`replacedCount`／`missingKeys`／`broken` 三個數字，**全部係渲染流程自己
+喺過程中累加出嚟嘅**，用嘅係同渲染完全一樣嗰套假設：
+
+- `replacedCount` 數嘅係「我成功換咗幾多個」——換唔到嘅嘢佢根本唔知有。
+- `missingKeys` 只由 `replaceSimplePlaceholders_()` 產生，而佢**刻意唔碰**
+  `#` 開頭（清單／條件標記）同帶點嘅（`{{OBJ.FIELD}}`）鍵。所以清單標記
+  處理唔到，`missingKeys` 一定係 0。
+- `broken` 係 `findBrokenPlaceholders_()` 喺**已經合併過**嘅 XML 上面搵
+  「跨 `<w:t>` 嘅碎片」。`{{#EACHP:ANNOUNCEMENT}}` 合併之後係一個
+  **完整**嘅佔位符，所以佢唔算「被切斷」，一樣係 0。
+
+三個指標各有各嘅盲點，而三個盲點**啱啱好重疊喺同一個情況**：一個語法
+完整、但冇人處理得到嘅清單標記。冇任何一個指標會出聲。
+
+**呢個就係「驗證函式與被驗證的邏輯用同一個假設」**：`findBrokenPlaceholders_()`
+本來就係為咗捉「佔位符印咗出嚟」而寫嘅，但佢同替換邏輯**共用「已經
+合併好」呢個前提**。前提啱嘅時候佢捉唔到呢一類；前提錯嘅時候佢會同
+替換邏輯**一齊錯**——兩邊都以為冇嘢。一個同被測對象共用假設嘅驗證，
+喺最需要佢嗰陣一定失靈。
+
+#### 第二層：合併只救得到「格式完全相同」嗰種切法
+
+本輪按 prompt 要求，先抽出真實 `TPL_NORMAL` 嘅 `word/document.xml` 驗證
+過（結果詳見 `docs/待確認事項.md` I-1）：嗰段確實被 Word 切成 **3 個
+`<w:r>`**，中間夾 `<w:proofErr>`：
+
+```
+{{#  |  EACHP:ANNOUNCEMENT}}{  |  {ANNOUNCEMENT.NO}}. {{ANNOUNCEMENT.TEXT}}
+```
+
+但三個 run 嘅 `<w:rPr>` **一模一樣**，所以 `mergeRunsInParagraphs_()`
+救得返（實測合併後 69 個佔位符全部完整）。即係話**用現行程式碼加現行
+範本，重現唔到嗰個殘留**。
+
+真正救唔到嘅係另一種：**被切開嘅幾個 run 格式唔同**（其中一個字元不小心
+變咗字型大小、或者 `w:lang` 唔同）。`mergeRunsInParagraphs_()` 嘅合併條件
+係「`<w:rPr>` 原文一字不差相同」，格式一唔同就唔合併 → 佔位符永遠拼唔返
+完整 → 原封不動印出嚟。呢個窿實測確認存在。
+
+### 修法
+
+1. **加第二道防線 `collapseSplitPlaceholderParagraphs_()`**（`src/DocxTemplate.gs`）：
+   凡係「整段合併之後認得出、但逐個 `<w:t>` 分開睇就認唔出」嘅段落，
+   就將嗰段自己嘅全部 `<w:t>` 壓平到第一個，其餘設空字串，保留第一個
+   run 嘅格式。
+   - **排除巢狀 `<w:txbxContent>`**：文字方塊入面係另一個段落嘅內容，
+     撈埋落嚟會憑空拼出假佔位符，寫返去更加會搬走文字方塊嘅內容。
+   - **只動真係被切開嗰啲段落**：冇佔位符、或者佔位符本來就完整落喺
+     單一 `<w:t>` 內嘅，一律原封不動——壓平會拉平段落內原本嘅混合格式，
+     冇必要就唔應該做。
+2. **兩條路徑合併成一個入口 `prepareXmlForPlaceholders_()`**：渲染
+   （`renderDocumentXml_()`）同範本對帳（`inspectTemplatePlaceholders_()`）
+   一定要用同一個。以前對帳只做 `mergeRunsInParagraphs_()`，兩邊對「佔位符
+   長咩樣」有唔同假設，就會出現「對帳報冇問題、渲染卻填唔到」。
+3. **加真正嘅產出驗證 `scanDocxResidualPlaceholders_()`**（`src/DocxIo.gs`）：
+   產生完之後**重新解壓真正嘅產出 blob**，逐個文字部件（`document.xml`、
+   `header*.xml`、`footer*.xml`）用最寬鬆嘅 `{{` 實掃。呢條路徑同渲染
+   **冇任何共用假設**——渲染點錯法都好，佢照樣睇到紙上有冇 `{{`。
+   - 對話框新增一行「殘留佔位符：N 個」，**排喺其餘統計之上**。
+   - `N > 0` 時：標題改成警告、列出頭三個殘留內容、寫入 `ErrorLog`。
+   - 掃描本身失敗回 `count: -1`——**「驗證不到」同「冇問題」必須分得清楚**，
+     唔可以當成 0。
+4. 用最寬鬆嘅 `{{` 而唔係完整佔位符樣式去掃：殘留物本身就有可能係壞嘅
+   （`{{SERMON_TITLE`、`{{ SERMON_TITLE }}`），用嚴格樣式反而會漏報。
+
+### 留低咗啲乜
+
+- `src/DocxTemplate.gs`：`paragraphOwnTextRanges_()`／`paragraphMergedText_()`／
+  `paragraphHasSplitPlaceholder_()`／`collapseParagraphTextIntoFirstNode_()`／
+  `collapseSplitPlaceholderParagraphs_()`／`prepareXmlForPlaceholders_()`／
+  `scanResidualPlaceholders_()`；`renderDocumentXml_()` 第 1 步改用新入口，
+  `stats` 新增 `collapsedParagraphs`。
+- `src/DocxIo.gs`：`isDocxTextPartName_()`／`scanDocxResidualPlaceholders_()`。
+- `src/BulletinRender.gs`：`generateBulletinDocx_()` 產生完實掃並寫
+  `ErrorLog`；新增 `buildResidualPlaceholderMessage_()`（對話框同 `ErrorLog`
+  共用同一句）與 `buildGenerateResultDialogLines_()`；
+  `inspectTemplatePlaceholders_()` 改用 `prepareXmlForPlaceholders_()`。
+- `tests/splitrun.test.js`：26 個測試。當中兩個**反向鎖**最重要——
+  一個證明「三個自報數字全部話冇事，但實掃捉到殘留」真係會發生，
+  另一個證明「舊嘅合併單獨救唔到格式唔同嗰種切法」，所以第二道防線
+  唔係多餘。
+- `tests/docxtemplate.test.js`／`tests/bulletinrender.test.js`：兩個原本
+  斷言「呢個案例會被報成 broken」嘅測試，改成斷言「而家救得返」，
+  並各自補一個**真正救唔到**（跨兩個段落）嘅案例，確保第二道防線唔會
+  反過嚟掩蓋真問題。
+
+### 一般原則
+
+**驗證一件事嘅時候，驗證路徑同被驗證嘅路徑唔可以共用假設。** 具體嚟講：
+
+- 唔可以用「我做咗幾多」倒推「做得啱唔啱」——`replacedCount` 高極都
+  唔代表冇漏。
+- 驗證應該由**產出物**出發（重新讀返個檔、重新掃一次），唔係由**過程**
+  嘅記帳出發。
+- 如果驗證函式同被驗證嘅邏輯係同一個人寫、共用同一批 helper、對資料
+  形狀有同一套前提，就要特別警惕：前提一錯，兩邊會一齊錯，而且會
+  **一齊報冇事**——比冇驗證更危險，因為佢畀咗你虛假嘅安全感。
+
+---
+
 ## 本專案要反覆自問的 bug class
 
 寫任何一行程式碼之前，先自問這次會不會踩中以下任何一項：
@@ -1510,3 +1637,12 @@ Web App、工作表保護、範本佔位符對帳、ErrorLog、SendLog、AuditLo
     保留額度、結論保證完整寫入**，明細用剩餘額度寫、放不下就截斷並
     指路到查看完整明細的地方；明細本身也要有自己的上限，不能指望外層
     的通用截斷機制去公平分配，見事故二十一。
+30. **驗證函式與被驗證的邏輯用同一個假設，等於沒有驗證。**
+    用「我做咗幾多」（替換數、成功數）倒推「做得啱唔啱」，永遠捉唔到
+    「我根本冇處理過」嗰一批。驗證一定要**由產出物出發**——重新讀返
+    產出、用一條同產生過程冇共用假設嘅路徑實掃一次——唔可以由過程嘅
+    記帳出發。同樣道理：如果幾個指標各有各嘅盲點，要主動問一句「有冇
+    一種情況會啱啱好跌落全部盲點之間」，因為嗰種情況出現時，全部指標會
+    **一齊報冇事**，比完全冇驗證更危險。另外，「驗證不到」同「驗證過、
+    冇問題」必須用唔同嘅值表示（例如 `-1` vs `0`），唔可以蒙混成同一個，
+    見事故二十二。
