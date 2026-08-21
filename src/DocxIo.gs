@@ -169,6 +169,18 @@ function readTemplateBlob_(fileId) {
 
 /**
  * 用途：把 `.docx` blob 解壓成一批 zip entry。
+ *
+ *   ⚠️ `Utilities.unzip()` 只認**內容類型**，不管檔案實際格式——一定要
+ *   `application/zip` 才肯解，否則直接拋
+ *   `Invalid argument: ContentType. Should be of type: application/zip.`。
+ *   `.docx` 本身就是一個 zip（OOXML 格式），但 `DriveApp.getFileById(id)
+ *   .getBlob()` 讀出來的內容類型是 Word 的 MIME
+ *   （`application/vnd.openxmlformats-officedocument.wordprocessingml.document`），
+ *   不是 `application/zip`——這跟範本檔案本身正不正確完全無關，純粹是
+ *   `Utilities.unzip()` 的參數要求，一定要**先複製一份、把複製品的內容
+ *   類型改成 `application/zip`** 才能解壓。用 `copyBlob()` 而不是直接改
+ *   原本的 `blob`，避免把呼叫端手上那個 blob 的內容類型也悄悄改掉。
+ *   見 docs/已知bug類型.md 的說明。
  * Args:
  *   blob {Blob} `.docx` 的 blob。
  * Returns:
@@ -177,9 +189,10 @@ function readTemplateBlob_(fileId) {
  *   Error 如果解壓失敗（檔案不是合法的 zip／`.docx`）。
  */
 function unzipDocx_(blob) {
+  var zipBlob = blob.copyBlob().setContentType('application/zip');
   var entries;
   try {
-    entries = Utilities.unzip(blob);
+    entries = Utilities.unzip(zipBlob);
   } catch (err) {
     throw new Error(
       '無法解壓 Word 範本檔：' + (err && err.message ? err.message : String(err))
@@ -289,11 +302,20 @@ function moveContentTypesEntryFirst_(entries) {
  *
  *   ⚠️ 除了呼叫方明確換掉的那一個 entry 之外，其餘 blob 一律**原物**
  *   放回，不做任何轉換——見檔頭「只改 word/document.xml」。
+ *
+ *   ⚠️ `Utilities.zip()` 出來的 blob 內容類型**一律**是 `application/zip`
+ *   ——這是 `Utilities.zip()` 本身的固定行為，不會自動判斷內容其實是
+ *   一份 `.docx`。跟 `unzipDocx_()` 那邊的情況剛好相反：**這裡**一定要
+ *   把內容類型**改回** Word 的 MIME、並確保檔名以 `.docx` 結尾，
+ *   否則存到雲端硬碟會變成一個 `.zip` 檔案，Word 開不到；寄出去的附件
+ *   在收件人那邊也會變成一個認不出的壓縮檔。見 docs/已知bug類型.md 的
+ *   說明——`Utilities.unzip()`／`Utilities.zip()` 兩邊都只認內容類型，
+ *   跟檔案實際格式無關，來回都要人手設定。
  * Args:
  *   entries {{name:string, blob:Blob}[]} 要壓縮的全部 entry。
  *   filename {string} 產生的檔名（含 `.docx`）。
  * Returns:
- *   {Blob} `.docx` blob，MIME 類型已經設成 Word 的類型。
+ *   {Blob} `.docx` blob，內容類型已經設成 Word 的 MIME、檔名以 `.docx` 結尾。
  * Raises:
  *   Error 如果缺少 `[Content_Types].xml`，或壓縮失敗。
  */
@@ -309,8 +331,9 @@ function zipDocx_(entries, filename) {
     throw new Error('zipDocx_：壓縮 .docx 失敗：' + (err && err.message ? err.message : String(err)));
   }
 
-  // Utilities.zip() 出來的 MIME 是 application/zip；要改成 Word 的類型，
-  // 否則寄出去的附件在收件人那邊會變成一個認不出的壓縮檔。
+  // Utilities.zip() 出來的內容類型固定是 application/zip；要改成 Word
+  // 的類型並確保副檔名是 .docx，否則存到 Drive／寄出去的附件會變成
+  // 一個認不出的壓縮檔。
   return zipped.setContentType(DOCX_MIME_TYPE_).setName(filename);
 }
 

@@ -1034,6 +1034,72 @@ Apps Script 的授權令牌**只在使用者當初授權那一刻**問過「這�
 
 ---
 
+## 事故十八：`Utilities.unzip()`／`Utilities.zip()` 只認內容類型，跟檔案實際格式無關
+
+發生日期：2026-08-21（事故十七解決之後，Ivan 緊接著撳「檢查範本佔位符」
+再次實測發現）
+
+### 現象
+
+事故十七的授權範圍問題解決之後，Ivan 再撳一次「檢查範本佔位符」，
+換成另一個錯誤：
+
+```
+無法解壓 Word 範本檔：Invalid argument: ContentType. Should be of type:
+application/zip.
+```
+
+範本檔案本身完全正常，Config 的檔案 ID 也是對的。
+
+### 根因
+
+`.docx` 骨子裡就是一個 zip 檔（OOXML 格式），但 **`Utilities.unzip()`
+不會自己去判斷「這個 blob 的位元組看起來像不像 zip」，只死板地檢查
+blob 回報的內容類型字串是不是剛好等於 `application/zip`**。而
+`DriveApp.getFileById(id).getBlob()` 讀出來的內容類型是 Word 自己的
+MIME（`application/vnd.openxmlformats-officedocument.wordprocessingml.document`），
+不是 `application/zip`——即使檔案的真實位元組內容百分之百是合法的 zip，
+`Utilities.unzip()` 照樣直接拒絕，連嘗試解都不嘗試。
+
+`Utilities.zip()` 也有鏡像的另一半：壓縮完成之後，回傳 blob 的內容
+類型固定是 `application/zip`，不會自動猜回「這其實是一份 `.docx`」。
+如果不手動改回 Word 的 MIME，存到雲端硬碟的檔案會被系統當成
+`.zip`，Word 完全打不開。
+
+一來一回，兩邊都要人手介入一次——`Utilities.unzip()`／`Utilities.zip()`
+把「內容類型」跟「檔案實際格式」當成兩件完全獨立的事，呼叫方要自己
+確保兩者對得上。
+
+### 修法
+
+1. `unzipDocx_()`（`src/DocxIo.gs`）在呼叫 `Utilities.unzip()` 之前，
+   先用 `blob.copyBlob()` 複製一份，把**複製品**的內容類型改成
+   `application/zip` 再解壓——刻意用複製品而不是直接改原本傳進來的
+   `blob`，因為那個物件是呼叫端手上的，悄悄改掉它的內容類型會是一個
+   隱藏的副作用（例如同一個 blob 之後又被拿去做別的事）。
+2. `zipDocx_()` 本來就已經在 `Utilities.zip()` 之後把內容類型改回
+   `DOCX_MIME_TYPE_` 並確保檔名——這是事故十五那一輪順手做的
+   MIME 檢查連帶補上的，這次只是把 docstring 寫得更明確，講清楚
+   「為什麼一定要做」這一步，不是單純「順手」。
+
+### 留低咗啲乜
+
+- `src/DocxIo.gs`：`unzipDocx_()` 的 `blob.copyBlob().setContentType(...)`。
+- `tests/helpers/fakeDrive.js`：`makeFakeBlob()` 補了 `copyBlob()`；
+  假的 `Utilities.unzip()` 改成**真的檢查**內容類型是不是
+  `application/zip`（原本只檢查 `blob.__entries` 存不存在，測不出這個
+  事故），才擋得住「忘記轉換內容類型」這個類別的回歸。
+- `tests/docxio.test.js` 的 `3e`–`3i` 五個測試，專門鎖住這一來一回的
+  轉換。
+- 這是繼事故十七之後，同一次「範本要讀寫 Drive」功能第二次因為
+  **API 對輸入格式的隱性要求**（前一次是授權範圍，這一次是內容類型
+  字串）而在真實環境撞到、Node 測試卻沒有事先攔住的例子——兩次的
+  假替身都太寬鬆（授權一律通過、內容類型不檢查），跟真實服務的
+  嚴格程度不對稱。**幫外部服務寫假替身時，寧可讓假替身比真實服務
+  更嚴格一點**，才不會讓「假替身通過、真環境失敗」這種情況一犯再犯。
+
+---
+
 ## 本專案要反覆自問的 bug class
 
 寫任何一行程式碼之前，先自問這次會不會踩中以下任何一項：
@@ -1175,3 +1241,10 @@ Apps Script 的授權令牌**只在使用者當初授權那一刻**問過「這�
     一起（例如 `probeDriveAccess_` 而不是 `probeDriveAppAccess_`），
     不只是這一個 lint 規則的問題——任何用簡單字串比對做邊界檢查的
     工具，都要在動筆前搜一下新名稱會不會意外含有被禁的關鍵字組合。
+26. **（prompt9 新增）Google 服務對輸入格式有隱性要求時（例如
+    `Utilities.unzip()` 只認內容類型字串，不管位元組實際內容），
+    假替身如果比真實服務寬鬆，會讓這一類 bug 一直漏到真實環境才發現。**
+    第一次用到某個外部服務的方法時，花時間查一下它對輸入有沒有這種
+    「看起來合理其實很嚴格」的隱性要求，讓假替身**至少一樣嚴格**——
+    寧可假替身太兇、逼自己在測試裡先修好，也不要假替身太鬆放過真正的
+    問題。

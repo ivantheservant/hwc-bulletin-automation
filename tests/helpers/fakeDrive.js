@@ -24,10 +24,11 @@
  *   contentType {string=} MIME 類型。
  * Returns:
  *   {Object} 帶 `getName`／`setName`／`getDataAsString`／`getContentType`／
- *     `setContentType` 的假 blob；`__text` 是原始內容，方便測試直接比對。
+ *     `setContentType`／`copyBlob` 的假 blob；`__text` 是原始內容，方便
+ *     測試直接比對。
  */
 function makeFakeBlob(text, name, contentType) {
-  return {
+  const blob = {
     __text: text,
     __name: name,
     __contentType: contentType || 'application/octet-stream',
@@ -36,8 +37,19 @@ function makeFakeBlob(text, name, contentType) {
     getDataAsString: function () { return this.__text; },
     getContentType: function () { return this.__contentType; },
     setContentType: function (t) { this.__contentType = t; return this; },
-    getBytes: function () { return this.__text; }
+    getBytes: function () { return this.__text; },
+    // 模仿真實 Blob.copyBlob()：內容與名稱／內容類型都複製一份**獨立**
+    // 的物件，改動複製品不會動到原本那個——`unzipDocx_()` 要先複製一份
+    // 再改內容類型才呼叫 Utilities.unzip()，這裡的假替身要能撐住這個
+    // 用法。`__entries`（`buildFakeDocx()` 造出來的頂層 blob才有）要一併
+    // 帶過去，否則複製品會變成「不是一個 zip」。
+    copyBlob: function () {
+      const copy = makeFakeBlob(this.__text, this.__name, this.__contentType);
+      if (this.__entries) copy.__entries = this.__entries;
+      return copy;
+    }
   };
+  return blob;
 }
 
 /**
@@ -86,6 +98,12 @@ function buildFakeDocx(documentXml, options) {
 /**
  * 用途：造一個假的 `Utilities`，只實作 `unzip`／`zip`／`newBlob`／
  *   `formatDate` 四個本專案用得到的方法。
+ *
+ *   ⚠️ `unzip()` 刻意模仿真實 `Utilities.unzip()` 的行為：**只認內容
+ *   類型是不是 `application/zip`**，跟傳進來的 blob 實際是不是一份
+ *   合法的 zip 完全是兩回事——這樣才測得出「沒有先把內容類型改成
+ *   `application/zip` 就直接呼叫」這個真實會遇到的事故（見
+ *   docs/已知bug類型.md）。
  * Args:
  *   options {{failUnzip:boolean=}=} 選填，`failUnzip` 用來測解壓失敗的分支。
  * Returns:
@@ -96,7 +114,10 @@ function makeFakeUtilities(options) {
   return {
     unzip: function (blob) {
       if (opts.failUnzip) throw new Error('假的解壓失敗');
-      if (!blob || !blob.__entries) throw new Error('這個 blob 不是一個 zip');
+      if (!blob || blob.getContentType() !== 'application/zip') {
+        throw new Error('Invalid argument: ContentType. Should be of type: application/zip.');
+      }
+      if (!blob.__entries) throw new Error('這個 blob 不是一個 zip');
       // 回傳**同一批物件**，這樣測試可以用 identity 驗證「有沒有被換掉」。
       return blob.__entries;
     },

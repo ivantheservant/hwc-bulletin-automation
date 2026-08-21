@@ -233,6 +233,62 @@ test('3d. renderDocxFromTemplate_()：zip 內找不到 document.xml → 拋錯�
 });
 
 // =====================================================================
+// 3e-3i. unzip／zip 只認內容類型，跟檔案實際格式無關——來回都要人手轉換
+// =====================================================================
+
+test('3e. unzipDocx_()：呼叫 Utilities.unzip 之前，先把內容類型設成 application/zip', function () {
+  const env = makeEnv({});
+  // env.docx 的內容類型是 Word 的 MIME（模仿 DriveApp.getFileById().getBlob()
+  // 真正讀出來的樣子），不是 application/zip；假的 Utilities.unzip 會
+  // 嚴格檢查這一點（見 tests/helpers/fakeDrive.js），如果 unzipDocx_()
+  // 沒有先轉換內容類型就直接呼叫，這裡就會拋出跟實測一模一樣的錯誤。
+  assert.strictEqual(env.docx.getContentType(),
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+
+  let entries;
+  assert.doesNotThrow(function () { entries = env.sandbox.unzipDocx_(env.docx); });
+  assert.ok(entries.length > 0);
+});
+
+test('3f. unzipDocx_()：原本傳入的 blob 內容類型不會被改動（只改複製品）', function () {
+  const env = makeEnv({});
+  const originalContentType = env.docx.getContentType();
+
+  env.sandbox.unzipDocx_(env.docx);
+
+  assert.strictEqual(env.docx.getContentType(), originalContentType,
+    '呼叫端手上的原始 blob 內容類型不可以被 unzipDocx_() 悄悄改掉');
+});
+
+test('3g. unzipDocx_()：直接把一個內容類型不是 application/zip 也不是 Word MIME 的 blob 硬塞給假 Utilities.unzip 會拋錯（證明假替身真的有在檢查）', function () {
+  const env = makeEnv({});
+  assert.throws(
+    function () { env.sandbox.Utilities.unzip(makeFakeBlob('x', 'x', 'application/octet-stream')); },
+    /application\/zip/
+  );
+});
+
+test('3h. zipDocx_()：回傳的 blob 內容類型是 Word 的 MIME、檔名以 .docx 結尾', function () {
+  const env = makeEnv({});
+  const blob = env.sandbox.zipDocx_([
+    { name: '[Content_Types].xml', blob: makeFakeBlob('<Types/>', '[Content_Types].xml') },
+    { name: 'word/document.xml', blob: makeFakeBlob('<x/>', 'word/document.xml') }
+  ], '2027-11-07_粵語堂週報.docx');
+
+  assert.strictEqual(blob.getContentType(),
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+  assert.strictEqual(blob.getName().slice(-5), '.docx');
+  assert.strictEqual(blob.getName(), '2027-11-07_粵語堂週報.docx');
+});
+
+test('3i. renderDocxFromTemplate_()（完整流程）：最終產出的 blob 內容類型是 Word 的 MIME，不是 application/zip', function () {
+  const env = makeEnv({});
+  const result = env.sandbox.renderDocxFromTemplate_(FAKE_TEMPLATE_ID, 'out.docx', function (xml) { return xml; });
+  assert.strictEqual(result.blob.getContentType(),
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+});
+
+// =====================================================================
 // findDocumentEntryIndex_：不可以寫死索引位置
 // =====================================================================
 
