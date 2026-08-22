@@ -165,7 +165,8 @@ function sendBulletinForDate_(isoDate, options) {
       STATUS: status,
       DRY_RUN: dryRun,
       ROSTER_VERSION_USED: sanitizeCellText_(vars.RosterVersion),
-      ERROR: sanitizeCellText_(errorMessage)
+      ERROR: sanitizeCellText_(errorMessage),
+      BODY_PREVIEW: buildSendLogBodyPreview_(plainBody)
     });
   });
 

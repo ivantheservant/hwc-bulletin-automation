@@ -42,7 +42,8 @@ function initializeAllSheets() {
     MERGE_GROUPS: seedMergeGroups_(),
     PROGRAM_TEMPLATES: seedProgramTemplates_(),
     EMAIL_TEMPLATES: seedEmailTemplates_(),
-    FELLOWSHIP_DEFAULTS: seedFellowshipDefaults_()
+    FELLOWSHIP_DEFAULTS: seedFellowshipDefaults_(),
+    NUMBER_REGISTRY: seedNumberRegistry_()
   };
 
   var summary = {
@@ -182,6 +183,10 @@ function readmeContentLines_() {
   'AuditLog：系統對試算表所做的每一次寫入異動記錄，逐格記錄，只會新增、不會刪除或覆寫。',
   'SendLog：每一次寄送週報的記錄（含 DRY_RUN 試行的記錄），只會新增、不會刪除或覆寫。',
   'PublishLog：每一次發佈的記錄（主日、第幾版、發佈人、存檔副本、是否強制發佈），全部由系統寫入；人手改一行只會令版本號與實際發佈對不上。',
+  'NumberRegistry：不變量 I03 的登記表——每一個會在畫面顯示的數字登記一行，寫明它來自哪一支函式、對應哪一張表的什麼條件；自測機會按登記用另一條路徑重新數一次。系統已預先填入，人手可加備註。',
+  'SelfTestState：自測機跑到哪一個情境的續跑狀態，系統寫，人手唯讀。',
+  'SelfTestReport：自測機每一次執行的逐項結果（預期／實際／證據三欄分開），系統寫，人手唯讀。',
+  'MonkeyLog：亂行機每一步的記錄，最重要的一欄是「走到這裏的完整步驟」——紅了要靠它重現，系統寫，人手唯讀。',
   '本系統對「粵語堂職事表」試算表一律唯讀，不會寫入任何一格；職事表的連線設定同樣在 Config 內填寫。'
   ];
 }
@@ -551,6 +556,95 @@ function seedEmailTemplatesRows_() {
       ].join('\n'),
       ACTIVE: true,
       NOTES: ''
+    }
+  ];
+}
+
+/**
+ * 用途：把 `seedNumberRegistryRows_()` 內尚未存在的 `REGISTRY_ID` 補進
+ *   `NumberRegistry` 工作表。
+ * Args: （無）
+ * Returns:
+ *   {number} 新增的行數。
+ */
+function seedNumberRegistry_() {
+  return seedMissingRows_(SHEETS.NUMBER_REGISTRY, 'REGISTRY_ID', seedNumberRegistryRows_());
+}
+
+/**
+ * 用途：`NumberRegistry` 的 seed 資料——**每一個會在畫面顯示的數字**
+ *   登記一行，寫明它來自哪一支函式、對應哪一張工作表的什麼條件。
+ *
+ *   ⚠️ 這張表是不變量 I03 的「宣告」，真正兩條計算路徑寫在
+ *   `numberRegistryProbes_()`（src/Invariants.gs）。兩邊的 `REGISTRY_ID`
+ *   必須一一對應——**登記了但沒有實作、或者實作了但沒有登記，I03 都會
+ *   報紅**。加新數字的時候兩邊都要動。
+ *
+ *   ⚠️ 「重新數的條件」那一欄是寫給人看的，不是程式讀的——程式讀的是
+ *   `numberRegistryProbes_()` 內的 `recount`。兩者講的必須是同一件事，
+ *   但沒有辦法靠程式保證；這是刻意的取捨：讓 Ivan 打開工作表就看得懂
+ *   「這個數字應該怎樣數」，比多一層機器可讀的規則語言實際。
+ *
+ *   寫成函式延遲求值——理由見 `readmeContentLines_()` 的說明。
+ * Args: （無）
+ * Returns:
+ *   {Object[]} NumberRegistry 的 seed 資料列。
+ */
+function seedNumberRegistryRows_() {
+  return [
+    {
+      REGISTRY_ID: 'N01',
+      DISPLAY_LOCATION: '「建立本季空白週報」對話框、季度填寫表標題',
+      SOURCE_FUNCTION: 'listRosterServiceDatesForQuarter_()',
+      SHEET_NAME: SHEETS.BULLETIN_WEEKS,
+      RECOUNT_RULE: '數 BulletinWeeks 內 QUARTER_ID = 本季 的行數',
+      ACTIVE: true,
+      NOTES: '完全獨立：一邊走職事表 ServiceDates，一邊走本試算表'
+    },
+    {
+      REGISTRY_ID: 'N02',
+      DISPLAY_LOCATION: '填寫介面「家事報告」唯讀區塊、匯入報告',
+      SOURCE_FUNCTION: 'pickWebAppListItems_(Announcements)',
+      SHEET_NAME: SHEETS.ANNOUNCEMENTS,
+      RECOUNT_RULE: '數 Announcements 內 SERVICE_DATE = 本主日 且 ACTIVE = TRUE 的行數',
+      ACTIVE: true,
+      NOTES: '完全獨立：兩邊的日期比對方式不同（一邊 rosterDateMatchesYMD_，一邊字串比對）'
+    },
+    {
+      REGISTRY_ID: 'N03',
+      DISPLAY_LOCATION: '填寫介面「代禱事項」唯讀區塊、匯入報告',
+      SOURCE_FUNCTION: 'pickWebAppListItems_(Prayers)',
+      SHEET_NAME: SHEETS.PRAYERS,
+      RECOUNT_RULE: '數 Prayers 內 SERVICE_DATE = 本主日 且 ACTIVE = TRUE 的行數',
+      ACTIVE: true,
+      NOTES: '完全獨立（同 N02）'
+    },
+    {
+      REGISTRY_ID: 'N04',
+      DISPLAY_LOCATION: '填寫介面「團契聚會」唯讀區塊、匯入報告',
+      SOURCE_FUNCTION: 'pickWebAppListItems_(Fellowships)',
+      SHEET_NAME: SHEETS.FELLOWSHIPS,
+      RECOUNT_RULE: '數 Fellowships 內 SERVICE_DATE = 本主日 且 ACTIVE = TRUE 的行數',
+      ACTIVE: true,
+      NOTES: '完全獨立（同 N02）'
+    },
+    {
+      REGISTRY_ID: 'N05',
+      DISPLAY_LOCATION: '寄出前的預覽、「已寄出 N 個收件人」',
+      SOURCE_FUNCTION: 'buildRecipientList_()',
+      SHEET_NAME: SHEETS.RECIPIENTS,
+      RECOUNT_RULE: '數 Recipients 內 ACTIVE = TRUE 且 GROUP_NAME 屬於 SEND_GROUPS、電郵格式合法、去重之後的行數',
+      ACTIVE: true,
+      NOTES: '部分獨立：共用「合法電郵」與「去重」兩條規則，不共用篩選流程'
+    },
+    {
+      REGISTRY_ID: 'N06',
+      DISPLAY_LOCATION: '填寫介面頂部狀態列「目前已發佈：…（第 N 版）」',
+      SOURCE_FUNCTION: 'latestPublishLogRow_().VERSION_NO',
+      SHEET_NAME: SHEETS.PUBLISH_LOG,
+      RECOUNT_RULE: '取 PublishLog 內該主日的最大 VERSION_NO',
+      ACTIVE: true,
+      NOTES: '完全獨立：一邊按 PUBLISHED_AT 排序取最新，一邊取該主日最大版本號'
     }
   ];
 }

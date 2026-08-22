@@ -25,6 +25,15 @@ var APP_VERSION = '0.1.0（第一輪：地基）';
 /** 本 repo 的網址（公開）。 */
 var REPO_URL = 'https://github.com/ivantheservant/hwc-bulletin-automation';
 
+/**
+ * `SendLog.BODY_PREVIEW` 最多存幾多個字元。
+ *
+ * ⚠️ 一定要**有**上限：整封 HTML 內文動輒幾萬字元，一格塞爆會令
+ * `SendLog` 難以閱讀，而這一欄的用途只是「在不真寄的情況下核對格式」，
+ * 前 2000 字元已經涵蓋主旨之後的稱呼、開頭段落與第一批內容。
+ */
+var SEND_LOG_BODY_PREVIEW_CHARS = 2000;
+
 /** 姊妹專案（粵語堂職事表系統）的網址（公開）。 */
 var ROSTER_REPO_URL = 'https://github.com/ivantheservant/hwc-roster-automation';
 
@@ -69,7 +78,12 @@ var SHEETS = Object.freeze({
   FILL_SNAPSHOT: 'FillSnapshot',
   FILL_BACKUP: 'FillBackup',
   CONTENT_SHEETS: 'ContentSheets',
-  PUBLISH_LOG: 'PublishLog'
+  PUBLISH_LOG: 'PublishLog',
+  // ---- 自測機（R-027）----
+  NUMBER_REGISTRY: 'NumberRegistry',
+  SELF_TEST_STATE: 'SelfTestState',
+  SELF_TEST_REPORT: 'SelfTestReport',
+  MONKEY_LOG: 'MonkeyLog'
 });
 
 /**
@@ -270,10 +284,15 @@ var COLUMNS = Object.freeze({
     types: ['DATE', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT']
   },
 
+  // ⚠️ `BODY_PREVIEW` 是自測機那一輪補的：`DRY_RUN=TRUE` 之下如果只記
+  // 收件人而不記內容，就沒有辦法在不真寄的情況下檢查電郵格式——那正是
+  // 試行模式最主要的用途。內文取前 `SEND_LOG_BODY_PREVIEW_CHARS` 個字元。
+  // ⚠️ 新欄位一律加在**最後**（`ensureSheet_()` 只重寫第 1、2 行，
+  // 插在中間會令既有資料整排錯位）。
   SEND_LOG: {
-    headers: ['時間', '主日日期', '收件人', '主旨', '狀態', '是否試行', '職事表版本', '錯誤'],
-    keys: ['TIMESTAMP', 'SERVICE_DATE', 'RECIPIENT_EMAIL', 'SUBJECT', 'STATUS', 'DRY_RUN', 'ROSTER_VERSION_USED', 'ERROR'],
-    types: ['DATE', 'DATE', 'TEXT', 'TEXT', 'TEXT', 'BOOLEAN', 'TEXT', 'TEXT']
+    headers: ['時間', '主日日期', '收件人', '主旨', '狀態', '是否試行', '職事表版本', '錯誤', '內文摘要'],
+    keys: ['TIMESTAMP', 'SERVICE_DATE', 'RECIPIENT_EMAIL', 'SUBJECT', 'STATUS', 'DRY_RUN', 'ROSTER_VERSION_USED', 'ERROR', 'BODY_PREVIEW'],
+    types: ['DATE', 'DATE', 'TEXT', 'TEXT', 'TEXT', 'BOOLEAN', 'TEXT', 'TEXT', 'TEXT']
   },
 
   // 第四b輪新增：把例外「看得見、留得低」——伺服器／前端／選單三種來源
@@ -378,6 +397,45 @@ var COLUMNS = Object.freeze({
       'DATE', 'INT', 'DATE', 'TEXT', 'TEXT',
       'BOOLEAN', 'TEXT', 'INT', 'BOOLEAN', 'TEXT'
     ]
+  },
+
+  // ---- 自測機（R-027）以下四張 ----
+
+  // I03 的登記表：**每一個會在畫面顯示的數字都要在這裡登記一行**，寫明
+  // 它來自哪一支函式、對應哪一張工作表的什麼條件。`runInvariantI03_()`
+  // 會逐行按登記**用另一條路徑**重新數一次，對不上就紅。
+  //
+  // ⚠️ 這張表是「宣告」，真正兩條計算路徑寫在 `numberRegistryProbes_()`
+  // （src/Invariants.gs）。兩邊的 `REGISTRY_ID` 必須一一對應——登記了
+  // 但沒有實作、或者實作了但沒有登記，I03 都會報紅。
+  NUMBER_REGISTRY: {
+    headers: ['登記編號', '顯示位置', '產生數字的函式', '對應工作表', '重新數的條件', '有效', '備註'],
+    keys: ['REGISTRY_ID', 'DISPLAY_LOCATION', 'SOURCE_FUNCTION', 'SHEET_NAME', 'RECOUNT_RULE', 'ACTIVE', 'NOTES'],
+    types: ['TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'BOOLEAN', 'TEXT']
+  },
+
+  // 自測機的續跑狀態。Apps Script 有執行時間上限，所以每個情境跑完就
+  // 記一行，〔繼續跑自測〕由上次停低處接住。
+  SELF_TEST_STATE: {
+    headers: ['執行編號', '情境編號', '狀態', '開始時間', '結束時間', '訊息'],
+    keys: ['RUN_ID', 'SCENARIO_ID', 'STATUS', 'STARTED_AT', 'FINISHED_AT', 'MESSAGE'],
+    types: ['TEXT', 'TEXT', 'TEXT', 'DATE', 'DATE', 'TEXT']
+  },
+
+  // 自測機的報告。**每一條紅色都要拿得出實際的值**，所以預期／實際／
+  // 證據三欄分開存，不是塞成一句話。
+  SELF_TEST_REPORT: {
+    headers: ['執行編號', '情境編號', '情境名稱', '結果', '預期', '實際', '證據', '耗時（毫秒）', '時間'],
+    keys: ['RUN_ID', 'SCENARIO_ID', 'SCENARIO_NAME', 'RESULT', 'EXPECTED', 'ACTUAL', 'EVIDENCE', 'ELAPSED_MS', 'TIMESTAMP'],
+    types: ['TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'INT', 'DATE']
+  },
+
+  // 亂行機每一步一行。**最重要的一欄是 `PATH_SO_FAR`**——「走到這裏的
+  // 完整步驟」，沒有它紅了也重現不到。
+  MONKEY_LOG: {
+    headers: ['執行編號', '亂數種子', '第幾步', '可選動作', '揀了甚麼', '結果', '不變量狀態', '走到這裏的完整步驟', '時間'],
+    keys: ['RUN_ID', 'SEED', 'STEP_NO', 'AVAILABLE_ACTIONS', 'CHOSEN_ACTION', 'RESULT', 'INVARIANT_STATUS', 'PATH_SO_FAR', 'TIMESTAMP'],
+    types: ['TEXT', 'TEXT', 'INT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'DATE']
   }
 
 });
@@ -502,7 +560,12 @@ var CONFIG_KEYS = Object.freeze({
   PUBLISH_DEDUP_SEC: 'PUBLISH_DEDUP_SEC',
   WEBAPP_CALL_TIMEOUT_SEC: 'WEBAPP_CALL_TIMEOUT_SEC',
   // ---- 使用者測試模式的保險 ----
-  TEST_MODE_BANNER: 'TEST_MODE_BANNER'
+  TEST_MODE_BANNER: 'TEST_MODE_BANNER',
+  // ---- 自測機（R-027）----
+  SELFTEST_QUARTER_ID: 'SELFTEST_QUARTER_ID',
+  SELFTEST_ROSTER_QUARTER_ID: 'SELFTEST_ROSTER_QUARTER_ID',
+  SELFTEST_MASTER_PDF_FILE_ID: 'SELFTEST_MASTER_PDF_FILE_ID',
+  SELFTEST_TIME_BUDGET_SEC: 'SELFTEST_TIME_BUDGET_SEC'
 });
 
 // =====================================================================
@@ -633,7 +696,11 @@ var DEFAULTS = Object.freeze([
   { key: CONFIG_KEYS.PUBLISH_MAX_PDF_MB, value: '10', note: '上載的 PDF 檔案大小上限（MB），超過會被拒絕' },
   { key: CONFIG_KEYS.PUBLISH_DEDUP_SEC, value: '30', note: '同一個主日在幾多秒內重複發佈會被視為「撳多了一次」，直接回報上一次的版本號，不再產生新版本' },
   { key: CONFIG_KEYS.WEBAPP_CALL_TIMEOUT_SEC, value: '120', note: '填寫介面等候伺服器回應的上限（秒）；超過就顯示逾時訊息，不會一直轉圈' },
-  { key: CONFIG_KEYS.TEST_MODE_BANNER, value: '', note: '填寫介面頂部要顯示的藍色提示文字（例如「這是測試系統，資料可以隨便改」）；留空就不顯示這一條橫幅' }
+  { key: CONFIG_KEYS.TEST_MODE_BANNER, value: '', note: '填寫介面頂部要顯示的藍色提示文字（例如「這是測試系統，資料可以隨便改」）；留空就不顯示這一條橫幅' },
+  { key: CONFIG_KEYS.SELFTEST_QUARTER_ID, value: '2028T4', note: '⚠️ 自測機的沙盒季度：自測機**只准寫這一季**。刻意選一個職事表沒有資料的季度，順便測「職事表無資料」那條路。改成一個有真實資料的季度＝自測機會寫壞真資料' },
+  { key: CONFIG_KEYS.SELFTEST_ROSTER_QUARTER_ID, value: '2027T4', note: '自測機需要真實職事表資料時讀哪一季。**只讀不寫**' },
+  { key: CONFIG_KEYS.SELFTEST_MASTER_PDF_FILE_ID, value: '', note: '自測機專用的沙盒 master 發佈檔案 ID（自測機不會碰正式那一個）。留空時自測機會略過發佈相關情境並講明原因' },
+  { key: CONFIG_KEYS.SELFTEST_TIME_BUDGET_SEC, value: '240', note: '自測機／亂行機每一次執行的時間預算（秒）。接近上限就乾淨停低並寫明「跑到哪一步、還有幾多個未跑」，Apps Script 本身的上限是 360 秒' }
 ]);
 
 // =====================================================================

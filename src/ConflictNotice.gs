@@ -243,7 +243,8 @@ function sendConflictNoticeIfNeeded_(isoDate) {
       STATUS: status,
       DRY_RUN: dryRun,
       ROSTER_VERSION_USED: sanitizeCellText_(diff.rosterVersion === null ? '（尚未生成）' : String(diff.rosterVersion)),
-      ERROR: sanitizeCellText_(errorMessage)
+      ERROR: sanitizeCellText_(errorMessage),
+      BODY_PREVIEW: buildSendLogBodyPreview_(plainBody)
     });
   });
 

@@ -178,3 +178,55 @@ function probeDriveAdvancedService_() {
     return { ok: false, message: (err && err.message) ? err.message : String(err) };
   }
 }
+
+/**
+ * 用途：數一個檔案有幾多個版本記錄（Drive 嘅「版本記錄」／revisions）。
+ *
+ *   ⚠️ 不變量 I10 靠佢做**最終確認**：「對職事表一律唯讀」呢條紀律，
+ *   靜態 lint 只證明得到「程式碼裏面冇寫入方法」，呢個函式證明「實際上
+ *   真係一個版本都冇多」——兩者嘅證據等級完全唔同。
+ *
+ *   ⚠️ **刻意唔加 `supportsAllDrives`**：Drive API v2 嘅 `revisions.list`
+ *   根本冇呢個參數（佢係按 `fileId` 直接攞，唔涉及「喺邊度搵」嘅問題）。
+ *   傳一個 API 唔認識嘅參數落去有機會拋錯，所以呢度唔傳。
+ *   `tools/lint-drive-shared.js` 只管 `Drive.Files.`／`Drive.Drives.`
+ *   兩個前綴，唔會誤判呢一行——理由已經寫喺嗰個工具嘅檔頭。
+ *
+ *   ⚠️ 版本記錄可能好多頁；呢度只需要**數目**，所以一頁一頁攞落去數，
+ *   最多攞 `DRIVE_REVISION_MAX_PAGES_` 頁，超過就當「數唔到」回 `null`
+ *   ——寧可講「數唔到」，都好過回一個截斷咗嘅數字然後被人當成真數。
+ * Args:
+ *   fileId {string} 檔案 ID。呼叫方負責傳入，本檔案唔會自己去攞任何
+ *     試算表 ID（見檔頭規則 4）。
+ * Returns:
+ *   {?number} 版本記錄數目；讀唔到（進階服務未啟用、冇權限、檔案類型
+ *     唔支援、頁數太多）一律回 `null`。
+ *     ⚠️ `null` 同 `0` **唔可以**混為一談：`0` 係「數過，冇版本」，
+ *     `null` 係「數唔到」。
+ */
+function driveCountRevisions_(fileId) {
+  var id = String(fileId || '').trim();
+  if (!id) return null;
+
+  try {
+    var total = 0;
+    var pageToken = null;
+    for (var page = 0; page < DRIVE_REVISION_MAX_PAGES_; page++) {
+      var args = { maxResults: 1000, fields: 'items(id),nextPageToken' };
+      if (pageToken) args.pageToken = pageToken;
+
+      var result = Drive.Revisions.list(id, args);
+      var items = (result && result.items) ? result.items : [];
+      total += items.length;
+
+      pageToken = (result && result.nextPageToken) ? result.nextPageToken : null;
+      if (!pageToken) return total;
+    }
+    return null; // 頁數超出上限：數唔晒，唔可以回一個截斷咗嘅數字
+  } catch (err) {
+    return null;
+  }
+}
+
+/** `driveCountRevisions_()` 最多翻幾多頁。超過就當數唔到。 */
+var DRIVE_REVISION_MAX_PAGES_ = 20;

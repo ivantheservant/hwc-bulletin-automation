@@ -65,6 +65,18 @@ function onOpen() {
     // 所以這一項按過一次就不用再按（再按也只會顯示三條連結，不會重建）。
     .addItem('建立 master 發佈檔案', 'menuCreateMasterPublishFile_')
     .addSeparator()
+    // R-027 自測機。⚠️ 全部只碰 Config SELFTEST_QUARTER_ID 那一季，
+    // 而且開跑前一定先斷言 DRY_RUN=TRUE，見 src/SelfTest.gs 的檔頭。
+    .addSubMenu(SpreadsheetApp.getUi().createMenu('測試工具')
+      .addItem('跑一次不變量檢查（唯讀）', 'menuRunInvariants_')
+      .addSeparator()
+      .addItem('跑自測（沙盒季度，DRY_RUN）', 'menuRunSelfTest_')
+      .addItem('繼續跑自測', 'menuResumeSelfTest_')
+      .addItem('查看自測報告', 'menuShowSelfTestReport_')
+      .addSeparator()
+      .addItem('⚠️ 亂行機（沙盒季度，DRY_RUN）', 'menuRunMonkey_')
+      .addItem('繼續亂行', 'menuResumeMonkey_'))
+    .addSeparator()
     .addSubMenu(SpreadsheetApp.getUi().createMenu('季度填寫表')
       .addItem('建立／刷新季度填寫表', 'menuCreateOrRefreshFillGrid_')
       .addItem('立即同步季度填寫表', 'menuSyncFillGrid_')

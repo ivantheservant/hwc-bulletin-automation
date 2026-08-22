@@ -418,7 +418,8 @@ function sendFillInvite_(quarterId) {
       STATUS: status,
       DRY_RUN: dryRun,
       ROSTER_VERSION_USED: sanitizeCellText_(quarterId),
-      ERROR: sanitizeCellText_(errorMessage)
+      ERROR: sanitizeCellText_(errorMessage),
+      BODY_PREVIEW: buildSendLogBodyPreview_(plainBody)
     });
   });
 
@@ -454,7 +455,15 @@ function protectedSheetNames_() {
     SHEETS.CONTENT_SHEETS,
     // PublishLog 是發佈紀錄（版本號、是否強制發佈、存檔檔案 ID），
     // 全部由系統寫；人手改一行只會令版本號與實際發佈對不上。
-    SHEETS.PUBLISH_LOG
+    SHEETS.PUBLISH_LOG,
+    // 自測機那四張：全部由系統寫。⚠️ NumberRegistry 受保護是因為它是
+    // 不變量 I03 的宣告——人手改一行「重新數的條件」，改到的只是給人看
+    // 的說明文字，程式讀的是 numberRegistryProbes_()，兩邊就會不一致而
+    // 沒有人發現。要加新登記請改程式碼，再撳「初始化工作表」。
+    SHEETS.NUMBER_REGISTRY,
+    SHEETS.SELF_TEST_STATE,
+    SHEETS.SELF_TEST_REPORT,
+    SHEETS.MONKEY_LOG
   ];
 }
 
@@ -626,7 +635,8 @@ function sendFillConflictNotice_(result) {
       TIMESTAMP: new Date(), SERVICE_DATE: '',
       RECIPIENT_EMAIL: sanitizeCellText_(recipient.email),
       SUBJECT: sanitizeCellText_(subject), STATUS: status, DRY_RUN: dryRun,
-      ROSTER_VERSION_USED: '', ERROR: sanitizeCellText_(errorMessage)
+      ROSTER_VERSION_USED: '', ERROR: sanitizeCellText_(errorMessage),
+      BODY_PREVIEW: buildSendLogBodyPreview_(plainBody)
     });
   });
 

@@ -55,6 +55,19 @@ var PUBLISH_LAST_KEY_PREFIX_ = 'PUBLISH_LAST|';
 /** ScriptProperties 內「建立 master 時嗰個佔位 PDF」嘅指紋。 */
 var PUBLISH_PLACEHOLDER_FINGERPRINT_KEY_ = 'PUBLISH_PLACEHOLDER_FINGERPRINT';
 
+/**
+ * ScriptProperties 內「最後一次成功發佈嘅是哪一期、第幾版、內容指紋」。
+ *
+ * ⚠️ 不變量 I06 靠佢：「`PublishLog` 最新一行嘅版本，對唔對得上 master
+ * 檔案目前內容」。冇呢個記錄嘅話，兩者根本冇得比——`PublishLog` 只有
+ * 版本號，master 只有內容，中間欠一條把兩者綁埋嘅線。
+ *
+ * ⚠️ 刻意存喺 ScriptProperties 而唔係加一欄落 `PublishLog`：呢個係
+ * **驗證用嘅中介狀態**，唔係發佈紀錄本身嘅一部分；而且 `PublishLog`
+ * 係人手唯讀嘅正式紀錄，唔應該為咗自測機而改佢嘅結構。
+ */
+var PUBLISH_LAST_OUTPUT_KEY_ = 'PUBLISH_LAST_OUTPUT';
+
 /** 攞指令碼鎖最多等幾多毫秒。 */
 var PUBLISH_LOCK_WAIT_MS_ = 20000;
 
@@ -783,6 +796,48 @@ function recordPublishStamp_(isoDate, versionNo, nowMs) {
 }
 
 /**
+ * 用途：記低「最後一次成功發佈嘅係邊一期、第幾版、內容指紋」，供不變量
+ *   I06 比對。寫唔入去回 `false`，**唔拋錯**——已經發佈成功嘅嘢唔可以
+ *   因為記唔到一個驗證用嘅中介狀態而變成失敗。
+ * Args:
+ *   isoDate {string} 主日日期。
+ *   versionNo {number} 版本號。
+ *   fingerprint {string} `pdfFingerprint_()` 嘅輸出；算唔到就傳空字串。
+ * Returns:
+ *   {boolean}
+ */
+function recordPublishOutputFingerprint_(isoDate, versionNo, fingerprint) {
+  return writePublishScriptProperty_(PUBLISH_LAST_OUTPUT_KEY_, JSON.stringify({
+    isoDate: String(isoDate || ''),
+    versionNo: Number(versionNo),
+    fingerprint: String(fingerprint || '')
+  }));
+}
+
+/**
+ * 用途：讀返 `recordPublishOutputFingerprint_()` 存低嗰個記錄。
+ * Args: （無）
+ * Returns:
+ *   {?{isoDate:string, versionNo:number, fingerprint:string}}
+ *     從來未發佈過、或者讀唔到／解析唔到，一律回 `null`。
+ */
+function readPublishOutputFingerprint_() {
+  var raw = readPublishScriptProperty_(PUBLISH_LAST_OUTPUT_KEY_);
+  if (!raw) return null;
+  try {
+    var parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed.isoDate !== 'string') return null;
+    return {
+      isoDate: parsed.isoDate,
+      versionNo: Number(parsed.versionNo || 0),
+      fingerprint: String(parsed.fingerprint || '')
+    };
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
  * 用途：判斷「呢一次撳，係咪同一個主日喺 N 秒內撳多咗一次」。**純函式。**
  *
  *   ⚠️ 呢個唔係取代 `LockService`，而係補佢嘅漏：鎖擋得住「同時」，
@@ -919,6 +974,11 @@ function executePublish_(isoDate, blob, options) {
   // 令成次發佈失敗——master 已經換咗，防重複只係一個方便，唔係正確性。
   recordPublishStamp_(isoDate, versionNo, new Date().getTime());
 
+  // 同一時間記低「發佈咗嘅係邊一份內容」，供不變量 I06 比對。
+  // 指紋算唔到（`Utilities.computeDigest` 唔得）就存空字串——I06 見到
+  // 空字串會報「驗證不到」，唔會報「唔一致」，兩者唔可以混為一談。
+  recordPublishOutputFingerprint_(isoDate, versionNo, pdfFingerprint_(blob ? blob.getBytes() : []));
+
   return {
     ok: true,
     versionNo: versionNo,
@@ -1019,7 +1079,8 @@ function sendPublishNotice_(isoDate, options) {
       STATUS: status,
       DRY_RUN: config.dryRun,
       ROSTER_VERSION_USED: '',
-      ERROR: sanitizeCellText_(errorMessage)
+      ERROR: sanitizeCellText_(errorMessage),
+      BODY_PREVIEW: buildSendLogBodyPreview_(body)
     });
   });
 

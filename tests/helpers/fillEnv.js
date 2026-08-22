@@ -220,6 +220,10 @@ function makeFillEnv(options) {
   sheets.BulletinWeeks = ownSheet('BULLETIN_WEEKS', weekRows);
 
   sheets.ProgramTemplates = ownSheet('PROGRAM_TEMPLATES', boot.seedProgramTemplatesRows_());
+  // ⚠️ NumberRegistry 一定要 seed：一個真的跑過「初始化工作表」的試算表
+  // 必定有這幾行，而不變量 I03 會檢查「有實作但沒有登記」——不 seed 的話
+  // 每一個用這個環境的測試都會撞到一個**假的**紅燈。
+  sheets.NumberRegistry = ownSheet('NUMBER_REGISTRY', boot.seedNumberRegistryRows_());
   sheets.PostDisplay = ownSheet('POST_DISPLAY', boot.seedPostDisplayRows_());
   sheets.MergeGroups = ownSheet('MERGE_GROUPS', boot.seedMergeGroupsRows_());
   sheets.FellowshipDefaults = ownSheet('FELLOWSHIP_DEFAULTS', o.fellowshipDefaults || boot.seedFellowshipDefaultsRows_());

@@ -125,6 +125,43 @@ function scrubFileId_(text, fileId) {
 }
 
 /**
+ * 用途：由 Drive 讀出一份**已經產生好的**產出檔案，供第 4 層的產出斷言
+ *   （`assertDocxOutput_()`，src/OutputAssert.gs）重新解壓來驗。
+ *
+ *   ⚠️ 刻意放在這個檔案、而不是 `OutputAssert.gs`：`DriveApp` 受
+ *   `tools/lint-readonly-roster.js` 規則 3 管制，只准出現在四個指定
+ *   檔案。為了一支「讀檔案」而多開第五個高權限檔案並不划算——Word 檔的
+ *   Drive IO 本來就是這個檔案的職責，放這裡才是對的位置。
+ *
+ *   ⚠️ 跟 `readTemplateBlob_()` 的分別：那一支是**讀範本**，MIME 不對
+ *   要拋錯（那是最常見的設定事故）；這一支是**讀產出**，讀不到只回
+ *   `ok:false`，因為「驗不到」不應該令呼叫方整個流程失敗，只應該令
+ *   那一條斷言變成「驗證不到」。
+ * Args:
+ *   fileId {string} 產出檔案的 Drive 檔案 ID。
+ * Returns:
+ *   {{ok:boolean, blob:?Blob, fileName:string, message:string}}
+ *     `ok:false` 時 `message` 講明原因，而且**不會**印出完整檔案 ID。
+ */
+function readOutputDocxById_(fileId) {
+  var id = String(fileId || '').trim();
+  if (!id) {
+    return { ok: false, blob: null, fileName: '', message: '沒有提供檔案 ID，無法讀取產出。' };
+  }
+
+  try {
+    var file = DriveApp.getFileById(id);
+    return { ok: true, blob: file.getBlob(), fileName: file.getName(), message: '' };
+  } catch (err) {
+    return {
+      ok: false, blob: null, fileName: '',
+      message: '讀不到產出檔案（ID 開頭 ' + maskFileId_(id) + '）：'
+        + scrubFileId_((err && err.message) ? err.message : String(err), id)
+    };
+  }
+}
+
+/**
  * 用途：由 Drive 讀出範本檔的 blob。
  * Args:
  *   fileId {string} 範本 `.docx` 在雲端硬碟的檔案 ID。

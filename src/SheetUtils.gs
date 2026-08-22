@@ -227,6 +227,38 @@ function sanitizeCellText_(value) {
   return value;
 }
 
+/**
+ * 用途：把一封郵件的內文縮成 `SendLog.BODY_PREVIEW` 要存的摘要——去掉
+ *   HTML 標籤、壓平連續空白、截到 `SEND_LOG_BODY_PREVIEW_CHARS` 個字元，
+ *   最後再經 `sanitizeCellText_()`。**純函式。**
+ *
+ *   ⚠️ 存在理由：`DRY_RUN=TRUE` 之下如果只記收件人而不記內容，就沒有
+ *   辦法在不真寄的情況下檢查電郵格式——而那正是試行模式最主要的用途。
+ *
+ *   ⚠️ 去 HTML 標籤不是為了美觀，是為了**讓人一眼看得出內容對不對**：
+ *   原始 HTML 塞進一個儲存格只會看到一堆 `<td style=...>`，真正的文字
+ *   淹沒在裡面。要看原始 HTML 的話有「預覽週報郵件內容」那個選單。
+ *
+ *   ⚠️ 被截斷時會在結尾加一句講明，不可以靜靜截走——看的人必須分得出
+ *   「內文就是這麼短」與「後面還有，只是沒有存」。
+ * Args:
+ *   body {*} 郵件內文（HTML 或純文字皆可）。
+ *   maxChars {number=} 選填，預設 `SEND_LOG_BODY_PREVIEW_CHARS`。
+ * Returns:
+ *   {*} 經 `sanitizeCellText_()` 處理過的字串；`body` 是空值時回空字串。
+ */
+function buildSendLogBodyPreview_(body, maxChars) {
+  var text = String(body === null || body === undefined ? '' : body);
+  if (!text) return '';
+
+  var limit = Number(maxChars) > 0 ? Number(maxChars) : SEND_LOG_BODY_PREVIEW_CHARS;
+  var plain = text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  if (plain.length > limit) {
+    plain = plain.slice(0, limit) + '…（內文較長，只存前 ' + limit + ' 個字元）';
+  }
+  return sanitizeCellText_(plain);
+}
+
 // =====================================================================
 // 工作表存取
 // =====================================================================

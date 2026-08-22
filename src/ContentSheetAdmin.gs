@@ -383,7 +383,8 @@ function sendContentSheetInvite_(quarterId) {
       STATUS: status,
       DRY_RUN: dryRun,
       ROSTER_VERSION_USED: sanitizeCellText_(qid),
-      ERROR: sanitizeCellText_(errorMessage)
+      ERROR: sanitizeCellText_(errorMessage),
+      BODY_PREVIEW: buildSendLogBodyPreview_(plainBody)
     });
   });
 

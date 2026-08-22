@@ -482,6 +482,54 @@ function selfCheckPublishItems_(quarterResolution) {
 }
 
 // =====================================================================
+// 不變量（第 1 層）
+// =====================================================================
+
+/**
+ * 用途：跑一次全部不變量，收成**一個**檢測大項。
+ *
+ *   ⚠️ 刻意只收成一項、而不是十項：不變量本身已經有自己的完整報告
+ *   （`menuRunInvariants_()` 寫入 Diagnostics 的「不變量檢查」），
+ *   在自我檢測這邊再攤開十行，只會把原本那份報告擠爆——那正是
+ *   docs/已知bug類型.md 事故二十一。這裡要的是一盞燈加一句摘要，
+ *   明細放在 `detail`（受既有的兩段式行數預算管制）。
+ *
+ *   ⚠️ 任何一條不變量**不成立**就報 🔴；「驗證不到」只在摘要講一句，
+ *   不當成失敗——擋住流程的應該是「證明錯了」，不是「證明不到」。
+ * Args: （無）
+ * Returns:
+ *   {{label:string, status:string, message:string, detail:string[]}[]}
+ */
+function selfCheckInvariantItems_() {
+  var S = SELF_CHECK_STATUS_;
+  try {
+    var summary = runAllInvariants_();
+    var status = summary.failedCount > 0 ? S.RED : (summary.unknownCount > 0 ? S.YELLOW : S.GREEN);
+    return [selfCheckItem_(
+      '不變量檢查（' + summary.results.length + ' 條）',
+      status,
+      buildInvariantShortSummary_(summary),
+      summary.results
+        .filter(function (r) { return r.ok !== true; })
+        .map(function (r) {
+          // ⚠️ 刻意先把編號取出來另存一個變數，不要在同一行內把這個屬性
+          // 存取夾在兩個引號中間——那樣寫會被 tools/scan-staged-secrets.js
+          // 的網域偵測誤判成網域（這個屬性名剛好撞正一個真實頂層網域）。
+          // 這是 docs/已知bug類型.md 事故六提到的同一類問題，不應該為了
+          // 遷就命名而放寬掃描器。
+          var invariantId = r.id;
+          var mark = r.ok === false ? '🔴 ' : '⚪ ';
+          return mark + invariantId + '　預期：' + r.expected
+            + '　實際：' + r.actual + '　證據：' + r.evidence;
+        })
+    )];
+  } catch (err) {
+    return [selfCheckItem_('不變量檢查', S.YELLOW,
+      '無法執行：' + ((err && err.message) ? err.message : String(err)))];
+  }
+}
+
+// =====================================================================
 // 紀錄類
 // =====================================================================
 
@@ -554,7 +602,9 @@ function runSelfCheck_() {
     .concat(selfCheckFeatureItems_())
     .concat(selfCheckLogItems_())
     // prompt-pre-usertest：發佈及匯出相關檢測，放在既有項目之後。
-    .concat(selfCheckPublishItems_(quarterResolution));
+    .concat(selfCheckPublishItems_(quarterResolution))
+    // 自測機那一輪：不變量收成一個大項，放在最後。
+    .concat(selfCheckInvariantItems_());
 
   var S = SELF_CHECK_STATUS_;
   var greenCount = items.filter(function (i) { return i.status === S.GREEN; }).length;
