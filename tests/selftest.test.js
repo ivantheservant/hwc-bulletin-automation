@@ -165,6 +165,104 @@ test('守門：正常設定（DRY_RUN=TRUE、兩季不同）→ 放行', functio
   assert.strictEqual(guard.ok, true, guard.message);
 });
 
+test('守門：沙盒 master 檔案 === 正式 master 檔案 → 拒絕開跑', function () {
+  const env = makeEnv({
+    config: {
+      SELFTEST_MASTER_PDF_FILE_ID: 'SAME_FILE_ID',
+      PUBLISHED_PDF_FILE_ID: 'SAME_FILE_ID'
+    }
+  });
+  const guard = env.sandbox.assertSelfTestSandbox_(env.sandbox.selfTestConfig_());
+
+  assert.strictEqual(guard.ok, false);
+  assert.ok(guard.message.indexOf('沙盒 master 檔案不可以是正式那一個') !== -1, guard.message);
+  assert.ok(guard.message.indexOf('SELFTEST_MASTER_PDF_FILE_ID') !== -1, '要講得出是哪兩個設定鍵：' + guard.message);
+  assert.ok(guard.message.indexOf('PUBLISHED_PDF_FILE_ID') !== -1, guard.message);
+  assert.ok(guard.message.indexOf('一格都沒有寫') !== -1, '要講明沒有寫入：' + guard.message);
+});
+
+// ⚠️ 只回 ok:false 不夠——要確認它真的沒有跑任何情境。這一條守的是
+//    「先跑幾個看看」那種寫法：S13／S14／S15 會**真的覆寫** master 檔案
+//    的內容並加版本，跑一個都嫌多。
+test('守門：沙盒 master === 正式 master → runSelfTest_() 一個情境都不跑', function () {
+  const env = makeEnv({
+    config: {
+      SELFTEST_MASTER_PDF_FILE_ID: 'SAME_FILE_ID',
+      PUBLISHED_PDF_FILE_ID: 'SAME_FILE_ID'
+    }
+  });
+  const summary = env.sandbox.runSelfTest_({});
+
+  assert.strictEqual(summary.ok, false);
+  deepEq(summary.results, []);
+  assert.strictEqual(summary.passCount, 0);
+  assert.strictEqual(env.sheets.SelfTestReport.getLastRow(), 2, 'SelfTestReport 不應該多任何一行');
+});
+
+// ⚠️ 亂行機同樣會發佈，走同一道守門，所以同樣要擋。
+test('守門：沙盒 master === 正式 master → runMonkey_() 一步都不行', function () {
+  const env = makeEnv({
+    config: {
+      SELFTEST_MASTER_PDF_FILE_ID: 'SAME_FILE_ID',
+      PUBLISHED_PDF_FILE_ID: 'SAME_FILE_ID'
+    }
+  });
+  const result = env.sandbox.runMonkey_({ steps: 5 });
+
+  assert.strictEqual(result.ok, false);
+  deepEq(result.steps, []);
+  assert.ok(result.message.indexOf('沙盒 master 檔案不可以是正式那一個') !== -1, result.message);
+});
+
+test('守門：兩個 master 檔案 ID 不同 → 放行', function () {
+  const env = makeEnv({
+    config: {
+      SELFTEST_MASTER_PDF_FILE_ID: 'SANDBOX_FILE_ID',
+      PUBLISHED_PDF_FILE_ID: 'PRODUCTION_FILE_ID'
+    }
+  });
+  const guard = env.sandbox.assertSelfTestSandbox_(env.sandbox.selfTestConfig_());
+  assert.strictEqual(guard.ok, true, guard.message);
+});
+
+// ⚠️ 兩個都是空字串代表「未設定」，那是另一件事——自測機會略過發佈相關
+//    情境並講明原因。空值當成相同而擋住開跑的話，一個全新的環境會連自測
+//    機都跑不起來。
+test('守門：兩個都未設定（都是空字串）→ 放行，不可以當成「相同」', function () {
+  const env = makeEnv({
+    config: { SELFTEST_MASTER_PDF_FILE_ID: '', PUBLISHED_PDF_FILE_ID: '' }
+  });
+  const guard = env.sandbox.assertSelfTestSandbox_(env.sandbox.selfTestConfig_());
+  assert.strictEqual(guard.ok, true, guard.message);
+});
+
+test('守門：正式那個有值、沙盒未設定 → 放行（未設定不等於撞到）', function () {
+  const env = makeEnv({
+    config: { SELFTEST_MASTER_PDF_FILE_ID: '', PUBLISHED_PDF_FILE_ID: 'PRODUCTION_FILE_ID' }
+  });
+  const guard = env.sandbox.assertSelfTestSandbox_(env.sandbox.selfTestConfig_());
+  assert.strictEqual(guard.ok, true, guard.message);
+});
+
+// ⚠️ 前後空白不可以令兩個相同的 ID 溜過去。Config 那一格是人手貼上去的，
+//    貼多一個空格是很平常的事。
+test('守門：ID 相同但帶前後空白 → 一樣擋得住（selfTestConfig_ 會 trim）', function () {
+  const env = makeEnv({
+    config: {
+      SELFTEST_MASTER_PDF_FILE_ID: '  SAME_FILE_ID  ',
+      PUBLISHED_PDF_FILE_ID: 'SAME_FILE_ID'
+    }
+  });
+  const guard = env.sandbox.assertSelfTestSandbox_(env.sandbox.selfTestConfig_());
+  assert.strictEqual(guard.ok, false, '前後空白不應該令這道守門失效');
+});
+
+test('selfTestConfig_ 讀得到正式那個 master 檔案 ID（只為對數，自測機不會碰它）', function () {
+  const env = makeEnv({ config: { PUBLISHED_PDF_FILE_ID: 'PRODUCTION_FILE_ID' } });
+  const config = env.sandbox.selfTestConfig_();
+  assert.strictEqual(config.publishedFileId, 'PRODUCTION_FILE_ID');
+});
+
 test('守門：預設沙盒季度是 2028T4、只讀季度是 2027T4（兩者必須不同）', function () {
   const env = makeEnv({});
   const config = env.sandbox.selfTestConfig_();

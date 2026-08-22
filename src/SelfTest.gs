@@ -25,6 +25,11 @@
  *   3. **職事表零寫入。** 開跑前記下版本記錄行數，跑完由不變量 I10 比對。
  *   4. 需要真實職事表資料的情境，讀 `SELFTEST_ROSTER_QUARTER_ID`，**只讀**。
  *   5. 每次開跑先把沙盒季度的資料清乾淨，令每次都由同一個起點開始。
+ *   6. **沙盒 master 發佈檔案不可以是正式那一個。**
+ *      `SELFTEST_MASTER_PDF_FILE_ID` 與 `PUBLISHED_PDF_FILE_ID` 相同就
+ *      即刻停。S13／S14／S15 會**真的覆寫** master 檔案的內容並加版本，
+ *      兩者相同的話，教會網站上那條固定連結會被沙盒 PDF 洗掉——而且
+ *      完全沒有錯誤訊息：發佈成功、`PublishLog` 綠色、版本 +1。
  *
  *   ⚠️ 沙盒季度刻意選一個**職事表沒有資料**的季度（預設 `2028T4`）：
  *   一來寫錯了也傷不到真資料，二來順便測「職事表無資料」那一條路。
@@ -56,10 +61,15 @@ var SELF_TEST_CONTENT_SUFFIX_ = '_SELFTEST';
 
 /**
  * 用途：一次過讀齊自測機要用的設定。
+ *
+ *   ⚠️ 連**正式**那個 master 發佈檔案 ID 一齊讀出來，唯一目的是給
+ *   `assertSelfTestSandbox_()` 對數（兩者相同就不准開跑）。自測機
+ *   本身一格都不會碰 `publishedFileId`。
  * Args: （無）
  * Returns:
  *   {{quarterId:string, rosterQuarterId:string, masterFileId:string,
- *     timeBudgetMs:number, dryRun:boolean, contentFolderId:string}}
+ *     publishedFileId:string, timeBudgetMs:number, dryRun:boolean,
+ *     contentFolderId:string}}
  */
 function selfTestConfig_() {
   var budgetSec = normalizeInt_(getConfig(CONFIG_KEYS.SELFTEST_TIME_BUDGET_SEC, '240'));
@@ -69,6 +79,7 @@ function selfTestConfig_() {
     quarterId: String(getConfig(CONFIG_KEYS.SELFTEST_QUARTER_ID, '2028T4') || '').trim(),
     rosterQuarterId: String(getConfig(CONFIG_KEYS.SELFTEST_ROSTER_QUARTER_ID, '2027T4') || '').trim(),
     masterFileId: String(getConfig(CONFIG_KEYS.SELFTEST_MASTER_PDF_FILE_ID, '') || '').trim(),
+    publishedFileId: String(getConfig(CONFIG_KEYS.PUBLISHED_PDF_FILE_ID, '') || '').trim(),
     contentFolderId: String(getConfig(CONFIG_KEYS.CONTENT_SHEET_FOLDER_ID, '') || '').trim(),
     timeBudgetMs: budgetSec * 1000,
     dryRun: normalizeBoolean_(getConfig(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true
@@ -108,6 +119,30 @@ function assertSelfTestSandbox_(config) {
       message: '沙盒季度（' + config.quarterId + '）跟「只讀的職事表季度」是同一季。'
         + '自測機會清空並改寫沙盒季度的資料——兩者相同的話，真實資料會被清走。'
         + '請把 ' + CONFIG_KEYS.SELFTEST_QUARTER_ID + ' 改成一個不會用到的季度。'
+    };
+  }
+
+  // ⚠️ 沙盒 master 發佈檔案不可以是正式那一個。
+  //    自測機的 S13／S14／S15 會**真的覆寫** master 檔案的內容、真的加版本。
+  //    兩個 ID 相同的話，教會網站上那條固定連結會被自測機的沙盒 PDF 洗掉
+  //    ——而且完全不會有錯誤訊息：發佈成功、PublishLog 綠色、版本 +1。
+  //    這一種「靜靜地做了一件不是使用者要的事」是最難查的一種，所以寧可
+  //    在開跑前就停，不要「先跑幾個看看」。
+  //
+  //    ⚠️ 只在沙盒那個有值時才比。兩個都是空字串代表「未設定」，那是另一
+  //    件事：自測機會略過發佈相關情境並講明原因（見 S13）。空值當成相同
+  //    而擋住開跑的話，一個全新的環境會連自測機都跑不起來。
+  if (config.masterFileId && config.masterFileId === config.publishedFileId) {
+    return {
+      ok: false,
+      message: '沙盒 master 檔案不可以是正式那一個。'
+        + CONFIG_KEYS.SELFTEST_MASTER_PDF_FILE_ID + ' 與 '
+        + CONFIG_KEYS.PUBLISHED_PDF_FILE_ID + ' 是同一個檔案 ID。'
+        + '自測機會真的覆寫 master 檔案的內容並加版本——兩者相同的話，'
+        + '教會網站上那條固定連結會被沙盒 PDF 洗掉，而且不會有任何錯誤訊息。'
+        + '請先用選單「建立 master 發佈檔案」另外造一個沙盒專用的檔案，'
+        + '把它的 ID 填入 ' + CONFIG_KEYS.SELFTEST_MASTER_PDF_FILE_ID + '，然後再試一次。'
+        + '已經中止，一格都沒有寫。'
     };
   }
 
