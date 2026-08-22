@@ -677,6 +677,42 @@ function pdfFingerprint_(bytes) {
 }
 
 /**
+ * 用途：把 `pdfFingerprint_()` 的輸出（`位元組數:md5`）拆成兩件。**純函式。**
+ *
+ *   ⚠️ 拆開存進 `PublishLog` 兩欄，是為了令人一眼看得出「大小變了」還是
+ *   「同樣大小但內容不同」——兩者的成因完全不同（見事故三十三）。
+ * Args:
+ *   fingerprint {string}
+ * Returns:
+ *   {{bytes:number, md5:string}} 拆不開就回 `{bytes:0, md5:''}`。
+ */
+function splitPdfFingerprint_(fingerprint) {
+  var text = String(fingerprint || '').trim();
+  if (!text) return { bytes: 0, md5: '' };
+  var parts = text.split(':');
+  if (parts.length !== 2) return { bytes: 0, md5: '' };
+  var bytes = Number(parts[0]);
+  if (!isFinite(bytes) || bytes < 0) return { bytes: 0, md5: '' };
+  return { bytes: bytes, md5: String(parts[1] || '') };
+}
+
+/**
+ * 用途：把 `PublishLog` 兩欄砌返成 `pdfFingerprint_()` 的格式。**純函式。**
+ * Args:
+ *   row {Object} `PublishLog` 一行。
+ * Returns:
+ *   {string} 兩欄有任何一個是空的就回空字串（**不可以**回 `0:` 這種
+ *     看起來像有值的東西——空的意思是「這一行沒有記過」）。
+ */
+function publishRowFingerprint_(row) {
+  var r = row || {};
+  var md5 = String(r.CONTENT_MD5 || '').trim();
+  var bytes = Number(r.CONTENT_BYTES);
+  if (!md5 || !isFinite(bytes) || bytes <= 0) return '';
+  return bytes + ':' + md5;
+}
+
+/**
  * 用途：判斷使用者上載嘅 PDF 係咪「揀錯咗檔案」。**純函式。**
  *
  *   實際發生過嘅事：幹事撳咗「下載目前已發佈的 PDF」，然後喺選檔案嗰陣
@@ -878,14 +914,21 @@ function readPublishOutputFingerprint_(masterFileId) {
       readPublishScriptProperty_(publishOutputFingerprintKey_(fileId)));
     if (scoped) return scoped;
 
-    // ⚠️ 舊鍵只可以當成**正式** master 的記錄。加入這兩個鍵之前，全部發佈
-    //    都是正式發佈（自測機那時還未存在），所以舊記錄一定屬於正式檔案。
-    //    問的如果是沙盒檔案，寧可回 null（I06 會報「驗證不到」），也不可以
-    //    拿正式那一份指紋去對沙盒檔案——那樣會報一個假的「不一致」。
-    if (isSelfTestMasterFileId_(fileId)) return null;
+    // ⚠️ 舊鍵**只可以在它自己講得出屬於哪一個檔案時**採用。
+    //
+    //    第二輪這裡寫成「沒有 masterFileId 的舊記錄一律當成正式那一邊」，
+    //    理由是「加入這兩個鍵之前全部發佈都是正式發佈」。**那個理由是錯的**：
+    //    第一輪的自測機已經會發佈沙盒 master，而那時只有一個共用的鍵——
+    //    所以舊記錄有可能是沙盒那一次寫的。當成正式那一邊的話，I06 會拿
+    //    一份沙盒的版本號去對正式那一行，報出「1 條通道對不上（正式）」。
+    //    那正是第三輪報告的症狀，已經逐字重現過。見事故三十三。
+    //
+    //    認不出屬於哪一個檔案的舊記錄，寧可回 null（I06 報「驗證不到」，
+    //    並講明下一次發佈就會自己好返），也不可以報一個假的「不一致」。
     var legacy = parsePublishOutputFingerprint_(readPublishScriptProperty_(PUBLISH_LAST_OUTPUT_KEY_));
     if (!legacy) return null;
-    if (legacy.masterFileId && legacy.masterFileId !== fileId) return null;
+    if (!legacy.masterFileId) return null;
+    if (legacy.masterFileId !== fileId) return null;
     return legacy;
   }
 
@@ -1028,6 +1071,12 @@ function executePublish_(isoDate, blob, options) {
   // ---- 3. 寫 PublishLog ----
   var actor = publishCurrentUserEmail_();
 
+  // ⚠️ 指紋**直接記在這一行上**。舊版只記在一份共用的 Script Property，
+  //    下一次發佈（包括沙盒發佈）就會蓋走它，於是 I06 拿到一份不屬於
+  //    這一行的指紋，報出假的「內容對不上」。見事故三十三。
+  var publishedFingerprint = pdfFingerprint_(blob ? blob.getBytes() : []);
+  var fingerprintParts = splitPdfFingerprint_(publishedFingerprint);
+
   writeSheet(SHEETS.PUBLISH_LOG, [{
     SERVICE_DATE: normalizeDate_(isoDate),
     VERSION_NO: versionNo,
@@ -1041,7 +1090,9 @@ function executePublish_(isoDate, blob, options) {
     FORCED_REASON: sanitizeCellText_(o.forcedReason || ''),
     // ⚠️ 記低「這一次實際覆寫了哪一個檔案」，令 I06 不需要靠 Config 猜。
     MASTER_FILE_ID: sanitizeCellText_(config.masterFileId),
-    IS_SELFTEST: isSelfTestMasterFileId_(config.masterFileId)
+    IS_SELFTEST: isSelfTestMasterFileId_(config.masterFileId),
+    CONTENT_BYTES: fingerprintParts.bytes,
+    CONTENT_MD5: sanitizeCellText_(fingerprintParts.md5)
   }]);
 
   appendAuditLog_({
@@ -1059,7 +1110,7 @@ function executePublish_(isoDate, blob, options) {
   // 指紋算唔到（`Utilities.computeDigest` 唔得）就存空字串——I06 見到
   // 空字串會報「驗證不到」，唔會報「唔一致」，兩者唔可以混為一談。
   recordPublishOutputFingerprint_(isoDate, versionNo,
-    pdfFingerprint_(blob ? blob.getBytes() : []), config.masterFileId);
+    publishedFingerprint, config.masterFileId);
 
   return {
     ok: true,

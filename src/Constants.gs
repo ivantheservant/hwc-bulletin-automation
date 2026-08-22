@@ -395,21 +395,26 @@ var COLUMNS = Object.freeze({
   //    master」——自測機發佈完沙盒 master 之後，那個假設即刻不成立，I06 由此
   //    永遠失敗，並把 S13 之後每一個情境一齊染紅。見 docs/已知bug類型.md
   //    事故三十一。
+  //
+  // ⚠️ 第三輪再加 CONTENT_BYTES／CONTENT_MD5：發佈當時的指紋**直接記在
+  //    這一行上**，不再依賴一份共用的 Script Property。共用那一份會被
+  //    下一次發佈（包括沙盒發佈）蓋走，於是 I06 拿到一份不屬於這一行的
+  //    指紋，報出一個假的「內容對不上」。見事故三十三。
   PUBLISH_LOG: {
     headers: [
       '主日日期', '版本', '發佈時間', '發佈人', '存檔檔案 ID',
       '是否有寄出', '收件組別', '未填欄位數', '是否強制發佈', '強制原因',
-      'master 檔案 ID', '是否自測'
+      'master 檔案 ID', '是否自測', '內容位元組數', '內容 MD5'
     ],
     keys: [
       'SERVICE_DATE', 'VERSION_NO', 'PUBLISHED_AT', 'PUBLISHED_BY', 'ARCHIVE_FILE_ID',
       'SENT', 'SENT_GROUPS', 'MISSING_COUNT', 'FORCED', 'FORCED_REASON',
-      'MASTER_FILE_ID', 'IS_SELFTEST'
+      'MASTER_FILE_ID', 'IS_SELFTEST', 'CONTENT_BYTES', 'CONTENT_MD5'
     ],
     types: [
       'DATE', 'INT', 'DATE', 'TEXT', 'TEXT',
       'BOOLEAN', 'TEXT', 'INT', 'BOOLEAN', 'TEXT',
-      'TEXT', 'BOOLEAN'
+      'TEXT', 'BOOLEAN', 'INT', 'TEXT'
     ]
   },
 

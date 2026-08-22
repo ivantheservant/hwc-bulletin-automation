@@ -450,105 +450,6 @@ test('I05 ⚪：DRY_RUN=FALSE → 這一刻驗不到，不是綠', function () {
   assert.ok(r.evidence.indexOf('驗不到') !== -1, r.evidence);
 });
 
-// =====================================================================
-// I06
-// =====================================================================
-
-function md5Fingerprint(bytes) {
-  return bytes.length + ':' + crypto.createHash('md5').update(Buffer.from(bytes)).digest('hex');
-}
-
-test('I06 綠：master 目前內容與發佈當時記錄的指紋相同', function () {
-  const bytes = [0x25, 0x50, 0x44, 0x46, 0x41];
-  const env = makeEnv({
-    config: { PUBLISHED_PDF_FILE_ID: 'MASTER1' },
-    masterBytes: bytes,
-    publishLog: [{
-      SERVICE_DATE: TARGET_DATE, VERSION_NO: 2, PUBLISHED_AT: '2027-11-06',
-      PUBLISHED_BY: 'x@example.com', ARCHIVE_FILE_ID: 'A1', SENT: false,
-      SENT_GROUPS: '', MISSING_COUNT: 0, FORCED: false, FORCED_REASON: ''
-    }],
-    scriptProps: {
-      PUBLISH_LAST_OUTPUT: JSON.stringify({ isoDate: TARGET_DATE, versionNo: 2, fingerprint: md5Fingerprint(bytes) })
-    }
-  });
-  const r = env.sandbox.runInvariantI06_();
-  assert.strictEqual(r.ok, true, r.evidence);
-});
-
-test('I06 紅：master 內容在最後一次發佈之後被換過 → 報紅（狀態列說第 2 版，連結裡面其實不是）', function () {
-  const publishedBytes = [0x25, 0x50, 0x44, 0x46, 0x41];
-  const currentBytes = [0x25, 0x50, 0x44, 0x46, 0x42]; // 被人手換過
-  const env = makeEnv({
-    config: { PUBLISHED_PDF_FILE_ID: 'MASTER1' },
-    masterBytes: currentBytes,
-    publishLog: [{
-      SERVICE_DATE: TARGET_DATE, VERSION_NO: 2, PUBLISHED_AT: '2027-11-06',
-      PUBLISHED_BY: 'x@example.com', ARCHIVE_FILE_ID: 'A1', SENT: false,
-      SENT_GROUPS: '', MISSING_COUNT: 0, FORCED: false, FORCED_REASON: ''
-    }],
-    scriptProps: {
-      PUBLISH_LAST_OUTPUT: JSON.stringify({ isoDate: TARGET_DATE, versionNo: 2, fingerprint: md5Fingerprint(publishedBytes) })
-    }
-  });
-  const r = env.sandbox.runInvariantI06_();
-  assert.strictEqual(r.ok, false);
-  assert.ok(r.evidence.indexOf('被換過') !== -1, r.evidence);
-});
-
-test('I06 紅：PublishLog 說第 3 版，但實際寫進 master 的是第 2 版', function () {
-  const bytes = [0x25, 0x50, 0x44, 0x46];
-  const env = makeEnv({
-    config: { PUBLISHED_PDF_FILE_ID: 'MASTER1' },
-    masterBytes: bytes,
-    publishLog: [{
-      SERVICE_DATE: TARGET_DATE, VERSION_NO: 3, PUBLISHED_AT: '2027-11-06',
-      PUBLISHED_BY: 'x@example.com', ARCHIVE_FILE_ID: 'A1', SENT: false,
-      SENT_GROUPS: '', MISSING_COUNT: 0, FORCED: false, FORCED_REASON: ''
-    }],
-    scriptProps: {
-      PUBLISH_LAST_OUTPUT: JSON.stringify({ isoDate: TARGET_DATE, versionNo: 2, fingerprint: md5Fingerprint(bytes) })
-    }
-  });
-  const r = env.sandbox.runInvariantI06_();
-  assert.strictEqual(r.ok, false);
-  // ⚠️ 第二輪：I06 現在逐條**通道**判斷（正式／沙盒各自獨立），所以
-  //    expected／actual 講的是「幾多條通道對得上」，兩個版本號落在 evidence。
-  //    斷言的強度沒有變——照樣要求它報紅，而且照樣要求它講得出是哪兩個版本。
-  assert.ok(r.evidence.indexOf('第 3 版') !== -1, r.evidence);
-  assert.ok(r.evidence.indexOf('第 2 版') !== -1, r.evidence);
-  assert.ok(r.evidence.indexOf('正式') !== -1, '要講得出是哪一條通道：' + r.evidence);
-  assert.ok(r.actual.indexOf('1 條通道對不上') !== -1, r.actual);
-});
-
-test('I06 ⚪：master 檔案讀不到 → 驗證不到，不是紅也不是綠', function () {
-  const env = makeEnv({
-    config: { PUBLISHED_PDF_FILE_ID: 'MASTER1' },
-    // masterBytes 不提供 → getFileById 會拋錯
-    publishLog: [{
-      SERVICE_DATE: TARGET_DATE, VERSION_NO: 1, PUBLISHED_AT: '2027-11-06',
-      PUBLISHED_BY: 'x@example.com', ARCHIVE_FILE_ID: '', SENT: false,
-      SENT_GROUPS: '', MISSING_COUNT: 0, FORCED: false, FORCED_REASON: ''
-    }],
-    scriptProps: {
-      PUBLISH_LAST_OUTPUT: JSON.stringify({ isoDate: TARGET_DATE, versionNo: 1, fingerprint: '4:abc' })
-    }
-  });
-  const r = env.sandbox.runInvariantI06_();
-  assert.strictEqual(r.ok, null);
-  assert.ok(r.evidence.indexOf('不等於') !== -1, '要講明「讀不到」不等於「沒問題」：' + r.evidence);
-});
-
-// =====================================================================
-// I07（第 4 層的產出斷言）
-// =====================================================================
-
-// =====================================================================
-// I06 分通道（第二輪自測）
-// =====================================================================
-
-const SANDBOX_MASTER = 'SANDBOX_MASTER_ID';
-
 function publishRow(overrides) {
   return Object.assign({
     SERVICE_DATE: TARGET_DATE, VERSION_NO: 1, PUBLISHED_AT: '2027-11-06',
@@ -557,6 +458,132 @@ function publishRow(overrides) {
     MASTER_FILE_ID: 'MASTER1', IS_SELFTEST: false
   }, overrides || {});
 }
+
+/** 一行帶住 CONTENT_BYTES／CONTENT_MD5 的發佈紀錄（第三輪起的正路）。 */
+function publishRowWithMd5(bytes, overrides) {
+  const fp = md5Fingerprint(bytes).split(':');
+  return publishRow(Object.assign({
+    CONTENT_BYTES: Number(fp[0]), CONTENT_MD5: fp[1]
+  }, overrides || {}));
+}
+
+// =====================================================================
+// I06
+// =====================================================================
+
+function md5Fingerprint(bytes) {
+  return bytes.length + ':' + crypto.createHash('md5').update(Buffer.from(bytes)).digest('hex');
+}
+
+// ⚠️ 第三輪起，指紋**直接記在 PublishLog 那一行上**（CONTENT_BYTES／
+//    CONTENT_MD5）。共用那一份 Script Property 會被下一次發佈蓋走——
+//    包括自測機發佈沙盒 master——於是 I06 拿到一份不屬於這一行的指紋。
+//    見 docs/已知bug類型.md 事故三十三。
+test('I06 綠：master 目前內容與該行記錄的 CONTENT_MD5 相同', function () {
+  const bytes = [0x25, 0x50, 0x44, 0x46, 0x01];
+  const env = makeEnv({
+    config: { PUBLISHED_PDF_FILE_ID: 'MASTER1' },
+    masterBytes: bytes,
+    publishLog: [publishRowWithMd5(bytes, { VERSION_NO: 2 })]
+  });
+  const r = env.sandbox.runInvariantI06_();
+  assert.strictEqual(r.ok, true, r.evidence);
+  assert.ok(r.evidence.indexOf('這一行的 CONTENT_MD5') !== -1,
+    '要講明指紋來自該行自己：' + r.evidence);
+});
+
+test('I06 紅：master 內容在最後一次發佈之後被換過 → 報紅，而且講得出成因', function () {
+  const published = [0x25, 0x50, 0x44, 0x46, 0x01];
+  const env = makeEnv({
+    config: { PUBLISHED_PDF_FILE_ID: 'MASTER1' },
+    // 目前內容比發佈當時多了幾個位元組——即是被換過。
+    masterBytes: [0x25, 0x50, 0x44, 0x46, 0x01, 0xAA, 0xBB],
+    publishLog: [publishRowWithMd5(published, { VERSION_NO: 2 })]
+  });
+  const r = env.sandbox.runInvariantI06_();
+  assert.strictEqual(r.ok, false, r.evidence);
+  assert.ok(r.evidence.indexOf('被換過') !== -1, r.evidence);
+  // ⚠️ 第三輪的要求：不成立時要講**成因**，不是只講「對不上」。
+  assert.ok(r.evidence.indexOf('大小不同') !== -1, '要講得出差在哪裏：' + r.evidence);
+  assert.ok(r.evidence.indexOf('手動上載') !== -1, '要講得出常見成因：' + r.evidence);
+  assert.ok(r.evidence.indexOf('診斷 I06') !== -1, '要講得出下一步：' + r.evidence);
+});
+
+test('I06 紅：大小相同但 MD5 不同 → 成因講「大小相同」，不會亂講大小差', function () {
+  const published = [0x25, 0x50, 0x44, 0x46, 0x01];
+  const env = makeEnv({
+    config: { PUBLISHED_PDF_FILE_ID: 'MASTER1' },
+    masterBytes: [0x25, 0x50, 0x44, 0x46, 0x02],
+    publishLog: [publishRowWithMd5(published, { VERSION_NO: 2 })]
+  });
+  const r = env.sandbox.runInvariantI06_();
+  assert.strictEqual(r.ok, false, r.evidence);
+  assert.ok(r.evidence.indexOf('大小相同') !== -1, r.evidence);
+});
+
+// ⚠️ 這一條在第三輪**改變了預期**（🔴 → ⚪），理由要寫清楚：
+//    「共用的指紋記錄講的是另一次發佈」代表那一份指紋**根本不屬於這一行**
+//    ——拿它去比內容，得出的「不一致」是**假的**。第三輪報告那個
+//    「1 條通道對不上（正式）」就是這樣來的，已經逐字重現過。
+//    所以正確的答案是「驗證不到」加一句成因，不是「對不上」。
+//    真正的內容不一致由上面兩條（該行自己的 CONTENT_MD5）驗。
+test('I06 ⚪：共用指紋記錄講的是另一次發佈 → 驗證不到，並講明那份指紋不屬於這一行', function () {
+  const bytes = [0x25, 0x50, 0x44, 0x46];
+  const env = makeEnv({
+    config: { PUBLISHED_PDF_FILE_ID: 'MASTER1' },
+    masterBytes: bytes,
+    publishLog: [publishRow({ VERSION_NO: 3 })],
+    scriptProps: {
+      'PUBLISH_LAST_OUTPUT::MASTER1': JSON.stringify({
+        isoDate: TARGET_DATE, versionNo: 2,
+        fingerprint: md5Fingerprint(bytes), masterFileId: 'MASTER1'
+      })
+    }
+  });
+  const r = env.sandbox.runInvariantI06_();
+  assert.strictEqual(r.ok, null, r.evidence);
+  assert.ok(r.evidence.indexOf('第 3 版') !== -1, r.evidence);
+  assert.ok(r.evidence.indexOf('第 2 版') !== -1, r.evidence);
+  assert.ok(r.evidence.indexOf('不屬於這一行') !== -1, '要講明那份指紋不屬於這一行：' + r.evidence);
+  assert.ok(r.evidence.indexOf('自己好返') !== -1, '要講明下一次發佈就會好返：' + r.evidence);
+});
+
+test('I06 ⚪：master 檔案讀不到 → 驗證不到，不是紅也不是綠', function () {
+  const env = makeEnv({
+    config: { PUBLISHED_PDF_FILE_ID: 'MASTER1' },
+    // masterBytes 不提供 → getFileById 會拋錯
+    publishLog: [publishRowWithMd5([0x25, 0x50, 0x44, 0x46], { VERSION_NO: 1 })]
+  });
+  const r = env.sandbox.runInvariantI06_();
+  assert.strictEqual(r.ok, null);
+  assert.ok(r.evidence.indexOf('「讀不到」不等於「沒問題」') !== -1,
+    '要講明「讀不到」不等於「沒問題」：' + r.evidence);
+});
+
+test('I06 ⚪：舊資料（沒有 CONTENT_MD5、共用記錄也認不出）→ 驗證不到，講明會自己好返', function () {
+  const env = makeEnv({
+    config: { PUBLISHED_PDF_FILE_ID: 'MASTER1' },
+    masterBytes: [0x25, 0x50, 0x44, 0x46],
+    publishLog: [publishRow({ VERSION_NO: 1 })],
+    scriptProps: {
+      // 加欄之前那一份共用記錄：**沒有 masterFileId**，認不出屬於哪一個檔案。
+      PUBLISH_LAST_OUTPUT: JSON.stringify({
+        isoDate: '2028-10-01', versionNo: 4, fingerprint: 'SANDBOX_FP'
+      })
+    }
+  });
+  const r = env.sandbox.runInvariantI06_();
+  assert.strictEqual(r.ok, null,
+    '認不出屬於哪一個檔案的舊記錄，不可以當成正式那一邊的——那正是第三輪那個假紅：'
+    + r.evidence);
+  assert.ok(r.evidence.indexOf('自己好返') !== -1, r.evidence);
+});
+
+// =====================================================================
+// I06 分通道（第二輪自測）
+// =====================================================================
+
+const SANDBOX_MASTER = 'SANDBOX_MASTER_ID';
 
 // ⚠️ 這一條就是第二輪那 5 個假紅的正面迴歸測試。自測機發佈完沙盒 master
 //    之後，PublishLog 最新一行是沙盒那一行——舊版 I06 拿它去對**正式**

@@ -615,11 +615,14 @@ test('9c. 現行行為：同一主日、視窗之內、內容不同，一樣會�
 // 9d-9h. PublishLog 兩個新欄位（第二輪自測）
 // =====================================================================
 
-test('9d. PublishLog 有 MASTER_FILE_ID 與 IS_SELFTEST，而且加在最尾', function () {
+test('9d. PublishLog 四個新欄位全部加在最尾（次序不可以插在中間）', function () {
   const env = makeEnv({});
   const keys = env.sandbox.COLUMNS.PUBLISH_LOG.keys;
-  assert.strictEqual(keys[keys.length - 2], 'MASTER_FILE_ID');
-  assert.strictEqual(keys[keys.length - 1], 'IS_SELFTEST');
+  // 第二輪加 MASTER_FILE_ID／IS_SELFTEST，第三輪再加 CONTENT_BYTES／CONTENT_MD5。
+  assert.strictEqual(keys[keys.length - 4], 'MASTER_FILE_ID');
+  assert.strictEqual(keys[keys.length - 3], 'IS_SELFTEST');
+  assert.strictEqual(keys[keys.length - 2], 'CONTENT_BYTES');
+  assert.strictEqual(keys[keys.length - 1], 'CONTENT_MD5');
   assert.strictEqual(keys.length, env.sandbox.COLUMNS.PUBLISH_LOG.headers.length);
   assert.strictEqual(keys.length, env.sandbox.COLUMNS.PUBLISH_LOG.types.length);
 });
@@ -682,7 +685,15 @@ test('9h. 沙盒發佈不會蓋走正式那一份指紋（一個 master 檔案�
   assert.strictEqual(sandbox.versionNo, 9);
 });
 
-test('9i. 舊鍵（加欄之前的記錄）只算正式那一邊，不會被當成沙盒的指紋', function () {
+// ⚠️ 這一條在第三輪**改變了預期**，理由是第二輪那個假設**是錯的**。
+//
+//    第二輪寫成「沒有 masterFileId 的舊記錄一律當成正式那一邊」，理由是
+//    「加入這兩個鍵之前全部發佈都是正式發佈」。但第一輪的自測機已經會
+//    發佈沙盒 master，而那時只有一個共用的鍵——所以舊記錄有可能是沙盒
+//    那一次寫的。當成正式那一邊，I06 就會拿一份沙盒的版本號去對正式
+//    那一行，報出「1 條通道對不上（正式）」。那正是第三輪報告的症狀。
+//    見 docs/已知bug類型.md 事故三十三。
+test('9i. 認不出屬於哪一個檔案的舊記錄，一律不採用（寧可驗證不到）', function () {
   const env = makeEnv({
     config: { SELFTEST_MASTER_PDF_FILE_ID: 'SANDBOX_MASTER' },
     scriptProps: {
@@ -690,13 +701,22 @@ test('9i. 舊鍵（加欄之前的記錄）只算正式那一邊，不會被當�
     }
   });
 
-  const production = env.sandbox.readPublishOutputFingerprint_(MASTER_FILE_ID);
-  assert.ok(production, '正式那一邊要退回舊鍵讀得到');
-  assert.strictEqual(production.fingerprint, 'OLD');
+  assert.strictEqual(env.sandbox.readPublishOutputFingerprint_(MASTER_FILE_ID), null,
+    '舊記錄講不出自己屬於哪一個檔案，就不可以當成正式那一邊的');
+  assert.strictEqual(env.sandbox.readPublishOutputFingerprint_('SANDBOX_MASTER'), null);
+});
 
-  const sandbox = env.sandbox.readPublishOutputFingerprint_('SANDBOX_MASTER');
-  assert.strictEqual(sandbox, null,
-    '拿正式那一份指紋去對沙盒檔案，會報一個假的「不一致」——寧可回 null');
+test('9i-2. 舊記錄有 masterFileId 而且對得上 → 照樣採用', function () {
+  const env = makeEnv({
+    scriptProps: {
+      PUBLISH_LAST_OUTPUT: JSON.stringify({
+        isoDate: TARGET_DATE, versionNo: 4, fingerprint: 'OLD', masterFileId: MASTER_FILE_ID
+      })
+    }
+  });
+  const got = env.sandbox.readPublishOutputFingerprint_(MASTER_FILE_ID);
+  assert.ok(got, '講得出屬於哪一個檔案的舊記錄，仍然要用得到');
+  assert.strictEqual(got.fingerprint, 'OLD');
 });
 
 // =====================================================================

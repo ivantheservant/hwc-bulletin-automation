@@ -237,6 +237,72 @@ function readMasterPdfBytes_(fileId) {
 }
 
 /**
+ * 用途：讀一個檔案的中繼資料與內容位元組，供「診斷 I06」報告用。
+ *   **唯讀**——只叫 `getFileById().getBlob()` 與幾個 getter。
+ *
+ *   ⚠️ 讀不到就回 `ok:false` 加一句原因，**不拋錯**：診斷報告的用途正正
+ *   是「看清楚現況」，其中一項讀不到不應該令整份報告出不到。
+ * Args:
+ *   fileId {string} 檔案 ID。
+ * Returns:
+ *   {{ok:boolean, fileName:string, bytes:number, lastUpdated:string,
+ *     lastModifiedBy:string, mimeType:string, blobBytes:?Array, message:string}}
+ */
+function readDriveFileFacts_(fileId) {
+  var id = String(fileId || '').trim();
+  var empty = {
+    ok: false, fileName: '', bytes: 0, lastUpdated: '', lastModifiedBy: '',
+    mimeType: '', blobBytes: null, message: ''
+  };
+  if (!id) {
+    empty.message = '檔案 ID 是空的。';
+    return empty;
+  }
+
+  try {
+    var file = DriveApp.getFileById(id);
+    var blob = file.getBlob();
+    var bytes = blob.getBytes();
+
+    var lastUpdated = '';
+    try {
+      var updated = file.getLastUpdated();
+      lastUpdated = (Object.prototype.toString.call(updated) === '[object Date]')
+        ? formatIsoDate_(updated) + ' ' + updated.toTimeString().slice(0, 8)
+        : String(updated || '');
+    } catch (errUpdated) {
+      lastUpdated = '（讀不到最後修改時間：'
+        + ((errUpdated && errUpdated.message) ? errUpdated.message : String(errUpdated)) + '）';
+    }
+
+    var lastModifiedBy = '';
+    try {
+      // ⚠️ 這一個經常會因為權限而拿不到——拿不到就如實寫，不可以留空當成
+      //    「沒有人改過」。
+      var owner = file.getOwner();
+      lastModifiedBy = owner ? String(owner.getEmail() || '') : '（拿不到）';
+    } catch (errOwner) {
+      lastModifiedBy = '（拿不到：'
+        + ((errOwner && errOwner.message) ? errOwner.message : String(errOwner)) + '）';
+    }
+
+    return {
+      ok: true,
+      fileName: String(file.getName() || ''),
+      bytes: bytes.length,
+      lastUpdated: lastUpdated,
+      lastModifiedBy: lastModifiedBy,
+      mimeType: String(blob.getContentType() || ''),
+      blobBytes: bytes,
+      message: ''
+    };
+  } catch (err) {
+    empty.message = '讀不到（' + ((err && err.message) ? err.message : String(err)) + '）';
+    return empty;
+  }
+}
+
+/**
  * 用途：把今次發佈嘅 PDF 存一份副本落存檔資料夾（R-009）。
  * Args:
  *   blob {Blob} PDF 內容。

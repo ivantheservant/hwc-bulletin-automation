@@ -228,5 +228,66 @@ function driveCountRevisions_(fileId) {
   }
 }
 
+/**
+ * 用途：列出一個檔案的版本記錄（時間與大小），供「診斷 I06」報告用。
+ *   **唯讀**——只叫 `Drive.Revisions.list`，一個位元組都不會寫。
+ *
+ *   ⚠️ 回 `ok:false` 與回「0 個版本」是**兩件事**：前者代表讀不到
+ *   （進階服務未啟用、權限不足、檔案不支援版本記錄），後者代表真的沒有。
+ *   混為一談的話，報告會把「未驗過」寫成「沒問題」。
+ * Args:
+ *   fileId {string} 檔案 ID。
+ *   maxItems {number=} 最多回幾多個（預設 20，由新到舊）。
+ * Returns:
+ *   {{ok:boolean, revisions:Object[], total:number, message:string}}
+ *     每個 revision 是 `{id, modifiedDate, fileSize}`。
+ */
+function driveListRevisions_(fileId, maxItems) {
+  var id = String(fileId || '').trim();
+  var limit = (maxItems === undefined || maxItems === null) ? 20 : Number(maxItems);
+  if (!id) return { ok: false, revisions: [], total: 0, message: '檔案 ID 是空的。' };
+
+  try {
+    var all = [];
+    var pageToken = null;
+    for (var page = 0; page < DRIVE_REVISION_MAX_PAGES_; page++) {
+      var args = driveSharedOptions_({
+        maxResults: 1000,
+        fields: 'items(id,modifiedDate,fileSize,lastModifyingUserName),nextPageToken'
+      });
+      if (pageToken) args.pageToken = pageToken;
+
+      var result = Drive.Revisions.list(id, args);
+      var items = (result && result.items) ? result.items : [];
+      items.forEach(function (item) {
+        all.push({
+          id: String(item.id || ''),
+          modifiedDate: String(item.modifiedDate || ''),
+          fileSize: (item.fileSize === undefined || item.fileSize === null) ? null : Number(item.fileSize),
+          modifiedBy: String(item.lastModifyingUserName || '')
+        });
+      });
+
+      pageToken = (result && result.nextPageToken) ? result.nextPageToken : null;
+      if (!pageToken) break;
+    }
+
+    // 由新到舊，只回頭幾個——報告有行數上限（事故二十一）。
+    var newestFirst = all.slice().reverse();
+    return {
+      ok: true,
+      revisions: newestFirst.slice(0, limit),
+      total: all.length,
+      message: ''
+    };
+  } catch (err) {
+    return {
+      ok: false, revisions: [], total: 0,
+      message: '讀不到版本記錄：' + ((err && err.message) ? err.message : String(err))
+        + '（Drive 進階服務未啟用、權限不足，或者該檔案不支援版本記錄）'
+    };
+  }
+}
+
 /** `driveCountRevisions_()` 最多翻幾多頁。超過就當數唔到。 */
 var DRIVE_REVISION_MAX_PAGES_ = 20;

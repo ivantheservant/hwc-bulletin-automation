@@ -419,7 +419,9 @@ function selfTestScenarios_() {
     { id: 'S11', name: '產生 Word（浸禮合堂，副框六欄全空）：整個表格已刪', run: selfTestS11_ },
     { id: 'S12', name: '浸禮副框只填主禮：第 1 列在、第 2、3 列已刪', run: selfTestS12_ },
     { id: 'S13', name: '發佈：MD5 改變、版本 +1、存檔副本在、檔案 ID 不變', run: selfTestS13_ },
-    { id: 'S14', name: '連續發佈同一份兩次：第二次被防重複擋住，版本號不變', run: selfTestS14_ },
+    { id: 'S14', name: '連續發佈同一份兩次：第二次被擋住（任何一道守門都算），版本號不變', run: selfTestS14_ },
+    { id: 'S14b', name: '視窗之內、內容不同：被防重複擋住', run: selfTestS14b_ },
+    { id: 'S14c', name: '視窗之外、內容不同：不擋，版本 +1（改版重發是正常的）', run: selfTestS14c_ },
     { id: 'S15', name: '發佈上載 master 目前那一份：被拒，訊息正確', run: selfTestS15_ },
     { id: 'S16', name: '寄出（DRY_RUN）：預覽人數 === SendLog 封數，且有記內文', run: selfTestS16_ },
     { id: 'S17', name: '未填欄位檢查：清單條數 === 實際空格數', run: selfTestS17_ },
@@ -1139,29 +1141,30 @@ function selfTestS13_(ctx) {
 }
 
 /**
- * S14：連續發佈同一份兩次 → 斷言第二次被防重複擋住，版本號不變。
+ * S14：連續發佈**同一份**兩次 → 斷言第二次被擋住（**任何一道守門都算**）、
+ *   版本號不變，並在證據講明是**哪一道**擋住的。
  *
- *   ⚠️ 第二輪自測改寫。舊版靠「S13 剛剛發佈過」這個前提，然後在 S14 再
- *   發佈一次，期望被擋。但每個情境耗時 14 至 23 秒，而 `PUBLISH_DEDUP_SEC`
- *   只有 30 秒——由 S13 發佈完到 S14 再發佈，隨時已經超出視窗。那樣 S14
- *   紅的原因不是「防重複壞了」，而是**測試本身依賴時間**。
+ *   ⚠️ 第三輪自測改寫。第二輪的 S14 只認 `PUBLISH_DEDUP_SEC` 那一道，
+ *   結果實際跑出來是被 `UPLOAD_IS_CURRENT_MASTER`（「你選的是目前已發佈
+ *   的那一份」）擋住的——**行為完全正確**，版本號維持 1，只是換了另一道
+ *   守門。情境卻報失敗。
  *
- *   現在改成**自給自足**：S14 自己連續發佈兩次（兩份**不同內容**的 PDF，
- *   理由見下面），兩次之間不做任何其他事。
- *   而且刻意用**另一個主日**（`dates[1]`），令 S13 留下的時間戳完全影響
- *   不到這一條——防重複的時間戳是逐個主日分開存的
- *   （`PUBLISH_LAST_KEY_PREFIX_ + isoDate`）。
+ *   斷言指定了「用哪一道守門」而不是「結果對不對」，就是這一種假紅。
+ *   見 docs/已知bug類型.md 事故三十二。
  *
- *   ⚠️ 證據欄仍然會報「S13 → S14 相隔多少秒」與 `PUBLISH_DEDUP_SEC` 的現值
- *   ——那是判斷「舊版為什麼會紅」的原始資料，不可以因為改了測試法就不再
- *   報。看報告的人有權自己看一眼那個數。
+ *   ⚠️ 為什麼第二輪那兩份「不同內容」的 PDF 其實一樣：
+ *   `selfTestMakePdfBlob_()` 會把全部非 ASCII 字元換成 `?`，於是
+ *   「自測防重複甲」與「自測防重複乙」都變成 `????????`——位元組完全
+ *   相同。要真的造出不同內容，就要用 **ASCII** 分辨得出的文字。
+ *   （S14b／S14c 用的是這個做法。）
+ *
+ *   這一條的分工：驗「連續撳兩次不會出兩個版本」這個**結果**。
+ *   至於防重複那一道本身，交 S14b／S14c 專門驗。
  */
 function selfTestS14_(ctx) {
   var config = ctx.config;
 
-  // ⚠️ 時間證據**先算**，而且連略過那一條路都要附上去。prompt 要的是
-  //    「先看清楚才改」——如果只在跑得到的時候才報，那正正是看不到的
-  //    那幾次（例如沙盒 master 未設定）最需要那個數。
+  // ⚠️ 時間證據**先算**，而且連略過那一條路都要附上去。
   var dedupSec = normalizeInt_(getConfig(CONFIG_KEYS.PUBLISH_DEDUP_SEC, '30'));
   var gapText = selfTestDescribePublishGap_(ctx, dedupSec);
 
@@ -1180,48 +1183,275 @@ function selfTestS14_(ctx) {
   assertSelfTestWritableDate_(isoDate, config);
 
   var versionBefore = nextPublishVersion_(readSheet(SHEETS.PUBLISH_LOG), isoDate) - 1;
+  var pdfBase64 = Utilities.base64Encode(
+    selfTestMakePdfBlob_('selftest dedup A ' + ctx.runId).getBytes());
 
-  // ⚠️ 兩次刻意用**不同內容**的 PDF。再上載同一份的話，會先被「你選的是
-  //    目前已發佈的那一份」那一道防線擋住（checkUploadedPdfIsNew_ 排在
-  //    防重複之前），於是根本行不到防重複那一步——被擋住的原因就分不清
-  //    是哪一道防線。要驗防重複，就一定要令另外那一道防線放行。
-  //    見 docs/待確認事項.md Q-5。
-  var pdfFirst = Utilities.base64Encode(selfTestMakePdfBlob_('自測防重複甲 ' + ctx.runId).getBytes());
-  var pdfSecond = Utilities.base64Encode(selfTestMakePdfBlob_('自測防重複乙 ' + ctx.runId).getBytes());
-
-  // ---- 第一次：應該成功 ----
-  var firstMs = new Date().getTime();
   var first = selfTestRunPublish_(config, {
     isoDate: isoDate, doPublish: true, doSend: false,
-    pdfBase64: pdfFirst, pdfName: '自測防重複甲.pdf', confirmed: true
+    pdfBase64: pdfBase64, pdfName: 'selftest-dedup-a.pdf', confirmed: true
   });
   if (!first.ok || first.duplicate === true) {
     return selfTestOutcome_(false, '第一次發佈成功',
-      first.ok ? '第一次就被防重複擋住' : ('失敗：' + first.reason),
+      first.ok ? '第一次就被擋住' : ('失敗：' + first.reason),
       '主日 ' + isoDate + '；' + (first.message || (first.lines || []).join(' ')) + '　' + gapText);
   }
   var versionAfterFirst = nextPublishVersion_(readSheet(SHEETS.PUBLISH_LOG), isoDate) - 1;
 
-  // ---- 第二次：立即再發佈同一份，兩次之間不做任何其他事 ----
+  // ---- 第二次：立即再發佈**同一份**，兩次之間不做任何其他事 ----
   var second = selfTestRunPublish_(config, {
     isoDate: isoDate, doPublish: true, doSend: false,
-    pdfBase64: pdfSecond, pdfName: '自測防重複乙.pdf', confirmed: true
+    pdfBase64: pdfBase64, pdfName: 'selftest-dedup-a.pdf', confirmed: true
   });
-  var elapsedSec = Math.round((new Date().getTime() - firstMs) / 1000);
   var versionAfter = nextPublishVersion_(readSheet(SHEETS.PUBLISH_LOG), isoDate) - 1;
 
-  var blocked = second.ok === true && second.duplicate === true;
+  var block = describePublishBlock_(second);
   var versionHeld = versionAfter === versionAfterFirst;
-  var ok = blocked && versionHeld;
+  var ok = block.blocked && versionHeld;
 
   return selfTestOutcome_(ok,
-    '第二次被防重複擋住、版本號維持 ' + versionAfterFirst,
-    (blocked ? '被擋住' : '沒有被擋住') + '、版本號 ' + versionAfter,
+    '第二次被擋住（任何一道守門都算）、版本號維持 ' + versionAfterFirst,
+    (block.blocked ? ('被擋住（' + block.gateLabel + '）') : '沒有被擋住')
+      + '、版本號 ' + versionAfter,
     '主日 ' + isoDate + '（刻意用 S13 以外那一個）；'
       + '第一次發佈後版本 ' + versionBefore + '→' + versionAfterFirst + '；'
-      + '兩次之間相隔約 ' + elapsedSec + ' 秒，PUBLISH_DEDUP_SEC=' + dedupSec + '；'
-      + '第二次回覆：' + ((second.lines || []).join(' ') || second.message || '')
-      + '　' + gapText);
+      + '擋住的守門：' + block.gate + '（' + block.gateLabel + '）；'
+      + '回覆：' + block.message + '　' + gapText);
+}
+
+/**
+ * S14b：**視窗之內**、用內容真的不同的 PDF 再發佈同一個主日 →
+ *   斷言被 `PUBLISH_DEDUP_SEC` 那一道擋住。
+ *
+ *   ⚠️ 這一條才是專門驗防重複的。內容不同才會繞過
+ *   `UPLOAD_IS_CURRENT_MASTER`（那一道排在防重複之前），真正行到防重複
+ *   那一步。內容相同的話，被擋住的原因分不清是哪一道——那正是 S14 的
+ *   分工，兩條合起來才驗得齊。
+ */
+function selfTestS14b_(ctx) {
+  var config = ctx.config;
+  var dedupSec = normalizeInt_(getConfig(CONFIG_KEYS.PUBLISH_DEDUP_SEC, '30'));
+
+  var guard = selfTestPublishGuard_(config);
+  if (guard) return guard;
+
+  if (!(dedupSec > 0)) {
+    return selfTestOutcome_(null, 'PUBLISH_DEDUP_SEC 大於 0', String(dedupSec),
+      '防重複已經關閉，這一條驗不到。⚠️「略過」不等於「通過」。');
+  }
+
+  var dates = selfTestSandboxDates_(config);
+  if (dates.length < 3) {
+    return selfTestOutcome_(null, '沙盒季度至少有三個主日', dates.length + ' 個',
+      'S14b 用第三個主日，令 S13／S14 留下的時間戳影響不到這一條。');
+  }
+
+  var isoDate = dates[2];
+  assertSelfTestWritableDate_(isoDate, config);
+
+  var first = selfTestRunPublish_(config, {
+    isoDate: isoDate, doPublish: true, doSend: false,
+    pdfBase64: Utilities.base64Encode(selfTestMakePdfBlob_('selftest dedup B1 ' + ctx.runId).getBytes()),
+    pdfName: 'selftest-dedup-b1.pdf', confirmed: true
+  });
+  if (!first.ok || first.duplicate === true) {
+    return selfTestOutcome_(false, '第一次發佈成功',
+      first.ok ? '第一次就被擋住' : ('失敗：' + first.reason),
+      '主日 ' + isoDate + '；' + (first.message || (first.lines || []).join(' ')));
+  }
+  var versionAfterFirst = nextPublishVersion_(readSheet(SHEETS.PUBLISH_LOG), isoDate) - 1;
+
+  // ⚠️ 內容真的不同：用 ASCII 分辨得出的文字（見 selfTestMakePdfBlob_ 的
+  //    非 ASCII 換成 `?` 那件事）。
+  var secondPdf = selfTestMakePdfBlob_('selftest dedup B2 different ' + ctx.runId);
+  var second = selfTestRunPublish_(config, {
+    isoDate: isoDate, doPublish: true, doSend: false,
+    pdfBase64: Utilities.base64Encode(secondPdf.getBytes()),
+    pdfName: 'selftest-dedup-b2.pdf', confirmed: true
+  });
+  var versionAfter = nextPublishVersion_(readSheet(SHEETS.PUBLISH_LOG), isoDate) - 1;
+
+  var block = describePublishBlock_(second);
+  var byDedup = block.gate === 'DEDUP';
+  var ok = byDedup && versionAfter === versionAfterFirst;
+
+  return selfTestOutcome_(ok,
+    '被防重複（PUBLISH_DEDUP_SEC）擋住、版本號維持 ' + versionAfterFirst,
+    (block.blocked ? ('被擋住（' + block.gateLabel + '）') : '沒有被擋住')
+      + '、版本號 ' + versionAfter,
+    '主日 ' + isoDate + '；PUBLISH_DEDUP_SEC=' + dedupSec + '；'
+      + '兩份 PDF 的位元組數 ' + first.published.versionNo + ' 版 vs '
+      + secondPdf.getBytes().length + ' 位元組（內容真的不同，所以繞得過'
+      + '「你選的是目前已發佈的那一份」那一道）；'
+      + '擋住的守門：' + block.gate + '；回覆：' + block.message);
+}
+
+/**
+ * S14c：**視窗之外**、內容不同 → 斷言**不擋**，版本 +1。
+ *
+ *   ⚠️ 這一條是 S14b 的「應該綠燈變紅燈」對照：防重複如果連正常的改版
+ *   重發都擋，那才是真的壞了。只驗「擋得到」而不驗「不該擋的時候不擋」，
+ *   等於只證明了它會擋，沒有證明它擋得準。
+ *
+ *   ⚠️ 「視窗之外」用**把時間戳往前撥**來造，不是真的等 30 秒——自測機
+ *   有時間預算，等 30 秒是浪費，而且會令這一條變成又一個依賴時間的測試。
+ *   撥的是 `PUBLISH_LAST|<沙盒主日>` 這個 Script Property，只影響沙盒
+ *   那一個主日。
+ */
+function selfTestS14c_(ctx) {
+  var config = ctx.config;
+  var dedupSec = normalizeInt_(getConfig(CONFIG_KEYS.PUBLISH_DEDUP_SEC, '30'));
+
+  var guard = selfTestPublishGuard_(config);
+  if (guard) return guard;
+
+  var dates = selfTestSandboxDates_(config);
+  if (dates.length < 4) {
+    return selfTestOutcome_(null, '沙盒季度至少有四個主日', dates.length + ' 個',
+      'S14c 用第四個主日，令其他情境留下的時間戳影響不到這一條。');
+  }
+
+  var isoDate = dates[3];
+  assertSelfTestWritableDate_(isoDate, config);
+
+  var first = selfTestRunPublish_(config, {
+    isoDate: isoDate, doPublish: true, doSend: false,
+    pdfBase64: Utilities.base64Encode(selfTestMakePdfBlob_('selftest dedup C1 ' + ctx.runId).getBytes()),
+    pdfName: 'selftest-dedup-c1.pdf', confirmed: true
+  });
+  if (!first.ok || first.duplicate === true) {
+    return selfTestOutcome_(false, '第一次發佈成功',
+      first.ok ? '第一次就被擋住' : ('失敗：' + first.reason),
+      '主日 ' + isoDate + '；' + (first.message || (first.lines || []).join(' ')));
+  }
+  var versionAfterFirst = nextPublishVersion_(readSheet(SHEETS.PUBLISH_LOG), isoDate) - 1;
+
+  var rewind = selfTestRewindPublishStamp_(isoDate, config, (dedupSec + 60) * 1000);
+  if (!rewind.ok) {
+    return selfTestOutcome_(null, '撥得到防重複時間戳', '撥不到',
+      rewind.message + '　⚠️「略過」不等於「通過」。');
+  }
+
+  var second = selfTestRunPublish_(config, {
+    isoDate: isoDate, doPublish: true, doSend: false,
+    pdfBase64: Utilities.base64Encode(
+      selfTestMakePdfBlob_('selftest dedup C2 different ' + ctx.runId).getBytes()),
+    pdfName: 'selftest-dedup-c2.pdf', confirmed: true
+  });
+  var versionAfter = nextPublishVersion_(readSheet(SHEETS.PUBLISH_LOG), isoDate) - 1;
+
+  var block = describePublishBlock_(second);
+  var ok = second.ok === true && !block.blocked && versionAfter === versionAfterFirst + 1;
+
+  return selfTestOutcome_(ok,
+    '不擋、版本號由 ' + versionAfterFirst + ' 變 ' + (versionAfterFirst + 1),
+    (block.blocked ? ('竟然被擋住（' + block.gateLabel + '）') : '沒有被擋')
+      + '、版本號 ' + versionAfter,
+    '主日 ' + isoDate + '；PUBLISH_DEDUP_SEC=' + dedupSec + '；'
+      + '已把防重複時間戳撥前 ' + (dedupSec + 60) + ' 秒（' + rewind.message + '）；'
+      + '這是正常的改版重發，擋了才是錯；回覆：' + block.message);
+}
+
+/**
+ * 用途：判斷一次發佈是不是被某一道守門擋住了，以及**是哪一道**。
+ *   **純函式。**
+ *
+ *   ⚠️ 這一支存在的理由：斷言要針對**可觀察的結果**（有沒有被擋、版本
+ *   有沒有變），至於是哪一道守門，記入證據，不寫進斷言。
+ *   見 docs/已知bug類型.md 事故三十二。
+ * Args:
+ *   result {Object} `runPublishFlow_()` 的回傳值。
+ * Returns:
+ *   {{blocked:boolean, gate:string, gateLabel:string, message:string}}
+ */
+function describePublishBlock_(result) {
+  var r = result || {};
+
+  if (r.duplicate === true) {
+    return {
+      blocked: true, gate: 'DEDUP', gateLabel: '防重複（PUBLISH_DEDUP_SEC）',
+      message: (r.lines || []).join(' ') || r.message || ''
+    };
+  }
+
+  if (r.ok === false) {
+    var reason = String(r.reason || '');
+    return {
+      blocked: true,
+      gate: reason || 'UNKNOWN',
+      gateLabel: publishGateLabel_(reason),
+      message: r.message || (r.lines || []).join(' ')
+    };
+  }
+
+  return {
+    blocked: false, gate: '', gateLabel: '（沒有被擋）',
+    message: (r.lines || []).join(' ') || r.message || ''
+  };
+}
+
+/**
+ * 用途：把發佈守門的機器碼換成給人看的名稱。
+ * Args:
+ *   reason {string}
+ * Returns:
+ *   {string} 認不出就原樣回機器碼——講一個機器碼，好過不講。
+ */
+function publishGateLabel_(reason) {
+  var labels = {
+    UPLOAD_IS_CURRENT_MASTER: '揀錯檔案（你選的是目前已發佈的那一份）',
+    UPLOAD_IS_PLACEHOLDER: '揀錯檔案（你選的是佔位檔）',
+    NOT_PDF: '不是 PDF',
+    EMPTY_FILE: '空檔案',
+    TOO_LARGE: '超過大小上限',
+    NO_MASTER_FILE: '未建立 master 發佈檔案',
+    NO_ARCHIVE_FOLDER: '未設定存檔資料夾',
+    NEVER_PUBLISHED: '從未發佈過'
+  };
+  var code = String(reason || '');
+  return labels[code] || (code || '（沒有回報原因）');
+}
+
+/**
+ * 用途：把某一個**沙盒主日**的防重複時間戳往前撥，模擬「已經超出視窗」。
+ *
+ *   ⚠️ 三重保護，避免這一支變成一個可以亂改正式狀態的後門：
+ *     1. 只准撥沙盒季度的主日（`assertSelfTestWritableDate_()`）；
+ *     2. 只改 `PUBLISH_LAST|<主日>` 這一個鍵，不碰任何其他東西；
+ *     3. 撥不到就回 `ok:false`，由呼叫方報「驗證不到」——不可以當成通過。
+ * Args:
+ *   isoDate {string} 沙盒主日。
+ *   config {Object} `selfTestConfig_()` 的回傳值。
+ *   backMs {number} 往前撥多少毫秒。
+ * Returns:
+ *   {{ok:boolean, message:string}}
+ */
+function selfTestRewindPublishStamp_(isoDate, config, backMs) {
+  assertSelfTestWritableDate_(isoDate, config);
+
+  var key = PUBLISH_LAST_KEY_PREFIX_ + String(isoDate);
+  var raw = readPublishScriptProperty_(key);
+  if (!raw) {
+    return { ok: false, message: '找不到 ' + isoDate + ' 的防重複時間戳（' + key + '）。' };
+  }
+
+  var parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    return { ok: false, message: '防重複時間戳解析不到：' + raw.slice(0, 60) };
+  }
+  if (!parsed || typeof parsed.at !== 'number') {
+    return { ok: false, message: '防重複時間戳沒有 at 欄位。' };
+  }
+
+  var written = writePublishScriptProperty_(key, JSON.stringify({
+    at: parsed.at - Number(backMs),
+    versionNo: parsed.versionNo
+  }));
+  if (!written) {
+    return { ok: false, message: '寫不回防重複時間戳（Script Properties 不可用）。' };
+  }
+  return { ok: true, message: '原本 ' + parsed.at + '，改成 ' + (parsed.at - Number(backMs)) };
 }
 
 /**

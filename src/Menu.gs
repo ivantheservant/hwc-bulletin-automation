@@ -69,6 +69,8 @@ function onOpen() {
     // 而且開跑前一定先斷言 DRY_RUN=TRUE，見 src/SelfTest.gs 的檔頭。
     .addSubMenu(SpreadsheetApp.getUi().createMenu('測試工具')
       .addItem('跑一次不變量檢查（唯讀）', 'menuRunInvariants_')
+      .addItem('診斷 I06（唯讀）', 'menuDiagnoseI06_')
+      .addItem('重新對齊 I06', 'menuRealignI06_')
       .addSeparator()
       .addItem('跑自測（沙盒季度，DRY_RUN）', 'menuRunSelfTest_')
       .addItem('繼續跑自測', 'menuResumeSelfTest_')

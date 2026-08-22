@@ -780,23 +780,43 @@ function checkPublishChannelFingerprint_(channel) {
     return { ok: null, detail: stamp + '，但推不出 master 檔案 ID（不適用）' };
   }
 
-  var recorded = readPublishOutputFingerprint_(fileId);
-  if (!recorded) {
-    return {
-      ok: null,
-      detail: stamp + '，沒有留下「發佈了哪一份內容」的記錄（' + maskFileId_(fileId) + '）'
-    };
+  // ⚠️ 指紋**優先取這一行自己記的**（CONTENT_BYTES／CONTENT_MD5）。
+  //    共用那一份 Script Property 會被下一次發佈蓋走——包括沙盒發佈——
+  //    於是拿到一份不屬於這一行的指紋，報出假的「內容對不上」。
+  //    見 docs/已知bug類型.md 事故三十三。
+  var rowFingerprint = publishRowFingerprint_(row);
+  var recordedFingerprint = rowFingerprint;
+  var fingerprintSource = '這一行的 CONTENT_MD5';
+
+  if (!recordedFingerprint) {
+    var recorded = readPublishOutputFingerprint_(fileId);
+    if (!recorded) {
+      return {
+        ok: null,
+        detail: stamp + '，這一行沒有記 CONTENT_MD5（加欄之前的舊資料），'
+          + '而共用的指紋記錄也認不出屬於 ' + maskFileId_(fileId) + '。'
+          + '⚠️ 這是「驗證不到」，不是「對不上」——下一次發佈之後，'
+          + '指紋會直接記在該行上，這一條就會自己好返'
+      };
+    }
+    // ⚠️ 退回共用記錄時，一定要先確認它講的是**同一次發佈**。講的是另一次
+    //    的話，拿它去比內容得出的「不一致」是假的。
+    if (recorded.isoDate !== isoDate || Number(recorded.versionNo) !== versionNo) {
+      return {
+        ok: null,
+        detail: stamp + '，但共用的指紋記錄講的是 ' + recorded.isoDate
+          + ' 第 ' + recorded.versionNo + ' 版——**那一份指紋不屬於這一行**，'
+          + '所以不可以拿來比。成因：舊版把發佈指紋存在一個共用的鍵上，'
+          + '下一次發佈（包括自測機發佈沙盒 master）就會蓋走它。'
+          + '⚠️ 這是「驗證不到」，不是「內容對不上」——'
+          + '下一次正式發佈之後，指紋會直接記在該行上，這一條就會自己好返'
+      };
+    }
+    recordedFingerprint = recorded.fingerprint;
+    fingerprintSource = '共用的指紋記錄';
   }
 
-  if (recorded.isoDate !== isoDate || recorded.versionNo !== versionNo) {
-    return {
-      ok: false,
-      detail: stamp + '，但最後一次真的寫進該檔案的是 ' + recorded.isoDate
-        + ' 第 ' + recorded.versionNo + ' 版——代表有一次發佈寫了記錄但沒有換到內容，或者相反'
-    };
-  }
-
-  if (!recorded.fingerprint) {
+  if (!recordedFingerprint) {
     return { ok: null, detail: stamp + '，發佈當時算不到內容指紋（Utilities.computeDigest 不可用）' };
   }
 
@@ -814,18 +834,51 @@ function checkPublishChannelFingerprint_(channel) {
     return { ok: null, detail: stamp + '，算不到目前內容的指紋' };
   }
 
-  if (currentFingerprint === recorded.fingerprint) {
+  if (currentFingerprint === recordedFingerprint) {
     return {
       ok: true,
-      detail: stamp + '，內容與發佈當時完全相同（' + source + '：' + maskFileId_(fileId) + '）'
+      detail: stamp + '，內容與發佈當時完全相同（' + source + '：' + maskFileId_(fileId)
+        + '；指紋來自' + fingerprintSource + '）'
     };
   }
+
+  // ⚠️ 不成立的時候要講**成因**，不是只講「對不上」。只講「對不上」的話，
+  //    看完仍然不知道要做什麼——那正是第三輪要修的東西。
   return {
     ok: false,
-    detail: stamp + '，⚠️ ' + maskFileId_(fileId) + ' 的內容在最後一次發佈之後被換過'
-      + '（有人手動覆寫、或者有一次發佈沒有記錄）。狀態列說的版本，跟連結裡面實際那一份，'
-      + '已經不是同一份'
+    detail: stamp + '，⚠️ ' + maskFileId_(fileId) + ' 的內容在最後一次發佈之後被換過。'
+      + describeFingerprintGap_(recordedFingerprint, currentFingerprint)
+      + '　成因通常是：有人手動上載覆寫了 master 檔案，或者有一次發佈換了內容'
+      + '但沒有寫 PublishLog。'
+      + '　下一步：撳選單「診斷 I06（唯讀）」看完整證據；'
+      + '確認那一次覆寫是有意的話，撳「重新對齊 I06」把目前內容記回 PublishLog'
   };
+}
+
+/**
+ * 用途：把兩個指紋的差異講成一句人話。**純函式。**
+ *
+ *   ⚠️ 「大小都變了」與「同樣大小但 MD5 不同」的成因不同：前者一定是換了
+ *   另一份檔案，後者有機會是同樣長度的另一份內容、或者重新編碼。講得出
+ *   分別，查的人才知道由哪裏入手。
+ * Args:
+ *   recorded {string} 發佈當時的指紋（`位元組數:md5`）。
+ *   current {string} 目前內容的指紋。
+ * Returns:
+ *   {string}
+ */
+function describeFingerprintGap_(recorded, current) {
+  var left = splitPdfFingerprint_(recorded);
+  var right = splitPdfFingerprint_(current);
+
+  if (!left.md5 || !right.md5) {
+    return '（發佈當時 ' + recorded + '，現在 ' + current + '）';
+  }
+  if (left.bytes !== right.bytes) {
+    return '（大小不同：發佈當時 ' + left.bytes + ' 位元組，現在 ' + right.bytes
+      + ' 位元組，差 ' + Math.abs(right.bytes - left.bytes) + ' 位元組）';
+  }
+  return '（大小相同，都是 ' + left.bytes + ' 位元組，但 MD5 不同）';
 }
 
 // =====================================================================

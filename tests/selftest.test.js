@@ -333,14 +333,17 @@ test('selfTestSandboxDates_：職事表沒有這一季 → 退回曆法推算（
 // 情境清單
 // =====================================================================
 
-test('情境清單：S01–S18 十八個，編號不重複、每個都有實作', function () {
+test('情境清單：二十個，編號不重複、每個都有實作', function () {
   const env = makeEnv({});
   const scenarios = env.sandbox.selfTestScenarios_();
 
-  assert.strictEqual(scenarios.length, 18);
+  // 第三輪自測新增 S14b／S14c：S14 只驗「連續撳兩次不會出兩個版本」這個
+  // **結果**；防重複那一道本身由 S14b（視窗之內要擋）與 S14c（視窗之外
+  // 不可以擋）專門驗。見 docs/已知bug類型.md 事故三十二。
+  assert.strictEqual(scenarios.length, 20);
   const ids = scenarios.map(function (s) { return s.id; });
   deepEq(ids, ['S01', 'S02', 'S03', 'S04', 'S05', 'S06', 'S07', 'S08', 'S09',
-    'S10', 'S11', 'S12', 'S13', 'S14', 'S15', 'S16', 'S17', 'S18']);
+    'S10', 'S11', 'S12', 'S13', 'S14', 'S14b', 'S14c', 'S15', 'S16', 'S17', 'S18']);
 
   scenarios.forEach(function (s) {
     var scenarioId = s.id;
@@ -697,17 +700,172 @@ test('S13 跑完會記下發佈時刻與主日，供 S14 的證據用', function
 // ⚠️ S14 刻意用**另一個主日**（dates[1]）：防重複的時間戳是逐個主日分開
 //    存的，用 S13 那一個主日的話，S13 留下的時間戳會令 S14 的第一次發佈
 //    就被擋住——那樣又變成依賴上一個情境。
-test('S14 用 dates[1]，而且兩次用不同內容的 PDF（兩個都要有理由寫在註解）', function () {
+// ⚠️ 第三輪改了分工：S14 刻意用**同一份**（驗「結果」），S14b／S14c 才用
+//    內容不同的（驗防重複那一道本身）。四個情境各自用不同主日，令彼此的
+//    時間戳影響不到對方。
+test('S14／S14b／S14c 各自用不同主日，令彼此的時間戳影響不到對方', function () {
   const src = require('fs').readFileSync(
     require('path').join(__dirname, '..', 'src', 'SelfTest.gs'), 'utf8');
-  const body = src.slice(src.indexOf('function selfTestS14_'), src.indexOf('function selfTestDescribePublishGap_'));
+  function bodyOf(name, nextName) {
+    return src.slice(src.indexOf('function ' + name), src.indexOf('function ' + nextName));
+  }
+  assert.ok(bodyOf('selfTestS14_', 'selfTestS14b_').indexOf('var isoDate = dates[1];') !== -1,
+    'S14 要用 dates[1]（S13 用 dates[0]）');
+  assert.ok(bodyOf('selfTestS14b_', 'selfTestS14c_').indexOf('var isoDate = dates[2];') !== -1,
+    'S14b 要用 dates[2]');
+  assert.ok(bodyOf('selfTestS14c_', 'describePublishBlock_').indexOf('var isoDate = dates[3];') !== -1,
+    'S14c 要用 dates[3]');
+});
 
-  assert.ok(body.indexOf('var isoDate = dates[1];') !== -1,
-    'S14 要用另一個主日，令 S13 的時間戳影響不到它');
-  assert.ok(body.indexOf('pdfFirst') !== -1 && body.indexOf('pdfSecond') !== -1,
-    '兩次要用不同內容的 PDF');
-  assert.ok(body.indexOf('checkUploadedPdfIsNew_') !== -1,
-    '要寫明為什麼不可以用同一份：那道防線排在防重複之前');
+// ⚠️ selfTestMakePdfBlob_() 把全部非 ASCII 換成 `?`，所以「甲」「乙」兩份
+//    會變成完全一樣的位元組——第二輪就是這樣造出兩份「以為不同、其實相同」
+//    的 PDF，於是被「揀錯檔案」那一道擋住而不是防重複。
+test('selfTestMakePdfBlob_：非 ASCII 全部變 ?，所以「不同內容」一定要用 ASCII 分辨', function () {
+  const env = makeEnv({});
+  // selfTestMakePdfBlob_() 做的是 replace(/[^ -~]/g, '?') 之後交給
+  // buildMinimalPdfText_()。這裡直接用真的 buildMinimalPdfText_() 驗同一件事
+  // （測試環境沒有 Utilities.newBlob，但那一層不是重點）。
+  function normalise(text) {
+    return String(text).replace(/[^ -~]/g, '?');
+  }
+  const build = env.sandbox.buildMinimalPdfText_;
+
+  assert.strictEqual(normalise('自測防重複甲 X'), normalise('自測防重複乙 X'),
+    '兩個中文字都會變成 ?——這正是第二輪那兩份「以為不同、其實相同」的 PDF 的成因');
+  assert.strictEqual(build([normalise('自測防重複甲 X')]), build([normalise('自測防重複乙 X')]),
+    '造出來的 PDF 位元組完全相同');
+
+  assert.notStrictEqual(build([normalise('selftest dedup B1 X')]),
+    build([normalise('selftest dedup B2 different X')]),
+    'ASCII 文字才造得出真的不同的內容');
+});
+
+test('S14b／S14c 用的是 ASCII 文字（否則兩份 PDF 會完全一樣）', function () {
+  const src = require('fs').readFileSync(
+    require('path').join(__dirname, '..', 'src', 'SelfTest.gs'), 'utf8');
+  const body = src.slice(src.indexOf('function selfTestS14b_'), src.indexOf('function describePublishBlock_'));
+  const calls = body.split("selfTestMakePdfBlob_('").slice(1)
+    .map(function (rest) { return "selfTestMakePdfBlob_('" + rest.slice(0, rest.indexOf("'") + 1); });
+  assert.ok(calls.length >= 4, '應該有四次呼叫（S14b 兩次、S14c 兩次）：' + calls.length);
+  calls.forEach(function (call) {
+    const text = call.slice(call.indexOf("('") + 2, call.length - 1);
+    // eslint-disable-next-line no-control-regex
+    assert.ok(/^[ -~]*$/.test(text), '不可以有非 ASCII 字元：' + call);
+  });
+});
+
+// =====================================================================
+// describePublishBlock_：斷言針對「結果」，不是「哪一道守門」
+// =====================================================================
+
+// ⚠️ 第三輪的核心教訓：第二輪的 S14 只認 PUBLISH_DEDUP_SEC 那一道守門。
+//    實際跑出來是被 UPLOAD_IS_CURRENT_MASTER 擋住的——行為完全正確
+//    （版本號維持 1），情境卻報失敗。斷言指定了「用哪一道守門」，
+//    而不是「結果對不對」。見 docs/已知bug類型.md 事故三十二。
+
+test('describePublishBlock_：防重複擋住 → blocked，gate 是 DEDUP', function () {
+  const env = makeEnv({});
+  const b = env.sandbox.describePublishBlock_({
+    ok: true, duplicate: true, lines: ['剛才已經發佈過（第 1 版）'],
+    published: { versionNo: 1 }
+  });
+  assert.strictEqual(b.blocked, true);
+  assert.strictEqual(b.gate, 'DEDUP');
+  assert.ok(b.gateLabel.indexOf('防重複') !== -1, b.gateLabel);
+});
+
+// ⚠️ 這一條就是第三輪那個假紅：換一道守門擋住，一樣算「被擋住」。
+test('describePublishBlock_：揀錯檔案擋住 → 一樣算 blocked，gate 講得出是哪一道', function () {
+  const env = makeEnv({});
+  const b = env.sandbox.describePublishBlock_({
+    ok: false, reason: 'UPLOAD_IS_CURRENT_MASTER',
+    message: '你選的是目前已發佈的那一份，請選用 Word 另存的新 PDF。'
+  });
+  assert.strictEqual(b.blocked, true, '被另一道守門擋住，一樣是「被擋住」');
+  assert.strictEqual(b.gate, 'UPLOAD_IS_CURRENT_MASTER');
+  assert.ok(b.gateLabel.indexOf('揀錯檔案') !== -1, b.gateLabel);
+  assert.ok(b.message.indexOf('目前已發佈的那一份') !== -1, b.message);
+});
+
+test('describePublishBlock_：成功發佈 → blocked 是 false', function () {
+  const env = makeEnv({});
+  const b = env.sandbox.describePublishBlock_({ ok: true, published: { versionNo: 2 }, lines: [] });
+  assert.strictEqual(b.blocked, false);
+  assert.strictEqual(b.gate, '');
+});
+
+test('describePublishBlock_：認不出的原因 → 原樣回機器碼，不會靜靜當成沒有被擋', function () {
+  const env = makeEnv({});
+  const b = env.sandbox.describePublishBlock_({ ok: false, reason: 'SOMETHING_NEW', message: 'x' });
+  assert.strictEqual(b.blocked, true);
+  assert.strictEqual(b.gate, 'SOMETHING_NEW');
+  assert.strictEqual(b.gateLabel, 'SOMETHING_NEW', '認不出就原樣講機器碼，好過不講');
+});
+
+test('describePublishBlock_：完全沒有回報原因 → 一樣算 blocked，並講明沒有原因', function () {
+  const env = makeEnv({});
+  const b = env.sandbox.describePublishBlock_({ ok: false });
+  assert.strictEqual(b.blocked, true);
+  assert.ok(b.gateLabel.indexOf('沒有回報原因') !== -1, b.gateLabel);
+});
+
+test('publishGateLabel_：每一個已知的守門碼都有中文名', function () {
+  const env = makeEnv({});
+  ['UPLOAD_IS_CURRENT_MASTER', 'UPLOAD_IS_PLACEHOLDER', 'NOT_PDF', 'EMPTY_FILE',
+    'TOO_LARGE', 'NO_MASTER_FILE', 'NO_ARCHIVE_FOLDER', 'NEVER_PUBLISHED'
+  ].forEach(function (code) {
+    const label = env.sandbox.publishGateLabel_(code);
+    assert.notStrictEqual(label, code, code + ' 沒有中文名');
+    assert.ok(label.length > 0);
+  });
+});
+
+// ⚠️ S14 的斷言要針對**結果**：被擋住 ＋ 版本不變。至於是哪一道守門，
+//    記入證據，不寫進斷言。這一條用讀原始碼的方式守住那個分工。
+test('S14 的斷言針對「有沒有被擋」，不是「被哪一道擋」', function () {
+  const src = require('fs').readFileSync(
+    require('path').join(__dirname, '..', 'src', 'SelfTest.gs'), 'utf8');
+  const body = src.slice(src.indexOf('function selfTestS14_'), src.indexOf('function selfTestS14b_'));
+
+  assert.ok(body.indexOf('block.blocked && versionHeld') !== -1,
+    'S14 的 ok 應該只看「被擋住」與「版本不變」：' + body.slice(-400));
+  assert.ok(body.indexOf("block.gate === 'DEDUP'") === -1,
+    'S14 不可以指定一定要防重複那一道擋住——那正是第三輪那個假紅');
+  assert.ok(body.indexOf('擋住的守門：') !== -1, '是哪一道要寫入證據');
+});
+
+test('S14b 才是專門驗防重複那一道的（它可以指定 gate）', function () {
+  const src = require('fs').readFileSync(
+    require('path').join(__dirname, '..', 'src', 'SelfTest.gs'), 'utf8');
+  const body = src.slice(src.indexOf('function selfTestS14b_'), src.indexOf('function selfTestS14c_'));
+  assert.ok(body.indexOf("block.gate === 'DEDUP'") !== -1,
+    'S14b 的分工正正是驗防重複那一道');
+});
+
+test('S14c 驗「不該擋的時候不擋」：版本要 +1', function () {
+  const src = require('fs').readFileSync(
+    require('path').join(__dirname, '..', 'src', 'SelfTest.gs'), 'utf8');
+  const body = src.slice(src.indexOf('function selfTestS14c_'), src.indexOf('function describePublishBlock_'));
+  assert.ok(body.indexOf('!block.blocked') !== -1, 'S14c 要斷言沒有被擋');
+  assert.ok(body.indexOf('versionAfterFirst + 1') !== -1, 'S14c 要斷言版本 +1');
+});
+
+// ⚠️ 撥時間戳是一個可以亂改狀態的動作，所以一定要先經沙盒守門。
+test('selfTestRewindPublishStamp_：只准撥沙盒季度的主日', function () {
+  const env = makeEnv({});
+  const config = env.sandbox.selfTestConfig_();
+  assert.throws(function () {
+    env.sandbox.selfTestRewindPublishStamp_('2027-10-03', config, 60000);
+  }, /只准寫沙盒季度/);
+});
+
+test('selfTestRewindPublishStamp_：找不到時間戳 → ok:false，不會靜靜當成成功', function () {
+  const env = makeEnv({});
+  const config = env.sandbox.selfTestConfig_();
+  const dates = env.sandbox.selfTestSandboxDates_(config);
+  const result = env.sandbox.selfTestRewindPublishStamp_(dates[0], config, 60000);
+  assert.strictEqual(result.ok, false);
+  assert.ok(result.message.indexOf('找不到') !== -1, result.message);
 });
 
 // =====================================================================
