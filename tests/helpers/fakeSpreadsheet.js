@@ -71,6 +71,61 @@ function applyTextFormatMarker(value, escapedValues) {
 }
 
 /**
+ * 用途：模仿真實 Google Sheets 的「自作主張轉型」。
+
+ *   ⚠️ 這是第一輪自測揪出來的 bug 的核心（docs/已知bug類型.md 事故二十八）：
+ *   在一個**不是純文字格式**的儲存格寫入字串 '42,150'，真的 Sheets 會把它
+ *   當成數字 42150 存起來，千分位逗號從此消失。'12' 同樣會變成數字 12。
+ *
+ *   假工作表不模仿這一點的話，「先設 setNumberFormat('@') 再寫值」這個修正
+ *   就**測不出分別**——寫之前寫之後拿回來都是原字串，測試永遠綠，等於無測。
+ *   見 docs/已知bug類型.md 事故二十二：驗證函式與被驗證的邏輯用同一個假設，
+ *   等於沒有驗證。
+ *
+ *   前導單引號那條路徑不會走到這裡：真的 Sheets 把 `'` 當成「當純文字」的
+ *   格式標記，帶單引號的值一定是文字。
+ * Args:
+ *   value {*} 要寫入的值。
+ *   numberFormat {string|undefined} 該格目前的數字格式（'@' 代表純文字）。
+ * Returns:
+ *   {*} 會被 Sheets 轉走的字串回數字，其餘原樣回傳。
+ */
+function applySheetsAutoCoercion(value, numberFormat) {
+  if (typeof value !== 'string') return value;
+  if (numberFormat === '@') return value;
+  var text = value.trim();
+  if (text === '') return value;
+  var plain = /^-?\d+(\.\d+)?$/;
+  var grouped = /^-?\d{1,3}(,\d{3})+(\.\d+)?$/;
+  if (plain.test(text) || grouped.test(text)) {
+    return Number(text.replace(/,/g, ''));
+  }
+  return value;
+}
+
+/**
+ * 用途：把一個值「照真的 Sheets 那樣」寫進假工作表的一格。
+ *
+ *   次序很重要，而且與真實行為一致：
+ *     1. 跨 realm 安全化（Date → 'yyyy-MM-dd'）；
+ *     2. 前導單引號＝純文字標記，吃掉單引號，**不再轉型**；
+ *     3. 否則按該格目前的數字格式決定會不會被自動轉成數字。
+ * Args:
+ *   value {*}　rowNo {number}　colNo {number}
+ *   numberFormats {Object} 'r:c' → 格式字串。
+ *   escapedValues {Set}
+ * Returns:
+ *   {*} 實際存進去的值。
+ */
+function writeCellLikeSheets(value, rowNo, colNo, numberFormats, escapedValues) {
+  var safe = toRealmSafeCellValue(value);
+  if (typeof safe === 'string' && safe.charAt(0) === "'") {
+    return applyTextFormatMarker(safe, escapedValues);
+  }
+  return applySheetsAutoCoercion(safe, numberFormats[rowNo + ':' + colNo]);
+}
+
+/**
  * 用途：造一張假的 Sheet，內容用 headers／keys 兩行＋資料列組成。
  * Args:
  *   headers {string[]} 第 1 行（人看的標題，內容不影響任何驗證邏輯）。
@@ -88,6 +143,8 @@ function makeFakeSheet(headers, keys, rowObjects) {
   var frozenRows = 0;
   // 記住哪些值曾經被 sanitizeCellText_() 跳脫過（見 applyTextFormatMarker）。
   var escapedValues = new Set();
+  // 每一格目前的數字格式（'r:c' → 格式字串）。模擬自動轉型要用。
+  var numberFormats = {};
   // 第八輪的填寫邀請要組 `#gid=` 直達連結，所以假工作表也要有一個
   // sheetId。用內容長度湊一個穩定的假值就夠——測試只驗證「連結裡面
   // 真的有 #gid=」，不驗證那個數字本身。
@@ -95,6 +152,7 @@ function makeFakeSheet(headers, keys, rowObjects) {
   var sheetName = '';
   return {
     __escapedValues: escapedValues,
+    __numberFormats: numberFormats,
     getSheetId: function () { return fakeSheetId; },
     getName: function () { return sheetName; },
     setName: function (n) { sheetName = n; return this; },
@@ -148,7 +206,8 @@ function makeFakeSheet(headers, keys, rowObjects) {
             var rowIdx = r - 1 + i;
             while (data.length <= rowIdx) data.push([]);
             for (var j = 0; j < values[i].length; j++) {
-              data[rowIdx][c - 1 + j] = applyTextFormatMarker(toRealmSafeCellValue(values[i][j]), escapedValues);
+              data[rowIdx][c - 1 + j] = writeCellLikeSheets(
+                values[i][j], rowIdx + 1, c + j, numberFormats, escapedValues);
             }
           }
           return this;
@@ -163,7 +222,7 @@ function makeFakeSheet(headers, keys, rowObjects) {
         },
         setValue: function (value) {
           while (data.length <= r - 1) data.push([]);
-          data[r - 1][c - 1] = applyTextFormatMarker(toRealmSafeCellValue(value), escapedValues);
+          data[r - 1][c - 1] = writeCellLikeSheets(value, r, c, numberFormats, escapedValues);
           return this;
         },
         clearContent: function () {
@@ -177,7 +236,15 @@ function makeFakeSheet(headers, keys, rowObjects) {
         },
         setFontWeight: function () { return this; },
         setBackground: function () { return this; },
-        setNumberFormat: function () { return this; }
+        setNumberFormat: function (format) {
+          for (var i = 0; i < numRows; i++) {
+            for (var j = 0; j < numCols; j++) {
+              numberFormats[(r + i) + ':' + (c + j)] = format;
+            }
+          }
+          return this;
+        },
+        getNumberFormat: function () { return numberFormats[r + ':' + c] || 'General'; }
       };
     }
   };

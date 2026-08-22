@@ -422,6 +422,64 @@ function writeSheet(sheetName, rows) {
   });
 
   var startRow = Math.max(sheet.getLastRow() + 1, 3);
+  // ⚠️ 一定要**先設純文字格式再寫值**。setValues() 會令 Google Sheets
+  //    自作主張把 '42,150' 解讀成數字 42150；寫完之後再設 '@' 已經太遲，
+  //    那時千分位逗號已經沒有了。見 docs/已知bug類型.md 事故二十八。
+  applyTextFormatToRange_(sheet, def, startRow, values.length);
   sheet.getRange(startRow, 1, values.length, def.keys.length).setValues(values);
   return values.length;
+}
+
+/**
+ * 用途：把某張工作表 `textFormatColumns` 列出的欄位，在指定的資料列範圍內
+ *   設成純文字格式（`setNumberFormat('@')`）。
+ *
+ *   ⚠️ 呼叫時機一律是**寫值之前**。`ensureSheet_()` 建表時雖然已經設過
+ *   一次，但那是按當時的 `getMaxRows()` 設的；資料長過那個範圍、或者
+ *   工作表是舊版本升上來的，新行就沒有這道保護。所以每次寫入都補設。
+ * Args:
+ *   sheet {Sheet} 目標工作表。
+ *   def {Object} `COLUMNS` 其中一項。
+ *   startRow {number} 由第幾行開始（1 起算的真實行號）。
+ *   numRows {number} 幾行。
+ * Returns:
+ *   {number} 實際設過格式的欄數。
+ */
+function applyTextFormatToRange_(sheet, def, startRow, numRows) {
+  if (!sheet || !def || !numRows || numRows < 1) return 0;
+  var keys = def.textFormatColumns || [];
+  var done = 0;
+  keys.forEach(function (key) {
+    var colIndex = def.keys.indexOf(key) + 1;
+    if (colIndex <= 0) return;
+    sheet.getRange(startRow, colIndex, numRows, 1).setNumberFormat('@');
+    done++;
+  });
+  return done;
+}
+
+/**
+ * 用途：寫入單一格，如果那一欄設計上是純文字，先設格式再寫值。
+ *
+ *   ⚠️ 所有「一格一格寫」的地方都應該經這裡，不要直接 `setValue()`。
+ *   直接寫的話，設計上是文字的欄位會被試算表偷偷轉成數字或日期。
+ * Args:
+ *   sheet {Sheet} 目標工作表。
+ *   def {Object} `COLUMNS` 其中一項。
+ *   rowNo {number} 真實行號。
+ *   fieldKey {string} 機器鍵。
+ *   value {*} 要寫的值。
+ * Returns:
+ *   {boolean} 找不到那一欄回 `false`。
+ */
+function setCellValueTextSafe_(sheet, def, rowNo, fieldKey, value) {
+  if (!sheet || !def) return false;
+  var colIndex = def.keys.indexOf(fieldKey) + 1;
+  if (colIndex <= 0) return false;
+  var range = sheet.getRange(rowNo, colIndex, 1, 1);
+  if ((def.textFormatColumns || []).indexOf(fieldKey) !== -1) {
+    range.setNumberFormat('@');
+  }
+  range.setValue(value);
+  return true;
 }

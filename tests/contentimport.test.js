@@ -550,6 +550,55 @@ test('15. 整季匯入冪等：連續跑兩次，第二次 0 改動', function (
     + JSON.stringify(second.plan.details.slice(0, 3)));
 });
 
+// ⚠️ 第一輪自測就是死在這一條上。當時 AuditLog 的證據是：
+//      CONTENT_SHEET_IMPORT | Finance | 2027-10-03 | COL_SPECIAL_OVERSEAS
+//      舊值 42150 | 新值 42,150
+//    內容表存的是文字 '42,150'，寫進 Finance 時被 Sheets 轉成數字 42150，
+//    於是每一次匯入都覺得「值不同」而重寫一次，永遠不會停。
+//    測試用**真正寫得出這個症狀的值**（帶千分位逗號、帶前導零、純數字的
+//    人數），而且跑足三次——只跑兩次的話，「第二次 0 但第三次又有」這種
+//    來回震盪的 bug 抓不到。見 docs/已知bug類型.md 事故二十八。
+test('15b. 帶千分位的金額連續匯入三次：第二、三次都必須是 0 項改動', function () {
+  const env = makeEnv({
+    content: {
+      財政報告: [
+        { SERVICE_DATE: '2027-10-03', SEQ_NO: '10', ROW_LABEL: '特殊海外奉獻',
+          COL1: '42,150', COL2: '3,200.50', COL3: '007', COL4: '--', ACTIVE: 'TRUE' },
+        { SERVICE_DATE: '2027-10-03', SEQ_NO: '20', ROW_LABEL: '慈惠',
+          COL1: '1,000', COL2: '0', COL3: '', COL4: '', ACTIVE: 'TRUE' }
+      ],
+      團契聚會: [{ SERVICE_DATE: '2027-10-03', SEQ_NO: '10', NAME: '彼得團',
+        DATE_TEXT: '10/5', TIME_TEXT: '4:30pm', CONTENT: '查經', ACTIVE: 'TRUE' }],
+      崇拜人數: [{ SERVICE_DATE: '2027-10-03', ATT_ENG_WORSHIP: '57',
+        ATT_CANE_WORSHIP: '1,024', ATT_CANN_WORSHIP: '前:5 / 後:120', ACTIVE: 'TRUE' }]
+    }
+  });
+
+  const first = env.sandbox.applyContentImport_(QUARTER_ID, {});
+  assert.ok(first.plan.added + first.plan.updated > 0, '第一次一定有改動');
+
+  [2, 3].forEach(function (round) {
+    const result = env.sandbox.applyContentImport_(QUARTER_ID, {});
+    const plan = result.plan;
+    assert.strictEqual(plan.added + plan.updated + plan.removed, 0,
+      '第 ' + round + ' 次應該是 0 項改動，實際明細：'
+        + JSON.stringify(plan.details.slice(0, 5)));
+  });
+
+  // 值本身要真的守得住，不是「差異算不出來」那種假冪等。
+  const finance = activeRows(env, 'Finance');
+  assert.strictEqual(finance[0].COL_SPECIAL_OVERSEAS, '42,150');
+  assert.strictEqual(finance[0].COL_HARDSHIP, '3,200.50');
+  assert.strictEqual(finance[0].COL3, '007', '前導零一樣會被 Sheets 轉走');
+  // 崇拜人數的日期是**崇拜當日**，對應的週報主日是它 + 7 天。
+  const week = env.sandbox.readBulletinWeekRowWithRowNo_('2027-10-10');
+  assert.strictEqual(week.ATT_CANE_WORSHIP, '1,024');
+  assert.strictEqual(week.ATT_ENG_WORSHIP, '57');
+  const fellowship = activeRows(env, 'Fellowships')[0];
+  assert.strictEqual(fellowship.MEETING_DATE, '10/5',
+    '"10/5" 不設純文字格式的話會變成一個真正的日期');
+});
+
 // =====================================================================
 // 16-20. 個別欄位的規則
 // =====================================================================

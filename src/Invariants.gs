@@ -40,6 +40,22 @@
  *
  *   本檔案全部函式一律**不寫入任何資料**。不變量是「照鏡」，不是「執屋」。
  *   一邊檢查一邊順手改動，就再也分不清「本來就對」與「被檢查程序改到對」。
+ *
+ * ─────────────────────────────────────────────────────────────────────
+ * ⚠️ 不是每一條檢查都是「不變量」
+ * ─────────────────────────────────────────────────────────────────────
+ *
+ *   不變量的定義是「**任何時候**都必須成立」。有一類檢查只在**特定時刻**
+ *   成立——例如「再匯入一次應為 0 改動」（I08）只在剛剛匯入完那一刻成立，
+ *   有人去內容表改一格之後它就不成立，而那是完全合法的狀態。
+ *
+ *   這一類檢查標 `sideEffect: true`，**不會**被 `runAllInvariants_()` 跑到，
+ *   要靠 `runStatefulChecks_()` 在明確需要的情境呼叫。
+ *
+ *   把它們混進不變量的代價很具體：自測機每個情境跑完都叫一次
+ *   `runAllInvariants_()`，一條紅了整個情境就轉紅——第一輪 18 個情境
+ *   11 紅，其中 8 個就是被 I08 拖著一齊紅的，那 8 個本身的斷言全部符合
+ *   （見 docs/已知bug類型.md 事故二十七）。
  */
 
 'use strict';
@@ -902,10 +918,88 @@ function runInvariantI10_(baselineCount) {
 // =====================================================================
 
 /**
- * 用途：一次過跑全部不變量。**唯讀。**
+ * 用途：全部檢查的登記表——**每一條都明確標明有沒有副作用**。
+ *
+ * ─────────────────────────────────────────────────────────────────────
+ * ⚠️ `sideEffect` 是甚麼意思
+ * ─────────────────────────────────────────────────────────────────────
+ *
+ *   `sideEffect: true` 代表「這一條檢查會改動狀態，**或者它驗證的對象
+ *   本身是一個有副作用的操作**」。這種檢查**不是不變量**，理由有兩重：
+ *
+ *   1. **它不是「任何時候都成立」的。** 不變量的定義就是「任何時候都
+ *      必須成立」；I08（再匯入一次應為 0 改動）只在**剛剛匯入完**那一刻
+ *      成立——有人去內容表改一格之後它就不成立，而那是完全合法的狀態。
+ *      把一個「只在特定時刻成立」的斷言當成不變量，等於在每一個不相干
+ *      的地方都問一條沒有意義的問題。
+ *
+ *   2. **它會拖著不相干的情境一齊紅。** 自測機每個情境跑完都叫一次
+ *      `runAllInvariants_()`，一條紅了整個情境就轉紅。I08 一旦紅，
+ *      「產生 Word」「儲存一格」「發佈」「寄出」全部一齊紅——而它們
+ *      本身的斷言明明全部符合。第一輪 18 個情境 11 紅，其中 8 個就是
+ *      這樣來的（見 docs/已知bug類型.md 事故二十七）。
+ *
+ *   所以：`runAllInvariants_()` **只准跑 `sideEffect: false` 的**，
+ *   有副作用的那些由 `runStatefulChecks_()` 在明確需要的情境呼叫。
+ *
+ * Args:
+ *   ctx {{isoDate:string, quarterId:string}} 檢查範圍。
+ *   opts {{sinceMs:number=, docxFileId:string=, rosterRevisionBaseline:number=}=}
+ * Returns:
+ *   {{id:string, sideEffect:boolean, run:function(): Object}[]}
+ */
+function invariantDefinitions_(ctx, opts) {
+  var o = opts || {};
+  return [
+    { id: 'I01', sideEffect: false, run: function () { return runInvariantI01_(); } },
+    { id: 'I02', sideEffect: false, run: function () { return runInvariantI02_(); } },
+    { id: 'I03', sideEffect: false, run: function () { return runInvariantI03_(ctx); } },
+    { id: 'I04', sideEffect: false, run: function () { return runInvariantI04_({ sinceMs: o.sinceMs }); } },
+    { id: 'I05', sideEffect: false, run: function () { return runInvariantI05_({ sinceMs: o.sinceMs }); } },
+    { id: 'I06', sideEffect: false, run: function () { return runInvariantI06_(); } },
+    { id: 'I07', sideEffect: false, run: function () { return runInvariantI07_({ fileId: o.docxFileId }); } },
+    // ⚠️ I08 是**唯一**一條 sideEffect: true。它驗的是「匯入」這個有副作用
+    // 的操作，而且只在剛剛匯入完那一刻成立——見本函式檔頭的兩重理由。
+    { id: 'I08', sideEffect: true, run: function () { return runInvariantI08_({ quarterId: ctx.quarterId }); } },
+    { id: 'I09', sideEffect: false, run: function () { return runInvariantI09_(); } },
+    {
+      id: 'I10', sideEffect: false,
+      run: function () {
+        return runInvariantI10_(o.rosterRevisionBaseline === undefined ? null : o.rosterRevisionBaseline);
+      }
+    }
+  ];
+}
+
+/**
+ * 用途：把一批檢查結果收成摘要。**純函式。**
+ * Args:
+ *   results {Object[]} 每個都是 `invariantResult_()` 的輸出。
+ * Returns:
+ *   {{results:Object[], okCount:number, failedCount:number,
+ *     unknownCount:number, allOk:boolean, failed:Object[]}}
+ */
+function summariseInvariantResults_(results) {
+  var list = results || [];
+  var failed = list.filter(function (r) { return r.ok === false; });
+  return {
+    results: list,
+    okCount: list.filter(function (r) { return r.ok === true; }).length,
+    failedCount: failed.length,
+    unknownCount: list.filter(function (r) { return r.ok === null; }).length,
+    allOk: failed.length === 0,
+    failed: failed
+  };
+}
+
+/**
+ * 用途：跑全部**沒有副作用**的不變量。**唯讀。**
  *
  *   第 2 層每個情境跑完叫一次、第 3 層每一步跑完叫一次、「完成度自我
  *   檢測」也叫一次——同一組斷言在三個地方重用，不需要三套。
+ *
+ *   ⚠️ **有副作用的檢查一律不在這裡**（見 `invariantDefinitions_()` 的
+ *   說明）。要跑那些，叫 `runStatefulChecks_()`。
  * Args:
  *   options {{isoDate:string=, quarterId:string=, sinceMs:number=,
  *            docxFileId:string=, rosterRevisionBaseline:number=}=}
@@ -923,28 +1017,36 @@ function runAllInvariants_(options) {
     ? { isoDate: String(opts.isoDate || ''), quarterId: String(opts.quarterId || '') }
     : invariantDefaultContext_();
 
-  var results = [
-    runInvariantI01_(),
-    runInvariantI02_(),
-    runInvariantI03_(ctx),
-    runInvariantI04_({ sinceMs: opts.sinceMs }),
-    runInvariantI05_({ sinceMs: opts.sinceMs }),
-    runInvariantI06_(),
-    runInvariantI07_({ fileId: opts.docxFileId }),
-    runInvariantI08_({ quarterId: ctx.quarterId }),
-    runInvariantI09_(),
-    runInvariantI10_(opts.rosterRevisionBaseline === undefined ? null : opts.rosterRevisionBaseline)
-  ];
+  var results = invariantDefinitions_(ctx, opts)
+    .filter(function (d) { return d.sideEffect !== true; })
+    .map(function (d) { return d.run(); });
 
-  var failed = results.filter(function (r) { return r.ok === false; });
-  return {
-    results: results,
-    okCount: results.filter(function (r) { return r.ok === true; }).length,
-    failedCount: failed.length,
-    unknownCount: results.filter(function (r) { return r.ok === null; }).length,
-    allOk: failed.length === 0,
-    failed: failed
-  };
+  return summariseInvariantResults_(results);
+}
+
+/**
+ * 用途：跑**有副作用**的檢查。只在明確需要的情境呼叫（目前只有匯入
+ *   相關的 S05／S06／S07）。
+ *
+ *   ⚠️ 這一支**不可以**放進 `runAllInvariants_()`，也不可以在亂行機
+ *   每一步之後叫——理由見 `invariantDefinitions_()` 的說明。
+ * Args:
+ *   options {{isoDate:string=, quarterId:string=}=}
+ * Returns:
+ *   {{results:Object[], okCount:number, failedCount:number,
+ *     unknownCount:number, allOk:boolean, failed:Object[]}}
+ */
+function runStatefulChecks_(options) {
+  var opts = options || {};
+  var ctx = (opts.isoDate || opts.quarterId)
+    ? { isoDate: String(opts.isoDate || ''), quarterId: String(opts.quarterId || '') }
+    : invariantDefaultContext_();
+
+  var results = invariantDefinitions_(ctx, opts)
+    .filter(function (d) { return d.sideEffect === true; })
+    .map(function (d) { return d.run(); });
+
+  return summariseInvariantResults_(results);
 }
 
 /**

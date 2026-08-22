@@ -340,9 +340,35 @@ function buildContentImportTargets_(contentData, serviceDates) {
  *   {boolean}
  */
 function contentValuesEqual_(a, b) {
-  var na = (a === null || a === undefined) ? '' : String(a).trim();
-  var nb = (b === null || b === undefined) ? '' : String(b).trim();
-  return na === nb;
+  return normalizeContentCompareValue_(a) === normalizeContentCompareValue_(b);
+}
+
+/**
+ * 用途：把一個值正規化成**用來比對**的字串。差異比對兩邊都要經這一支，
+ *   不可以一邊原值一邊格式化值。
+ *
+ *   ⚠️ 這裡**刻意不**把數字 42150 當成等於文字 '42,150'。兩者確實不同：
+ *   前者是試算表自作主張轉換後的錯值，週報會印成「42150」。把它們當成
+ *   相等，等於叫匯入永遠不要修好它。正確做法是照樣報成差異、由匯入把
+ *   正確的文字寫回去（寫入端已經先設 '@' 格式，不會再被轉走）。
+ *   見 docs/已知bug類型.md 事故二十八。
+ *
+ *   ⚠️ `Date` 一定要轉成 `yyyy-MM-dd`：`String(dateObject)` 會得出
+ *   'Mon Oct 04 2027 …'，永遠不會等於內容表的 '2027-10-04'，那一欄就會
+ *   每次匯入都被判定為有改動。
+ * Args:
+ *   value {*}
+ * Returns:
+ *   {string}
+ */
+function normalizeContentCompareValue_(value) {
+  if (value === null || value === undefined) return '';
+  if (Object.prototype.toString.call(value) === '[object Date]') {
+    // ⚠️ 用 formatIsoDate_() 而不是 normalizeDate_()：後者回的是 Date 物件，
+    //    拿去同字串 === 比永遠不相等。
+    return formatIsoDate_(value);
+  }
+  return String(value).trim();
 }
 
 /**
@@ -708,11 +734,11 @@ function writeContentImportPlan_(plan) {
 
     listPlan.updates.forEach(function (update) {
       update.changes.forEach(function (change) {
-        var col = def.keys.indexOf(change.field) + 1;
-        if (col <= 0) return;
-        sheet.getRange(update.rowNo, col).setValue(
-          change.field === 'ACTIVE' ? change.newValue : sanitizeCellText_(change.newValue)
-        );
+        if (def.keys.indexOf(change.field) < 0) return;
+        // ⚠️ 經 setCellValueTextSafe_()：設計上是文字的欄位要先設 '@' 再寫，
+        //    否則 '42,150' 會變成數字 42150。見 docs/已知bug類型.md 事故二十八。
+        setCellValueTextSafe_(sheet, def, update.rowNo, change.field,
+          change.field === 'ACTIVE' ? change.newValue : sanitizeCellText_(change.newValue));
         appendContentImportAudit_(sheetName, update.isoDate, change);
       });
     });

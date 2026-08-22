@@ -218,7 +218,12 @@ var COLUMNS = Object.freeze({
     // 不受影響），COL3／COL4 對應這裡新增的 COL3／COL4。COL5 是保留欄，
     // 目前沒有對應的渲染佔位符——見 docs/待確認事項.md 的說明。
     keys: ['SERVICE_DATE', 'SEQ_NO', 'ROW_LABEL', 'COL_SPECIAL_OVERSEAS', 'COL_HARDSHIP', 'COL3', 'COL4', 'COL5', 'ACTIVE'],
-    types: ['DATE', 'INT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'BOOLEAN']
+    types: ['DATE', 'INT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'BOOLEAN'],
+    // 第一輪自測修正：金額欄設計上是**文字**，樣本值如 '42,150'、'1,234.50'。
+    // 沒有這道防線，Google Sheets 會把 '42,150' 自動轉成數字 42150，
+    // 於是每次匯入都覺得「值不同」而重寫一次，永遠不會冪等，週報也會
+    // 印出沒有千分位的金額。見 docs/已知bug類型.md 事故二十八。
+    textFormatColumns: ['COL_SPECIAL_OVERSEAS', 'COL_HARDSHIP', 'COL3', 'COL4', 'COL5']
   },
 
   PERSON_DISPLAY: {

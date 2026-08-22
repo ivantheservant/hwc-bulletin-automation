@@ -613,12 +613,47 @@ test('I10 ⚪：沒有提供基準 → 只回報目前數目，不當成綠', fu
 // runAllInvariants_ 與報告
 // =====================================================================
 
-test('runAllInvariants_：十條全部跑到，一條爆了不會令其餘跑不到', function () {
+test('runAllInvariants_：九條無副作用的全部跑到，一條爆了不會令其餘跑不到', function () {
   const env = makeEnv({});
   const summary = env.sandbox.runAllInvariants_();
-  assert.strictEqual(summary.results.length, 10);
+  assert.strictEqual(summary.results.length, 9);
   deepEq(summary.results.map(function (r) { return r.id; }),
-    ['I01', 'I02', 'I03', 'I04', 'I05', 'I06', 'I07', 'I08', 'I09', 'I10']);
+    ['I01', 'I02', 'I03', 'I04', 'I05', 'I06', 'I07', 'I09', 'I10']);
+});
+
+// ⚠️ 這一條是第一輪自測的教訓：I08「匯入之後再匯入一次改動必為 0」不是
+//    恆真的不變量，它只在「啱啱匯入完」那一刻成立，而且它要靠一次匯入
+//    先決條件才驗得到。把它放進 runAllInvariants_()，等於令 S08、S10、
+//    S11、S12、S16、S17 六個不相干的情境一齊紅。見事故二十七。
+test('runAllInvariants_ 裡面一條 sideEffect:true 的檢查都沒有', function () {
+  const env = makeEnv({});
+  const defs = env.sandbox.invariantDefinitions_({ quarterId: '2027T4' }, {});
+  const ran = env.sandbox.runAllInvariants_().results.map(function (r) { return r.id; });
+  const sideEffectIds = defs
+    .filter(function (d) { return d.sideEffect === true; })
+    .map(function (d) { return d.id; });
+  assert.ok(sideEffectIds.length > 0, '應該至少有一條有副作用的檢查（I08）');
+  sideEffectIds.forEach(function (checkId) {
+    assert.ok(ran.indexOf(checkId) === -1,
+      checkId + ' 有副作用，不可以出現在 runAllInvariants_() 裡面');
+  });
+});
+
+test('每一條檢查都要明明白白寫出 sideEffect 是 true 定 false', function () {
+  const env = makeEnv({});
+  const defs = env.sandbox.invariantDefinitions_({ quarterId: '2027T4' }, {});
+  assert.strictEqual(defs.length, 10);
+  defs.forEach(function (d) {
+    const checkId = d.id;
+    assert.strictEqual(typeof d.sideEffect, 'boolean',
+      checkId + ' 沒有明寫 sideEffect，不可以靠「無寫就當無副作用」');
+  });
+});
+
+test('runStatefulChecks_ 只跑有副作用那幾條，而且真的跑得到', function () {
+  const env = makeEnv({});
+  const summary = env.sandbox.runStatefulChecks_({ quarterId: '2027T4' });
+  deepEq(summary.results.map(function (r) { return r.id; }), ['I08']);
 });
 
 test('runAllInvariants_：allOk 只看 FAILED，UNKNOWN 不會令它變 false', function () {

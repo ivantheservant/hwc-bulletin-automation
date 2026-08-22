@@ -572,6 +572,12 @@ function writeFillGridRows_(sheet, rows) {
     });
   });
 
+  // 純文字欄再設一次：這支有機會被單獨呼叫（不是每次都跟在重建表頭之後），
+  // 而格式一定要在 setValues() 之前設好。見 docs/已知bug類型.md 事故二十八。
+  defs.forEach(function (def, i) {
+    if (!def.plainText) return;
+    sheet.getRange(FILL_GRID_FIRST_DATA_ROW_, i + 1, values.length, 1).setNumberFormat('@');
+  });
   sheet.getRange(FILL_GRID_FIRST_DATA_ROW_, 1, values.length, defs.length).setValues(values);
 }
 

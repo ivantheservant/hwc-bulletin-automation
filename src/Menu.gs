@@ -84,6 +84,7 @@ function onOpen() {
       .addItem('檢查格子表外觀', 'menuCheckFillGridAppearance_')
       .addSeparator()
       .addItem('整理清單次序', 'menuResequenceLists_')
+      .addItem('修復被轉成數字的文字欄位', 'menuRepairTextColumns_')
       .addItem('由常設時間表產生本季團契', 'menuGenerateFellowships_')
       .addSeparator()
       .addItem('立即備份本季', 'menuBackupQuarter_')

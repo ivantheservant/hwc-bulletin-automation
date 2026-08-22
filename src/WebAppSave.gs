@@ -857,9 +857,11 @@ function applyWeekFieldChanges_(rowNo, changes, isoDate, auditEntriesOut) {
   var keys = COLUMNS.BULLETIN_WEEKS.keys;
 
   changes.forEach(function (c) {
-    var colIndex = keys.indexOf(c.field) + 1;
-    if (colIndex <= 0) return;
-    sheet.getRange(rowNo, colIndex).setValue(c.newValue === null || c.newValue === undefined ? '' : c.newValue);
+    if (keys.indexOf(c.field) < 0) return;
+    // ⚠️ 經 setCellValueTextSafe_()：ATT_* 十二欄設計上是文字，直接寫會被
+    //    試算表轉成數字。見 docs/已知bug類型.md 事故二十八。
+    setCellValueTextSafe_(sheet, COLUMNS.BULLETIN_WEEKS, rowNo, c.field,
+      c.newValue === null || c.newValue === undefined ? '' : c.newValue);
     auditEntriesOut.push({
       action: 'WEBAPP_SAVE_WEEK', sheetName: SHEETS.BULLETIN_WEEKS, rowKey: isoDate,
       field: c.field, oldValue: auditValueToText_(c.oldValue), newValue: auditValueToText_(c.newValue)
@@ -909,8 +911,8 @@ function createWeekRow_(targetDate, normalizedWeek, isoDate, auditEntriesOut) {
  */
 function writeWeekCell_(rowNo, fieldKey, value) {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.BULLETIN_WEEKS);
-  var colIndex = COLUMNS.BULLETIN_WEEKS.keys.indexOf(fieldKey) + 1;
-  sheet.getRange(rowNo, colIndex).setValue(value);
+  // ⚠️ 經 setCellValueTextSafe_()，見 docs/已知bug類型.md 事故二十八。
+  setCellValueTextSafe_(sheet, COLUMNS.BULLETIN_WEEKS, rowNo, fieldKey, value);
 }
 
 /**
@@ -936,9 +938,11 @@ function applyListPlan_(sheetName, targetDate, isoDate, listType, plan, auditEnt
 
   plan.updates.forEach(function (u) {
     u.changes.forEach(function (c) {
-      var colIndex = def.keys.indexOf(c.field) + 1;
-      if (colIndex <= 0) return;
-      sheet.getRange(u.rowNo, colIndex).setValue(c.newValue === null || c.newValue === undefined ? '' : c.newValue);
+      if (def.keys.indexOf(c.field) < 0) return;
+      // ⚠️ 經 setCellValueTextSafe_()：Finance 的 COL_*、Fellowships 的
+      //    MEETING_DATE／MEETING_TIME 設計上是文字。見事故二十八。
+      setCellValueTextSafe_(sheet, def, u.rowNo, c.field,
+        c.newValue === null || c.newValue === undefined ? '' : c.newValue);
       auditEntriesOut.push({
         action: action, sheetName: sheetName, rowKey: isoDate + '#' + u.seqNoOld,
         field: c.field, oldValue: auditValueToText_(c.oldValue), newValue: auditValueToText_(c.newValue)

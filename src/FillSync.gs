@@ -417,7 +417,10 @@ function writeBulletinWeekField_(isoDate, fieldKey, value) {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.BULLETIN_WEEKS);
   if (!sheet) return false;
 
-  sheet.getRange(row.__rowNo, colIndex).setValue(sanitizeCellText_(value === null || value === undefined ? '' : value));
+  // ⚠️ 經 setCellValueTextSafe_()：ATT_* 十二欄設計上是文字（'12 人'、'—'），
+  //    直接 setValue() 會被試算表轉成數字。見 docs/已知bug類型.md 事故二十八。
+  setCellValueTextSafe_(sheet, COLUMNS.BULLETIN_WEEKS, row.__rowNo, fieldKey,
+    sanitizeCellText_(value === null || value === undefined ? '' : value));
   return true;
 }
 

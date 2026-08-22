@@ -653,12 +653,19 @@ function selfTestS05_(ctx) {
     return dates.indexOf(iso) !== -1;
   });
 
+  // ⚠️ 有副作用的檢查（I08）只在匯入相關的情境明確呼叫，不放進
+  // `runAllInvariants_()`——見 src/Invariants.gs 檔頭的說明。
+  var stateful = runStatefulChecks_({ quarterId: config.quarterId });
+
   var expected = 1 + 1 + 4;
-  var ok = announcements.length === expected;
-  return selfTestOutcome_(ok, expected + ' 行（1 ＋ 1 ＋ 連登 4）', announcements.length + ' 行',
+  var ok = announcements.length === expected && stateful.failedCount === 0;
+  return selfTestOutcome_(ok, expected + ' 行（1 ＋ 1 ＋ 連登 4）、匯入是冪等的',
+    announcements.length + ' 行'
+      + (stateful.failedCount > 0 ? ('；' + selfTestStatefulSummary_(stateful)) : ''),
     '主日：' + dates.slice(0, 4).join('、') + '；'
       + '匯入計畫：新增 ' + imported.plan.added + '、修改 ' + imported.plan.updated
-      + '、刪除 ' + imported.plan.removed + '、不變 ' + imported.plan.unchanged);
+      + '、刪除 ' + imported.plan.removed + '、不變 ' + imported.plan.unchanged
+      + '；' + selfTestStatefulSummary_(stateful));
 }
 
 /**
@@ -671,18 +678,34 @@ function selfTestS06_(ctx) {
   }
   assertSelfTestWritableQuarter_(config.quarterId, config);
 
-  var again = applyContentImport_(config.quarterId);
-  if (!again.ok) {
-    return selfTestOutcome_(false, '匯入成功', '失敗：' + again.reason, again.message || '');
+  // ⚠️ **連續匯入兩次**（S05 已經匯入過一次，所以合共三次）。
+  // 只驗一次的話，「第二次 0 改動但第三次又有改動」這種狀態驗不出來
+  // ——而財政欄位那個「文字被試算表轉成數字」的 bug 正是這種形狀。
+  var rounds = [];
+  for (var i = 0; i < 2; i++) {
+    var result = applyContentImport_(config.quarterId);
+    if (!result.ok) {
+      return selfTestOutcome_(false, '匯入成功', '第 ' + (i + 2) + ' 次失敗：' + result.reason,
+        result.message || '');
+    }
+    var p = result.plan;
+    rounds.push({
+      round: i + 2,
+      changes: Number(p.added) + Number(p.updated) + Number(p.removed),
+      detail: '新增 ' + p.added + '、修改 ' + p.updated + '、刪除 ' + p.removed + '、不變 ' + p.unchanged
+    });
   }
 
-  var plan = again.plan;
-  var changes = Number(plan.added) + Number(plan.updated) + Number(plan.removed);
-  var ok = changes === 0;
-  return selfTestOutcome_(ok, '0 項改動', changes + ' 項改動',
-    '新增 ' + plan.added + '、修改 ' + plan.updated + '、刪除 ' + plan.removed
-      + '、不變 ' + plan.unchanged
-      + (ok ? '' : '　⚠️ 匯入之後再匯入應該完全沒有改動；有改動代表寫入的值與內容表的值格式不同。'));
+  var stateful = runStatefulChecks_({ quarterId: config.quarterId });
+  var bad = rounds.filter(function (r) { return r.changes !== 0; });
+  var ok = bad.length === 0 && stateful.failedCount === 0;
+
+  return selfTestOutcome_(ok, '第 2、3 次都是 0 項改動',
+    rounds.map(function (r) { return '第 ' + r.round + ' 次 ' + r.changes + ' 項'; }).join('、'),
+    rounds.map(function (r) { return '第 ' + r.round + ' 次：' + r.detail; }).join('；')
+      + '；' + selfTestStatefulSummary_(stateful)
+      + (ok ? '' : '　⚠️ 匯入之後再匯入應該完全沒有改動；有改動代表寫入的值與內容表的值格式不同'
+        + '（例如文字被試算表自作主張轉成數字）。'));
 }
 
 /**
@@ -730,11 +753,13 @@ function selfTestS07_(ctx) {
   var lines = buildContentImportDialogLines_(imported, { applied: true }).join('\n');
   var saidSkipped = lines.indexOf('沒有資料，本次不改動') !== -1;
 
-  var ok = after === before && saidSkipped;
+  var stateful = runStatefulChecks_({ quarterId: config.quarterId });
+  var ok = after === before && saidSkipped && stateful.failedCount === 0;
   return selfTestOutcome_(ok, before + ' 行（一行都不可以少）並且報告講明「本次不改動」',
     after + ' 行；報告' + (saidSkipped ? '有' : '沒有') + '講明',
     '清空前 ' + before + ' 行、清空後 ' + after + ' 行；'
-      + '略過的分頁：' + (imported.plan.skippedTabs.join('、') || '（沒有）'));
+      + '略過的分頁：' + (imported.plan.skippedTabs.join('、') || '（沒有）')
+      + '；' + selfTestStatefulSummary_(stateful));
 }
 
 /**
@@ -1271,6 +1296,24 @@ function selfTestS18_(ctx) {
 // =====================================================================
 // 情境用到的小工具
 // =====================================================================
+
+/**
+ * 用途：把 `runStatefulChecks_()` 的結果縮成一句可以放進證據的話。
+ * Args:
+ *   summary {Object} `runStatefulChecks_()` 的回傳值。
+ * Returns:
+ *   {string}
+ */
+function selfTestStatefulSummary_(summary) {
+  if (summary.failedCount === 0) {
+    return '有副作用的檢查：' + summary.okCount + ' 條通過、'
+      + summary.unknownCount + ' 條驗證不到';
+  }
+  return '有副作用的檢查不成立：' + summary.failed.map(function (f) {
+    var checkId = f.id;
+    return checkId + '（預期 ' + f.expected + '，實際 ' + f.actual + '）';
+  }).join('、');
+}
 
 /**
  * 用途：按分頁名稱的關鍵字找一個內容表分頁定義。
