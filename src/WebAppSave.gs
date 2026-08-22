@@ -438,6 +438,21 @@ function normalizeWeekPayloadForCompare_(rawWeek) {
  *   {string[]} `BulletinWeeks` 的機器鍵。
  */
 function contentSheetOwnedWeekKeys_() {
+  return CONTENT_SHEET_READONLY_FIELDS.WEEK.slice();
+}
+
+/**
+ * 用途：由 `contentImportTargets_()` **推算**出來的唯讀欄位，只用來與
+ *   `CONTENT_SHEET_READONLY_FIELDS.WEEK` 對數。
+ *
+ *   ⚠️ 這一支**不是**給正式流程用的。正式流程一律用
+ *   `contentSheetOwnedWeekKeys_()`（單一真相來源）。這一支存在的唯一
+ *   理由，是讓測試抓得到「有人新增了匯入目標卻忘記更新唯讀清單」。
+ * Args: （無）
+ * Returns:
+ *   {string[]}
+ */
+function contentSheetOwnedWeekKeysDerived_() {
   var keys = [];
   contentImportTargets_().forEach(function (def) {
     if (def.targetSheet !== SHEETS.BULLETIN_WEEKS) return;
@@ -458,6 +473,18 @@ function contentSheetOwnedWeekKeys_() {
  *   {string[]} `webAppListDefs_()` 的 key（`announcements` 等）。
  */
 function contentSheetOwnedListTypes_() {
+  return CONTENT_SHEET_READONLY_FIELDS.LISTS.slice();
+}
+
+/**
+ * 用途：由 `contentImportTargets_()` 推算出來的唯讀清單名稱，同樣只用來
+ *   與 `CONTENT_SHEET_READONLY_FIELDS.LISTS` 對數，見
+ *   `contentSheetOwnedWeekKeysDerived_()` 的說明。
+ * Args: （無）
+ * Returns:
+ *   {string[]}
+ */
+function contentSheetOwnedListTypesDerived_() {
   var defs = webAppListDefs_();
   var owned = [];
   contentImportTargets_().forEach(function (def) {
@@ -467,6 +494,18 @@ function contentSheetOwnedListTypes_() {
     });
   });
   return owned;
+}
+
+/**
+ * 用途：把一個唯讀欄位／清單的機器鍵，換成給人看的名稱。
+ * Args:
+ *   key {string} 機器鍵或清單名稱。
+ * Returns:
+ *   {string} 查不到就原樣回機器鍵——講一個機器鍵，好過不講。
+ */
+function contentSheetReadOnlyLabel_(key) {
+  var label = CONTENT_SHEET_READONLY_LABELS[key];
+  return label ? (label + '（' + key + '）') : key;
 }
 
 /**
@@ -502,33 +541,50 @@ function webAppEditableWeekFieldKeys_() {
   return webAppWeekFieldKeys_().filter(function (key) { return owned.indexOf(key) === -1; });
 }
 
-function assertContentSheetFieldsNotSubmitted_(payload) {
+function findSubmittedReadOnlyFields_(payload) {
   var week = (payload && payload.week) || {};
 
   // ⚠️ 判斷準則是「**有沒有真的帶內容**」，不是「有沒有這個 key」。
   // 舊版前端（使用者瀏覽器有快取）會送 `announcements: []`、
-  // `ATT_ENG_WORSHIP: ''` 這類空值；那些空值寫不到任何嘢（清單根本不再
-  // 處理，見 `buildSaveOperations_()`），為此整個儲存失敗只會令幹事連
-  // 其他欄位都改不到。真正要擋的是「帶住實際內容想寫入」。
+  // `ATT_ENG_WORSHIP: ''` 這類空值；那些空值寫不到任何東西（清單根本
+  // 不再處理，見 `buildSaveOperations_()`），為此整個儲存失敗只會令幹事
+  // 連其他欄位都改不到。真正要擋的是「帶著實際內容想寫入」。
   var offending = contentSheetOwnedWeekKeys_().filter(function (key) {
     var v = week[key];
     return v !== undefined && v !== null && String(v).trim() !== '';
   });
 
+  // ⚠️ 清單要**兩種形狀都檢查**：正式 payload 放在頂層
+  // （`payload.announcements`），但呼叫方有機會寫成 `payload.lists.announcements`
+  // ——第一輪自測 S09 就是這樣送的，於是這道檢查完全沒有觸發，S09 綠燈
+  // 報告「拒絕成功」，其實兩邊都沒有看過那個清單。只認一種形狀的檢查，
+  // 遇到另一種形狀時不會報錯，只會**靜靜地什麼都不做**。
+  var nested = (payload && payload.lists) || {};
   contentSheetOwnedListTypes_().forEach(function (type) {
-    var items = payload ? payload[type] : undefined;
-    if (Array.isArray(items) && items.length > 0) offending.push(type);
+    var top = payload ? payload[type] : undefined;
+    var inner = nested[type];
+    var hasItems = (Array.isArray(top) && top.length > 0)
+      || (Array.isArray(inner) && inner.length > 0);
+    if (hasItems && offending.indexOf(type) === -1) offending.push(type);
   });
 
+  return offending;
+}
+
+function assertContentSheetFieldsNotSubmitted_(payload) {
+  var offending = findSubmittedReadOnlyFields_(payload);
   if (offending.length === 0) return;
 
+  var names = offending.map(function (key) { return contentSheetReadOnlyLabel_(key); });
   var err = new Error(
     '家事報告、代禱事項、本週團契聚會、月度財政報告、上週崇拜人數、宣召出處、宣召經文，'
     + '這七項內容已改由內容表輸入，填寫介面不可以再儲存它們。'
+    + '整次儲存已經取消，一格都沒有寫入。'
     + '請到內容表修改，然後按「重新匯入」。'
-    + '（收到的欄位：' + offending.join('、') + '）'
+    + '（收到的唯讀欄位共 ' + offending.length + ' 項：' + names.join('、') + '）'
   );
   err.code = 'CONTENT_SHEET_READONLY';
+  err.readOnlyFields = offending;
   throw err;
 }
 

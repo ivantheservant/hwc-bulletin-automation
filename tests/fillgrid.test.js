@@ -570,26 +570,68 @@ test('4b. 多格貼上：橫跨唯讀欄與可編輯欄時，唯讀的還原、�
 // 5–6. 人數欄與日期欄的原樣保存
 // =====================================================================
 
-test('5. 人數欄輸入 `--` 原樣保存（不會變成 0 或空白）', function () {
+// ⚠️ 這兩條在第一輪自測之後**改變了預期**，理由要寫清楚：
+//    十二個人數欄與宣召兩欄已經由**內容表**接管（R-011），填寫介面擋住了
+//    它們，季度填寫表卻沒有——照樣把人手改的值 PUSH 回 BulletinWeeks。
+//    同一條規則只在其中一個入口成立，等於擋住大門而後門大開。
+//    現在正確的行為是：格子表那一格照樣保存人手打的字串（純文字格式仍然
+//    要守住），但**同步不會把它寫回 BulletinWeeks**。
+//    見 docs/已知bug類型.md 事故二十九。
+
+test('5. 人數欄輸入 `--`：格子表原樣保存，但**不會**同步回 BulletinWeeks', function () {
   const env = makeSyncedEnv();
   setGridCell(env, '2027-11-07', 'ATT_CANN_WORSHIP', '--');
+  const before = env.sandbox.readSheet('BulletinWeeks').filter(function (r) {
+    return env.sandbox.fillGridCellText_(r.SERVICE_DATE) === '2027-11-07';
+  })[0].ATT_CANN_WORSHIP;
+
   env.sandbox.syncFillGrid_(QUARTER_ID);
+
+  const gridRow = env.sandbox.readFillGridRows_(QUARTER_ID)
+    .filter(function (r) { return r.isoDate === '2027-11-07'; })[0];
+  assert.strictEqual(gridRow.values.ATT_CANN_WORSHIP, '--',
+    '格子表那一格要原樣保存（不會變成 0 或空白）');
 
   const week = env.sandbox.readSheet('BulletinWeeks').filter(function (r) {
     return env.sandbox.fillGridCellText_(r.SERVICE_DATE) === '2027-11-07';
   })[0];
-  assert.strictEqual(week.ATT_CANN_WORSHIP, '--');
+  assert.strictEqual(week.ATT_CANN_WORSHIP, before,
+    '人數欄由內容表接管，格子表不可以寫回 BulletinWeeks');
 });
 
-test('5b. 人數欄輸入 `前:5 / 後:120` 原樣保存', function () {
+test('5b. 人數欄輸入 `前:5 / 後:120`：同樣原樣保存、同樣不會寫回', function () {
   const env = makeSyncedEnv();
   setGridCell(env, '2027-11-07', 'ATT_CANE_WORSHIP', '前:5 / 後:120');
   env.sandbox.syncFillGrid_(QUARTER_ID);
 
+  const gridRow = env.sandbox.readFillGridRows_(QUARTER_ID)
+    .filter(function (r) { return r.isoDate === '2027-11-07'; })[0];
+  assert.strictEqual(gridRow.values.ATT_CANE_WORSHIP, '前:5 / 後:120');
+
   const week = env.sandbox.readSheet('BulletinWeeks').filter(function (r) {
     return env.sandbox.fillGridCellText_(r.SERVICE_DATE) === '2027-11-07';
   })[0];
-  assert.strictEqual(week.ATT_CANE_WORSHIP, '前:5 / 後:120');
+  assert.strictEqual(env.sandbox.fillGridCellText_(week.ATT_CANE_WORSHIP), '');
+});
+
+test('5c. 內容表接管的欄位在格子表一律 readOnly，而且與單一真相來源對得上', function () {
+  const env = makeSyncedEnv();
+  const defs = env.sandbox.fillGridColumnDefs_();
+  const owned = env.sandbox.CONTENT_SHEET_READONLY_FIELDS.WEEK;
+  const gridKeys = defs.map(function (d) { return d.key; });
+
+  owned.forEach(function (key) {
+    if (gridKeys.indexOf(key) === -1) return; // 那一欄格子表根本沒有
+    const def = defs.filter(function (d) { return d.key === key; })[0];
+    assert.strictEqual(def.readOnly, true, key + ' 由內容表接管，格子表不可以准人寫');
+  });
+
+  // 同步計畫裡面一格唯讀欄位都不可以出現。
+  owned.forEach(function (key) { setGridCell(env, '2027-11-07', key, '亂改'); });
+  const plan = env.sandbox.computeFillSyncPlan_(QUARTER_ID);
+  const leaked = plan.cells.filter(function (c) { return owned.indexOf(c.fieldKey) !== -1; });
+  assert.strictEqual(leaked.length, 0,
+    '同步計畫混入了唯讀欄位：' + JSON.stringify(leaked.slice(0, 3)));
 });
 
 test('6. ATTENDANCE_DATE 輸入 2027-10-31：格子表保持字串，來回同步不會走樣', function () {

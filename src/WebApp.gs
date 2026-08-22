@@ -793,7 +793,15 @@ function loadWeekForWebApp_(isoDate) {
       isBaptismSunday: model.isBaptismSunday === true,
       rosterVersionUsed: model.rosterVersionUsed,
       rosterIsOfficial: model.rosterIsOfficial,
-      program: model.program
+      program: model.program,
+      // ⚠️ 唯讀欄位清單由**伺服器**送過來，前端不再自己寫一份。
+      //    第一輪自測之前這份清單在前端寫死，與後端那一份是兩件會分岔的
+      //    東西；分岔的方向如果是「前端少列了一項」，那一欄就會變成看起來
+      //    可以改、一按儲存又被整次拒絕。見 CONTENT_SHEET_READONLY_FIELDS。
+      readOnlyFields: {
+        week: CONTENT_SHEET_READONLY_FIELDS.WEEK.slice(),
+        lists: CONTENT_SHEET_READONLY_FIELDS.LISTS.slice()
+      }
     },
     missing: model.missing,
     warnings: model.warnings,

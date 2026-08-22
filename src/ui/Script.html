@@ -377,6 +377,7 @@
   // =====================================================================
 
   function renderReadOnly(readOnly) {
+    adoptReadOnlyFields(readOnly);
     var meta = document.getElementById('rosterMeta');
     var parts = [
       '特別主日：' + escapeHtml(readOnly.special ? readOnly.special.title : '（無）'),
@@ -408,12 +409,30 @@
    * `assertContentSheetFieldsNotSubmitted_()`——只擋前端等於沒有擋，
    * 任何人開瀏覽器主控台就可以直接呼叫 `apiSaveWeek()`。
    */
-  var CONTENT_SHEET_WEEK_FIELDS = [
-    'CALL_REF', 'CALL_TEXT', 'ATTENDANCE_DATE',
-    'ATT_ENG_WORSHIP', 'ATT_CANE_WORSHIP', 'ATT_CANN_WORSHIP', 'ATT_MAN_WORSHIP',
-    'ATT_ENG_PRAYER', 'ATT_CANE_PRAYER', 'ATT_CANN_PRAYER', 'ATT_MAN_PRAYER',
-    'ATT_ENG_CHILD', 'ATT_CANE_CHILD', 'ATT_CANN_CHILD', 'ATT_MAN_CHILD'
-  ];
+  // ⚠️ 這一份**不是**寫死的清單，是 apiLoadWeek() 送過來的
+  //    readOnly.readOnlyFields.week（單一真相來源見 Constants.gs 的
+  //    CONTENT_SHEET_READONLY_FIELDS）。前端自己寫一份的話，後端加了一個
+  //    唯讀欄位而前端沒有跟，那一欄就會看起來可以改、一按儲存又被整次拒絕。
+  //
+  //    初值刻意是空陣列而不是一份備份清單：拿不到伺服器那一份時，寧可
+  //    「介面看起來可以改但後端擋住」，也不要「用一份可能過期的清單去
+  //    決定哪幾欄唯讀」。後端是真正的把關（見
+  //    assertContentSheetFieldsNotSubmitted_()），前端只是省一趟冤枉路。
+  var CONTENT_SHEET_WEEK_FIELDS = [];
+
+  /**
+   * 用途：把伺服器送過來的唯讀欄位清單記下來。每次載入都會叫一次。
+   * Args:
+   *   readOnly {Object} apiLoadWeek() 回傳的 readOnly 物件。
+   */
+  function adoptReadOnlyFields(readOnly) {
+    var fields = (readOnly && readOnly.readOnlyFields) || null;
+    if (!fields || !Array.isArray(fields.week)) {
+      CONTENT_SHEET_WEEK_FIELDS = [];
+      return;
+    }
+    CONTENT_SHEET_WEEK_FIELDS = fields.week.slice();
+  }
 
   /**
    * 用途：把內容表接管的欄位設成唯讀，並在每個區塊上方渲染那一行狀態

@@ -62,11 +62,19 @@ function fillGridReadOnlyKeys_() {
 function fillGridColumnDefs_() {
   var defs = [];
 
+  // ⚠️ 內容表接管的欄位一律強制 readOnly，不理呼叫端有沒有寫。
+  //    第一輪自測揭出來的漏洞：填寫介面已經擋住這些欄位，季度填寫表卻
+  //    照樣把人手改的值 PUSH 回 BulletinWeeks（見 buildFillSyncPlan_()
+  //    只跳過 readOnly 的欄）。同一條規則要在**每一個寫入入口**都成立，
+  //    否則擋住大門而後門大開。見 docs/已知bug類型.md 事故二十九。
+  var readOnlyKeys = CONTENT_SHEET_READONLY_FIELDS.WEEK;
+
   function add(group, key, label, extra) {
+    var forced = readOnlyKeys.indexOf(key) !== -1 ? { readOnly: true } : null;
     defs.push(Object.assign({
       group: group, key: key, label: label,
       readOnly: false, plainText: false
-    }, extra || {}));
+    }, extra || {}, forced || {}));
   }
 
   // ---- 基本（唯讀，來自職事表）----

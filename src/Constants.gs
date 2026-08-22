@@ -780,6 +780,61 @@ var FILL_SYNC_STATUS = Object.freeze({
  * `FIELD:` 與 `WEEK_IN:`／`IF_FIELD:`（見 CONDITION_TYPE）都是前綴，
  * 實際值要接上對應的機器鍵或數字，例如 'FIELD:PRELUDE'。
  */
+/**
+ * 內容表接管之後、**填寫介面與季度填寫表都不可以再寫入**的欄位。
+ * 這是唯一一份真相來源，前端（`src/ui/Script.html`）與後端全部從這裡取。
+ *
+ * ⚠️ 第一輪自測 S09 揭出的問題：唯讀規則在三個地方各自寫過一次——
+ * 前端一個寫死的陣列、後端一支由 `contentImportTargets_()` 衍生的函式、
+ * 季度填寫表又完全沒有。三份不同步，等於沒有規則。
+ *
+ * ⚠️ 「唯讀」的意思是**不可以寫**，不是「不用讀」。這些欄位仍然要讀出來
+ * 顯示給人看（見 `webAppWeekFieldKeys_()`），只是儲存時一律不接受。
+ *
+ * ⚠️ `WEEK` 這一份必須與 `contentImportTargets_()` 推得出來的完全一致，
+ * 否則就是「匯入會寫、但介面又准人改」或者反過來。`tests/readonly.test.js`
+ * 有一條測試在守這件事——日後新增匯入目標時，那條測試會紅。
+ */
+var CONTENT_SHEET_READONLY_FIELDS = Object.freeze({
+  // BulletinWeeks 的機器鍵。
+  WEEK: Object.freeze([
+    'CALL_REF', 'CALL_TEXT',
+    'ATT_ENG_WORSHIP', 'ATT_CANE_WORSHIP', 'ATT_CANN_WORSHIP', 'ATT_MAN_WORSHIP',
+    'ATT_ENG_PRAYER', 'ATT_CANE_PRAYER', 'ATT_CANN_PRAYER', 'ATT_MAN_PRAYER',
+    'ATT_ENG_CHILD', 'ATT_CANE_CHILD', 'ATT_CANN_CHILD', 'ATT_MAN_CHILD',
+    // 人數統計日期跟著十二個人數欄一起由內容表決定。
+    'ATTENDANCE_DATE'
+  ]),
+  // `webAppListDefs_()` 的 key。
+  LISTS: Object.freeze(['announcements', 'prayers', 'fellowships', 'finance'])
+});
+
+/**
+ * 唯讀欄位給人看的名稱。拒絕訊息要講得出「是哪一欄」，機器鍵對幹事
+ * 來說沒有意義。沒有列出的鍵會原樣顯示機器鍵（總好過不講）。
+ */
+var CONTENT_SHEET_READONLY_LABELS = Object.freeze({
+  CALL_REF: '宣召出處',
+  CALL_TEXT: '宣召經文',
+  ATTENDANCE_DATE: '人數統計日期',
+  ATT_ENG_WORSHIP: '英語堂崇拜人數',
+  ATT_CANE_WORSHIP: '粵語堂主堂崇拜人數',
+  ATT_CANN_WORSHIP: '粵語堂北岸崇拜人數',
+  ATT_MAN_WORSHIP: '華語堂崇拜人數',
+  ATT_ENG_PRAYER: '英語堂祈禱會人數',
+  ATT_CANE_PRAYER: '粵語堂主堂祈禱會人數',
+  ATT_CANN_PRAYER: '粵語堂北岸祈禱會人數',
+  ATT_MAN_PRAYER: '華語堂祈禱會人數',
+  ATT_ENG_CHILD: '英語堂兒童人數',
+  ATT_CANE_CHILD: '粵語堂主堂兒童人數',
+  ATT_CANN_CHILD: '粵語堂北岸兒童人數',
+  ATT_MAN_CHILD: '華語堂兒童人數',
+  announcements: '家事報告',
+  prayers: '代禱事項',
+  fellowships: '本週團契聚會',
+  finance: '月度財政報告'
+});
+
 var CONTENT_SOURCE_PREFIX = Object.freeze({
   FIELD: 'FIELD:',
   AUTO_RECITATION: 'AUTO:RECITATION',

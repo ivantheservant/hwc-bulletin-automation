@@ -374,7 +374,7 @@ function selfTestScenarios_() {
     { id: 'S06', name: '立即再匯入：四個數字全 0（冪等）', run: selfTestS06_ },
     { id: 'S07', name: '清空內容表的代禱事項整張 → 匯入：資料不可以被清走', run: selfTestS07_ },
     { id: 'S08', name: '經真正的 apiSaveWeek 儲存一格', run: selfTestS08_ },
-    { id: 'S09', name: '對唯讀欄位呼叫 apiSaveWeek：被拒，且沒有任何寫入', run: selfTestS09_ },
+    { id: 'S09', name: '對唯讀欄位呼叫 apiSaveWeek（三種送法）：全部被拒，且沒有任何寫入', run: selfTestS09_ },
     { id: 'S10', name: '產生 Word（平常主日）：殘留 0、替換數 > 40', run: selfTestS10_ },
     { id: 'S11', name: '產生 Word（浸禮合堂，副框六欄全空）：整個表格已刪', run: selfTestS11_ },
     { id: 'S12', name: '浸禮副框只填主禮：第 1 列在、第 2、3 列已刪', run: selfTestS12_ },
@@ -814,34 +814,75 @@ function selfTestS09_(ctx) {
   var auditBefore = readSheet(SHEETS.AUDIT_LOG).length;
   var announcementsBefore = selfTestCountActive_(SHEETS.ANNOUNCEMENTS, dates);
 
-  var rejected = false;
-  var errorCode = '';
-  var message = '';
-  try {
-    saveWeekFromWebApp_({
-      isoDate: isoDate,
-      lastSavedAt: loaded.lastSavedAt,
-      week: {},
-      lists: { announcements: [{ TEXT: '這是唯讀欄位，不應該存得到' }] },
-      dutyEdits: []
+  // ⚠️ 這裡要送**真正的 payload 形狀**（四張清單在**頂層**，不是
+  //    `lists: {...}`）。第一輪自測就是死在這一點：送了 `lists` 這個
+  //    後端根本不會看的形狀，於是防線一次都沒有觸發，S09 卻報「竟然存得
+  //    到」——測試量度的是一個兩邊都不認識的形狀，等於什麼都沒有測。
+  //    （防線本身現在兩種形狀都認，但測試仍然要照真實形狀送。）
+  var attempts = [
+    {
+      label: '清單（家事報告）',
+      payload: {
+        isoDate: isoDate, lastSavedAt: loaded.lastSavedAt, week: {},
+        announcements: [{ TEXT: '這是唯讀欄位，不應該存得到' }],
+        dutyEdits: []
+      }
+    },
+    {
+      label: '週欄位（宣召經文）',
+      payload: {
+        isoDate: isoDate, lastSavedAt: loaded.lastSavedAt,
+        week: { CALL_TEXT: '這是唯讀欄位，不應該存得到' },
+        dutyEdits: []
+      }
+    },
+    {
+      label: '唯讀欄位混一個可寫欄位（人數 ＋ 證道講題）',
+      payload: {
+        isoDate: isoDate, lastSavedAt: loaded.lastSavedAt,
+        week: { ATT_ENG_WORSHIP: '99', SERMON_TITLE: '這一欄本來可以寫' },
+        dutyEdits: []
+      }
+    }
+  ];
+
+  var results = [];
+  attempts.forEach(function (attempt) {
+    var rejected = false;
+    var errorCode = '';
+    var message = '';
+    try {
+      saveWeekFromWebApp_(attempt.payload);
+    } catch (err) {
+      rejected = true;
+      errorCode = (err && err.code) || '';
+      message = (err && err.message) ? err.message : String(err);
+    }
+    results.push({
+      label: attempt.label, rejected: rejected, errorCode: errorCode,
+      message: message, ok: rejected && errorCode === 'CONTENT_SHEET_READONLY'
     });
-  } catch (err) {
-    rejected = true;
-    errorCode = (err && err.code) || '';
-    message = (err && err.message) ? err.message : String(err);
-  }
+  });
 
   var auditAfter = readSheet(SHEETS.AUDIT_LOG).length;
   var announcementsAfter = selfTestCountActive_(SHEETS.ANNOUNCEMENTS, dates);
   var noWrite = auditAfter === auditBefore && announcementsAfter === announcementsBefore;
 
-  var ok = rejected && errorCode === 'CONTENT_SHEET_READONLY' && noWrite;
-  return selfTestOutcome_(ok, '被拒（CONTENT_SHEET_READONLY）且一格都沒有寫',
-    (rejected ? ('被拒，代碼 ' + errorCode) : '竟然存得到') + '；'
+  var bad = results.filter(function (r) { return !r.ok; });
+  var ok = bad.length === 0 && noWrite;
+
+  // ⚠️ 第三個嘗試特別重要：它混了一個**本來可以寫**的欄位。整次儲存
+  //    必須一齊拒絕——只擋唯讀那一欄、把可寫那一欄寫了，就變成「一半
+  //    成功」，幹事以為全部存好了。所以上面才要驗 AuditLog 完全沒有增加。
+  return selfTestOutcome_(ok, '三種送法全部被拒（CONTENT_SHEET_READONLY）且一格都沒有寫',
+    (bad.length === 0 ? '三種全部被拒' : ('有 ' + bad.length + ' 種沒有被正確拒絕')) + '；'
       + (noWrite ? '沒有寫入' : '有寫入'),
     '主日 ' + isoDate + '；AuditLog ' + auditBefore + '→' + auditAfter
-      + '；家事報告 ' + announcementsBefore + '→' + announcementsAfter
-      + '；訊息：' + message.slice(0, 120));
+      + '；家事報告 ' + announcementsBefore + '→' + announcementsAfter + '\n'
+      + results.map(function (r) {
+          return '　' + r.label + '：' + (r.rejected ? ('被拒，代碼 ' + r.errorCode) : '竟然存得到')
+            + (r.message ? ('；' + r.message.slice(0, 80)) : '');
+        }).join('\n'));
 }
 
 /**

@@ -363,6 +363,15 @@ function syncFillGrid_(quarterId) {
     if (cell.status === FILL_SYNC_STATUS.CONFLICT) return;
 
     if (cell.status === FILL_SYNC_STATUS.PUSH) {
+      // ⚠️ 第二層防線。第一層是 fillGridColumnDefs_() 把內容表接管的欄位
+      //    標成 readOnly，buildFillSyncPlan_() 根本不會排它入計畫。這裡
+      //    再擋一次，是因為「唯讀」這條規則的代價是**靜靜寫錯資料**，
+      //    而第一層是一個容易在改欄位定義時被漏掉的旗標。
+      if (CONTENT_SHEET_READONLY_FIELDS.WEEK.indexOf(cell.fieldKey) !== -1) {
+        throw new Error('syncFillGrid_：「' + cell.fieldKey
+          + '」由內容表接管，季度填寫表不可以寫回 BulletinWeeks。'
+          + '這代表 fillGridColumnDefs_() 的 readOnly 旗標漏了——請修好定義，不要繞過這道檢查。');
+      }
       writeBulletinWeekField_(cell.isoDate, cell.fieldKey, cell.gridValue);
       appendAuditLog_({
         action: 'FILL_SYNC_PUSH', sheetName: SHEETS.BULLETIN_WEEKS,
