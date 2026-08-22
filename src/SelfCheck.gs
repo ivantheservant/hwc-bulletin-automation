@@ -138,10 +138,11 @@ function selfCheckConfigItems_() {
   var groupSummary = Object.keys(recipientsByGroup).sort().map(function (g) {
     return g + '：' + recipientsByGroup[g] + ' 人';
   }).join('　');
+  var recipientStatus = evaluateRecipientCoverage_(recipientsByGroup);
   items.push(selfCheckItem_(
     'Recipients 收件人',
-    Object.keys(recipientsByGroup).length > 0 ? S.GREEN : S.YELLOW,
-    Object.keys(recipientsByGroup).length > 0 ? groupSummary : 'Recipients 工作表沒有任何有效的收件人。'
+    recipientStatus.status,
+    recipientStatus.message + (groupSummary ? ('　目前：' + groupSummary) : '')
   ));
 
   var dryRun = getConfig(CONFIG_KEYS.DRY_RUN, 'TRUE');
@@ -317,6 +318,105 @@ function selfCheckDataItems_(quarterResolution) {
  * Returns:
  *   {{label:string, status:string, message:string}[]}
  */
+/**
+ * 用途：判斷 `Recipients` 的組別覆蓋率夠不夠成為 🟢。
+ *
+ *   ⚠️ 只有 ADMIN 一組**不是**綠燈。「發佈與寄出」的收件對象勾選
+ *   （R-004）表面上做好了，實際上寄出去只會到幹事自己一個人手上，
+ *   而且**不會有任何錯誤訊息**——寄成功、`SendLog` 綠色、封數 1。
+ *   這一種「靜靜地做了一件不是使用者要的事」正是自我檢測要抓的。
+ *   見需求登記 R-029。
+ * Args:
+ *   byGroup {Object<string,number>} 組別 → 有效收件人數。
+ * Returns:
+ *   {{status:string, message:string, missingGroups:string[]}}
+ */
+function evaluateRecipientCoverage_(byGroup) {
+  var S = SELF_CHECK_STATUS_;
+  var groups = byGroup || {};
+  var names = Object.keys(groups);
+
+  if (names.length === 0) {
+    return {
+      status: S.YELLOW,
+      missingGroups: [RECIPIENT_GROUP.CC, RECIPIENT_GROUP.DB, RECIPIENT_GROUP.IT],
+      message: 'Recipients 工作表沒有任何有效的收件人。'
+    };
+  }
+
+  // 週報真正要寄給的三組。ADMIN／TEST／WORSHIP 是另一回事，不計入。
+  var required = [RECIPIENT_GROUP.CC, RECIPIENT_GROUP.DB, RECIPIENT_GROUP.IT];
+  var missing = required.filter(function (g) { return !groups[g]; });
+
+  if (missing.length === 0) {
+    return { status: S.GREEN, missingGroups: [], message: '三組收件人齊備。' };
+  }
+
+  return {
+    status: S.YELLOW,
+    missingGroups: missing,
+    message: '仍欠 ' + missing.join('、') + ' 這 ' + missing.length + ' 組收件人（需求登記 R-029）。'
+      + '現在寄出去只會到已填那幾組手上，而且不會有任何錯誤訊息。'
+  };
+}
+
+/**
+ * 用途：仍是「未開始」或「進行中」的需求編號與標題。
+ *
+ *   ⚠️ 這一份刻意**寫死在程式碼裡**，與 docs/需求登記.md 人手同步。
+ *   Apps Script 讀不到 repo 的 Markdown 檔案，而「自我檢測報告要列出
+ *   未完成的需求」這件事的價值，在於幹事按一下就見到——不是在於它
+ *   自動從哪裡讀出來。
+ *
+ *   ⚠️ 兩邊分岔的方向如果是「這裡漏了一條」，後果是自我檢測報「全部
+ *   完成」而其實未完成。所以每次改需求狀態，兩個地方都要改。
+ * Args: （無）
+ * Returns:
+ *   {{id:string, title:string, state:string}[]}
+ */
+function unfinishedRequirements_() {
+  return [
+    { id: 'R-016', state: '未開始', title: '三個範本交堂委會試印確認版面' },
+    { id: 'R-017', state: '未開始', title: '2026-12-04 職事表上線後，用真數據做全季演練' },
+    { id: 'R-018', state: '未開始', title: '移交幹事角色帳戶' },
+    { id: 'R-020', state: '未開始', title: '內容過多自動加頁、過少處理留白' },
+    { id: 'R-027', state: '進行中', title: '自測機四層——第 2、3 層尚未在真環境跑過' },
+    { id: 'R-028', state: '未開始', title: '星期一觸發器真環境驗證' },
+    { id: 'R-029', state: '未開始', title: 'Recipients 填齊 CC、DB、IT 三組收件人' }
+  ];
+}
+
+/**
+ * 用途：把未完成需求排成一個自我檢測項目。
+ *
+ *   ⚠️ 一律是 🟡，不是 🟢 也不是 🔴：有未完成的需求是**正常狀態**，
+ *   不是錯誤；但它也絕對不是「全部搞掂」。用綠色會令人以為做完了。
+ * Args: （無）
+ * Returns:
+ *   {Object} `selfCheckItem_()` 的結果。
+ */
+function selfCheckUnfinishedRequirementsItem_() {
+  var S = SELF_CHECK_STATUS_;
+  var list = unfinishedRequirements_();
+  if (list.length === 0) {
+    return selfCheckItem_('未完成的需求', S.GREEN, '需求登記上沒有未開始或進行中的項目。');
+  }
+  var detail = list.map(function (r) {
+    // ⚠️ 先取出成獨立變數再串接：夾在引號之間的屬性存取，如果屬性名
+    //    啱好是一個真實的 gTLD，會被 tools/scan-staged-secrets.js 誤判
+    //    成網域，見事故六。
+    var reqId = r.id;
+    var reqTitle = r.title;
+    return reqId + '（' + r.state + '）：' + reqTitle;
+  });
+  return selfCheckItem_(
+    '未完成的需求',
+    S.YELLOW,
+    '需求登記上仍有 ' + list.length + ' 條未完成（詳見 docs/需求登記.md）。',
+    detail
+  );
+}
+
 function selfCheckFeatureItems_() {
   var items = [];
   var S = SELF_CHECK_STATUS_;
@@ -603,8 +703,11 @@ function runSelfCheck_() {
     .concat(selfCheckLogItems_())
     // prompt-pre-usertest：發佈及匯出相關檢測，放在既有項目之後。
     .concat(selfCheckPublishItems_(quarterResolution))
-    // 自測機那一輪：不變量收成一個大項，放在最後。
-    .concat(selfCheckInvariantItems_());
+    // 自測機那一輪：不變量收成一個大項。
+    .concat(selfCheckInvariantItems_())
+    // 第一輪自測之後：未完成的需求排在最後——看報告的人最後見到的
+    // 應該是「還有什麼未做」，不是一堆綠燈。
+    .concat([selfCheckUnfinishedRequirementsItem_()]);
 
   var S = SELF_CHECK_STATUS_;
   var greenCount = items.filter(function (i) { return i.status === S.GREEN; }).length;

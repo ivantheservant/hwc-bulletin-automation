@@ -266,12 +266,98 @@ test('17e. Recipients 完全沒有有效收件人 → 🟡', function () {
   assert.strictEqual(findItem(summary, 'Recipients 收件人')[0].status, '🟡');
 });
 
-test('17e-2. Recipients 有有效收件人（fillEnv 預設的 ADMIN／WORSHIP 各一位）→ 🟢', function () {
+// ⚠️ 這一條在第一輪自測之後**改變了預期**（🟢 → 🟡），理由要寫清楚：
+//    只有 ADMIN 一組收件人的話，「發佈與寄出」的收件對象勾選（R-004）
+//    表面上做好了，實際上寄出去只會到幹事自己一個人手上——而且**不會有
+//    任何錯誤訊息**：寄成功、SendLog 綠色、封數 1。用綠燈報這個狀態，
+//    等於幫一件「靜靜地做了一件不是使用者要的事」蓋章。見需求登記 R-029。
+test('17e-2. Recipients 只有 ADMIN／WORSHIP，欠 CC／DB／IT → 🟡，而且講得出欠哪幾組', function () {
   const env = makeEnv({});
   const summary = env.sandbox.runSelfCheck_();
   const item = findItem(summary, 'Recipients 收件人')[0];
-  assert.strictEqual(item.status, '🟢');
-  assert.ok(item.message.indexOf('ADMIN') !== -1);
+  assert.strictEqual(item.status, '🟡');
+  assert.ok(item.message.indexOf('CC') !== -1, item.message);
+  assert.ok(item.message.indexOf('DB') !== -1, item.message);
+  assert.ok(item.message.indexOf('IT') !== -1, item.message);
+  assert.ok(item.message.indexOf('R-029') !== -1, '要指得出是哪一條需求：' + item.message);
+  assert.ok(item.message.indexOf('ADMIN') !== -1, '目前有的組別照樣要列出來');
+});
+
+test('17e-3. CC／DB／IT 三組齊備 → 🟢', function () {
+  const env = makeEnv({ fillEnvOptions: { recipients: [
+      { RECIPIENT_ID: 'R1', NAME: '甲', EMAIL: 'cc@x.com', GROUP_NAME: 'CC', ACTIVE: true, EFFECTIVE_FROM: '', EFFECTIVE_TO: '', NOTES: '' },
+      { RECIPIENT_ID: 'R2', NAME: '乙', EMAIL: 'db@x.com', GROUP_NAME: 'DB', ACTIVE: true, EFFECTIVE_FROM: '', EFFECTIVE_TO: '', NOTES: '' },
+      { RECIPIENT_ID: 'R3', NAME: '丙', EMAIL: 'it@x.com', GROUP_NAME: 'IT', ACTIVE: true, EFFECTIVE_FROM: '', EFFECTIVE_TO: '', NOTES: '' }
+  ] } });
+  const summary = env.sandbox.runSelfCheck_();
+  assert.strictEqual(findItem(summary, 'Recipients 收件人')[0].status, '🟢');
+});
+
+// =====================================================================
+// 17g. 未完成的需求（第一輪自測之後新增）
+// =====================================================================
+
+test('17g-1. 自我檢測報告列出仍未完成的需求編號與標題', function () {
+  const env = makeEnv({});
+  const summary = env.sandbox.runSelfCheck_();
+  const item = findItem(summary, '未完成的需求')[0];
+  assert.ok(item, '報告要有「未完成的需求」這一項');
+  const text = (item.detail || []).join('\n');
+  ['R-016', 'R-017', 'R-018', 'R-020', 'R-027', 'R-028', 'R-029'].forEach(function (reqId) {
+    assert.ok(text.indexOf(reqId) !== -1, reqId + ' 沒有列出：' + text);
+  });
+  assert.ok(text.indexOf('Recipients') !== -1, '要列得出標題，不只是編號：' + text);
+});
+
+// ⚠️ 有未完成的需求是**正常狀態**，不是錯誤——但它也絕對不是「全部搞掂」。
+//    用綠色會令人以為做完了。
+test('17g-2. 有未完成需求時是 🟡，不是 🟢 也不是 🔴', function () {
+  const env = makeEnv({});
+  const summary = env.sandbox.runSelfCheck_();
+  assert.strictEqual(findItem(summary, '未完成的需求')[0].status, '🟡');
+});
+
+test('17g-3. 每一條未完成需求都有編號、狀態、標題三樣', function () {
+  const env = makeEnv({});
+  const list = env.sandbox.unfinishedRequirements_();
+  assert.ok(list.length > 0);
+  list.forEach(function (r) {
+    const reqId = r.id;
+    assert.ok(/^R-\d{3}$/.test(reqId), '編號格式不對：' + reqId);
+    assert.ok(['未開始', '進行中'].indexOf(r.state) !== -1, reqId + ' 的狀態不對：' + r.state);
+    assert.ok(r.title && r.title.length > 0, reqId + ' 沒有標題');
+  });
+});
+
+// ⚠️ 這一條守住「程式碼那一份」與 docs/需求登記.md 分岔。分岔的方向如果
+//    是「程式碼漏了一條」，後果是自我檢測報「全部完成」而其實未完成。
+test('17g-4. 程式碼裡面那一份與 docs/需求登記.md 對得上', function () {
+  const fsMod = require('fs');
+  const pathMod = require('path');
+  const env = makeEnv({});
+  const doc = fsMod.readFileSync(
+    pathMod.join(__dirname, '..', 'docs', '需求登記.md'), 'utf8');
+
+  // 由 Markdown 表格抽出「編號 | 需求 | 狀態」三欄。
+  const docUnfinished = [];
+  doc.split('\n').forEach(function (line) {
+    const m = /^\|\s*(R-\d{3})\s*\|(.*)\|\s*([^|]+?)\s*\|\s*$/.exec(line);
+    if (!m) return;
+    const state = m[3].trim();
+    if (state.indexOf('未開始') !== -1 || state.indexOf('進行中') !== -1
+        || state.indexOf('部分完成') !== -1) {
+      docUnfinished.push(m[1]);
+    }
+  });
+
+  const codeIds = env.sandbox.unfinishedRequirements_().map(function (r) { return r.id; });
+  const missingInCode = docUnfinished.filter(function (id) { return codeIds.indexOf(id) === -1; });
+  const extraInCode = codeIds.filter(function (id) { return docUnfinished.indexOf(id) === -1; });
+
+  assert.strictEqual(missingInCode.length, 0,
+    '需求登記上未完成、但 unfinishedRequirements_() 漏了：' + missingInCode.join('、'));
+  assert.strictEqual(extraInCode.length, 0,
+    'unfinishedRequirements_() 有、但需求登記上已經完成：' + extraInCode.join('、'));
 });
 
 test('17f. WEBAPP_URL 是空的 → Web App 部署那一項是 🟡', function () {
