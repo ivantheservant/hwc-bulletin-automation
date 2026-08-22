@@ -140,37 +140,53 @@ test('addDaysToIsoDate_／isIsoDateSunday_：2027-10-03 是星期日，2027-10-0
 });
 
 // =====================================================================
-// 1. 目標日不是星期日 → 不寄、寫 ErrorLog
+// 1. 目標主日一定是星期日
 // =====================================================================
 
-test('weeklyBulletinSendTrigger_：目標日不是星期日（今天星期一、offset=5）→ 不寄送，寫一筆 ErrorLog（SOURCE=TRIGGER）', function () {
-  const env = makeEnv({ config: { SEND_TARGET_OFFSET_DAYS: '5' } }); // 星期一 + 5 天 = 星期六
+// ⚠️ 這一組在第一輪自測之後**改變了預期**，理由要寫清楚：
+//    舊版目標日是「今日 ＋ Config SEND_TARGET_OFFSET_DAYS 天」，所以
+//    「算出來不是星期日」是一個**真的會發生**的情況（把 offset 設成 5
+//    就會得出星期六），於是有一條測試在驗那個失敗路徑。
+//
+//    真實後果比設定寫錯嚴重得多：那條算式只在**觸發日是星期一**時才落
+//    在星期日。第一輪自測在 2026-08-22（星期六）跑，系統選中 2026-08-28
+//    ——一個星期五。見 docs/已知bug類型.md 事故三十。
+//
+//    現在目標主日由 resolveNextSendSundayIso_() 直接數星期幾，
+//    SEND_TARGET_OFFSET_DAYS 已經廢棄。所以要驗的不再是「設定寫錯時會
+//    報錯」，而是「**無論今日是星期幾，選中的都是星期日**」。
+
+test('weeklyBulletinSendTrigger_：選中的目標日一定是星期日，而且不會再出現 TARGET_NOT_SUNDAY', function () {
+  const env = makeEnv({ config: { ROSTER_SPREADSHEET_ID: '' } });
   env.sandbox.weeklyBulletinSendTrigger_();
 
-  const sendLogRows = env.sandbox.readSheet('SendLog');
-  assert.strictEqual(sendLogRows.length, 0, '不應該有任何寄送動作發生');
-
   const errorRows = env.sandbox.readSheet('ErrorLog');
-  assert.strictEqual(errorRows.length, 1);
-  assert.strictEqual(errorRows[0].SOURCE, 'TRIGGER');
-  assert.strictEqual(errorRows[0].ERROR_CODE, 'TARGET_NOT_SUNDAY');
-  assert.ok(errorRows[0].MESSAGE.indexOf('2027-10-09') !== -1, errorRows[0].MESSAGE);
-});
-
-test('weeklyBulletinSendTrigger_：目標日是星期日（offset=6）時，不會因為「不是星期日」而提早結束——會繼續往下跑（在這個殘缺的測試環境下，分歧提醒與寄送都會失敗並各自記 ErrorLog，但錯誤代碼都不是 TARGET_NOT_SUNDAY）', function () {
-  const env = makeEnv({ config: { SEND_TARGET_OFFSET_DAYS: '6', ROSTER_SPREADSHEET_ID: '' } });
-  env.sandbox.weeklyBulletinSendTrigger_();
-
-  const errorRows = env.sandbox.readSheet('ErrorLog');
-  assert.ok(errorRows.length > 0, '往下跑之後失敗了，應該要有 ErrorLog 記錄');
   assert.ok(
     errorRows.every(function (r) { return r.ERROR_CODE !== 'TARGET_NOT_SUNDAY'; }),
-    '目標日是星期日，不應該卡在這一步，實際：' + JSON.stringify(errorRows.map(function (r) { return r.ERROR_CODE; }))
+    '不應該再卡在「目標日不是星期日」，實際：'
+      + JSON.stringify(errorRows.map(function (r) { return r.ERROR_CODE; }))
   );
 });
 
+// ⚠️ 這一條才是真正的迴歸測試：逐個星期幾試一次。舊算法在其中**六個**
+//    星期幾都會得出非星期日，只有星期一是對的。
+test('resolveNextSendSundayIso_：七個星期幾逐個試，選中的一定是星期日', function () {
+  const sb = makeEnv({}).sandbox;
+  // 2027-10-04（一）到 2027-10-10（日），剛好一整個星期。
+  const week = ['2027-10-04', '2027-10-05', '2027-10-06', '2027-10-07',
+    '2027-10-08', '2027-10-09', '2027-10-10'];
+  const bad = [];
+  week.forEach(function (iso) {
+    const result = sb.resolveNextSendSundayIso_({ todayIso: iso, sentIsoList: [] });
+    if (!result.ok || !sb.isIsoDateSunday_(result.isoDate)) {
+      bad.push(iso + ' → ' + result.isoDate);
+    }
+  });
+  assert.strictEqual(bad.length, 0, '這幾日算出來不是星期日：' + bad.join('、'));
+});
+
 test('weeklyBulletinSendTrigger_：分歧提醒失敗不會連累週報寄送——兩者各自記一筆 ErrorLog，函式本身不拋錯', function () {
-  const env = makeEnv({ config: { SEND_TARGET_OFFSET_DAYS: '6', ROSTER_SPREADSHEET_ID: '' } });
+  const env = makeEnv({ config: { ROSTER_SPREADSHEET_ID: '' } });
   assert.doesNotThrow(function () { env.sandbox.weeklyBulletinSendTrigger_(); });
 
   const errorRows = env.sandbox.readSheet('ErrorLog');

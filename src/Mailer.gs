@@ -247,20 +247,23 @@ function markBulletinAsSent_(isoDate) {
 }
 
 /**
- * 用途：猜一個「試寄」「預覽」對話框預設要用的主日日期——依 Config
- *   `SYS_TIMEZONE` 取今天，加 `SEND_TARGET_OFFSET_DAYS` 天。猜不到（例如
- *   設定值不合法）就回空字串，讓使用者自己輸入，不能讓整個選單項目
- *   因此失敗。
+ * 用途：猜一個「試寄」「預覽」對話框預設要用的主日日期。
+ *
+ *   ⚠️ 定義只有一句，而且不在這裡：見 `resolveNextSendSundayIso_()`
+ *   （src/SendSchedule.gs）。這一支只是把它包成「猜不到就回空字串」的
+ *   形狀，方便對話框用——猜不到一個預設值不應該令整個選單項目失敗。
+ *
+ *   ⚠️ 舊版是「今日 ＋ SEND_TARGET_OFFSET_DAYS 天」，那條算式只在觸發日
+ *   是星期一時才落在星期日。第一輪自測在星期六跑，它算出了一個**星期五**。
+ *   見 docs/已知bug類型.md 事故三十。
  * Args: （無）
  * Returns:
  *   {string} 猜到的日期，yyyy-MM-dd；猜不到回空字串。
  */
 function guessNextBulletinSendIso_() {
   try {
-    var timezone = getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland');
-    var todayIso = Utilities.formatDate(new Date(), timezone, 'yyyy-MM-dd');
-    var offsetDays = normalizeInt_(getConfig(CONFIG_KEYS.SEND_TARGET_OFFSET_DAYS, '6'));
-    return addDaysToIsoDate_(todayIso, offsetDays);
+    var result = resolveNextSendSundayIso_();
+    return result.ok ? result.isoDate : '';
   } catch (err) {
     return '';
   }

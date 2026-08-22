@@ -506,7 +506,6 @@ var CONFIG_KEYS = Object.freeze({
   // ---- 第五輪新增：電郵與自動寄送 ----
   CHURCH_NAME: 'CHURCH_NAME',
   SEND_MINUTE: 'SEND_MINUTE',
-  SEND_TARGET_OFFSET_DAYS: 'SEND_TARGET_OFFSET_DAYS',
   SEND_GROUPS: 'SEND_GROUPS',
   SEND_INCLUDE_MISSING_LIST: 'SEND_INCLUDE_MISSING_LIST',
   SEND_BLOCK_IF_SCHEMA_OUTDATED: 'SEND_BLOCK_IF_SCHEMA_OUTDATED',
@@ -628,7 +627,6 @@ var DEFAULTS = Object.freeze([
   // ---- 第五輪新增：電郵與自動寄送 ----
   { key: CONFIG_KEYS.CHURCH_NAME, value: '基督教中國佈道會奧克蘭聖道堂', note: '電郵範本 {{ChurchName}} 用；EmailTemplates 內文一直用這個佔位符但先前沒有對應設定，會渲染成空字串' },
   { key: CONFIG_KEYS.SEND_MINUTE, value: '0', note: '自動寄送的分鐘（0–59），配合 SEND_WEEKDAY／SEND_HOUR；⚠️ 僅供顯示規劃用，Apps Script 的時間觸發器實際上不能指定分鐘' },
-  { key: CONFIG_KEYS.SEND_TARGET_OFFSET_DAYS, value: '6', note: '由觸發日推算「要寄哪一個主日」的天數；星期一寄下個主日就是 6' },
   { key: CONFIG_KEYS.SEND_GROUPS, value: 'CC,DB,ADMIN', note: '要寄給哪幾個 Recipients.GROUP_NAME（逗號分隔）' },
   { key: CONFIG_KEYS.SEND_INCLUDE_MISSING_LIST, value: 'TRUE', note: '郵件內是否附上「本週待填欄位」清單' },
   { key: CONFIG_KEYS.SEND_BLOCK_IF_SCHEMA_OUTDATED, value: 'TRUE', note: '工作表結構落後時拒絕寄送' },

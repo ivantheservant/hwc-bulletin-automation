@@ -83,7 +83,14 @@ function initializeAllSheets() {
  *     鍵；`warnings` 是值不為空、因此保留但需要人手確認的提示文字。
  */
 function cleanupDeprecatedConfigKeys_() {
-  var DEPRECATED_KEYS = ['DOC_TEMPLATE_ID_NORMAL', 'DOC_TEMPLATE_ID_COMBINED'];
+  // ⚠️ SEND_TARGET_OFFSET_DAYS（第一輪自測後廢棄）：它算的不是「下一個
+  //    主日」，而是「假設今日是星期一的話下一個主日」——星期六跑會得出
+  //    星期五。現在由 resolveNextSendSundayIso_() 直接數星期幾，這個鍵
+  //    再沒有任何程式碼引用。見 docs/已知bug類型.md 事故三十。
+  //    留一個沒有人讀的設定鍵在表上，比刪掉更危險：有人改了它，以為
+  //    改到寄送日期，其實什麼都沒有發生。
+  var DEPRECATED_KEYS = ['DOC_TEMPLATE_ID_NORMAL', 'DOC_TEMPLATE_ID_COMBINED',
+    'SEND_TARGET_OFFSET_DAYS'];
 
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ensureSheet_(ss, 'CONFIG');

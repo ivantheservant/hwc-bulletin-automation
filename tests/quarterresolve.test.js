@@ -48,6 +48,19 @@ function todayIsoLocal() {
   return `${y}-${mo}-${day}`;
 }
 
+/**
+ * 今日之後（含今日）最近的一個星期日。
+ *
+ * ⚠️ 刻意用一支**與被驗邏輯無關**的算法（直接數 getDay()），不是叫
+ *    sandbox 的 nextSundayOnOrAfter_()——兩邊用同一支的話會一齊錯、
+ *    一齊報沒事，見 docs/已知bug類型.md 事故二十二。
+ */
+function nextSundayIso(isoDate) {
+  const [y, m, d] = isoDate.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  return addDaysIso(isoDate, (7 - dt.getDay()) % 7);
+}
+
 /** isoDate 加 days 天（純字串運算，避免任何 Date 物件跨 realm）。 */
 function addDaysIso(isoDate, days) {
   const [y, m, d] = isoDate.split('-').map(Number);
@@ -161,7 +174,10 @@ function test(name, fn) {
 
 test('1. 職事表有下一個要寄的主日 → source === NEXT_SEND_SUNDAY', function () {
   const today = todayIsoLocal();
-  const nextIso = addDaysIso(today, 6); // SEND_TARGET_OFFSET_DAYS 預設 6
+  // 「下一個要寄的主日」＝今日之後（含今日）最近的一個星期日，
+  // 由 resolveNextSendSundayIso_() 定義（見 src/SendSchedule.gs）。
+  // 舊版是「今日 + 6 天」，那條算式只在星期一跑才落在星期日。
+  const nextIso = nextSundayIso(today);
   const env = makeQuarterEnv({
     quarters: [{ quarterId: 'Q_NEXT', dates: [nextIso] }]
   });
@@ -173,14 +189,14 @@ test('1. 職事表有下一個要寄的主日 → source === NEXT_SEND_SUNDAY', 
 
 test('2. 職事表沒有今年資料（模擬 2026 現況）→ 退回 ROSTER_TEST_DATE，ok===true', function () {
   const today = todayIsoLocal();
-  const nextIso = addDaysIso(today, 6);
+  const nextIso = nextSundayIso(today);
   const env = makeQuarterEnv({
     config: { ROSTER_TEST_DATE: '2027-10-03' },
     // 職事表只有 ROSTER_TEST_DATE 那個季度，「下一個要寄的主日」那個
-    // 日期（今天 + 6 天）故意不放進去，模擬「職事表沒有今年資料」。
+    // 日期故意不放進去，模擬「職事表沒有今年資料」。
     quarters: [{ quarterId: 'Q_TEST', dates: ['2027-10-03'] }]
   });
-  assert.notStrictEqual(nextIso, '2027-10-03', '這個測試假設今天 + 6 天不是剛好 2027-10-03');
+  assert.notStrictEqual(nextIso, '2027-10-03', '這個測試假設下一個主日不是剛好 2027-10-03');
   const result = env.sandbox.resolveWorkingQuarter_();
   assert.strictEqual(result.ok, true);
   assert.strictEqual(result.source, 'ROSTER_TEST_DATE');

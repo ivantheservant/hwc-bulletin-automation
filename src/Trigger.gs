@@ -19,9 +19,10 @@ var WEEKDAY_LABELS_ = Object.freeze({
 });
 
 /**
- * 用途：觸發器**唯一**會呼叫的入口函式。用 `SYS_TIMEZONE` 取今天，加
- *   Config `SEND_TARGET_OFFSET_DAYS` 天算出目標主日；目標日不是星期日
- *   就記一筆 `ErrorLog` 並結束，**不猜測**（不會自動找最近的星期日）。
+ * 用途：觸發器**唯一**會呼叫的入口函式。用
+ *   `resolveNextSendSundayIso_()`（src/SendSchedule.gs）算出目標主日
+ *   ——今日之後（含今日）最近的一個星期日，已經真的寄過就順延一週。
+ *   算不出就記一筆 `ErrorLog` 並結束，不寄送任何郵件。
  *   整個函式包 try/catch，任何失敗都寫 `ErrorLog`（`SOURCE='TRIGGER'`）
  *   而不是讓例外無聲無息地消失在觸發器的執行紀錄裡。
  * Args: （無，時間觸發器固定簽章：沒有參數）
@@ -30,19 +31,36 @@ var WEEKDAY_LABELS_ = Object.freeze({
  */
 function weeklyBulletinSendTrigger_() {
   try {
-    var timezone = getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland');
-    var todayIso = Utilities.formatDate(new Date(), timezone, 'yyyy-MM-dd');
-    var offsetDays = normalizeInt_(getConfig(CONFIG_KEYS.SEND_TARGET_OFFSET_DAYS, '6'));
-    var targetIso = addDaysToIsoDate_(todayIso, offsetDays);
+    // ⚠️ 目標主日一律經 resolveNextSendSundayIso_()（src/SendSchedule.gs），
+    //    不在這裡自己算。舊版是「今日 ＋ SEND_TARGET_OFFSET_DAYS 天」，那條
+    //    算式只在觸發日是星期一時才落在星期日；星期六跑會得出星期五。
+    //    見 docs/已知bug類型.md 事故三十。
+    var schedule = resolveNextSendSundayIso_();
+    var todayIso = schedule.todayIso;
+    var targetIso = schedule.isoDate;
 
+    if (!schedule.ok) {
+      appendErrorLog_({
+        source: ERROR_LOG_SOURCE.TRIGGER,
+        functionName: 'weeklyBulletinSendTrigger_',
+        errorCode: 'NEXT_SUNDAY_UNRESOLVED',
+        message: describeNextSendSunday_(schedule)
+          + '　直接結束，不寄送任何郵件。'
+      });
+      return;
+    }
+
+    // ⚠️ 這道檢查現在**應該永遠不會觸發**（算法本身保證是星期日）。
+    //    保留它是因為「目標日不是星期日就寄出去」的代價太大：寧可多一道
+    //    永遠綠的檢查，也不要哪一日算法被改壞而無聲寄錯。
     if (!isIsoDateSunday_(targetIso)) {
       appendErrorLog_({
         source: ERROR_LOG_SOURCE.TRIGGER,
         functionName: 'weeklyBulletinSendTrigger_',
         errorCode: 'TARGET_NOT_SUNDAY',
-        message: '算出來的目標日期（' + targetIso + '，今天 ' + todayIso + ' ＋ SEND_TARGET_OFFSET_DAYS '
-          + offsetDays + ' 天）不是星期日，不猜測正確日期，直接結束，不寄送任何郵件。'
-          + '請檢查 Config 的 SEND_WEEKDAY／SEND_HOUR／SEND_TARGET_OFFSET_DAYS 是否互相配合。'
+        message: '算出來的目標日期（' + targetIso + '，今天 ' + todayIso
+          + '）不是星期日，不猜測正確日期，直接結束，不寄送任何郵件。'
+          + '這代表 resolveNextSendSundayIso_() 被改壞了，請檢查 src/SendSchedule.gs。'
       });
       return;
     }

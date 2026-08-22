@@ -1311,27 +1311,37 @@ function selfTestS17_(ctx) {
  *   填寫表**，直接違反「只准碰沙盒季度」這條沙盒規則。
  *
  *   所以這一條驗的是它決定「寄哪一個主日」的那一段邏輯（今日 ＋
- *   `SEND_TARGET_OFFSET_DAYS`、必須是星期日），加上 `DRY_RUN` 的狀態。
+ *   `resolveNextSendSundayIso_()` 選中的主日、必須是星期日），加上
+ *   `DRY_RUN` 的狀態。
  *   **這是一個已知的覆蓋缺口**，寫在 docs/待確認事項.md，不當成已經驗過。
  */
 function selfTestS18_(ctx) {
-  var timezone = getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland');
-  var todayIso = Utilities.formatDate(new Date(), timezone, 'yyyy-MM-dd');
-  var offsetDays = normalizeInt_(getConfig(CONFIG_KEYS.SEND_TARGET_OFFSET_DAYS, '6'));
-  var targetIso = addDaysToIsoDate_(todayIso, offsetDays);
+  // ⚠️ 用**真實入口** resolveNextSendSundayIso_()，不是在這裡自己算一次。
+  //    第一輪自測 S18 就是自己算的：「今日 ＋ SEND_TARGET_OFFSET_DAYS」，
+  //    2026-08-22（星期六）算出 2026-08-28（星期五）。
+  var schedule = resolveNextSendSundayIso_();
+  var targetIso = schedule.isoDate;
+  var todayIso = schedule.todayIso;
 
-  var isSunday = isIsoDateSunday_(targetIso);
-  var nextSunday = nextSundayOnOrAfter_(todayIso);
-  var picksNextSunday = targetIso === nextSunday;
+  var isSunday = schedule.ok && isIsoDateSunday_(targetIso);
   var dryRun = normalizeBoolean_(getConfig(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
 
-  var ok = isSunday && picksNextSunday && dryRun;
-  return selfTestOutcome_(ok, '選中下一個主日（' + nextSunday + '）而且 DRY_RUN=TRUE',
-    '選中 ' + targetIso + '（' + (isSunday ? '是' : '不是') + '星期日）、DRY_RUN=' + dryRun,
-    '今日 ' + todayIso + ' ＋ SEND_TARGET_OFFSET_DAYS(' + offsetDays + ') = ' + targetIso
+  // ⚠️ 這裡刻意用一支**與被驗邏輯無關**的算法對答案：直接數星期幾。
+  //    如果驗證方也叫 resolveNextSendSundayIso_()，兩邊會一齊錯、一齊
+  //    報沒事，見 docs/已知bug類型.md 事故二十二。
+  var independentSunday = nextSundayOnOrAfter_(todayIso);
+  var matchesIndependent = schedule.ok
+    && (targetIso === independentSunday || schedule.skipped.length > 0);
+
+  var ok = isSunday && matchesIndependent && dryRun;
+  return selfTestOutcome_(ok, '選中下一個主日（' + independentSunday + '）而且 DRY_RUN=TRUE',
+    (schedule.ok ? ('選中 ' + targetIso + '（' + (isSunday ? '是' : '不是') + '星期日）')
+      : ('算不出：' + schedule.reason)) + '、DRY_RUN=' + dryRun,
+    describeNextSendSunday_(schedule)
+      + '　獨立算法（直接數星期幾）：' + independentSunday
       + '　⚠️ 覆蓋缺口：這一條**沒有**真的呼叫 weeklyBulletinSendTrigger_()，'
       + '因為那一支會順手替真實季度建立季度填寫表，違反沙盒規則。'
-      + '真正的觸發器行為仍然要人手驗一次。');
+      + '真正的觸發器行為仍然要人手驗一次（見需求登記 R-028）。');
 }
 
 // =====================================================================

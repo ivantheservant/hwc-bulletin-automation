@@ -179,9 +179,12 @@ function checkQuarterExistsInRoster_(quarterId) {
  *   四層推算次序：
  *     1. `CONFIG_OVERRIDE`——Config `WORKING_QUARTER_ID` 有值就直接採用，
  *        即使該季在職事表找不到也採用（但會記警告 note）。
- *     2. `NEXT_SEND_SUNDAY`——現行邏輯：由「下一個要寄的主日」
- *        （`guessNextBulletinSendIso_()`）反查職事表；反查失敗（職事表
- *        沒有這一季的資料）就退到下一層。
+ *     2. `NEXT_SEND_SUNDAY`——由「下一個要寄的主日」反查職事表；反查
+ *        失敗（職事表沒有這一季的資料）就退到下一層。
+ *        ⚠️ 「下一個要寄的主日」的定義只有一份，在
+ *        `resolveNextSendSundayIso_()`（src/SendSchedule.gs）——這一層
+ *        經 `guessNextBulletinSendIso_()` 叫落去，**不可以**自己另外
+ *        算一次，見 docs/已知bug類型.md 事故三十。
  *     3. `ROSTER_TEST_DATE`——由 Config `ROSTER_TEST_DATE` 反查職事表。
  *        `getConfig()` 已經把 Config 儲存格的 `Date` 物件正規化成
  *        `yyyy-MM-dd` 字串（見 `src/ConfigService.gs` 的
@@ -233,7 +236,7 @@ function resolveWorkingQuarter_() {
     }
     notes.push('下一個要寄的主日（' + nextIso + '）推算失敗：' + r2.reason);
   } else {
-    notes.push('無法猜出下一個要寄的主日（Config SYS_TIMEZONE／SEND_TARGET_OFFSET_DAYS 可能有誤），略過這一層。');
+    notes.push('無法猜出下一個要寄的主日（Config SYS_TIMEZONE 可能有誤），略過這一層。');
   }
 
   // ---- 第 3 層：ROSTER_TEST_DATE ----
