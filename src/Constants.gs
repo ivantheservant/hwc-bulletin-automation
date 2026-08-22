@@ -68,7 +68,8 @@ var SHEETS = Object.freeze({
   FELLOWSHIP_DEFAULTS: 'FellowshipDefaults',
   FILL_SNAPSHOT: 'FillSnapshot',
   FILL_BACKUP: 'FillBackup',
-  CONTENT_SHEETS: 'ContentSheets'
+  CONTENT_SHEETS: 'ContentSheets',
+  PUBLISH_LOG: 'PublishLog'
 });
 
 /**
@@ -361,6 +362,22 @@ var COLUMNS = Object.freeze({
     headers: ['季度', '檔案 ID', '連結', '建立時間', '最後匯入時間', '邀請寄出時間', '有效'],
     keys: ['QUARTER_ID', 'FILE_ID', 'FILE_URL', 'CREATED_AT', 'LAST_IMPORTED_AT', 'INVITE_SENT_AT', 'ACTIVE'],
     types: ['TEXT', 'TEXT', 'TEXT', 'DATE', 'DATE', 'DATE', 'BOOLEAN']
+  },
+
+  // R-009：每次發佈記一行。同一個主日再發佈，`VERSION_NO` 加一。
+  PUBLISH_LOG: {
+    headers: [
+      '主日日期', '版本', '發佈時間', '發佈人', '存檔檔案 ID',
+      '是否有寄出', '收件組別', '未填欄位數', '是否強制發佈', '強制原因'
+    ],
+    keys: [
+      'SERVICE_DATE', 'VERSION_NO', 'PUBLISHED_AT', 'PUBLISHED_BY', 'ARCHIVE_FILE_ID',
+      'SENT', 'SENT_GROUPS', 'MISSING_COUNT', 'FORCED', 'FORCED_REASON'
+    ],
+    types: [
+      'DATE', 'INT', 'DATE', 'TEXT', 'TEXT',
+      'BOOLEAN', 'TEXT', 'INT', 'BOOLEAN', 'TEXT'
+    ]
   }
 
 });
@@ -472,7 +489,15 @@ var CONFIG_KEYS = Object.freeze({
   // prompt 第 2 部分要求 `_說明` 分頁印「幹事聯絡方法（取自 Config，不要
   // 寫死）」，但第 4 部分嗰張新鍵表冇列到——所以另外加呢一個。
   // 見 docs/待確認事項.md J-2。
-  CONTENT_SHEET_ADMIN_CONTACT: 'CONTENT_SHEET_ADMIN_CONTACT'
+  CONTENT_SHEET_ADMIN_CONTACT: 'CONTENT_SHEET_ADMIN_CONTACT',
+  // ---- R-001 至 R-009：發佈及匯出 ----
+  PUBLISHED_PDF_FILE_ID: 'PUBLISHED_PDF_FILE_ID',
+  PUBLISHED_PDF_FOLDER_ID: 'PUBLISHED_PDF_FOLDER_ID',
+  PUBLISHED_PDF_NAME: 'PUBLISHED_PDF_NAME',
+  PUBLISHED_ARCHIVE_FOLDER_ID: 'PUBLISHED_ARCHIVE_FOLDER_ID',
+  PUBLISH_SEND_GROUPS: 'PUBLISH_SEND_GROUPS',
+  PUBLISH_ATTACH_PDF: 'PUBLISH_ATTACH_PDF',
+  PUBLISH_MAX_PDF_MB: 'PUBLISH_MAX_PDF_MB'
 });
 
 // =====================================================================
@@ -592,7 +617,15 @@ var DEFAULTS = Object.freeze([
   },
   { key: CONFIG_KEYS.CONTENT_SHEET_DEADLINE_NOTE, value: '請於該主日之前的星期三下午 5 時前填妥', note: '內容表的截止日期說明，印在 _說明 分頁與邀請信內' },
   { key: CONFIG_KEYS.CONTENT_SHEET_SEED_SAMPLE, value: 'TRUE', note: '建立內容表時，是否在該季第一個主日預填樣本資料（示範格式與長度）' },
-  { key: CONFIG_KEYS.CONTENT_SHEET_ADMIN_CONTACT, value: '', note: '內容表 _說明 分頁印出來的「有問題搵邊個」聯絡方法（例如幹事的電郵或電話）。⚠️ 一律由這裡填，不可以寫死在原始碼' }
+  { key: CONFIG_KEYS.CONTENT_SHEET_ADMIN_CONTACT, value: '', note: '內容表 _說明 分頁印出來的「有問題搵邊個」聯絡方法（例如幹事的電郵或電話）。⚠️ 一律由這裡填，不可以寫死在原始碼' },
+  // ---- 發佈及匯出（R-001 至 R-009）----
+  { key: CONFIG_KEYS.PUBLISHED_PDF_FILE_ID, value: '', note: 'master 發佈檔案（固定連結那一個 PDF）的檔案 ID。⚠️ 由選單「建立 master 發佈檔案」自動填，不需要人手填' },
+  { key: CONFIG_KEYS.PUBLISHED_PDF_FOLDER_ID, value: '', note: '⚠️ 必填：master 發佈檔案要建立在哪一個資料夾（資料夾 ID）' },
+  { key: CONFIG_KEYS.PUBLISHED_PDF_NAME, value: '粵語堂週報（最新一期）.pdf', note: 'master 發佈檔案的檔名。每次發佈都會設回這個名（檔案 ID 不變，所以連結不變）' },
+  { key: CONFIG_KEYS.PUBLISHED_ARCHIVE_FOLDER_ID, value: '', note: '⚠️ 必填：每次發佈存一份帶日期與版本號的副本到哪一個資料夾（資料夾 ID）' },
+  { key: CONFIG_KEYS.PUBLISH_SEND_GROUPS, value: 'CC,DB,ADMIN', note: '「發佈及匯出」內收件組別的預設勾選（逗號分隔的 Recipients.GROUP_NAME）' },
+  { key: CONFIG_KEYS.PUBLISH_ATTACH_PDF, value: 'TRUE', note: '發佈通知郵件要不要把 PDF 一併附上（FALSE 就只放連結）' },
+  { key: CONFIG_KEYS.PUBLISH_MAX_PDF_MB, value: '10', note: '上載的 PDF 檔案大小上限（MB），超過會被拒絕' }
 ]);
 
 // =====================================================================

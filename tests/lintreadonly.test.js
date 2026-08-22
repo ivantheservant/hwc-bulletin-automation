@@ -296,6 +296,65 @@ test('lint() 其他檔案仍然不准用 DriveApp／openById(（放寬只限指�
 });
 
 // =====================================================================
+// 發佈那一輪：PublishIo.gs 是第三個高權限檔案，而且 Drive 進階服務
+// （`Drive.Files`）跟 `DriveApp` 受同一條規則管
+// =====================================================================
+
+test('lint() 不會誤判 PublishIo.gs 自己用 DriveApp（要建立檔案、設「知道連結的人可檢視」）', function () {
+  withFixture({
+    'PublishIo.gs': "'use strict';\nfunction ok_() {\n  return DriveApp.getFolderById('x');\n}\n"
+  }, function (tmpDir) {
+    assert.deepStrictEqual(lint(tmpDir).violations, []);
+  });
+});
+
+test('lint() 不會誤判 PublishIo.gs 自己用 Drive 進階服務（原地覆寫 master PDF 唯一的做法）', function () {
+  withFixture({
+    'PublishIo.gs': "'use strict';\nfunction ok_(id, blob) {\n  return Drive.Files.update({}, id, blob);\n}\n"
+  }, function (tmpDir) {
+    assert.deepStrictEqual(lint(tmpDir).violations, []);
+  });
+});
+
+test('lint() 會捉到 PublishIo.gs 以外的檔案用 Drive 進階服務', function () {
+  // ⚠️ `Drive.Files` 跟 `DriveApp` 是兩個不同的識別碼，但兩者都開得到
+  // 任何檔案，所以一定要同時管——只擋 `DriveApp` 的話，改用進階服務
+  // 就可以完全繞過這條唯讀邊界。
+  withFixture({
+    'Other.gs': "'use strict';\nfunction bad_(id, blob) {\n  return Drive.Files.update({}, id, blob);\n}\n"
+  }, function (tmpDir) {
+    const hit = lint(tmpDir).violations;
+    assert.strictEqual(hit.length, 1);
+    assert.strictEqual(hit[0].rule, 'DRIVE_APP_OUTSIDE_ALLOWED_FILES');
+    assert.ok(hit[0].message.indexOf('Drive.Files') !== -1, hit[0].message);
+  });
+});
+
+test('lint() 不會把 probeDriveAccess_ 這類名稱當成 Drive 進階服務（刻意比對 Drive.Files 而不是 Drive）', function () {
+  withFixture({
+    'Diagnostics.gs': "'use strict';\nfunction probeDriveAccess_() {\n  return 'Drive';\n}\n"
+  }, function (tmpDir) {
+    assert.deepStrictEqual(lint(tmpDir).violations, []);
+  });
+});
+
+test('lint() 會捉到 PublishIo.gs 內引用 ROSTER_SPREADSHEET_ID（它同樣拿不到職事表）', function () {
+  withFixture({
+    'PublishIo.gs': [
+      "'use strict';",
+      'function bad_() {',
+      '  var id = getConfig(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, "");',
+      '  return DriveApp.getFileById(id);',
+      '}'
+    ].join('\n')
+  }, function (tmpDir) {
+    const hit = lint(tmpDir).violations.filter(function (v) { return v.rule === 'ROSTER_ID_IN_PRIVILEGED_FILE'; });
+    assert.strictEqual(hit.length, 1);
+    assert.strictEqual(hit[0].file, 'PublishIo.gs');
+  });
+});
+
+// =====================================================================
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail === 0 ? 0 : 1);

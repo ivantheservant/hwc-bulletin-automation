@@ -453,6 +453,176 @@ function apiLogClientError(payload) {
 // =====================================================================
 
 /**
+ * 用途：前端呼叫，取得頂部狀態列（R-008）與「發佈及匯出」區塊要用的
+ *   全部資料：目前已發佈到哪一期、三條 master 連結、收件組別選項、
+ *   預設勾選、`DRY_RUN` 狀態，以及上一次記住的勾選。
+ *
+ *   ⚠️ 這一組資料**不隨主日下拉改變**，所以另開一個 API，不併入
+ *   `apiLoadWeek()`——併進去的話，每切一次主日就會多做一次無謂的
+ *   `PublishLog` 讀取。發佈完之後前端會再叫一次這個函式刷新狀態列。
+ * Args: （無）
+ * Returns:
+ *   {{ok:boolean, data:Object, error?:Object}}
+ */
+function apiGetPublishStatus() {
+  return withApiResult_(function () { return publishPanelDataForWebApp_(); },
+    { functionName: 'apiGetPublishStatus' });
+}
+
+/**
+ * 用途：前端呼叫，執行「發佈及匯出」區塊的「執行」按鈕。
+ *
+ *   ⚠️ 第一次呼叫時 `confirmed` 是 `false`：後端如果發現有未填欄位或者
+ *   日期異常，會回 `reason:'NEEDS_CONFIRM'` 而且**一格都未寫過**；前端
+ *   出完確認視窗、幹事親手勾了那個方框之後，再帶 `confirmed:true` 呼叫
+ *   一次。**後端才是把關的一方**——只擋前端等於沒有擋。
+ * Args:
+ *   payload {Object} 見 `runPublishFlow_()`。
+ * Returns:
+ *   {{ok:boolean, data:Object, error?:Object}}
+ */
+function apiRunPublish(payload) {
+  var p = payload || {};
+  return withApiResult_(function () { return runPublishFlow_(p); }, {
+    functionName: 'apiRunPublish',
+    // ⚠️ 摘要**不可以**夾帶 `pdfBase64`（幾 MB 的 base64）或者自訂電郵
+    // （個人資料）——`ErrorLog.DETAIL` 兩者都不應該有。
+    argsSummary: 'isoDate=' + p.isoDate + ' doPublish=' + (p.doPublish === true)
+      + ' doSend=' + (p.doSend === true) + ' confirmed=' + (p.confirmed === true)
+  });
+}
+
+/**
+ * 用途：前端呼叫，把這一個主日的 Word 檔產生出來並回傳 base64，讓瀏覽器
+ *   直接下載（R-005）。
+ *
+ *   ⚠️ 產生用的是跟選單「產生本週週報（Word）」**同一個**
+ *   `generateBulletinDocx_()`——不可以另寫一條渲染路徑，否則「介面下載
+ *   到的」與「選單產生的」會慢慢分岔。
+ * Args:
+ *   isoDate {string} 主日日期，yyyy-MM-dd。
+ * Returns:
+ *   {{ok:boolean, data:{fileName:string, base64:string, warnings:Object[]},
+ *     error?:Object}}
+ */
+function apiDownloadBulletinDocx(isoDate) {
+  return withApiResult_(function () { return bulletinDocxForDownload_(isoDate); },
+    { functionName: 'apiDownloadBulletinDocx', argsSummary: 'isoDate=' + isoDate });
+}
+
+/**
+ * 用途：前端呼叫，把「發佈及匯出」區塊的勾選狀態記住。
+ * Args:
+ *   prefs {{doPublish:boolean, doSend:boolean, groups:string[]}}
+ * Returns:
+ *   {{ok:boolean, data:{saved:boolean}, error?:Object}}
+ */
+function apiSavePublishPrefs(prefs) {
+  return withApiResult_(function () { return { saved: savePublishPrefs_(prefs) }; },
+    { functionName: 'apiSavePublishPrefs' });
+}
+
+/**
+ * 用途：組出頂部狀態列與「發佈及匯出」區塊要用的全部資料。
+ * Args: （無）
+ * Returns:
+ *   {{status:Object, groupOptions:Object[], defaultGroups:string[],
+ *     dryRun:boolean, attachPdf:boolean, maxPdfMb:number, prefs:Object}}
+ */
+function publishPanelDataForWebApp_() {
+  var config = publishConfig_();
+  return {
+    status: buildPublishStatusForWebApp_(),
+    groupOptions: publishGroupOptions_(),
+    defaultGroups: config.sendGroups,
+    dryRun: config.dryRun,
+    attachPdf: config.attachPdf,
+    maxPdfMb: config.maxPdfMb,
+    prefs: loadPublishPrefs_(config.sendGroups)
+  };
+}
+
+/**
+ * 用途：讀出這個使用者上一次的勾選狀態。
+ *
+ *   ⚠️ 存 `PropertiesService` 的 **user properties**，不是工作表：這是
+ *   個人的介面偏好，不是系統資料。寫進工作表的話，兩個幹事同時用就會
+ *   互相蓋掉，而且每一次勾選都變成一筆試算表寫入。
+ * Args:
+ *   defaultGroups {string[]} 沒有存過時要用的預設勾選（Config
+ *     `PUBLISH_SEND_GROUPS`）。
+ * Returns:
+ *   {{doPublish:boolean, doSend:boolean, groups:string[]}}
+ */
+function loadPublishPrefs_(defaultGroups) {
+  var fallback = { doPublish: true, doSend: false, groups: (defaultGroups || []).slice() };
+  try {
+    var raw = PropertiesService.getUserProperties().getProperty(PUBLISH_PREFS_KEY_);
+    if (!raw) return fallback;
+    var parsed = JSON.parse(raw);
+    return {
+      doPublish: parsed.doPublish === true,
+      doSend: parsed.doSend === true,
+      groups: Array.isArray(parsed.groups) ? parsed.groups : fallback.groups
+    };
+  } catch (err) {
+    // 偏好設定讀不到只是「回到預設」，不應該令整個介面載入不到。
+    return fallback;
+  }
+}
+
+/**
+ * 用途：把這個使用者的勾選狀態存起來。
+ * Args:
+ *   prefs {{doPublish:boolean, doSend:boolean, groups:string[]}}
+ * Returns:
+ *   {boolean} 存不到回 `false`，不拋錯。
+ */
+function savePublishPrefs_(prefs) {
+  var p = prefs || {};
+  try {
+    PropertiesService.getUserProperties().setProperty(PUBLISH_PREFS_KEY_, JSON.stringify({
+      doPublish: p.doPublish === true,
+      doSend: p.doSend === true,
+      groups: Array.isArray(p.groups) ? p.groups : []
+    }));
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+/**
+ * 用途：`PropertiesService` 內存放「發佈及匯出」勾選偏好的鍵名。寫成
+ *   函式外的常數即可——這個檔案沒有跨檔案頂層引用的問題（純字串）。
+ */
+var PUBLISH_PREFS_KEY_ = 'PUBLISH_PANEL_PREFS';
+
+/**
+ * 用途：`apiDownloadBulletinDocx()` 的 IO 層——產生 Word 檔並轉成 base64。
+ * Args:
+ *   isoDate {string} 主日日期，yyyy-MM-dd。
+ * Returns:
+ *   {{fileName:string, base64:string, warnings:Object[]}}
+ * Raises:
+ *   Error 如果職事表未設定、範本未設定，或者渲染失敗——訊息一律沿用
+ *     `generateBulletinDocx_()` 已經組好那一句，不在這裏另寫。
+ */
+function bulletinDocxForDownload_(isoDate) {
+  var result = generateBulletinDocx_(isoDate);
+  if (!result.ok) {
+    var err = new Error(result.message || '未能產生 Word 檔。');
+    err.code = result.reason || 'RENDER_FAILED';
+    throw err;
+  }
+  return {
+    fileName: result.fileName,
+    base64: Utilities.base64Encode(result.blob.getBytes()),
+    warnings: result.warnings || []
+  };
+}
+
+/**
  * 用途：`apiListWeeks()` 的 IO 層——讀 `BulletinWeeks`，交給純函式層組出
  *   下拉選項與預設選中的日期。
  * Args: （無）

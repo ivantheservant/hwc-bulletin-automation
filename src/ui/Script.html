@@ -32,6 +32,10 @@
     dutyEdits: {},
     // 「由職事表重新取數」對話框目前列出的候選項目。
     fetchCandidates: [],
+    // R-002 至 R-008：發佈及匯出。`pdfBase64` 是使用者剛選的 PDF，
+    // **刻意只放在記憶體、不寫任何本地儲存**——重新整理頁面就要重新選
+    // 一次檔案，比起「以為上次選的還在、其實發佈了一個舊 PDF」安全得多。
+    publish: { pdfBase64: '', pdfName: '', panel: null },
     options: { programTemplateIds: [], recitationOptions: [], prayerBlockHeadingOptions: [], cantoneseSubColumnLabel: '主堂' }
   };
 
@@ -834,6 +838,7 @@
     // R-011：一定要排在 applyWeekFieldsToForm() 之後——先填值，再把那幾個
     // 欄位設成唯讀，否則設定 readOnly 之後再寫值會看起來像可以編輯。
     applyContentSheetReadOnly(data.contentSheet);
+    document.getElementById('publishServiceDate').textContent = isoDate;
     setLoaded(true);
   }
 
@@ -1107,6 +1112,286 @@
   }
 
   // =====================================================================
+  // 發佈及匯出（R-002 至 R-008）
+  // =====================================================================
+
+  /**
+   * 用途：載入頂部狀態列與發佈區塊要用的資料。
+   *
+   *   ⚠️ 這一組資料不隨主日下拉改變，所以只在開頁時載入一次，之後
+   *   只有「發佈成功」才重新載入。
+   * Returns:
+   *   {void}
+   */
+  function loadPublishPanel() {
+    google.script.run
+      .withSuccessHandler(onPublishPanelLoaded)
+      .withFailureHandler(function () {
+        // 狀態列載不到不應該擋住整個填寫介面——照樣寫一句，其餘功能照用。
+        document.getElementById('publishStatusText').textContent = '發佈狀態載入失敗，其餘功能不受影響。';
+      })
+      .apiGetPublishStatus();
+  }
+
+  function onPublishPanelLoaded(resp) {
+    if (!resp || !resp.ok) {
+      document.getElementById('publishStatusText').textContent = '發佈狀態載入失敗，其餘功能不受影響。';
+      return;
+    }
+    state.publish.panel = resp.data;
+    renderPublishStatus(resp.data.status);
+    renderPublishGroups(resp.data.groupOptions, (resp.data.prefs || {}).groups || resp.data.defaultGroups);
+
+    document.getElementById('doPublishCheck').checked = (resp.data.prefs || {}).doPublish === true;
+    document.getElementById('doSendCheck').checked = (resp.data.prefs || {}).doSend === true;
+    document.getElementById('publishDryRunBanner').classList.toggle('hidden', resp.data.dryRun !== true);
+    applyPublishSubStates();
+  }
+
+  /**
+   * 用途：畫頂部那一行常駐狀態（R-008）。
+   * Args:
+   *   status {Object} `buildPublishStatusForWebApp_()` 的回傳值。
+   * Returns:
+   *   {void}
+   */
+  function renderPublishStatus(status) {
+    var s = status || {};
+    document.getElementById('publishStatusText').textContent = s.text || '';
+
+    var link = document.getElementById('publishStatusLink');
+    var canOpen = Boolean(s.hasMaster && s.links && s.links.view);
+    link.classList.toggle('hidden', !canOpen);
+    if (canOpen) link.href = s.links.view;
+
+    var hint = document.getElementById('publishStatusHint');
+    var needsSetup = !s.hasMaster;
+    hint.classList.toggle('hidden', !needsSetup);
+    if (needsSetup) {
+      hint.textContent = '請先在試算表按「週報系統 ▸ 建立 master 發佈檔案」建立一次，之後那一條連結就永遠不變。';
+    }
+
+    var dl = document.getElementById('downloadPublishedPdfBtn');
+    if (canOpen && s.links.download) {
+      dl.href = s.links.download;
+      dl.classList.remove('hidden');
+    } else {
+      dl.classList.add('hidden');
+    }
+  }
+
+  function renderPublishGroups(options, checkedKeys) {
+    var box = document.getElementById('publishGroupOptions');
+    box.innerHTML = '';
+    var checked = checkedKeys || [];
+    (options || []).forEach(function (opt) {
+      var label = document.createElement('label');
+      var input = document.createElement('input');
+      input.type = 'checkbox';
+      input.value = opt.key;
+      input.setAttribute('data-publish-group', opt.key);
+      input.checked = checked.indexOf(opt.key) !== -1;
+      input.addEventListener('change', savePublishPrefs);
+      label.appendChild(input);
+      label.appendChild(document.createTextNode(opt.label));
+      box.appendChild(label);
+    });
+  }
+
+  function selectedPublishGroups() {
+    return Array.prototype.map.call(
+      document.querySelectorAll('[data-publish-group]:checked'),
+      function (input) { return input.value; }
+    );
+  }
+
+  /**
+   * 用途：兩個勾選各自獨立（R-003），但沒有勾的那一段要看得出是停用的。
+   * Returns:
+   *   {void}
+   */
+  function applyPublishSubStates() {
+    document.getElementById('publishFileRow').classList
+      .toggle('is-disabled', !document.getElementById('doPublishCheck').checked);
+    document.getElementById('publishSendRow').classList
+      .toggle('is-disabled', !document.getElementById('doSendCheck').checked);
+  }
+
+  function savePublishPrefs() {
+    google.script.run
+      .withSuccessHandler(function () {})
+      .withFailureHandler(function () { /* 記住勾選只是方便，存不到不用打擾使用者 */ })
+      .apiSavePublishPrefs({
+        doPublish: document.getElementById('doPublishCheck').checked,
+        doSend: document.getElementById('doSendCheck').checked,
+        groups: selectedPublishGroups()
+      });
+  }
+
+  /**
+   * 用途：把使用者選的 PDF 讀成 base64 存進 `state.publish`。
+   *
+   *   ⚠️ `FileReader.readAsDataURL()` 回的是 `data:application/pdf;base64,xxx`，
+   *   要把逗號之前那一截切走才是純 base64。
+   * Args:
+   *   event {Event} `change` 事件。
+   * Returns:
+   *   {void}
+   */
+  function onPublishPdfChosen(event) {
+    var file = event.target.files && event.target.files[0];
+    state.publish.pdfBase64 = '';
+    state.publish.pdfName = '';
+    document.getElementById('publishPdfName').textContent = '未選擇';
+    if (!file) return;
+
+    var limitMb = (state.publish.panel && state.publish.panel.maxPdfMb) || 10;
+    if (file.size > limitMb * 1024 * 1024) {
+      // 前端先擋一次純粹是為了不要白白上載幾 MB；真正把關的是後端
+      // `validateUploadedPdf_()`——只擋前端等於沒有擋。
+      showMessage('error', '這個檔案有 ' + (Math.round(file.size / 1024 / 1024 * 100) / 100)
+        + ' MB，超過上限 ' + limitMb + ' MB。請在 Word 另存 PDF 時選擇較低的圖片解析度。');
+      event.target.value = '';
+      return;
+    }
+
+    var reader = new FileReader();
+    reader.onload = function () {
+      var text = String(reader.result || '');
+      var comma = text.indexOf(',');
+      state.publish.pdfBase64 = comma === -1 ? '' : text.slice(comma + 1);
+      state.publish.pdfName = file.name;
+      document.getElementById('publishPdfName').textContent = file.name;
+    };
+    reader.onerror = function () {
+      showMessage('error', '讀取這個 PDF 檔案時出錯，請重新選擇一次。');
+    };
+    reader.readAsDataURL(file);
+  }
+
+  /**
+   * 用途：撳「執行」。第一次呼叫不帶 `confirmed`，讓後端決定要不要出
+   *   確認視窗。
+   * Args:
+   *   confirmed {boolean} 幹事是否已經勾了「仍然要發佈」那一格。
+   * Returns:
+   *   {void}
+   */
+  function runPublish(confirmed) {
+    if (!state.isoDate) { showMessage('error', '未選擇主日，無法執行。'); return; }
+
+    var doPublish = document.getElementById('doPublishCheck').checked;
+    var doSend = document.getElementById('doSendCheck').checked;
+    if (!doPublish && !doSend) {
+      showMessage('error', '請至少勾選「發佈到 master 連結」或「寄出」其中一項，然後再按執行。');
+      return;
+    }
+    if (doPublish && !state.publish.pdfBase64) {
+      showMessage('error', '勾選了「發佈到 master 連結」，但尚未選擇 PDF 檔案。'
+        + '請先按「下載 Word」，用 Word 開啟核對，另存為 PDF，然後在這裏選那個 PDF。');
+      return;
+    }
+
+    hideMessage();
+    beginRequest(doPublish ? '發佈中…' : '寄出中…');
+    google.script.run
+      .withSuccessHandler(onPublishDone)
+      .withFailureHandler(onApiFailure)
+      .apiRunPublish({
+        isoDate: state.isoDate,
+        doPublish: doPublish,
+        doSend: doSend,
+        pdfBase64: doPublish ? state.publish.pdfBase64 : '',
+        pdfName: state.publish.pdfName,
+        groups: selectedPublishGroups(),
+        customEmails: document.getElementById('publishCustomEmails').value,
+        confirmed: confirmed === true
+      });
+  }
+
+  function onPublishDone(resp) {
+    endRequest();
+    if (!resp.ok) { showMessage('error', resp.error.message); return; }
+
+    var data = resp.data;
+    if (!data.ok && data.reason === 'NEEDS_CONFIRM') {
+      openPublishConfirm(data.lines);
+      return;
+    }
+    if (!data.ok) {
+      showPublishResult(data.message || '未能執行。', true);
+      return;
+    }
+
+    closePublishConfirm();
+    showPublishResult((data.lines || []).join('\n'), false);
+    showMessage('info', data.published ? '已發佈第 ' + data.published.versionNo + ' 版。' : '已完成。');
+
+    // 發佈成功之後才需要刷新狀態列；只寄出不會改變「目前已發佈」那一行，
+    // 不過一併刷新也無害，而且 `SENT` 欄位可能有更新。
+    loadPublishPanel();
+  }
+
+  function showPublishResult(text, isError) {
+    var box = document.getElementById('publishResult');
+    box.textContent = text;
+    box.classList.remove('hidden');
+    box.classList.toggle('is-error', isError === true);
+  }
+
+  function openPublishConfirm(lines) {
+    var body = document.getElementById('publishConfirmBody');
+    body.textContent = (lines || []).join('\n');
+    document.getElementById('publishForcedCheck').checked = false;
+    document.getElementById('publishConfirmOkBtn').disabled = true;
+    document.getElementById('publishConfirmBackdrop').classList.remove('hidden');
+  }
+
+  function closePublishConfirm() {
+    document.getElementById('publishConfirmBackdrop').classList.add('hidden');
+  }
+
+  /**
+   * 用途：下載這一期的 Word 檔（R-005）。
+   *
+   *   後端回 base64，前端還原成 Blob 再觸發下載——Apps Script 的
+   *   `google.script.run` 傳不了二進位，所以一定要經 base64。
+   * Returns:
+   *   {void}
+   */
+  function downloadWord() {
+    if (!state.isoDate) { showMessage('error', '未選擇主日，無法下載。'); return; }
+    hideMessage();
+    beginRequest('產生 Word 檔中…');
+    google.script.run
+      .withSuccessHandler(function (resp) {
+        endRequest();
+        if (!resp.ok) { showMessage('error', resp.error.message); return; }
+        triggerBinaryDownload(resp.data.base64, resp.data.fileName,
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+        showMessage('info', '已產生 ' + resp.data.fileName + '，請在瀏覽器的下載清單查看。');
+      })
+      .withFailureHandler(onApiFailure)
+      .apiDownloadBulletinDocx(state.isoDate);
+  }
+
+  function triggerBinaryDownload(base64, fileName, mimeType) {
+    var binary = atob(base64);
+    var bytes = new Uint8Array(binary.length);
+    for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+    var url = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    // 立刻釋放會令部分瀏覽器來不及開始下載，延後一拍。
+    setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
+  }
+
+  // =====================================================================
   // 初始化
   // =====================================================================
 
@@ -1126,6 +1411,25 @@
     document.getElementById('fetchConfirmBtn').addEventListener('click', confirmFetchFromRoster);
     document.getElementById('fetchSelectAllBtn').addEventListener('click', function () { setAllFetchCheckboxes(true); });
     document.getElementById('fetchSelectNoneBtn').addEventListener('click', function () { setAllFetchCheckboxes(false); });
+
+    // ---- 發佈及匯出 ----
+    document.getElementById('doPublishCheck').addEventListener('change', function () {
+      applyPublishSubStates();
+      savePublishPrefs();
+    });
+    document.getElementById('doSendCheck').addEventListener('change', function () {
+      applyPublishSubStates();
+      savePublishPrefs();
+    });
+    document.getElementById('publishPdfInput').addEventListener('change', onPublishPdfChosen);
+    document.getElementById('publishRunBtn').addEventListener('click', function () { runPublish(false); });
+    document.getElementById('downloadWordBtn').addEventListener('click', downloadWord);
+    document.getElementById('publishConfirmCancelBtn').addEventListener('click', closePublishConfirm);
+    document.getElementById('publishConfirmOkBtn').addEventListener('click', function () { runPublish(true); });
+    // 勾了那一格才可以撳「確認發佈」——R-006／R-007 明文要求。
+    document.getElementById('publishForcedCheck').addEventListener('change', function (e) {
+      document.getElementById('publishConfirmOkBtn').disabled = !e.target.checked;
+    });
 
     // ⚠️ R-011 起，四張清單改由內容表輸入，「新增一則…」那幾顆按鈕已經由
     // Index.html 移走，所以這裡不再綁事件。`addListItem()` 等函式保留，
@@ -1179,6 +1483,7 @@
     document.getElementById('conflictPanel').classList.add('hidden');
     applyBusyState();
     beginRequest('載入中…');
+    loadPublishPanel();
     google.script.run
       .withSuccessHandler(onWeeksLoaded)
       .withFailureHandler(onApiFailure)

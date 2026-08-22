@@ -177,10 +177,11 @@ function readmeContentLines_() {
   'MergeGroups：PostDisplay 使用的合併組定義（例如「主席及報告」「影音」），系統已預先填入，人手可調整連接符等設定。',
   'ProgramTemplates：崇拜程序範本，系統已預先填入平常主日／浸禮聯合崇拜／堂慶聯合崇拜三個範本，人手可視需要增補其他範本。',
   'Recipients：週報收件人名單（堂委 CC、執事 DB、幹事 ADMIN、IT、領詩 WORSHIP），系統不會自動填入任何一行，需要 Ivan 自行填寫。',
-  'EmailTemplates：寄送週報用的電郵範本，系統已預先填入一個預設範本，人手可修改文字內容。',
+  'EmailTemplates：寄送週報用的電郵範本，系統已預先填入兩個預設範本（每週寄送、發佈通知），人手可修改文字內容。',
   'Diagnostics：系統唯讀診斷報告存放處，每次執行會清空重寫，只保留最新一次的內容，行數上限見 Config 的 DIAGNOSTICS_MAX_ROWS。',
   'AuditLog：系統對試算表所做的每一次寫入異動記錄，逐格記錄，只會新增、不會刪除或覆寫。',
   'SendLog：每一次寄送週報的記錄（含 DRY_RUN 試行的記錄），只會新增、不會刪除或覆寫。',
+  'PublishLog：每一次發佈的記錄（主日、第幾版、發佈人、存檔副本、是否強制發佈），全部由系統寫入；人手改一行只會令版本號與實際發佈對不上。',
   '本系統對「粵語堂職事表」試算表一律唯讀，不會寫入任何一格；職事表的連線設定同樣在 Config 內填寫。'
   ];
 }
@@ -523,7 +524,7 @@ function seedProgramTemplatesRows_() {
 }
 
 /**
- * 用途：EmailTemplates 的 1 個固定範本，內文用書面語繁體中文與佔位符撰寫。
+ * 用途：EmailTemplates 的 2 個固定範本，內文用書面語繁體中文與佔位符撰寫。
  *   寫成函式延遲求值——理由見 readmeContentLines_() 的說明。
  * Args: （無）
  * Returns:
@@ -531,6 +532,7 @@ function seedProgramTemplatesRows_() {
  */
 function seedEmailTemplatesRows_() {
   return [
+    seedPublishNoticeRow_(),
     {
       TEMPLATE_ID: 'TPL_WEEKLY_BULLETIN',
       SUBJECT: '{{ChurchName}}粵語堂週報 — {{ServiceDate}}',
@@ -551,6 +553,47 @@ function seedEmailTemplatesRows_() {
       NOTES: ''
     }
   ];
+}
+
+/**
+ * 用途：發佈通知（R-001）那一個 EmailTemplates 範本。
+ *
+ *   ⚠️ 抽成獨立函式、而不是寫在 `seedEmailTemplatesRows_()` 的陣列裏面，
+ *   是因為 `findPublishEmailTemplate_()`（src/Publish.gs）在工作表找不到
+ *   這個範本時，要用同一份內容作為退回值。兩處各寫一份的話，人手改了
+ *   工作表那一行、之後範本又被停用，退回的內容就會跟先前寄出去的不一樣，
+ *   而且沒有人會發現。
+ *
+ *   內文刻意寫明「這條連結固定不變」——會眾只要把它加入書籤，之後每個
+ *   星期打開都是最新一期，不需要每週再寄一次新連結。
+ * Args: （無）
+ * Returns:
+ *   {Object} EmailTemplates 的一行。
+ */
+function seedPublishNoticeRow_() {
+  return {
+    TEMPLATE_ID: PUBLISH_TEMPLATE_ID_,
+    SUBJECT: '{{ChurchName}}粵語堂週報已發佈 — {{ServiceDate}}',
+    BODY: [
+      '各位主內肢體：',
+      '',
+      '平安！',
+      '',
+      '{{ServiceDate}} 主日的{{ChurchName}}粵語堂週報已經發佈，可以在以下連結閱讀：',
+      '',
+      '{{MasterLink}}',
+      '',
+      '這條連結固定不變，之後每星期打開都是最新一期，可以直接加入書籤。',
+      '',
+      '如發現資料有任何錯漏，請回覆此郵件告知，以便盡快更正。',
+      '',
+      '謝謝！',
+      '',
+      '粵語堂週報系統　敬上'
+    ].join('\n'),
+    ACTIVE: true,
+    NOTES: '發佈通知（R-001）。{{MasterLink}} 是永遠不變的 master 連結，由系統代入。'
+  };
 }
 
 /**

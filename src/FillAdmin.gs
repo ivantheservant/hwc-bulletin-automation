@@ -451,7 +451,10 @@ function protectedSheetNames_() {
     SHEETS.DUTY_OVERRIDE,
     // ContentSheets 只記「每季內容表指向哪一個檔案」，全部由系統寫；
     // 人手改一個檔案 ID 只會令匯入指去錯的檔案，所以一律受保護。
-    SHEETS.CONTENT_SHEETS
+    SHEETS.CONTENT_SHEETS,
+    // PublishLog 是發佈紀錄（版本號、是否強制發佈、存檔檔案 ID），
+    // 全部由系統寫；人手改一行只會令版本號與實際發佈對不上。
+    SHEETS.PUBLISH_LOG
   ];
 }
 

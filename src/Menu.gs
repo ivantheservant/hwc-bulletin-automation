@@ -61,6 +61,10 @@ function onOpen() {
       .addItem('寄出內容表連結', 'menuSendContentSheetInvite_')
       .addItem('從內容表匯入', 'menuImportFromContentSheet_'))
     .addSeparator()
+    // R-001：一次過建立 master 發佈檔案。之後每次發佈都覆寫同一個檔案，
+    // 所以這一項按過一次就不用再按（再按也只會顯示三條連結，不會重建）。
+    .addItem('建立 master 發佈檔案', 'menuCreateMasterPublishFile_')
+    .addSeparator()
     .addSubMenu(SpreadsheetApp.getUi().createMenu('季度填寫表')
       .addItem('建立／刷新季度填寫表', 'menuCreateOrRefreshFillGrid_')
       .addItem('立即同步季度填寫表', 'menuSyncFillGrid_')

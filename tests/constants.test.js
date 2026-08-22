@@ -58,8 +58,8 @@ const validTypes = Object.keys(COLUMN_TYPES).map(function (k) { return COLUMN_TY
 // SHEETS ⇄ COLUMNS 一致性
 // =====================================================================
 
-test('SHEETS 剛好定義 24 張工作表（23 ＋ 內容表登記表 ContentSheets）', function () {
-  assert.strictEqual(sheetIds.length, 24);
+test('SHEETS 剛好定義 25 張工作表（24 ＋ 發佈紀錄 PublishLog）', function () {
+  assert.strictEqual(sheetIds.length, 25);
 });
 
 test('每個 SHEETS 的 key 在 COLUMNS 都有對應定義，且沒有多餘的 COLUMNS key', function () {
@@ -170,8 +170,8 @@ test('BulletinWeeks：浸禮副框六欄的中文標題與機器鍵一一對應�
   assert.strictEqual(JSON.stringify(def.headers.slice(-6)), JSON.stringify(expectedHeaders));
 });
 
-test('CONFIG_KEYS 剛好 78 個（與 DEFAULTS 一一對應）', function () {
-  assert.strictEqual(Object.keys(CONFIG_KEYS).length, 78);
+test('CONFIG_KEYS 剛好 85 個（與 DEFAULTS 一一對應）', function () {
+  assert.strictEqual(Object.keys(CONFIG_KEYS).length, 85);
 });
 
 test('這一輪新增的 Config 鍵 FINANCE_PERIOD_LABEL_PATTERN 有定義、有預設值', function () {
@@ -204,8 +204,8 @@ test('CONFIG_KEYS 每一個值都有對應的 DEFAULTS 項目（不會有「有�
   });
 });
 
-test('DEFAULTS 剛好 78 筆（之前的 69 ＋ 內容表第一階段的 9）', function () {
-  assert.strictEqual(DEFAULTS.length, 78);
+test('DEFAULTS 剛好 85 筆（之前的 78 ＋ 發佈及匯出的 7）', function () {
+  assert.strictEqual(DEFAULTS.length, 85);
 });
 
 test('內容表那 9 個 Config 鍵齊備，而且 ID 類 seed 成空字串', function () {

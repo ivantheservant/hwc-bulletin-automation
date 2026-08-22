@@ -26,6 +26,12 @@
       <button id="reloadRosterBtn" type="button" class="btn btn-secondary">重新讀取職事表</button>
       <button id="saveBtn" type="button" class="btn btn-primary">儲存</button>
     </div>
+    <!-- R-008：常駐一行，不隨主日下拉改變。 -->
+    <div id="publishStatusBar" class="publish-status-bar">
+      <span id="publishStatusText">載入中…</span>
+      <a id="publishStatusLink" class="btn btn-small hidden" target="_blank" rel="noopener">開啟</a>
+      <span id="publishStatusHint" class="hint hidden"></span>
+    </div>
     <div id="messageBar" class="message-bar hidden"></div>
     <div id="missingPanel" class="missing-panel hidden"></div>
     <div id="conflictPanel" class="conflict-panel hidden"></div>
@@ -214,7 +220,75 @@
       <div id="financeList" class="repeatable-list repeatable-list-finance"></div>
     </section>
 
+    <!-- R-002 至 R-005：發佈及匯出 -->
+    <section class="panel publish-panel">
+      <h2>發佈及匯出</h2>
+      <p class="hint">主日：<strong id="publishServiceDate">—</strong></p>
+
+      <div class="publish-row">
+        <button id="downloadWordBtn" type="button" class="btn btn-secondary">下載 Word</button>
+        <a id="downloadPublishedPdfBtn" class="btn btn-secondary" target="_blank" rel="noopener">下載目前已發佈的 PDF</a>
+      </div>
+      <p class="hint">
+        「下載目前已發佈的 PDF」下載的是 master 檔案<strong>目前的內容</strong>，
+        不是即時把這一期轉成 PDF。
+      </p>
+
+      <div class="publish-block">
+        <label class="publish-check">
+          <input type="checkbox" id="doPublishCheck">
+          發佈到 master 連結
+        </label>
+        <div id="publishFileRow" class="publish-sub">
+          <input type="file" id="publishPdfInput" accept="application/pdf,.pdf">
+          <span id="publishPdfName" class="hint">未選擇</span>
+          <p class="hint">
+            提示：先按「下載 Word」，用 Word 開啟核對，再「另存為 PDF」，然後在這裏選那個 PDF。
+          </p>
+        </div>
+      </div>
+
+      <div class="publish-block">
+        <label class="publish-check">
+          <input type="checkbox" id="doSendCheck">
+          寄出
+        </label>
+        <div id="publishSendRow" class="publish-sub">
+          <div id="publishGroupOptions" class="publish-groups"></div>
+          <label class="publish-custom">
+            自訂電郵：
+            <input type="text" id="publishCustomEmails" placeholder="以逗號分隔">
+          </label>
+        </div>
+      </div>
+
+      <div id="publishDryRunBanner" class="publish-dryrun hidden">
+        ⚠ 模擬模式開啟中，寄出只會記錄，不會真的寄出。
+      </div>
+
+      <div class="publish-row">
+        <button id="publishRunBtn" type="button" class="btn btn-primary">執行</button>
+      </div>
+      <div id="publishResult" class="publish-result hidden"></div>
+    </section>
+
   </main>
+
+  <!-- R-006／R-007：發佈前檢查。有任何一項才會出現。 -->
+  <div id="publishConfirmBackdrop" class="dialog-backdrop hidden">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="publishConfirmTitle">
+      <h3 id="publishConfirmTitle">發佈前檢查</h3>
+      <div id="publishConfirmBody" class="dialog-body"></div>
+      <label class="publish-confirm-check">
+        <input type="checkbox" id="publishForcedCheck">
+        我明白以上情況，仍然要發佈（未填的欄位會在成品留空）
+      </label>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-secondary" id="publishConfirmCancelBtn">取消</button>
+        <button type="button" class="btn btn-primary" id="publishConfirmOkBtn" disabled>確認發佈</button>
+      </div>
+    </div>
+  </div>
 
   <div id="fetchDialogBackdrop" class="dialog-backdrop hidden">
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="fetchDialogTitle">

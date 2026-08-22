@@ -44,7 +44,8 @@
  *    所以這個工具只在 `sort(` 後面**不是**緊接著 `function` 關鍵字或箭頭
  *    函式時才算違規——真正呼叫 Range.sort() 幾乎不可能長成比較函式的樣子。
  *
- * 3. `DriveApp` 只准出現在 src/DocxIo.gs 與 src/ContentSheetIo.gs。
+ * 3. `DriveApp` 與 Drive **進階服務**（`Drive.Files`）只准出現在
+ *    src/DocxIo.gs、src/ContentSheetIo.gs、src/PublishIo.gs。
  *
  *    ⚠️ 這一條在第七輪之前是「全 src/ 一律不准」。當時的註解寫明「日後
  *    真的需要才另外設計審查」——第七輪就是那個時候：Word（`.docx`）範本
@@ -83,11 +84,24 @@ const ROSTER_READ_FILE = 'RosterRead.gs';
 /** 每季「內容表」的 Drive／跨試算表 IO，全部鎖死在這一個檔案。 */
 const CONTENT_SHEET_IO_FILE = 'ContentSheetIo.gs';
 
+/** 發佈（master PDF 覆寫、存檔副本）的 Drive IO，全部鎖死在這一個檔案。 */
+const PUBLISH_IO_FILE = 'PublishIo.gs';
+
 /**
- * 准許使用 `DriveApp` 的檔案。見檔頭規則 3／4 的說明：能力鎖死在少數
- * 幾個指定檔案，而且那幾個檔案一律拿不到職事表 ID。
+ * 准許使用 `DriveApp`／`Drive.Files`（進階服務）的檔案。見檔頭規則 3／4
+ * 的說明：能力鎖死在少數幾個指定檔案，而且那幾個檔案一律拿不到職事表 ID。
  */
-const DRIVE_APP_FILES = ['DocxIo.gs', CONTENT_SHEET_IO_FILE];
+const DRIVE_APP_FILES = ['DocxIo.gs', CONTENT_SHEET_IO_FILE, PUBLISH_IO_FILE];
+
+/**
+ * Drive **進階服務**的呼叫形式。`DriveApp` 與它是兩個不同的識別碼，但
+ * 兩者都可以開啟任何檔案，所以受同一條規則管。
+ *
+ * ⚠️ 刻意比對 `Drive.Files` 而不是單一個 `Drive`：後者會連
+ * `probeDriveAccess_()` 這類本來就刻意避開 `DriveApp` 的名稱一併誤判
+ * （見本檔案「本專案要反覆自問的 bug class」第 25 條的同一類問題）。
+ */
+const DRIVE_ADVANCED_TOKEN = 'Drive.Files';
 
 /** 准許使用 `openById(` 的檔案。見檔頭規則 1。 */
 const OPEN_BY_ID_FILES = [ROSTER_READ_FILE, CONTENT_SHEET_IO_FILE];
@@ -206,14 +220,16 @@ function lint(srcDir) {
       });
     }
 
-    // 規則 3：DriveApp 只准出現在指定檔案。
+    // 規則 3：DriveApp 與 Drive 進階服務只准出現在指定檔案。
     if (DRIVE_APP_FILES.indexOf(fileName) === -1) {
-      findOccurrenceLines(masked, 'DriveApp').forEach(function (line) {
-        violations.push({
-          file: fileName, line: line, rule: 'DRIVE_APP_OUTSIDE_ALLOWED_FILES',
-          message: '「DriveApp」只准出現在 ' + DRIVE_APP_FILES.join('、') + '（有繞過職事表唯讀邊界的風險）。'
-            + 'Word 範本讀寫 Drive、內容表建立檔案是僅有的兩個例外，而且各自集中在單一檔案，'
-            + '這樣「有沒有人用 Drive 繞過唯讀邊界」永遠只需要審嗰幾個檔案。'
+      ['DriveApp', DRIVE_ADVANCED_TOKEN].forEach(function (token) {
+        findOccurrenceLines(masked, token).forEach(function (line) {
+          violations.push({
+            file: fileName, line: line, rule: 'DRIVE_APP_OUTSIDE_ALLOWED_FILES',
+            message: '「' + token + '」只准出現在 ' + DRIVE_APP_FILES.join('、') + '（有繞過職事表唯讀邊界的風險）。'
+              + 'Word 範本讀寫 Drive、內容表建立檔案、發佈覆寫 master PDF 是僅有的例外，'
+              + '而且各自集中在單一檔案，這樣「有沒有人用 Drive 繞過唯讀邊界」永遠只需要審那幾個檔案。'
+          });
         });
       });
     }
@@ -272,6 +288,8 @@ if (require.main === module) {
     OPEN_BY_ID_FILES: OPEN_BY_ID_FILES,
     ROSTER_ID_FORBIDDEN_FILES: ROSTER_ID_FORBIDDEN_FILES,
     CONTENT_SHEET_IO_FILE: CONTENT_SHEET_IO_FILE,
+    PUBLISH_IO_FILE: PUBLISH_IO_FILE,
+    DRIVE_ADVANCED_TOKEN: DRIVE_ADVANCED_TOKEN,
     ROSTER_READ_FILE: ROSTER_READ_FILE
   };
 }

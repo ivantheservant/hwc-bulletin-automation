@@ -404,4 +404,77 @@
     white-space: pre-wrap;
     word-break: break-word;
   }
+
+  /* ---- 發佈及匯出（R-002 至 R-008）---- */
+
+  /* R-008：常駐狀態列。刻意用一條淺色橫幅、而不是頂部那一排 .stat——
+     它不隨主日下拉改變，跟旁邊那幾格「這一期的統計」意思完全不同。 */
+  .publish-status-bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.6em;
+    font-size: 13px;
+    color: #33475b;
+    background: #f1f5f9;
+    border-top: 1px solid #dde3ea;
+    padding: 0.4em 1em;
+  }
+  .publish-status-bar .hint { margin: 0; }
+
+  .publish-panel .publish-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.6em;
+    margin: 0.6em 0;
+  }
+  .publish-block {
+    border: 1px solid #e2e6ea;
+    border-radius: 4px;
+    padding: 0.6em 0.8em;
+    margin: 0.7em 0;
+  }
+  .publish-check { font-weight: 600; display: inline-flex; align-items: center; gap: 0.4em; }
+  .publish-sub { margin: 0.5em 0 0 1.6em; }
+  .publish-sub.is-disabled { opacity: 0.45; }
+  .publish-groups { display: flex; flex-wrap: wrap; gap: 0.9em; margin-bottom: 0.5em; }
+  .publish-groups label { display: inline-flex; align-items: center; gap: 0.3em; font-size: 13px; }
+  .publish-custom { display: inline-flex; align-items: center; gap: 0.4em; font-size: 13px; }
+  .publish-custom input { min-width: 20em; }
+
+  /* DRY_RUN 橫幅：橙色，而且一定顯示——這是「以為寄了其實沒寄」唯一
+     的視覺提示，淡色或者可收起都不行。 */
+  .publish-dryrun {
+    background: #fff3e0;
+    border: 1px solid #ffb74d;
+    border-radius: 4px;
+    padding: 0.5em 0.8em;
+    font-size: 13px;
+    color: #8a5000;
+    margin: 0.7em 0;
+  }
+
+  .publish-result {
+    background: #f6f8fa;
+    border: 1px solid #e2e6ea;
+    border-radius: 4px;
+    padding: 0.6em 0.8em;
+    font-size: 13px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .publish-result.is-error { background: #fdecea; border-color: #f5c6c2; color: #86251c; }
+
+  .publish-confirm-check {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.45em;
+    font-size: 13px;
+    margin: 0.8em 0 0;
+    padding: 0.5em 0.7em;
+    background: #fff8e1;
+    border: 1px solid #ffe082;
+    border-radius: 4px;
+  }
 </style>

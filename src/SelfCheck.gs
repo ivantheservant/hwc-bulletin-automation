@@ -671,7 +671,12 @@ function menuShowQuarterMissingFieldsList_() {
  *   ⚠️ 每一個探測都要**最輕量、不產生副作用**——這是「有沒有權限」的
  *   試探，不是功能測試，不可以順手寫入或刪除任何東西。`DriveApp` 不可以
  *   在這個檔案直接呼叫（`tools/lint-readonly-roster.js` 規則 3 只准
- *   `src/DocxIo.gs` 出現），所以透過 `probeDriveAccess_()` 間接呼叫。
+ *   `src/DocxIo.gs`、`src/ContentSheetIo.gs`、`src/PublishIo.gs` 出現），
+ *   所以透過 `probeDriveAccess_()` 間接呼叫。
+ *
+ *   ⚠️ 這一行 `probeDriveAccess_()` 正是規則 3 為甚麼比對 `Drive.Files`
+ *   而不是單一個 `Drive` 的原因：後者會把這個識別碼一併誤判成
+ *   「有人在這裡用 Drive 進階服務」。
  * Args: （無）
  * Returns:
  *   {{item:string, probe:function():void}[]}
