@@ -163,6 +163,13 @@ function applyContentInstructionsTab_(sheet, lines) {
  *   唔係優化。
  * Args:
  *   quarterId {string} 季度 ID。
+ *   options {{fileNameSuffix:string=, serviceDates:string[]=}=} 選填，
+ *     兩個都係畀**自測機**用嘅，生產路徑一律唔傳、行為完全唔變：
+ *     - `fileNameSuffix`：加喺檔名尾（**只喺新建立嗰陣有用**，已經存在
+ *       嘅檔案唔會改名）。沙盒內容表加 `_SELFTEST`，確保唔會撞正式嗰個。
+ *     - `serviceDates`：職事表**冇**呢一季資料時改用呢個主日清單。
+ *       沙盒季度刻意揀一個職事表冇資料嘅季度，冇呢個參數就連內容表都
+ *       建立唔到。
  * Returns:
  *   {{ok:boolean, created:boolean, quarterId:string, fileId:string, fileUrl:string,
  *     tabsCreated:string[], serviceDateCount:number, seededSample:boolean,
@@ -172,7 +179,8 @@ function applyContentInstructionsTab_(sheet, lines) {
  * Raises:
  *   Error 如果職事表讀取失敗（`listQuarterServiceDates_()` 拋出嚟嘅）。
  */
-function buildOrRefreshContentSheet_(quarterId) {
+function buildOrRefreshContentSheet_(quarterId, options) {
+  var buildOptions = options || {};
   var qid = String(quarterId || '').trim();
   if (!qid) {
     return { ok: false, created: false, quarterId: qid, reason: 'NO_QUARTER_ID', message: '季度 ID 不可以是空的。' };
@@ -184,7 +192,13 @@ function buildOrRefreshContentSheet_(quarterId) {
     return { ok: false, created: false, quarterId: qid, reason: 'NO_FOLDER_ID', message: folderCheck.message };
   }
 
+  // ⚠️ 沙盒季度（自測機用）喺職事表冇資料，`listQuarterServiceDates_()`
+  // 會回空陣列。呢種情況下改用呼叫方提供嘅主日清單——生產路徑唔會傳，
+  // 所以行為完全唔變。
   var serviceDates = listQuarterServiceDates_(qid).map(function (d) { return d.isoDate; });
+  if (serviceDates.length === 0 && buildOptions.serviceDates && buildOptions.serviceDates.length > 0) {
+    serviceDates = buildOptions.serviceDates.slice();
+  }
   if (serviceDates.length === 0) {
     return {
       ok: false, created: false, quarterId: qid, reason: 'NO_SERVICE_DATES',
@@ -211,7 +225,8 @@ function buildOrRefreshContentSheet_(quarterId) {
   }
 
   if (!spreadsheet) {
-    var fileName = buildContentSheetFileName_(config.namePattern, qid);
+    var fileName = buildContentSheetFileName_(config.namePattern, qid)
+      + String(buildOptions.fileNameSuffix || '');
     var createdFile = createContentSpreadsheet_(fileName, config.folderId, config.domain);
     spreadsheet = createdFile.spreadsheet;
     fileId = createdFile.fileId;
