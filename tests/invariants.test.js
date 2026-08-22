@@ -189,17 +189,30 @@ function makeEnv(options) {
   const drive = makeFakeDriveApp({ files: files, folders: {} });
 
   const masterFileId = cfg.PUBLISHED_PDF_FILE_ID;
+  // 第二輪自測：I06 要分「正式」與「沙盒」兩條通道，所以假 Drive 也要
+  // 服務得到沙盒那一個 master 檔案。
+  const sandboxMasterFileId = cfg.SELFTEST_MASTER_PDF_FILE_ID;
+  function fakePdfFile(id, bytes) {
+    return {
+      getId: function () { return id; },
+      getName: function () { return 'master.pdf'; },
+      getBlob: function () { return { getBytes: function () { return bytes.slice(); } }; }
+    };
+  }
   const FakeDriveApp = Object.assign({}, drive.DriveApp, {
     getFileById: function (id) {
       if (masterFileId && id === masterFileId) {
         if (!o.masterBytes) throw new Error('No item with the given ID could be found: ' + id);
-        return {
-          getId: function () { return id; },
-          getName: function () { return 'master.pdf'; },
-          getBlob: function () {
-            return { getBytes: function () { return o.masterBytes.slice(); } };
-          }
-        };
+        return fakePdfFile(id, o.masterBytes);
+      }
+      if (sandboxMasterFileId && id === sandboxMasterFileId) {
+        if (!o.sandboxMasterBytes) throw new Error('No item with the given ID could be found: ' + id);
+        return fakePdfFile(id, o.sandboxMasterBytes);
+      }
+      // 任意額外的 PDF 檔案（例如「Config 已經改指另一個，但舊記錄仍然
+      // 指住舊那一個」這種情況）。
+      if (o.extraPdfFiles && Object.prototype.hasOwnProperty.call(o.extraPdfFiles, id)) {
+        return fakePdfFile(id, o.extraPdfFiles[id]);
       }
       return drive.DriveApp.getFileById(id);
     }
@@ -499,8 +512,13 @@ test('I06 紅：PublishLog 說第 3 版，但實際寫進 master 的是第 2 版
   });
   const r = env.sandbox.runInvariantI06_();
   assert.strictEqual(r.ok, false);
-  assert.ok(r.actual.indexOf('第 2 版') !== -1, r.actual);
-  assert.ok(r.expected.indexOf('第 3 版') !== -1, r.expected);
+  // ⚠️ 第二輪：I06 現在逐條**通道**判斷（正式／沙盒各自獨立），所以
+  //    expected／actual 講的是「幾多條通道對得上」，兩個版本號落在 evidence。
+  //    斷言的強度沒有變——照樣要求它報紅，而且照樣要求它講得出是哪兩個版本。
+  assert.ok(r.evidence.indexOf('第 3 版') !== -1, r.evidence);
+  assert.ok(r.evidence.indexOf('第 2 版') !== -1, r.evidence);
+  assert.ok(r.evidence.indexOf('正式') !== -1, '要講得出是哪一條通道：' + r.evidence);
+  assert.ok(r.actual.indexOf('1 條通道對不上') !== -1, r.actual);
 });
 
 test('I06 ⚪：master 檔案讀不到 → 驗證不到，不是紅也不是綠', function () {
@@ -524,6 +542,220 @@ test('I06 ⚪：master 檔案讀不到 → 驗證不到，不是紅也不是綠'
 // =====================================================================
 // I07（第 4 層的產出斷言）
 // =====================================================================
+
+// =====================================================================
+// I06 分通道（第二輪自測）
+// =====================================================================
+
+const SANDBOX_MASTER = 'SANDBOX_MASTER_ID';
+
+function publishRow(overrides) {
+  return Object.assign({
+    SERVICE_DATE: TARGET_DATE, VERSION_NO: 1, PUBLISHED_AT: '2027-11-06',
+    PUBLISHED_BY: 'x@example.com', ARCHIVE_FILE_ID: 'A1', SENT: false,
+    SENT_GROUPS: '', MISSING_COUNT: 0, FORCED: false, FORCED_REASON: '',
+    MASTER_FILE_ID: 'MASTER1', IS_SELFTEST: false
+  }, overrides || {});
+}
+
+// ⚠️ 這一條就是第二輪那 5 個假紅的正面迴歸測試。自測機發佈完沙盒 master
+//    之後，PublishLog 最新一行是沙盒那一行——舊版 I06 拿它去對**正式**
+//    master 的內容，必然對不上，於是 S13 之後每一個情境一齊變紅。
+test('I06 綠：自測發佈之後，正式那一邊仍然成立', function () {
+  const prodBytes = [0x25, 0x50, 0x44, 0x46, 0x01];
+  const sandboxBytes = [0x25, 0x50, 0x44, 0x46, 0x02];
+  const env = makeEnv({
+    config: { PUBLISHED_PDF_FILE_ID: 'MASTER1', SELFTEST_MASTER_PDF_FILE_ID: SANDBOX_MASTER },
+    masterBytes: prodBytes,
+    sandboxMasterBytes: sandboxBytes,
+    publishLog: [
+      publishRow({ VERSION_NO: 3 }),
+      // 自測那一行**在後面**（時間較新）——舊版就是被它騙到的。
+      publishRow({
+        VERSION_NO: 7, PUBLISHED_AT: '2027-11-07',
+        MASTER_FILE_ID: SANDBOX_MASTER, IS_SELFTEST: true
+      })
+    ],
+    scriptProps: {
+      'PUBLISH_LAST_OUTPUT::MASTER1': JSON.stringify({
+        isoDate: TARGET_DATE, versionNo: 3,
+        fingerprint: md5Fingerprint(prodBytes), masterFileId: 'MASTER1'
+      }),
+      ['PUBLISH_LAST_OUTPUT::' + SANDBOX_MASTER]: JSON.stringify({
+        isoDate: TARGET_DATE, versionNo: 7,
+        fingerprint: md5Fingerprint(sandboxBytes), masterFileId: SANDBOX_MASTER
+      })
+    }
+  });
+
+  const r = env.sandbox.runInvariantI06_();
+  assert.strictEqual(r.ok, true, r.evidence);
+  assert.ok(r.evidence.indexOf('正式') !== -1, r.evidence);
+  assert.ok(r.evidence.indexOf('沙盒') !== -1, r.evidence);
+  assert.ok(r.evidence.indexOf('第 3 版') !== -1, '正式那一邊要對第 3 版：' + r.evidence);
+  assert.ok(r.evidence.indexOf('第 7 版') !== -1, '沙盒那一邊要對第 7 版：' + r.evidence);
+});
+
+test('I06 ⚪：沙盒未設定 → 那一條通道回報「不適用」，不是失敗', function () {
+  const prodBytes = [0x25, 0x50, 0x44, 0x46, 0x01];
+  const env = makeEnv({
+    config: { PUBLISHED_PDF_FILE_ID: 'MASTER1', SELFTEST_MASTER_PDF_FILE_ID: '' },
+    masterBytes: prodBytes,
+    publishLog: [publishRow({ VERSION_NO: 3 })],
+    scriptProps: {
+      'PUBLISH_LAST_OUTPUT::MASTER1': JSON.stringify({
+        isoDate: TARGET_DATE, versionNo: 3,
+        fingerprint: md5Fingerprint(prodBytes), masterFileId: 'MASTER1'
+      })
+    }
+  });
+
+  const r = env.sandbox.runInvariantI06_();
+  assert.strictEqual(r.ok, true, r.evidence);
+  assert.ok(r.evidence.indexOf('不適用') !== -1, '沙盒那一條要講明不適用：' + r.evidence);
+});
+
+// ⚠️ Config 是「現在指住邊個」，發佈記錄是「當時寫咗邊個」——兩者不是同一
+//    件事，而且會不同。這一條用一個**與 Config 不同**的 MASTER_FILE_ID，
+//    證明 I06 真的看那一行自己記低的檔案。
+test('I06：用該行的 MASTER_FILE_ID 決定比對對象，不靠 Config 猜', function () {
+  // ⚠️ 真實情境：master 檔案換過一個（Config 已經改指 MASTER1），但
+  //    PublishLog 那一行記低的是**當時**那一個 OLD_MASTER。
+  //    Config 是「現在指住邊個」，發佈記錄是「當時寫咗邊個」——兩者
+  //    不是同一件事。靠 Config 猜的話，會去對一個從來沒有發佈過那一版
+  //    的檔案，然後報一個假的結果。
+  const oldBytes = [0x25, 0x50, 0x44, 0x46, 0x09];
+  const env = makeEnv({
+    config: { PUBLISHED_PDF_FILE_ID: 'MASTER1', SELFTEST_MASTER_PDF_FILE_ID: SANDBOX_MASTER },
+    masterBytes: [0x25, 0x50, 0x44, 0x46, 0x01],
+    extraPdfFiles: { OLD_MASTER: oldBytes },
+    publishLog: [publishRow({ VERSION_NO: 5, MASTER_FILE_ID: 'OLD_MASTER' })],
+    scriptProps: {
+      'PUBLISH_LAST_OUTPUT::OLD_MASTER': JSON.stringify({
+        isoDate: TARGET_DATE, versionNo: 5,
+        fingerprint: md5Fingerprint(oldBytes), masterFileId: 'OLD_MASTER'
+      })
+    }
+  });
+
+  const r = env.sandbox.runInvariantI06_();
+  assert.strictEqual(r.ok, true,
+    '應該去對 OLD_MASTER 的內容；靠 Config 猜就會去對 MASTER1，'
+    + '那裡沒有第 5 版的指紋記錄，於是報「驗證不到」：' + r.evidence);
+  assert.ok(r.evidence.indexOf('記錄：') !== -1,
+    '要講明檔案 ID 來自該行的記錄，不是 Config：' + r.evidence);
+});
+
+test('I06 紅：沙盒那一邊被人手改過 → 報紅，而且指名是沙盒那一條通道', function () {
+  const prodBytes = [0x25, 0x50, 0x44, 0x46, 0x01];
+  const env = makeEnv({
+    config: { PUBLISHED_PDF_FILE_ID: 'MASTER1', SELFTEST_MASTER_PDF_FILE_ID: SANDBOX_MASTER },
+    masterBytes: prodBytes,
+    sandboxMasterBytes: [0x25, 0x50, 0x44, 0x46, 0xAA],
+    publishLog: [
+      publishRow({ VERSION_NO: 3 }),
+      publishRow({ VERSION_NO: 7, MASTER_FILE_ID: SANDBOX_MASTER, IS_SELFTEST: true })
+    ],
+    scriptProps: {
+      'PUBLISH_LAST_OUTPUT::MASTER1': JSON.stringify({
+        isoDate: TARGET_DATE, versionNo: 3,
+        fingerprint: md5Fingerprint(prodBytes), masterFileId: 'MASTER1'
+      }),
+      ['PUBLISH_LAST_OUTPUT::' + SANDBOX_MASTER]: JSON.stringify({
+        isoDate: TARGET_DATE, versionNo: 7,
+        fingerprint: md5Fingerprint([0x25, 0x50, 0x44, 0x46, 0xBB]), masterFileId: SANDBOX_MASTER
+      })
+    }
+  });
+
+  const r = env.sandbox.runInvariantI06_();
+  assert.strictEqual(r.ok, false, r.evidence);
+  assert.ok(r.actual.indexOf('沙盒') !== -1, '要指名是哪一條通道：' + r.actual);
+  assert.ok(r.evidence.indexOf('被換過') !== -1, r.evidence);
+});
+
+// ⚠️ 兩條通道都驗不到 ≠ 沒問題。三個狀態，不是兩個。
+test('I06 ⚪：兩條通道都未發佈過 → 回「驗證不到」，不是綠', function () {
+  const env = makeEnv({
+    config: { PUBLISHED_PDF_FILE_ID: 'MASTER1', SELFTEST_MASTER_PDF_FILE_ID: SANDBOX_MASTER },
+    masterBytes: [0x25, 0x50, 0x44, 0x46],
+    publishLog: [publishRow({ VERSION_NO: 1 })]
+    // 沒有任何 PUBLISH_LAST_OUTPUT::* 記錄
+  });
+  const r = env.sandbox.runInvariantI06_();
+  assert.strictEqual(r.ok, null, JSON.stringify(r));
+});
+
+// =====================================================================
+// 每一條不變量的環境聲明（第二輪自測）
+// =====================================================================
+
+// ⚠️ 這一組是靜態檢查。一條不變量若引用任何「正式環境專用」的設定，在
+//    沙盒執行時就會必然失敗，並把本來通過的情境一併染紅（I06 就是這樣
+//    拖紅了 5 個情境）。所以每一條都要**明確聲明**它對哪一個環境成立。
+//    「沒有寫」不可以當成 ANY——漏寫與「檢視過、確認是 ANY」在程式碼裡
+//    看起來一模一樣。見 docs/已知bug類型.md 事故三十一。
+test('每一條不變量都有明確的環境聲明，而且是合法的值', function () {
+  const env = makeEnv({});
+  const defs = env.sandbox.invariantDefinitions_({ quarterId: '2027T4' }, {});
+  const allowed = Object.keys(env.sandbox.INVARIANT_ENVIRONMENT_)
+    .map(function (k) { return env.sandbox.INVARIANT_ENVIRONMENT_[k]; });
+
+  assert.strictEqual(defs.length, 10);
+  const bad = [];
+  defs.forEach(function (d) {
+    const checkId = d.id;
+    if (typeof d.environment !== 'string' || allowed.indexOf(d.environment) === -1) {
+      bad.push(checkId + ' 的 environment 缺少或不合法：' + JSON.stringify(d.environment));
+    }
+  });
+  assert.strictEqual(bad.length, 0, bad.join('\n  '));
+});
+
+test('每一條不變量的環境聲明都有一句理由（只寫一個值等於沒有檢視過）', function () {
+  const env = makeEnv({});
+  const defs = env.sandbox.invariantDefinitions_({ quarterId: '2027T4' }, {});
+  const bad = [];
+  defs.forEach(function (d) {
+    const checkId = d.id;
+    if (typeof d.environmentNote !== 'string' || d.environmentNote.trim().length < 10) {
+      bad.push(checkId + ' 沒有寫明為什麼是 ' + d.environment);
+    }
+  });
+  assert.strictEqual(bad.length, 0, bad.join('\n  '));
+});
+
+test('I06 是唯一一條要分通道的；其餘九條都是 ANY', function () {
+  const env = makeEnv({});
+  const defs = env.sandbox.invariantDefinitions_({ quarterId: '2027T4' }, {});
+  const perChannel = defs
+    .filter(function (d) { return d.environment === env.sandbox.INVARIANT_ENVIRONMENT_.PER_CHANNEL; })
+    .map(function (d) { return d.id; });
+  deepEq(perChannel, ['I06']);
+
+  const anyCount = defs.filter(function (d) {
+    return d.environment === env.sandbox.INVARIANT_ENVIRONMENT_.ANY;
+  }).length;
+  assert.strictEqual(anyCount, 9,
+    '逐條檢視的結果見 docs/待確認事項.md Q-2；改動之後兩邊都要更新');
+});
+
+// ⚠️ 這一條防的是「日後有人加一條引用正式環境設定的不變量，卻聲明成 ANY」。
+//    抓不到意圖，但抓得到「聲明了 PRODUCTION_ONLY 卻沒有處理沙盒」這種明顯
+//    的自相矛盾。
+test('聲明成 PRODUCTION_ONLY 的不變量，一條都不可以留在全域集合內', function () {
+  const env = makeEnv({});
+  const defs = env.sandbox.invariantDefinitions_({ quarterId: '2027T4' }, {});
+  const productionOnly = defs
+    .filter(function (d) { return d.environment === env.sandbox.INVARIANT_ENVIRONMENT_.PRODUCTION_ONLY; })
+    .map(function (d) { return d.id; });
+  const ran = env.sandbox.runAllInvariants_().results.map(function (r) { return r.id; });
+  productionOnly.forEach(function (checkId) {
+    assert.ok(ran.indexOf(checkId) === -1,
+      checkId + ' 聲明只在正式環境成立，就不可以每個情境都跑一次——'
+      + '它會在沙盒必然失敗並染紅不相干的情境');
+  });
+});
 
 test('I07 綠：產出沒有殘留佔位符', function () {
   const env = makeEnv({

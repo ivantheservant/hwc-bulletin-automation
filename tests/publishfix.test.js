@@ -559,6 +559,215 @@ test('9. PUBLISH_DEDUP_SEC 之內重複發佈同一主日 → 回「剛才已經
   assert.strictEqual(readPublishLog(env).length, 2, '既有一行 ＋ 第一次那一行；第二次不可以再加');
 });
 
+// ⚠️ 第二輪自測：S14「即刻再發佈同一份，沒有被擋住」報紅。
+//    先拿證據，不要先改防重複（prompt 第 2.1 節）。
+//
+//    上面第 9 條就是證據：同一個主日、視窗之內、**連內容都不同**，
+//    第二次照樣被擋住、版本號不變。防重複沒有壞。
+//
+//    S14 紅的原因是**測試依賴時間**：每個情境耗時 14 至 23 秒，而
+//    PUBLISH_DEDUP_SEC 只有 30 秒——由 S13 發佈完、跑完十條不變量、
+//    再到 S14 發佈，隨時已經超出視窗。所以改的是測試，不是防重複。
+//    見 docs/待確認事項.md Q-3。
+test('9b. 防重複沒有壞的直接證據：同一主日、視窗之內，連續兩次都擋得住', function () {
+  const env = makeEnv({ config: { PUBLISH_DEDUP_SEC: '30' } });
+
+  const first = publishOnce(env, PDF_A);
+  assert.strictEqual(first.duplicate, undefined, '第一次不可以被擋');
+  assert.strictEqual(first.published.versionNo, 1);
+
+  // 連續兩次再發佈，兩次之間不做任何其他事——這正是新版 S14 的做法。
+  //
+  // ⚠️ 第二、三次刻意用**另一份內容**：再上載同一份 A 的話，會先被
+  //    「你選的是目前已發佈的那一份」那一道防線擋住（checkUploadedPdfIsNew_
+  //    排在防重複之前），於是根本行不到防重複那一步——被擋住的原因就
+  //    分不清是哪一道防線。要驗防重複，就一定要令另外那一道防線放行。
+  const second = publishOnce(env, PDF_B);
+  const third = publishOnce(env, PDF_B);
+
+  assert.strictEqual(second.duplicate, true);
+  assert.strictEqual(third.duplicate, true);
+  assert.strictEqual(second.published.versionNo, 1);
+  assert.strictEqual(third.published.versionNo, 1);
+  assert.strictEqual(readPublishLog(env).length, 2,
+    '既有一行 ＋ 第一次那一行；第二、三次一行都不可以再加');
+});
+
+// ⚠️ 這一條記錄的是**現行行為**，不是「應該如此」的定論：防重複只看
+//    時間，不看內容——同一個主日、視窗之內、就算內容真的改過，一樣會
+//    被擋。好處是撳多一次一定擋得住；壞處是幹事見到錯字、即刻改完再
+//    發佈，會被靜靜當成「撳多了一次」，那個修正**不會**上到網站。
+//
+//    prompt 第 2.3 節提過「同一主日、不同內容、視窗之內應該不擋」，但
+//    那一節的前提是「證據顯示防重複真的失效」——證據顯示它沒有失效，
+//    所以這一輪不改行為，只把這個取捨寫成測試與 docs/待確認事項.md Q-4，
+//    交 Ivan 決定。
+test('9c. 現行行為：同一主日、視窗之內、內容不同，一樣會被擋（取捨已記錄）', function () {
+  const env = makeEnv({ config: { PUBLISH_DEDUP_SEC: '30' } });
+  publishOnce(env, PDF_A);
+  const second = publishOnce(env, PDF_B);
+  assert.strictEqual(second.duplicate, true,
+    '如果哪一日改成「內容不同就不擋」，這一條會紅——那時要一併更新 Q-4');
+  assert.strictEqual(second.published.versionNo, 1);
+});
+
+// =====================================================================
+// 9d-9h. PublishLog 兩個新欄位（第二輪自測）
+// =====================================================================
+
+test('9d. PublishLog 有 MASTER_FILE_ID 與 IS_SELFTEST，而且加在最尾', function () {
+  const env = makeEnv({});
+  const keys = env.sandbox.COLUMNS.PUBLISH_LOG.keys;
+  assert.strictEqual(keys[keys.length - 2], 'MASTER_FILE_ID');
+  assert.strictEqual(keys[keys.length - 1], 'IS_SELFTEST');
+  assert.strictEqual(keys.length, env.sandbox.COLUMNS.PUBLISH_LOG.headers.length);
+  assert.strictEqual(keys.length, env.sandbox.COLUMNS.PUBLISH_LOG.types.length);
+});
+
+test('9e. 正式發佈：MASTER_FILE_ID 記低實際覆寫的檔案，IS_SELFTEST 是 FALSE', function () {
+  const env = makeEnv({ config: { PUBLISH_DEDUP_SEC: '0' } });
+  publishOnce(env, PDF_A);
+  const row = readPublishLog(env).filter(function (r) {
+    return env.sandbox.publishRowIsoDate_(r) === TARGET_DATE;
+  })[0];
+  assert.strictEqual(row.MASTER_FILE_ID, MASTER_FILE_ID);
+  assert.strictEqual(row.IS_SELFTEST, false);
+});
+
+// ⚠️ IS_SELFTEST 刻意由「覆寫的檔案 === SELFTEST_MASTER_PDF_FILE_ID」推出來，
+//    不是靠呼叫方傳旗標。旗標會有人忘記傳，而忘記傳的後果是自測發佈被記成
+//    正式發佈——那正是第二輪要修的東西。
+test('9f. 覆寫的是沙盒 master → IS_SELFTEST 自動變 TRUE，不需要呼叫方傳旗標', function () {
+  const env = makeEnv({
+    config: { PUBLISH_DEDUP_SEC: '0', SELFTEST_MASTER_PDF_FILE_ID: MASTER_FILE_ID }
+  });
+  publishOnce(env, PDF_A);
+  const row = readPublishLog(env).filter(function (r) {
+    return env.sandbox.publishRowIsoDate_(r) === TARGET_DATE;
+  })[0];
+  assert.strictEqual(row.IS_SELFTEST, true);
+  assert.strictEqual(row.MASTER_FILE_ID, MASTER_FILE_ID);
+});
+
+test('9g. isSelfTestMasterFileId_：沙盒未設定時一律 false（空字串不等於任何檔案）', function () {
+  const env = makeEnv({ config: { SELFTEST_MASTER_PDF_FILE_ID: '' } });
+  assert.strictEqual(env.sandbox.isSelfTestMasterFileId_(''), false);
+  assert.strictEqual(env.sandbox.isSelfTestMasterFileId_(MASTER_FILE_ID), false);
+});
+
+// ⚠️ 指紋要**一個 master 檔案一份**。舊版只有一個共用的鍵，於是自測機
+//    發佈完沙盒 master 之後，正式那一份指紋即刻被蓋走——I06 之後拿沙盒
+//    的指紋去對正式檔案，必然對不上，而且再也復原不到。
+test('9h. 沙盒發佈不會蓋走正式那一份指紋（一個 master 檔案一份）', function () {
+  const env = makeEnv({
+    config: { PUBLISH_DEDUP_SEC: '0', SELFTEST_MASTER_PDF_FILE_ID: 'SANDBOX_MASTER' }
+  });
+
+  // 先做一次正式發佈。
+  publishOnce(env, PDF_A);
+  const production = env.sandbox.readPublishOutputFingerprint_(MASTER_FILE_ID);
+  assert.ok(production, '正式那一份要記得到');
+  assert.strictEqual(production.masterFileId, MASTER_FILE_ID);
+
+  // 再模擬一次沙盒發佈（直接叫記錄函式，不需要真的覆寫另一個檔案）。
+  env.sandbox.recordPublishOutputFingerprint_(TARGET_DATE, 9, 'SANDBOX_FINGERPRINT', 'SANDBOX_MASTER');
+
+  const after = env.sandbox.readPublishOutputFingerprint_(MASTER_FILE_ID);
+  assert.strictEqual(after.fingerprint, production.fingerprint,
+    '沙盒發佈不可以蓋走正式那一份');
+  assert.strictEqual(after.versionNo, production.versionNo);
+
+  const sandbox = env.sandbox.readPublishOutputFingerprint_('SANDBOX_MASTER');
+  assert.strictEqual(sandbox.fingerprint, 'SANDBOX_FINGERPRINT');
+  assert.strictEqual(sandbox.versionNo, 9);
+});
+
+test('9i. 舊鍵（加欄之前的記錄）只算正式那一邊，不會被當成沙盒的指紋', function () {
+  const env = makeEnv({
+    config: { SELFTEST_MASTER_PDF_FILE_ID: 'SANDBOX_MASTER' },
+    scriptProps: {
+      PUBLISH_LAST_OUTPUT: JSON.stringify({ isoDate: TARGET_DATE, versionNo: 4, fingerprint: 'OLD' })
+    }
+  });
+
+  const production = env.sandbox.readPublishOutputFingerprint_(MASTER_FILE_ID);
+  assert.ok(production, '正式那一邊要退回舊鍵讀得到');
+  assert.strictEqual(production.fingerprint, 'OLD');
+
+  const sandbox = env.sandbox.readPublishOutputFingerprint_('SANDBOX_MASTER');
+  assert.strictEqual(sandbox, null,
+    '拿正式那一份指紋去對沙盒檔案，會報一個假的「不一致」——寧可回 null');
+});
+
+// =====================================================================
+// 9j-9m. PublishLog 歷史資料補寫
+// =====================================================================
+
+function publishLogRow(overrides) {
+  return Object.assign({
+    SERVICE_DATE: '2027-10-31', VERSION_NO: 1, PUBLISHED_AT: '2027-10-30',
+    PUBLISHED_BY: 'tester@example.com', ARCHIVE_FILE_ID: 'OLD', SENT: true,
+    SENT_GROUPS: 'CC,DB', MISSING_COUNT: 0, FORCED: false, FORCED_REASON: ''
+  }, overrides || {});
+}
+
+test('9j. 補寫歷史資料：MASTER_FILE_ID 填正式那個、IS_SELFTEST 填 FALSE', function () {
+  const env = makeEnv({ publishLog: [publishLogRow(), publishLogRow({ VERSION_NO: 2 })] });
+
+  const result = env.sandbox.backfillPublishLogMasterFileId_();
+  assert.strictEqual(result.filled, 2);
+  assert.strictEqual(result.skipped, 0);
+
+  const rows = readPublishLog(env);
+  rows.forEach(function (r) {
+    assert.strictEqual(r.MASTER_FILE_ID, MASTER_FILE_ID);
+    assert.strictEqual(r.IS_SELFTEST, false);
+  });
+});
+
+// ⚠️ 重跑「初始化工作表」是常事。第二次跑不可以把真正的自測紀錄改成 FALSE。
+test('9k. 補寫只補空白的格，已經有值的一行都不動（可以重複跑）', function () {
+  const env = makeEnv({
+    publishLog: [
+      publishLogRow({ MASTER_FILE_ID: 'SANDBOX_MASTER', IS_SELFTEST: true }),
+      publishLogRow({ VERSION_NO: 2 })
+    ]
+  });
+
+  const result = env.sandbox.backfillPublishLogMasterFileId_();
+  assert.strictEqual(result.filled, 1, '只有第二行需要補');
+
+  const rows = readPublishLog(env);
+  assert.strictEqual(rows[0].MASTER_FILE_ID, 'SANDBOX_MASTER', '已經有值的不可以被改');
+  assert.strictEqual(rows[0].IS_SELFTEST, true);
+  assert.strictEqual(rows[1].MASTER_FILE_ID, MASTER_FILE_ID);
+  assert.strictEqual(rows[1].IS_SELFTEST, false);
+
+  // 再跑一次：一行都不應該再補。
+  assert.strictEqual(env.sandbox.backfillPublishLogMasterFileId_().filled, 0);
+});
+
+// ⚠️ 填一個空字串當成「已補寫」，等於把「不知道」記成「知道，是空的」。
+test('9l. PUBLISHED_PDF_FILE_ID 是空的 → MASTER_FILE_ID 留空並報「補寫不到」', function () {
+  const env = makeEnv({ noMasterFile: true, publishLog: [publishLogRow()] });
+
+  const result = env.sandbox.backfillPublishLogMasterFileId_();
+  assert.strictEqual(result.filled, 0);
+  assert.strictEqual(result.skipped, 1);
+  assert.ok(result.skipReason.indexOf('PUBLISHED_PDF_FILE_ID') !== -1, result.skipReason);
+
+  const row = readPublishLog(env)[0];
+  assert.strictEqual(String(row.MASTER_FILE_ID || ''), '');
+  assert.strictEqual(row.IS_SELFTEST, false, 'IS_SELFTEST 是確定的，照樣要補');
+});
+
+test('9m. PublishLog 一行都沒有 → 補寫回 0，不會拋錯', function () {
+  const env = makeEnv({ publishLog: [] });
+  const result = env.sandbox.backfillPublishLogMasterFileId_();
+  assert.strictEqual(result.filled, 0);
+  assert.strictEqual(result.skipped, 0);
+});
+
 test('10. 超過 PUBLISH_DEDUP_SEC → 正常產生新版本', function () {
   const env = makeEnv({ config: { PUBLISH_DEDUP_SEC: '30' } });
   publishOnce(env, PDF_A);

@@ -49,7 +49,12 @@
 
 /** 情境的四種結果。`SKIPPED` 是「前置條件未滿足」，不是通過。 */
 var SELF_TEST_RESULT_ = Object.freeze({
-  PASS: 'PASS', FAIL: 'FAIL', SKIPPED: 'SKIPPED', PENDING: 'PENDING'
+  PASS: 'PASS', FAIL: 'FAIL', SKIPPED: 'SKIPPED', PENDING: 'PENDING',
+  // ⚠️ 第二輪自測新增：情境本身通過，但跑完之後某一條不變量不成立。
+  //    刻意**不**當成 FAIL：一條不變量不成立會令它後面每一個情境一齊
+  //    變紅，看報告的人會以為六個功能壞了，實際只有一條不變量要查。
+  //    也刻意**不**當成 PASS——那樣等於放過一個真的問題。
+  INVARIANT_WARNING: 'INVARIANT_WARNING'
 });
 
 /** 沙盒內容表檔名的後綴——確保永遠不會撞正式那一個。 */
@@ -414,7 +419,7 @@ function selfTestScenarios_() {
     { id: 'S11', name: '產生 Word（浸禮合堂，副框六欄全空）：整個表格已刪', run: selfTestS11_ },
     { id: 'S12', name: '浸禮副框只填主禮：第 1 列在、第 2、3 列已刪', run: selfTestS12_ },
     { id: 'S13', name: '發佈：MD5 改變、版本 +1、存檔副本在、檔案 ID 不變', run: selfTestS13_ },
-    { id: 'S14', name: '即刻再發佈同一份：被防重複擋住，版本號不變', run: selfTestS14_ },
+    { id: 'S14', name: '連續發佈同一份兩次：第二次被防重複擋住，版本號不變', run: selfTestS14_ },
     { id: 'S15', name: '發佈上載 master 目前那一份：被拒，訊息正確', run: selfTestS15_ },
     { id: 'S16', name: '寄出（DRY_RUN）：預覽人數 === SendLog 封數，且有記內文', run: selfTestS16_ },
     { id: 'S17', name: '未填欄位檢查：清單條數 === 實際空格數', run: selfTestS17_ },
@@ -1114,6 +1119,9 @@ function selfTestS13_(ctx) {
   }
 
   ctx.lastPublishedPdfBase64 = Utilities.base64Encode(pdf.getBytes());
+  // ⚠️ 記低「S13 這一次發佈是幾時」，S14 的證據要講得出 S13 → S14 相隔多少秒。
+  ctx.lastPublishAtMs = new Date().getTime();
+  ctx.lastPublishIsoDate = isoDate;
 
   var afterFingerprint = pdfFingerprint_(readMasterPdfBytes_(config.masterFileId) || []);
   var fingerprintChanged = Boolean(afterFingerprint) && afterFingerprint !== beforeFingerprint;
@@ -1131,35 +1139,120 @@ function selfTestS13_(ctx) {
 }
 
 /**
- * S14：即刻再發佈同一份 → 斷言被防重複擋住，版本號不變。
+ * S14：連續發佈同一份兩次 → 斷言第二次被防重複擋住，版本號不變。
+ *
+ *   ⚠️ 第二輪自測改寫。舊版靠「S13 剛剛發佈過」這個前提，然後在 S14 再
+ *   發佈一次，期望被擋。但每個情境耗時 14 至 23 秒，而 `PUBLISH_DEDUP_SEC`
+ *   只有 30 秒——由 S13 發佈完到 S14 再發佈，隨時已經超出視窗。那樣 S14
+ *   紅的原因不是「防重複壞了」，而是**測試本身依賴時間**。
+ *
+ *   現在改成**自給自足**：S14 自己連續發佈兩次（兩份**不同內容**的 PDF，
+ *   理由見下面），兩次之間不做任何其他事。
+ *   而且刻意用**另一個主日**（`dates[1]`），令 S13 留下的時間戳完全影響
+ *   不到這一條——防重複的時間戳是逐個主日分開存的
+ *   （`PUBLISH_LAST_KEY_PREFIX_ + isoDate`）。
+ *
+ *   ⚠️ 證據欄仍然會報「S13 → S14 相隔多少秒」與 `PUBLISH_DEDUP_SEC` 的現值
+ *   ——那是判斷「舊版為什麼會紅」的原始資料，不可以因為改了測試法就不再
+ *   報。看報告的人有權自己看一眼那個數。
  */
 function selfTestS14_(ctx) {
   var config = ctx.config;
+
+  // ⚠️ 時間證據**先算**，而且連略過那一條路都要附上去。prompt 要的是
+  //    「先看清楚才改」——如果只在跑得到的時候才報，那正正是看不到的
+  //    那幾次（例如沙盒 master 未設定）最需要那個數。
+  var dedupSec = normalizeInt_(getConfig(CONFIG_KEYS.PUBLISH_DEDUP_SEC, '30'));
+  var gapText = selfTestDescribePublishGap_(ctx, dedupSec);
+
   var guard = selfTestPublishGuard_(config);
-  if (guard) return guard;
-  if (!ctx.lastPublishedPdfBase64) {
-    return selfTestOutcome_(null, 'S13 已經發佈過一次', 'S13 未跑或未成功', '請先跑 S13。');
+  if (guard) {
+    return selfTestOutcome_(guard.ok, guard.expected, guard.actual, guard.evidence + '　' + gapText);
   }
 
   var dates = selfTestSandboxDates_(config);
-  var isoDate = dates[0];
+  if (dates.length < 2) {
+    return selfTestOutcome_(null, '沙盒季度至少有兩個主日', dates.length + ' 個',
+      'S14 刻意用另一個主日，令 S13 留下的防重複時間戳影響不到這一條。' + gapText);
+  }
+
+  var isoDate = dates[1];
+  assertSelfTestWritableDate_(isoDate, config);
+
   var versionBefore = nextPublishVersion_(readSheet(SHEETS.PUBLISH_LOG), isoDate) - 1;
 
-  // 用一份**不同內容**的 PDF，確保被擋住的原因是防重複、不是「揀錯檔案」。
-  var pdf = selfTestMakePdfBlob_('自測發佈第二次 ' + ctx.runId);
-  var result = selfTestRunPublish_(config, {
+  // ⚠️ 兩次刻意用**不同內容**的 PDF。再上載同一份的話，會先被「你選的是
+  //    目前已發佈的那一份」那一道防線擋住（checkUploadedPdfIsNew_ 排在
+  //    防重複之前），於是根本行不到防重複那一步——被擋住的原因就分不清
+  //    是哪一道防線。要驗防重複，就一定要令另外那一道防線放行。
+  //    見 docs/待確認事項.md Q-5。
+  var pdfFirst = Utilities.base64Encode(selfTestMakePdfBlob_('自測防重複甲 ' + ctx.runId).getBytes());
+  var pdfSecond = Utilities.base64Encode(selfTestMakePdfBlob_('自測防重複乙 ' + ctx.runId).getBytes());
+
+  // ---- 第一次：應該成功 ----
+  var firstMs = new Date().getTime();
+  var first = selfTestRunPublish_(config, {
     isoDate: isoDate, doPublish: true, doSend: false,
-    pdfBase64: Utilities.base64Encode(pdf.getBytes()),
-    pdfName: '自測2.pdf', confirmed: true
+    pdfBase64: pdfFirst, pdfName: '自測防重複甲.pdf', confirmed: true
   });
+  if (!first.ok || first.duplicate === true) {
+    return selfTestOutcome_(false, '第一次發佈成功',
+      first.ok ? '第一次就被防重複擋住' : ('失敗：' + first.reason),
+      '主日 ' + isoDate + '；' + (first.message || (first.lines || []).join(' ')) + '　' + gapText);
+  }
+  var versionAfterFirst = nextPublishVersion_(readSheet(SHEETS.PUBLISH_LOG), isoDate) - 1;
 
+  // ---- 第二次：立即再發佈同一份，兩次之間不做任何其他事 ----
+  var second = selfTestRunPublish_(config, {
+    isoDate: isoDate, doPublish: true, doSend: false,
+    pdfBase64: pdfSecond, pdfName: '自測防重複乙.pdf', confirmed: true
+  });
+  var elapsedSec = Math.round((new Date().getTime() - firstMs) / 1000);
   var versionAfter = nextPublishVersion_(readSheet(SHEETS.PUBLISH_LOG), isoDate) - 1;
-  var ok = result.ok === true && result.duplicate === true && versionAfter === versionBefore;
 
-  return selfTestOutcome_(ok, '被防重複擋住、版本號維持 ' + versionBefore,
-    (result.duplicate ? '被擋住' : '沒有被擋住') + '、版本號 ' + versionAfter,
-    '主日 ' + isoDate + '；回覆：' + ((result.lines || []).join(' ') || result.message || '')
-      + '；PUBLISH_DEDUP_SEC=' + getConfig(CONFIG_KEYS.PUBLISH_DEDUP_SEC, '30'));
+  var blocked = second.ok === true && second.duplicate === true;
+  var versionHeld = versionAfter === versionAfterFirst;
+  var ok = blocked && versionHeld;
+
+  return selfTestOutcome_(ok,
+    '第二次被防重複擋住、版本號維持 ' + versionAfterFirst,
+    (blocked ? '被擋住' : '沒有被擋住') + '、版本號 ' + versionAfter,
+    '主日 ' + isoDate + '（刻意用 S13 以外那一個）；'
+      + '第一次發佈後版本 ' + versionBefore + '→' + versionAfterFirst + '；'
+      + '兩次之間相隔約 ' + elapsedSec + ' 秒，PUBLISH_DEDUP_SEC=' + dedupSec + '；'
+      + '第二次回覆：' + ((second.lines || []).join(' ') || second.message || '')
+      + '　' + gapText);
+}
+
+/**
+ * 用途：把「S13 那一次發佈 → 現在」相隔多少秒排成一句證據。
+ *
+ *   ⚠️ 這一句是第二輪自測要拿的**原始資料**：舊版 S14 靠「S13 剛剛發佈過」
+ *   這個前提，而每個情境耗時 14 至 23 秒、視窗只有 30 秒——到底有沒有超出
+ *   視窗，要看得見那個數才講得準，不可以靠估。
+ * Args:
+ *   ctx {Object} 自測執行內容。
+ *   dedupSec {?number} `PUBLISH_DEDUP_SEC` 的現值。
+ * Returns:
+ *   {string}
+ */
+function selfTestDescribePublishGap_(ctx, dedupSec) {
+  var seconds = Number(dedupSec);
+  if (!ctx || !ctx.lastPublishAtMs) {
+    return '（S13 未記下發佈時刻，講不出 S13 → S14 相隔多少秒。）';
+  }
+  var gapSec = Math.round((new Date().getTime() - ctx.lastPublishAtMs) / 1000);
+  var verdict;
+  if (!(seconds > 0)) {
+    verdict = 'PUBLISH_DEDUP_SEC 不是正數，防重複等於關閉';
+  } else if (gapSec > seconds) {
+    verdict = '已經超出視窗——舊版 S14 在這個情況下必然「擋不住」，'
+      + '那不是防重複壞了，是測試依賴時間';
+  } else {
+    verdict = '仍在視窗之內';
+  }
+  return '（參考：S13 於 ' + gapSec + ' 秒前發佈 ' + (ctx.lastPublishIsoDate || '')
+    + '，PUBLISH_DEDUP_SEC=' + dedupSec + '，' + verdict + '。）';
 }
 
 /**
@@ -1553,10 +1646,12 @@ function runSelfTest_(options) {
       elapsedMs: finishedAt.getTime() - startedAt.getTime()
     };
 
-    // 不變量紅了就算情境本身通過，整條也要變紅——「這一步做對了，但系統
-    // 因此進入一個自相矛盾的狀態」跟「這一步做錯了」一樣嚴重。
+    // 不變量紅了，就算情境本身通過，整條也不可以當成綠——「這一步做對了，
+    // 但系統因此進入一個自相矛盾的狀態」仍然要有人去查。
+    //
+    // ⚠️ 但它是**另一種**紅：報告要分開講，見 buildSelfTestReportLines_()。
     if (record.result === SELF_TEST_RESULT_.PASS && invariants.failedCount > 0) {
-      record.result = SELF_TEST_RESULT_.FAIL;
+      record.result = SELF_TEST_RESULT_.INVARIANT_WARNING;
       record.actual += '；不變量 ' + record.invariantFailures.join('、') + ' 不成立';
       record.evidence += '　⚠️ 情境本身通過，但跑完之後不變量不成立：'
         + invariants.failed.map(function (f) {
@@ -1575,18 +1670,15 @@ function runSelfTest_(options) {
     .filter(function (s) { return !doneIds[s.id] && !doneNow[s.id]; })
     .map(function (s) { return s.id; });
 
-  var summary = {
+  var summary = Object.assign({
     ok: true,
     runId: runId,
     message: '',
     results: results,
-    passCount: results.filter(function (r) { return r.result === SELF_TEST_RESULT_.PASS; }).length,
-    failCount: results.filter(function (r) { return r.result === SELF_TEST_RESULT_.FAIL; }).length,
-    skipCount: results.filter(function (r) { return r.result === SELF_TEST_RESULT_.SKIPPED; }).length,
     pendingIds: pendingIds,
     stoppedForTime: stoppedForTime,
     totalScenarios: scenarios.length
-  };
+  }, selfTestSummaryCounts_(results));
 
   writeDiagnosticsReport_('自測機報告', buildSelfTestReportLines_(summary));
   return summary;
@@ -1678,11 +1770,8 @@ function selfTestFinishedScenarioIds_(runId) {
  */
 function buildSelfTestReportLines_(summary) {
   var lines = [];
-  var total = summary.totalScenarios || summary.results.length;
 
-  lines.push('自測機：' + total + ' 個情境，'
-    + summary.passCount + ' 綠 ' + summary.failCount + ' 紅 '
-    + summary.skipCount + ' 略過 ' + summary.pendingIds.length + ' 未跑');
+  lines.push('自測機：' + selfTestCountsPhrase_(summary));
   lines.push('執行編號：' + summary.runId);
 
   if (summary.stoppedForTime) {
@@ -1693,16 +1782,44 @@ function buildSelfTestReportLines_(summary) {
       + summary.pendingIds.join('、') + '），請執行〔繼續跑自測〕。');
   }
 
+  // ⚠️ 兩種紅要分開講。第二輪自測 18 個情境 6 紅，其中 5 個是同一條不變量
+  //    （I06）拖出來的——那 5 個情境自己全部寫住「實際：符合」。混在一起
+  //    顯示的話，看報告的人會以為六個功能壞了，實際只有一個要查。
+  //    見 docs/已知bug類型.md 事故三十一。
   var failed = summary.results.filter(function (r) { return r.result === SELF_TEST_RESULT_.FAIL; });
   if (failed.length > 0) {
     lines.push('');
-    lines.push('【不通過】');
+    lines.push('【情境本身失敗】　← 真的要修的東西');
     failed.forEach(function (r) {
       lines.push('');
       var failedLabel = r.id + '　' + r.name;
       lines.push('🔴 ' + failedLabel);
       lines.push('　　預期：' + r.expected);
       lines.push('　　實際：' + r.actual);
+      lines.push('　　證據：' + r.evidence);
+    });
+  }
+
+  var warned = summary.results.filter(function (r) {
+    return r.result === SELF_TEST_RESULT_.INVARIANT_WARNING;
+  });
+  if (warned.length > 0) {
+    lines.push('');
+    lines.push('【情境通過，但不變量不成立】　← 通常是不變量自己的問題');
+    var warnedIds = {};
+    warned.forEach(function (r) {
+      (r.invariantFailures || []).forEach(function (checkId) { warnedIds[checkId] = true; });
+    });
+    lines.push('　　牽涉的不變量：' + Object.keys(warnedIds).sort().join('、')
+      + '；受影響的情境 ' + warned.length + ' 個。');
+    lines.push('　　⚠️ 一條不變量不成立，會令它後面每一個情境一齊變黃。'
+      + '先查那一條不變量，不要逐個情境查。');
+    warned.forEach(function (r) {
+      lines.push('');
+      var warnedLabel = r.id + '　' + r.name;
+      lines.push('🟡 ' + warnedLabel);
+      lines.push('　　情境本身：通過（' + r.expected + '）');
+      lines.push('　　不成立的不變量：' + (r.invariantFailures || []).join('、'));
       lines.push('　　證據：' + r.evidence);
     });
   }
@@ -1731,6 +1848,48 @@ function buildSelfTestReportLines_(summary) {
 }
 
 /**
+ * 用途：把四種結果數成一句話。**純函式。**
+ *
+ *   ⚠️ 「不變量警告」一定要單獨數出來，不可以併入「通過」也不可以併入
+ *   「失敗」。併入通過等於放過一個真的問題；併入失敗等於把一個要查的
+ *   問題報成六個。
+ * Args:
+ *   summary {Object} 帶 totalScenarios／各項數目／pendingIds。
+ * Returns:
+ *   {string}
+ */
+function selfTestCountsPhrase_(summary) {
+  var total = summary.totalScenarios || summary.results.length;
+  return total + ' 個情境，'
+    + summary.passCount + ' 通過 '
+    + summary.failCount + ' 失敗 '
+    + (summary.invariantWarningCount || 0) + ' 不變量警告 '
+    + summary.skipCount + ' 略過'
+    + (summary.pendingIds.length > 0 ? ('　' + summary.pendingIds.length + ' 未跑') : '');
+}
+
+/**
+ * 用途：由一批情境結果算出各種數目。**純函式**，令兩個呼叫方
+ *   （`runSelfTest_()` 與〔查看自測報告〕）不會各數一次而數法不同。
+ * Args:
+ *   results {Object[]}
+ * Returns:
+ *   {{passCount:number, failCount:number, invariantWarningCount:number,
+ *     skipCount:number}}
+ */
+function selfTestSummaryCounts_(results) {
+  function countOf(state) {
+    return (results || []).filter(function (r) { return r.result === state; }).length;
+  }
+  return {
+    passCount: countOf(SELF_TEST_RESULT_.PASS),
+    failCount: countOf(SELF_TEST_RESULT_.FAIL),
+    invariantWarningCount: countOf(SELF_TEST_RESULT_.INVARIANT_WARNING),
+    skipCount: countOf(SELF_TEST_RESULT_.SKIPPED)
+  };
+}
+
+/**
  * 用途：把自測結果縮成對話框要顯示的摘要。**純函式。**
  * Args:
  *   summary {Object} `runSelfTest_()` 的回傳值。
@@ -1740,10 +1899,21 @@ function buildSelfTestReportLines_(summary) {
 function buildSelfTestShortSummary_(summary) {
   if (!summary.ok) return summary.message;
 
-  var total = summary.totalScenarios || summary.results.length;
-  var lines = ['自測機：' + total + ' 個情境，'
-    + summary.passCount + ' 綠 ' + summary.failCount + ' 紅 '
-    + summary.skipCount + ' 略過 ' + summary.pendingIds.length + ' 未跑'];
+  var lines = ['自測機：' + selfTestCountsPhrase_(summary)];
+
+  var warned = summary.results.filter(function (r) {
+    return r.result === SELF_TEST_RESULT_.INVARIANT_WARNING;
+  });
+  if (warned.length > 0) {
+    var warnedIds = {};
+    warned.forEach(function (r) {
+      (r.invariantFailures || []).forEach(function (checkId) { warnedIds[checkId] = true; });
+    });
+    lines.push('');
+    lines.push('🟡 ' + warned.length + ' 個情境本身通過，但不變量 '
+      + Object.keys(warnedIds).sort().join('、') + ' 不成立。'
+      + '先查那一條不變量，不要逐個情境查。');
+  }
 
   summary.results.filter(function (r) { return r.result === SELF_TEST_RESULT_.FAIL; })
     .forEach(function (r) {
@@ -1849,15 +2019,12 @@ function menuShowSelfTestReport_() {
 
     var scenarioIds = selfTestScenarios_().map(function (s) { return s.id; });
     var doneIds = results.map(function (r) { return r.id; });
-    var summary = {
+    var summary = Object.assign({
       ok: true, runId: runId, message: '', results: results,
-      passCount: results.filter(function (r) { return r.result === SELF_TEST_RESULT_.PASS; }).length,
-      failCount: results.filter(function (r) { return r.result === SELF_TEST_RESULT_.FAIL; }).length,
-      skipCount: results.filter(function (r) { return r.result === SELF_TEST_RESULT_.SKIPPED; }).length,
       pendingIds: scenarioIds.filter(function (id) { return doneIds.indexOf(id) === -1; }),
       stoppedForTime: false,
       totalScenarios: scenarioIds.length
-    };
+    }, selfTestSummaryCounts_(results));
 
     writeDiagnosticsReport_('自測機報告', buildSelfTestReportLines_(summary));
     ui.alert('查看自測報告', buildSelfTestShortSummary_(summary), ui.ButtonSet.OK);

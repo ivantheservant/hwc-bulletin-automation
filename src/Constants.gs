@@ -389,18 +389,27 @@ var COLUMNS = Object.freeze({
   },
 
   // R-009：每次發佈記一行。同一個主日再發佈，`VERSION_NO` 加一。
+  // ⚠️ 第二輪自測新增最後兩欄 MASTER_FILE_ID／IS_SELFTEST（一律加在**最尾**，
+  //    ensureSheet_() 只會重寫第 1、2 行）。沒有這兩欄的話，發佈記錄講不出
+  //    「這一次覆寫了哪一個檔案」，於是不變量 I06 唯有假設「最新一行 ＝ 正式
+  //    master」——自測機發佈完沙盒 master 之後，那個假設即刻不成立，I06 由此
+  //    永遠失敗，並把 S13 之後每一個情境一齊染紅。見 docs/已知bug類型.md
+  //    事故三十一。
   PUBLISH_LOG: {
     headers: [
       '主日日期', '版本', '發佈時間', '發佈人', '存檔檔案 ID',
-      '是否有寄出', '收件組別', '未填欄位數', '是否強制發佈', '強制原因'
+      '是否有寄出', '收件組別', '未填欄位數', '是否強制發佈', '強制原因',
+      'master 檔案 ID', '是否自測'
     ],
     keys: [
       'SERVICE_DATE', 'VERSION_NO', 'PUBLISHED_AT', 'PUBLISHED_BY', 'ARCHIVE_FILE_ID',
-      'SENT', 'SENT_GROUPS', 'MISSING_COUNT', 'FORCED', 'FORCED_REASON'
+      'SENT', 'SENT_GROUPS', 'MISSING_COUNT', 'FORCED', 'FORCED_REASON',
+      'MASTER_FILE_ID', 'IS_SELFTEST'
     ],
     types: [
       'DATE', 'INT', 'DATE', 'TEXT', 'TEXT',
-      'BOOLEAN', 'TEXT', 'INT', 'BOOLEAN', 'TEXT'
+      'BOOLEAN', 'TEXT', 'INT', 'BOOLEAN', 'TEXT',
+      'TEXT', 'BOOLEAN'
     ]
   },
 

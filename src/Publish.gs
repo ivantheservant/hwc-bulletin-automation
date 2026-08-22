@@ -806,12 +806,61 @@ function recordPublishStamp_(isoDate, versionNo, nowMs) {
  * Returns:
  *   {boolean}
  */
-function recordPublishOutputFingerprint_(isoDate, versionNo, fingerprint) {
-  return writePublishScriptProperty_(PUBLISH_LAST_OUTPUT_KEY_, JSON.stringify({
+function recordPublishOutputFingerprint_(isoDate, versionNo, fingerprint, masterFileId) {
+  var fileId = String(masterFileId || '').trim();
+  var payload = JSON.stringify({
     isoDate: String(isoDate || ''),
     versionNo: Number(versionNo),
-    fingerprint: String(fingerprint || '')
-  }));
+    fingerprint: String(fingerprint || ''),
+    masterFileId: fileId
+  });
+
+  // ⚠️ **一個 master 檔案一份指紋**。舊版只有一個共用的鍵，於是自測機
+  //    發佈完沙盒 master 之後，正式那一份指紋即刻被蓋走——I06 之後拿沙盒
+  //    的指紋去對正式檔案的內容，必然對不上，而且再也復原不到。
+  //    見 docs/已知bug類型.md 事故三十一。
+  var ok = true;
+  if (fileId) {
+    ok = writePublishScriptProperty_(publishOutputFingerprintKey_(fileId), payload);
+  }
+
+  // 舊鍵繼續寫，但**只在正式發佈時寫**——它是「最後一次正式發佈」的意思，
+  // 沙盒發佈不可以碰它。
+  if (!isSelfTestMasterFileId_(fileId)) {
+    ok = writePublishScriptProperty_(PUBLISH_LAST_OUTPUT_KEY_, payload) && ok;
+  }
+  return ok;
+}
+
+/**
+ * 用途：某一個 master 檔案的指紋記錄，存在哪一個 Script Property 鍵。
+ * Args:
+ *   masterFileId {string}
+ * Returns:
+ *   {string}
+ */
+function publishOutputFingerprintKey_(masterFileId) {
+  return PUBLISH_LAST_OUTPUT_KEY_ + '::' + String(masterFileId || '').trim();
+}
+
+/**
+ * 用途：判斷一個 master 檔案 ID 是不是**自測機專用**那一個。
+ *
+ *   ⚠️ 刻意由「它等於 `SELFTEST_MASTER_PDF_FILE_ID`」推出來，不是靠呼叫方
+ *   自己傳一個旗標下來。旗標會有人忘記傳，而忘記傳的後果是自測發佈被記成
+ *   正式發佈——那正是這一輪要修的東西。自測機開跑前已經斷言兩個 ID 不可以
+ *   相同（見 `assertSelfTestSandbox_()`），所以這個推論沒有歧義。
+ * Args:
+ *   masterFileId {string}
+ * Returns:
+ *   {boolean} 沙盒 ID 未設定時一律 `false`（空字串不等於任何檔案）。
+ */
+function isSelfTestMasterFileId_(masterFileId) {
+  var fileId = String(masterFileId || '').trim();
+  if (!fileId) return false;
+  var selfTestId = String(getConfig(CONFIG_KEYS.SELFTEST_MASTER_PDF_FILE_ID, '') || '').trim();
+  if (!selfTestId) return false;
+  return fileId === selfTestId;
 }
 
 /**
@@ -821,8 +870,36 @@ function recordPublishOutputFingerprint_(isoDate, versionNo, fingerprint) {
  *   {?{isoDate:string, versionNo:number, fingerprint:string}}
  *     從來未發佈過、或者讀唔到／解析唔到，一律回 `null`。
  */
-function readPublishOutputFingerprint_() {
-  var raw = readPublishScriptProperty_(PUBLISH_LAST_OUTPUT_KEY_);
+function readPublishOutputFingerprint_(masterFileId) {
+  var fileId = String(masterFileId || '').trim();
+
+  if (fileId) {
+    var scoped = parsePublishOutputFingerprint_(
+      readPublishScriptProperty_(publishOutputFingerprintKey_(fileId)));
+    if (scoped) return scoped;
+
+    // ⚠️ 舊鍵只可以當成**正式** master 的記錄。加入這兩個鍵之前，全部發佈
+    //    都是正式發佈（自測機那時還未存在），所以舊記錄一定屬於正式檔案。
+    //    問的如果是沙盒檔案，寧可回 null（I06 會報「驗證不到」），也不可以
+    //    拿正式那一份指紋去對沙盒檔案——那樣會報一個假的「不一致」。
+    if (isSelfTestMasterFileId_(fileId)) return null;
+    var legacy = parsePublishOutputFingerprint_(readPublishScriptProperty_(PUBLISH_LAST_OUTPUT_KEY_));
+    if (!legacy) return null;
+    if (legacy.masterFileId && legacy.masterFileId !== fileId) return null;
+    return legacy;
+  }
+
+  return parsePublishOutputFingerprint_(readPublishScriptProperty_(PUBLISH_LAST_OUTPUT_KEY_));
+}
+
+/**
+ * 用途：把 Script Property 存住嗰段 JSON 解析成指紋記錄。**純函式。**
+ * Args:
+ *   raw {?string}
+ * Returns:
+ *   {?{isoDate:string, versionNo:number, fingerprint:string, masterFileId:string}}
+ */
+function parsePublishOutputFingerprint_(raw) {
   if (!raw) return null;
   try {
     var parsed = JSON.parse(raw);
@@ -830,7 +907,8 @@ function readPublishOutputFingerprint_() {
     return {
       isoDate: parsed.isoDate,
       versionNo: Number(parsed.versionNo || 0),
-      fingerprint: String(parsed.fingerprint || '')
+      fingerprint: String(parsed.fingerprint || ''),
+      masterFileId: String(parsed.masterFileId || '')
     };
   } catch (err) {
     return null;
@@ -960,7 +1038,10 @@ function executePublish_(isoDate, blob, options) {
     SENT_GROUPS: sanitizeCellText_(o.sentGroups || ''),
     MISSING_COUNT: Number(o.missingCount || 0),
     FORCED: o.forced === true,
-    FORCED_REASON: sanitizeCellText_(o.forcedReason || '')
+    FORCED_REASON: sanitizeCellText_(o.forcedReason || ''),
+    // ⚠️ 記低「這一次實際覆寫了哪一個檔案」，令 I06 不需要靠 Config 猜。
+    MASTER_FILE_ID: sanitizeCellText_(config.masterFileId),
+    IS_SELFTEST: isSelfTestMasterFileId_(config.masterFileId)
   }]);
 
   appendAuditLog_({
@@ -977,7 +1058,8 @@ function executePublish_(isoDate, blob, options) {
   // 同一時間記低「發佈咗嘅係邊一份內容」，供不變量 I06 比對。
   // 指紋算唔到（`Utilities.computeDigest` 唔得）就存空字串——I06 見到
   // 空字串會報「驗證不到」，唔會報「唔一致」，兩者唔可以混為一談。
-  recordPublishOutputFingerprint_(isoDate, versionNo, pdfFingerprint_(blob ? blob.getBytes() : []));
+  recordPublishOutputFingerprint_(isoDate, versionNo,
+    pdfFingerprint_(blob ? blob.getBytes() : []), config.masterFileId);
 
   return {
     ok: true,

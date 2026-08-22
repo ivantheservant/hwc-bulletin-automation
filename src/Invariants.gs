@@ -60,6 +60,29 @@
 
 'use strict';
 
+/**
+ * 每一條不變量必須明確聲明它**對哪一個環境成立**。
+ *
+ * ⚠️ 為什麼要有這一個欄位（docs/已知bug類型.md 事故三十一）：
+ * 一條不變量若引用任何「正式環境專用」的設定（master 檔案、正式季度、
+ * 正式收件人），在沙盒執行時就會**必然失敗**，並把本來通過的情境一併
+ * 染紅。I06 就是這樣拖紅了 S13、S14、S15、S16、S17 五個情境——那五個
+ * 情境自己全部寫住「實際：符合」。
+ *
+ * ⚠️ 「沒有寫」不可以當成 ANY。漏寫與「檢視過、確認是 ANY」在程式碼裡
+ * 看起來一模一樣，所以 tests/invariants.test.js 有一條靜態檢查，逐條要求
+ * `environment` 是這裡列出的其中一個值、而且要有一句 `environmentNote`
+ * 講明理由。缺少就報錯。
+ */
+var INVARIANT_ENVIRONMENT_ = Object.freeze({
+  // 在正式與沙盒都同樣成立，不需要分開判斷。
+  ANY: 'ANY',
+  // 正式與沙盒各自是一條獨立通道，要各自判斷；某一條不適用就回「不適用」。
+  PER_CHANNEL: 'PER_CHANNEL',
+  // 只在正式環境有意義；在沙盒執行時要回報「不適用」，不可以回失敗。
+  PRODUCTION_ONLY: 'PRODUCTION_ONLY'
+});
+
 /** 不變量的三種結果。`UNKNOWN` 是「驗證不到」，不是「沒問題」。 */
 var INVARIANT_RESULT_ = Object.freeze({ OK: 'OK', FAILED: 'FAILED', UNKNOWN: 'UNKNOWN' });
 
@@ -636,72 +659,173 @@ function runInvariantI05_(options) {
 // =====================================================================
 
 /**
- * 用途：I06——`PublishLog` 最新一行的版本，對得上 master 檔案目前內容
- *   的 MD5。
+ * 用途：I06——`PublishLog` 每一條**發佈通道**最新一行的版本，都對得上
+ *   該通道 master 檔案目前內容的 MD5。
  *
  *   ⚠️ 這一條抓的是「頂部狀態列說已發佈第 3 版，但連結裡面其實還是第 2
  *   版」——一個沒有人查得出的假象（見 docs/已知bug類型.md 事故二十三）。
+ *
+ *   ⚠️ **兩條通道各自獨立判斷**，這是第二輪自測的修正。舊版拿
+ *   `PublishLog` 最新一行去對**正式** master 檔案，等於假設「最新一行一定
+ *   是正式發佈」。自測機發佈的是**沙盒** master，那個假設一發佈就不成立，
+ *   I06 由此永遠失敗，並把 S13 之後每一個情境（S13、S14、S15、S16、S17）
+ *   一齊染紅——那 5 個情境本身全部寫住「實際：符合」。
+ *   見 docs/已知bug類型.md 事故三十一。
+ *
+ *   ⚠️ 去對哪一個檔案，一律看**該行自己的 `MASTER_FILE_ID`**，不靠 Config
+ *   猜。Config 是「現在指住邊個」，發佈記錄是「當時寫咗邊個」——兩者不是
+ *   同一件事，而且會不同。
  * Args: （無）
  * Returns:
  *   {Object}
  */
 function runInvariantI06_() {
-  var label = 'I06　PublishLog 最新一行的版本，對得上 master 檔案目前的內容';
+  var label = 'I06　PublishLog 每一條發佈通道最新一行的版本，對得上該通道 master 檔案目前的內容';
   return runInvariantSafely_('I06', label, function () {
-    var latest = latestPublishLogRow_(readSheet(SHEETS.PUBLISH_LOG));
-    if (!latest) {
+    var rows = readSheet(SHEETS.PUBLISH_LOG);
+    if (rows.length === 0) {
       return invariantResult_('I06', label, null, '有發佈記錄可以對', '尚未發佈過任何一期',
         'PublishLog 一行都沒有，沒有東西可以對。');
     }
 
-    var expectedIso = publishRowIsoDate_(latest);
-    var expectedVersion = Number(latest.VERSION_NO || 0);
-    var recorded = readPublishOutputFingerprint_();
-    if (!recorded) {
-      return invariantResult_('I06', label, null,
-        expectedIso + ' 第 ' + expectedVersion + ' 版', '沒有留下「發佈了哪一份內容」的記錄',
-        '這一次發佈是在加入 I06 之前做的（或者記錄寫入失敗）。下一次發佈之後這一條就驗得到。');
-    }
+    var channels = [
+      {
+        // ⚠️ 欄位名刻意叫 channelName 而不是 name：夾在引號之間的 `.name`
+        //    會被 tools/scan-staged-secrets.js 誤判成網域（name 是真實 gTLD），
+        //    見 docs/已知bug類型.md 事故六。
+        channelName: '正式',
+        row: latestPublishLogRow_(rows.filter(function (r) { return r.IS_SELFTEST !== true; })),
+        configKey: CONFIG_KEYS.PUBLISHED_PDF_FILE_ID
+      },
+      {
+        channelName: '沙盒（自測）',
+        row: latestPublishLogRow_(rows.filter(function (r) { return r.IS_SELFTEST === true; })),
+        configKey: CONFIG_KEYS.SELFTEST_MASTER_PDF_FILE_ID
+      }
+    ];
 
-    if (recorded.isoDate !== expectedIso || recorded.versionNo !== expectedVersion) {
-      return invariantResult_('I06', label, false,
-        expectedIso + ' 第 ' + expectedVersion + ' 版',
-        recorded.isoDate + ' 第 ' + recorded.versionNo + ' 版',
-        'PublishLog 最新一行與「最後一次真的寫進 master 的內容」對不上——'
-          + '代表有一次發佈寫了記錄但沒有換到內容，或者相反。');
-    }
+    var checks = channels.map(function (channel) {
+      return Object.assign({ channelName: channel.channelName },
+        checkPublishChannelFingerprint_(channel));
+    });
 
-    if (!recorded.fingerprint) {
-      return invariantResult_('I06', label, null, expectedIso + ' 第 ' + expectedVersion + ' 版',
-        '發佈當時算不到內容指紋', '發佈當時 Utilities.computeDigest 不可用，所以沒有指紋可以比。');
-    }
+    var failed = checks.filter(function (c) { return c.ok === false; });
+    var known = checks.filter(function (c) { return c.ok === true; });
+    var evidence = checks.map(function (c) { return c.channelName + '：' + c.detail; }).join('　');
 
-    var config = publishConfig_();
-    if (!config.masterFileId) {
-      return invariantResult_('I06', label, null, expectedIso + ' 第 ' + expectedVersion + ' 版',
-        'Config 未設定 master 檔案 ID', '尚未建立 master 發佈檔案。');
+    if (failed.length > 0) {
+      return invariantResult_('I06', label, false, '每一條通道都對得上',
+        failed.length + ' 條通道對不上（' + failedChannelNames_(failed).join('、') + '）',
+        evidence);
     }
-
-    var currentBytes = readMasterPdfBytes_(config.masterFileId);
-    if (currentBytes === null) {
-      return invariantResult_('I06', label, null, recorded.fingerprint, '讀不到 master 檔案目前的內容',
-        'master 檔案開不到（可能被刪、被搬、或者權限不足）——「讀不到」不等於「沒問題」。');
+    if (known.length === 0) {
+      // ⚠️ 一條都驗不到 ≠ 沒問題。兩條通道都「不適用／未發佈過」的時候要
+      //    回 null，不可以回 true——見本檔案檔頭「三個狀態，不是兩個」。
+      return invariantResult_('I06', label, null, '至少一條通道驗得到',
+        '兩條通道都驗不到', evidence);
     }
-
-    var currentFingerprint = pdfFingerprint_(currentBytes);
-    if (!currentFingerprint) {
-      return invariantResult_('I06', label, null, recorded.fingerprint, '算不到目前內容的指紋',
-        'Utilities.computeDigest 不可用。');
-    }
-
-    if (currentFingerprint === recorded.fingerprint) {
-      return invariantResult_('I06', label, true, recorded.fingerprint, currentFingerprint,
-        expectedIso + ' 第 ' + expectedVersion + ' 版；master 目前內容與發佈當時完全相同。');
-    }
-    return invariantResult_('I06', label, false, recorded.fingerprint, currentFingerprint,
-      '⚠️ master 檔案的內容在最後一次發佈之後被換過（有人手動覆寫、或者有一次發佈沒有記錄）。'
-        + '頂部狀態列說的版本，跟連結裡面實際那一份，已經不是同一份。');
+    return invariantResult_('I06', label, true, '每一條通道都對得上',
+      known.length + ' 條通道對得上', evidence);
   });
+}
+
+/**
+ * 用途：把幾條不成立的通道的名稱抽出來。
+ *
+ *   ⚠️ 寫成獨立一支而不是內嵌 `.map()`：屬性存取夾在引號之間會被
+ *   tools/scan-staged-secrets.js 誤判成網域，見事故六。
+ * Args:
+ *   failed {Object[]}
+ * Returns:
+ *   {string[]}
+ */
+function failedChannelNames_(failed) {
+  return (failed || []).map(function (c) {
+    var channelName = c.channelName;
+    return channelName;
+  });
+}
+
+/**
+ * 用途：驗一條發佈通道——那一行記低的版本，對唔對得上該通道 master 檔案
+ *   目前的內容。
+ *
+ *   ⚠️ 「該通道未發佈過」「該通道未設定」一律回 `ok:null`（不適用／驗不到），
+ *   **不是** `false`。沙盒未設定是很正常的事，把它報成失敗會令整個自測機
+ *   一開始就紅。
+ * Args:
+ *   channel {{channelName:string, row:?Object, configKey:string}}
+ * Returns:
+ *   {{ok:?boolean, detail:string}}
+ */
+function checkPublishChannelFingerprint_(channel) {
+  var row = channel.row;
+  if (!row) {
+    return { ok: null, detail: '未有發佈記錄（不適用）' };
+  }
+
+  var isoDate = publishRowIsoDate_(row);
+  var versionNo = Number(row.VERSION_NO || 0);
+  var stamp = isoDate + ' 第 ' + versionNo + ' 版';
+
+  // ⚠️ 優先用該行自己記低的檔案 ID。舊資料（補寫之前）沒有這一欄，才退回
+  //    Config——而且要講明用了哪一個來源，否則看報告的人分不出。
+  var fileId = String(row.MASTER_FILE_ID || '').trim();
+  var source = '記錄';
+  if (!fileId) {
+    fileId = String(getConfig(channel.configKey, '') || '').trim();
+    source = 'Config ' + channel.configKey;
+  }
+  if (!fileId) {
+    return { ok: null, detail: stamp + '，但推不出 master 檔案 ID（不適用）' };
+  }
+
+  var recorded = readPublishOutputFingerprint_(fileId);
+  if (!recorded) {
+    return {
+      ok: null,
+      detail: stamp + '，沒有留下「發佈了哪一份內容」的記錄（' + maskFileId_(fileId) + '）'
+    };
+  }
+
+  if (recorded.isoDate !== isoDate || recorded.versionNo !== versionNo) {
+    return {
+      ok: false,
+      detail: stamp + '，但最後一次真的寫進該檔案的是 ' + recorded.isoDate
+        + ' 第 ' + recorded.versionNo + ' 版——代表有一次發佈寫了記錄但沒有換到內容，或者相反'
+    };
+  }
+
+  if (!recorded.fingerprint) {
+    return { ok: null, detail: stamp + '，發佈當時算不到內容指紋（Utilities.computeDigest 不可用）' };
+  }
+
+  var currentBytes = readMasterPdfBytes_(fileId);
+  if (currentBytes === null) {
+    return {
+      ok: null,
+      detail: stamp + '，讀不到 ' + maskFileId_(fileId) + ' 目前的內容'
+        + '（可能被刪、被搬、或者權限不足）——「讀不到」不等於「沒問題」'
+    };
+  }
+
+  var currentFingerprint = pdfFingerprint_(currentBytes);
+  if (!currentFingerprint) {
+    return { ok: null, detail: stamp + '，算不到目前內容的指紋' };
+  }
+
+  if (currentFingerprint === recorded.fingerprint) {
+    return {
+      ok: true,
+      detail: stamp + '，內容與發佈當時完全相同（' + source + '：' + maskFileId_(fileId) + '）'
+    };
+  }
+  return {
+    ok: false,
+    detail: stamp + '，⚠️ ' + maskFileId_(fileId) + ' 的內容在最後一次發佈之後被換過'
+      + '（有人手動覆寫、或者有一次發佈沒有記錄）。狀態列說的版本，跟連結裡面實際那一份，'
+      + '已經不是同一份'
+  };
 }
 
 // =====================================================================
@@ -950,20 +1074,63 @@ function runInvariantI10_(baselineCount) {
  */
 function invariantDefinitions_(ctx, opts) {
   var o = opts || {};
+  var E = INVARIANT_ENVIRONMENT_;
   return [
-    { id: 'I01', sideEffect: false, run: function () { return runInvariantI01_(); } },
-    { id: 'I02', sideEffect: false, run: function () { return runInvariantI02_(); } },
-    { id: 'I03', sideEffect: false, run: function () { return runInvariantI03_(ctx); } },
-    { id: 'I04', sideEffect: false, run: function () { return runInvariantI04_({ sinceMs: o.sinceMs }); } },
-    { id: 'I05', sideEffect: false, run: function () { return runInvariantI05_({ sinceMs: o.sinceMs }); } },
-    { id: 'I06', sideEffect: false, run: function () { return runInvariantI06_(); } },
-    { id: 'I07', sideEffect: false, run: function () { return runInvariantI07_({ fileId: o.docxFileId }); } },
-    // ⚠️ I08 是**唯一**一條 sideEffect: true。它驗的是「匯入」這個有副作用
-    // 的操作，而且只在剛剛匯入完那一刻成立——見本函式檔頭的兩重理由。
-    { id: 'I08', sideEffect: true, run: function () { return runInvariantI08_({ quarterId: ctx.quarterId }); } },
-    { id: 'I09', sideEffect: false, run: function () { return runInvariantI09_(); } },
     {
-      id: 'I10', sideEffect: false,
+      id: 'I01', sideEffect: false, environment: E.ANY,
+      environmentNote: '工作表結構是同一個試算表的事，跟正式／沙盒無關。',
+      run: function () { return runInvariantI01_(); }
+    },
+    {
+      id: 'I02', sideEffect: false, environment: E.ANY,
+      environmentNote: '掃全表（含沙盒季度那幾行）；重複就是重複，哪一季都不可以有。',
+      run: function () { return runInvariantI02_(); }
+    },
+    {
+      id: 'I03', sideEffect: false, environment: E.ANY,
+      environmentNote: '對哪一個季度、哪一個主日，由呼叫方傳 ctx 決定——'
+        + '自測時傳沙盒季度，平時傳本季。它自己不引用任何「正式環境專用」的設定。',
+      run: function () { return runInvariantI03_(ctx); }
+    },
+    {
+      id: 'I04', sideEffect: false, environment: E.ANY,
+      environmentNote: '只看 SendLog 最近一批，那一批是誰寄的就驗誰；收件人清單兩邊共用同一張表。',
+      run: function () { return runInvariantI04_({ sinceMs: o.sinceMs }); }
+    },
+    {
+      id: 'I05', sideEffect: false, environment: E.ANY,
+      environmentNote: '「DRY_RUN 之下不可以真的寄出」在任何環境都必須成立，沙盒尤其要成立。',
+      run: function () { return runInvariantI05_({ sinceMs: o.sinceMs }); }
+    },
+    {
+      // ⚠️ 唯一一條要分通道的。舊版假設「PublishLog 最新一行 ＝ 正式 master」，
+      // 自測機一發佈沙盒 master 就令那個假設不成立，I06 由此永遠失敗並染紅
+      // S13 之後每一個情境。見 docs/已知bug類型.md 事故三十一。
+      id: 'I06', sideEffect: false, environment: E.PER_CHANNEL,
+      environmentNote: '正式與沙盒各自一條通道，各自對自己那一個 master 檔案；'
+        + '某一條通道未發佈過或未設定就報「不適用」，不是失敗。',
+      run: function () { return runInvariantI06_(); }
+    },
+    {
+      id: 'I07', sideEffect: false, environment: E.ANY,
+      environmentNote: '驗的是「最後一次產生的那一個 .docx」，那個檔案由誰產生都要沒有殘留佔位符。',
+      run: function () { return runInvariantI07_({ fileId: o.docxFileId }); }
+    },
+    {
+      // ⚠️ I08 是**唯一**一條 sideEffect: true。它驗的是「匯入」這個有副作用
+      // 的操作，而且只在剛剛匯入完那一刻成立——見本檔案檔頭的兩重理由。
+      id: 'I08', sideEffect: true, environment: E.ANY,
+      environmentNote: '對哪一個季度由 ctx 決定，與 I03 同理。',
+      run: function () { return runInvariantI08_({ quarterId: ctx.quarterId }); }
+    },
+    {
+      id: 'I09', sideEffect: false, environment: E.ANY,
+      environmentNote: 'Diagnostics 與自我檢測報告只有一份，不分環境。',
+      run: function () { return runInvariantI09_(); }
+    },
+    {
+      id: 'I10', sideEffect: false, environment: E.ANY,
+      environmentNote: '「職事表零寫入」在任何環境都必須成立——自測機更加要成立。',
       run: function () {
         return runInvariantI10_(o.rosterRevisionBaseline === undefined ? null : o.rosterRevisionBaseline);
       }

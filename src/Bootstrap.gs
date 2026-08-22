@@ -36,6 +36,7 @@ function initializeAllSheets() {
   writeReadmeContent_(ss);
 
   var deprecatedCleanup = cleanupDeprecatedConfigKeys_();
+  var publishLogBackfill = backfillPublishLogMasterFileId_();
   var configKeysAdded = seedConfigDefaults_();
   var seedRowsAdded = {
     POST_DISPLAY: seedPostDisplay_(),
@@ -51,6 +52,7 @@ function initializeAllSheets() {
     configKeysAdded: configKeysAdded,
     configKeysRemoved: deprecatedCleanup.removed,
     deprecatedConfigWarnings: deprecatedCleanup.warnings,
+    publishLogBackfill: publishLogBackfill,
     seedRowsAdded: seedRowsAdded
   };
 
@@ -219,6 +221,17 @@ function writeInitializeDiagnosticsReport_(summary) {
     lines.push('廢棄設定鍵仍有值，需要人手確認（' + summary.deprecatedConfigWarnings.length + ' 筆）：');
     summary.deprecatedConfigWarnings.forEach(function (w) { lines.push('－' + w); });
   }
+  var backfill = summary.publishLogBackfill;
+  if (backfill && backfill.filled > 0) {
+    lines.push('PublishLog 補寫歷史資料：' + backfill.filled + ' 行'
+      + '（MASTER_FILE_ID 填 ' + (backfill.masterFileId ? maskFileId_(backfill.masterFileId) : '（空）')
+      + '、IS_SELFTEST 填 FALSE）');
+  }
+  if (backfill && backfill.skipped > 0) {
+    lines.push('PublishLog 有 ' + backfill.skipped + ' 行補寫不到（'
+      + backfill.skipReason + '）——「補寫不到」不等於「沒問題」，請人手確認。');
+  }
+
   Object.keys(summary.seedRowsAdded).forEach(function (id) {
     lines.push(SHEETS[id] + ' 新增行數：' + summary.seedRowsAdded[id]);
   });
@@ -234,6 +247,85 @@ function writeInitializeDiagnosticsReport_(summary) {
   }
 
   writeDiagnosticsReport_('初始化工作表', lines);
+}
+
+/**
+ * 用途：一次性補寫 `PublishLog` 兩個新欄位的歷史資料。
+ *
+ *   第二輪自測新增 `MASTER_FILE_ID`／`IS_SELFTEST` 兩欄。加欄之前的每一行
+ *   都是**正式**發佈（自測機那時還未發佈過任何東西），所以：
+ *     - `MASTER_FILE_ID` 填 `PUBLISHED_PDF_FILE_ID` 的現值；
+ *     - `IS_SELFTEST` 填 `FALSE`。
+ *
+ *   ⚠️ **只補空白的格**。已經有值的行一律不動——重跑「初始化工作表」是
+ *   常事，第二次跑不可以把真正的自測紀錄改成 `FALSE`。
+ *
+ *   ⚠️ `PUBLISHED_PDF_FILE_ID` 是空的時候（未建立 master 檔案）：
+ *   `IS_SELFTEST` 照樣補 `FALSE`（那是確定的），但 `MASTER_FILE_ID`
+ *   留空並在報告講明補寫不到——填一個空字串當成「已補寫」，等於把
+ *   「不知道」記成「知道，是空的」。
+ * Args: （無）
+ * Returns:
+ *   {{filled:number, skipped:number, masterFileId:string, skipReason:string}}
+ */
+function backfillPublishLogMasterFileId_() {
+  var out = { filled: 0, skipped: 0, masterFileId: '', skipReason: '' };
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(SHEETS.PUBLISH_LOG);
+  if (!sheet) return out;
+
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 3) return out;
+
+  var def = COLUMNS.PUBLISH_LOG;
+  var masterCol = def.keys.indexOf('MASTER_FILE_ID') + 1;
+  var selfTestCol = def.keys.indexOf('IS_SELFTEST') + 1;
+  if (masterCol <= 0 || selfTestCol <= 0) return out;
+
+  var masterFileId = String(getConfig(CONFIG_KEYS.PUBLISHED_PDF_FILE_ID, '') || '').trim();
+  out.masterFileId = masterFileId;
+
+  var numRows = lastRow - 2;
+  var masterValues = sheet.getRange(3, masterCol, numRows, 1).getValues();
+  var selfTestValues = sheet.getRange(3, selfTestCol, numRows, 1).getValues();
+
+  for (var i = 0; i < numRows; i++) {
+    var rowNo = i + 3;
+    var hasMaster = String(masterValues[i][0] || '').trim() !== '';
+    var hasSelfTest = selfTestValues[i][0] !== '' && selfTestValues[i][0] !== null
+      && selfTestValues[i][0] !== undefined;
+    if (hasMaster && hasSelfTest) continue;
+
+    if (!hasSelfTest) {
+      sheet.getRange(rowNo, selfTestCol, 1, 1).setValue(false);
+    }
+    if (!hasMaster) {
+      if (!masterFileId) {
+        out.skipped++;
+        continue;
+      }
+      setCellValueTextSafe_(sheet, def, rowNo, 'MASTER_FILE_ID', sanitizeCellText_(masterFileId));
+    }
+    out.filled++;
+  }
+
+  if (out.skipped > 0) {
+    out.skipReason = 'Config 的 ' + CONFIG_KEYS.PUBLISHED_PDF_FILE_ID
+      + ' 是空的，推不出這些歷史紀錄當時覆寫了哪一個檔案';
+  }
+
+  if (out.filled > 0 || out.skipped > 0) {
+    appendAuditLog_({
+      action: 'PUBLISH_LOG_BACKFILL', sheetName: SHEETS.PUBLISH_LOG,
+      rowKey: '（整表）', field: 'MASTER_FILE_ID',
+      oldValue: '', newValue: masterFileId ? maskFileId_(masterFileId) : '（空）',
+      notes: '一次性補寫：加欄之前的發佈全部是正式發佈，IS_SELFTEST 填 FALSE。'
+        + '補寫 ' + out.filled + ' 行，補寫不到 ' + out.skipped + ' 行。'
+    });
+  }
+
+  return out;
 }
 
 // =====================================================================

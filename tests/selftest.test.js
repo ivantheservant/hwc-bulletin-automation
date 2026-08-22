@@ -384,9 +384,24 @@ function fakeSummary(overrides) {
         id: 'S13', name: '發佈', result: 'SKIPPED',
         expected: '已設定沙盒 master 發佈檔案', actual: '尚未設定',
         evidence: '略過的原因', elapsedMs: 1
+      },
+      // ⚠️ 第二輪自測新增的第四種結果：情境本身通過，但跑完之後不變量
+      //    不成立。第二輪 18 個情境 6 紅，其中 5 個就是這一種——那 5 個
+      //    情境自己全部寫住「實際：符合」。
+      {
+        id: 'S14', name: '防重複', result: 'INVARIANT_WARNING',
+        expected: '被防重複擋住', actual: '被擋住；不變量 I06 不成立',
+        evidence: '情境本身通過，但跑完之後不變量不成立：I06',
+        invariantFailures: ['I06'], elapsedMs: 30
+      },
+      {
+        id: 'S15', name: '揀錯檔案', result: 'INVARIANT_WARNING',
+        expected: '被拒', actual: '被拒；不變量 I06 不成立',
+        evidence: '情境本身通過，但跑完之後不變量不成立：I06',
+        invariantFailures: ['I06'], elapsedMs: 20
       }
     ],
-    passCount: 1, failCount: 1, skipCount: 1,
+    passCount: 1, failCount: 1, skipCount: 1, invariantWarningCount: 2,
     pendingIds: ['S17', 'S18'], stoppedForTime: false, totalScenarios: 18
   }, overrides || {});
 }
@@ -426,12 +441,88 @@ test('報告：沒有停低時，不會無端出現「執行時間到」那一�
   assert.ok(text.indexOf('執行時間到') === -1, text);
 });
 
-test('報告：第一行的四個數字（綠／紅／略過／未跑）都印出來', function () {
+// ⚠️ 第二輪自測改變了這一行的寫法：「不變量警告」要**單獨數出來**。
+//    併入「通過」等於放過一個真的問題；併入「失敗」等於把一個要查的
+//    問題報成六個。見 docs/已知bug類型.md 事故三十一。
+test('報告：第一行分開數出通過／失敗／不變量警告／略過／未跑', function () {
   const env = makeEnv({});
   const first = env.sandbox.buildSelfTestReportLines_(fakeSummary())[0];
   assert.ok(first.indexOf('18 個情境') !== -1, first);
-  assert.ok(first.indexOf('1 綠') !== -1 && first.indexOf('1 紅') !== -1, first);
+  assert.ok(first.indexOf('1 通過') !== -1, first);
+  assert.ok(first.indexOf('1 失敗') !== -1, first);
+  assert.ok(first.indexOf('2 不變量警告') !== -1, '不變量警告要單獨數：' + first);
   assert.ok(first.indexOf('1 略過') !== -1 && first.indexOf('2 未跑') !== -1, first);
+});
+
+test('報告：三段分開——情境本身失敗／情境通過但不變量不成立／略過', function () {
+  const env = makeEnv({});
+  const lines = env.sandbox.buildSelfTestReportLines_(fakeSummary());
+  const text = lines.join('\n');
+
+  const failIdx = lines.findIndex(function (l) { return l.indexOf('【情境本身失敗】') !== -1; });
+  const warnIdx = lines.findIndex(function (l) { return l.indexOf('【情境通過，但不變量不成立】') !== -1; });
+  const skipIdx = lines.findIndex(function (l) { return l.indexOf('【略過') !== -1; });
+
+  assert.ok(failIdx !== -1, '缺「情境本身失敗」一段：' + text);
+  assert.ok(warnIdx !== -1, '缺「情境通過，但不變量不成立」一段：' + text);
+  assert.ok(skipIdx !== -1, '缺「略過」一段：' + text);
+  assert.ok(failIdx < warnIdx && warnIdx < skipIdx,
+    '三段的次序要是：失敗 → 不變量警告 → 略過（真的要修的東西排最前）');
+  assert.ok(text.indexOf('略過」不等於「通過') !== -1, '略過那一段仍然要講明它不等於通過');
+});
+
+test('報告：不變量警告那一段指名是哪一條不變量，並叫人先查那一條', function () {
+  const env = makeEnv({});
+  const text = env.sandbox.buildSelfTestReportLines_(fakeSummary()).join('\n');
+  assert.ok(text.indexOf('牽涉的不變量：I06') !== -1, text);
+  assert.ok(text.indexOf('受影響的情境 2 個') !== -1, text);
+  assert.ok(text.indexOf('不要逐個情境查') !== -1, text);
+  assert.ok(text.indexOf('🟡 S14') !== -1, '每一個受影響的情境都要列出來：' + text);
+  assert.ok(text.indexOf('🟡 S15') !== -1, text);
+});
+
+// ⚠️ 這一條守住「不變量警告不可以被當成 🔴」——混在一起顯示正是這一輪
+//    要修的東西。
+test('報告：不變量警告不會出現在「情境本身失敗」那一段', function () {
+  const env = makeEnv({});
+  const lines = env.sandbox.buildSelfTestReportLines_(fakeSummary());
+  const failIdx = lines.findIndex(function (l) { return l.indexOf('【情境本身失敗】') !== -1; });
+  const warnIdx = lines.findIndex(function (l) { return l.indexOf('【情境通過，但不變量不成立】') !== -1; });
+  const failSection = lines.slice(failIdx, warnIdx).join('\n');
+  assert.ok(failSection.indexOf('S16') !== -1, '真的失敗那一個要在這一段');
+  assert.ok(failSection.indexOf('S14') === -1, 'S14 只是不變量警告，不可以排進失敗那一段');
+  assert.ok(failSection.indexOf('S15') === -1, failSection);
+});
+
+test('報告：完全沒有不變量警告時，那一段不會出現（不留一個空標題）', function () {
+  const env = makeEnv({});
+  const clean = fakeSummary({
+    results: [{ id: 'S01', name: '空季度', result: 'PASS', expected: '4 行', actual: '4 行', evidence: 'x', elapsedMs: 12 }],
+    passCount: 1, failCount: 0, skipCount: 0, invariantWarningCount: 0, pendingIds: []
+  });
+  const text = env.sandbox.buildSelfTestReportLines_(clean).join('\n');
+  assert.ok(text.indexOf('【情境通過，但不變量不成立】') === -1, text);
+  assert.ok(text.indexOf('0 不變量警告') !== -1, '摘要那一行照樣要寫出 0：' + text);
+});
+
+test('對話框摘要：有不變量警告時講明「先查那一條不變量」', function () {
+  const env = makeEnv({});
+  const text = env.sandbox.buildSelfTestShortSummary_(fakeSummary());
+  assert.ok(text.indexOf('2 不變量警告') !== -1, text);
+  assert.ok(text.indexOf('I06') !== -1, text);
+  assert.ok(text.indexOf('不要逐個情境查') !== -1, text);
+});
+
+test('selfTestSummaryCounts_：四種結果各自數，一個都不會漏或重複', function () {
+  const env = makeEnv({});
+  const counts = env.sandbox.selfTestSummaryCounts_(fakeSummary().results);
+  assert.strictEqual(counts.passCount, 1);
+  assert.strictEqual(counts.failCount, 1);
+  assert.strictEqual(counts.invariantWarningCount, 2);
+  assert.strictEqual(counts.skipCount, 1);
+  assert.strictEqual(
+    counts.passCount + counts.failCount + counts.invariantWarningCount + counts.skipCount,
+    fakeSummary().results.length, '四個數加起來要等於情境總數');
 });
 
 test('對話框摘要：紅色的連預期與實際一齊講，並指路去完整報告', function () {
@@ -526,6 +617,97 @@ test('清空沙盒：判斷不到主日的行一律不刪（寧可留垃圾，�
 
   env.sandbox.resetSelfTestSandbox_(env.sandbox.selfTestConfig_());
   assert.strictEqual(env.sandbox.readSheet('Announcements').length, 1);
+});
+
+// =====================================================================
+// S14：防重複——改成不依賴時間（第二輪自測）
+// =====================================================================
+
+// ⚠️ 防重複本身**沒有壞**，證據見 tests/publishfix.test.js 第 9、9b 條：
+//    同一主日、視窗之內，第二、三次照樣擋得住、版本號不變。
+//
+//    S14 第二輪報紅的原因是**測試依賴時間**：每個情境耗時 14 至 23 秒
+//    （那個數字包含跑完十條不變量），而 PUBLISH_DEDUP_SEC 只有 30 秒
+//    ——由 S13 發佈完到 S14 再發佈，隨時已經超出視窗。
+//
+//    所以改的是測試，不是防重複（prompt 第 2 節：不要為了讓它變綠而改
+//    防重複）。下面幾條守住「新版 S14 不再依賴那個前提」。
+
+test('S14 不再依賴「S13 剛剛發佈過」這個前提', function () {
+  const env = makeEnv({});
+  // 完全沒有 ctx.lastPublishedPdfBase64——舊版在這裡會回「請先跑 S13」。
+  const outcome = env.sandbox.selfTestS14_({ config: env.sandbox.selfTestConfig_() });
+  assert.ok(outcome.actual.indexOf('S13 未跑') === -1,
+    '新版 S14 自己發佈兩次，不應該再要求 S13 先跑：' + JSON.stringify(outcome));
+  assert.ok(outcome.evidence.indexOf('請先跑 S13') === -1, outcome.evidence);
+});
+
+test('S14 的證據講得出 S13 → S14 相隔多少秒與 PUBLISH_DEDUP_SEC 的現值', function () {
+  const env = makeEnv({});
+  const nowMs = new Date().getTime();
+  const outcome = env.sandbox.selfTestS14_({
+    config: env.sandbox.selfTestConfig_(),
+    lastPublishAtMs: nowMs - 45000,
+    lastPublishIsoDate: '2028-10-01'
+  });
+  assert.ok(outcome.evidence.indexOf('PUBLISH_DEDUP_SEC=30') !== -1, outcome.evidence);
+  assert.ok(outcome.evidence.indexOf('秒前發佈') !== -1, outcome.evidence);
+});
+
+// ⚠️ 這一條是關鍵的診斷句：45 秒 > 30 秒，證據要**明白講出**「舊版在這個
+//    情況下必然擋不住，那不是防重複壞了」。沒有這一句，下一個看報告的人
+//    只會見到一個紅燈，再去改防重複。
+test('S14 的證據會指出「超出視窗 → 舊版必然擋不住，不是防重複壞了」', function () {
+  const env = makeEnv({});
+  const text = env.sandbox.selfTestDescribePublishGap_(
+    { lastPublishAtMs: new Date().getTime() - 45000, lastPublishIsoDate: '2028-10-01' }, 30);
+  assert.ok(text.indexOf('已經超出視窗') !== -1, text);
+  assert.ok(text.indexOf('測試依賴時間') !== -1, text);
+});
+
+test('S14 的證據：仍在視窗之內時如實講「仍在視窗之內」', function () {
+  const env = makeEnv({});
+  const text = env.sandbox.selfTestDescribePublishGap_(
+    { lastPublishAtMs: new Date().getTime() - 5000, lastPublishIsoDate: '2028-10-01' }, 30);
+  assert.ok(text.indexOf('仍在視窗之內') !== -1, text);
+});
+
+test('S14 的證據：PUBLISH_DEDUP_SEC 是 0 → 講明防重複等於關閉', function () {
+  const env = makeEnv({});
+  const text = env.sandbox.selfTestDescribePublishGap_(
+    { lastPublishAtMs: new Date().getTime() - 5000 }, 0);
+  assert.ok(text.indexOf('等於關閉') !== -1, text);
+});
+
+test('S14 的證據：S13 未記下發佈時刻 → 如實講「講不出」，不會靜靜當成 0 秒', function () {
+  const env = makeEnv({});
+  const text = env.sandbox.selfTestDescribePublishGap_({}, 30);
+  assert.ok(text.indexOf('講不出') !== -1, text);
+});
+
+test('S13 跑完會記下發佈時刻與主日，供 S14 的證據用', function () {
+  const env = makeEnv({});
+  const src = require('fs').readFileSync(
+    require('path').join(__dirname, '..', 'src', 'SelfTest.gs'), 'utf8');
+  assert.ok(src.indexOf('ctx.lastPublishAtMs = new Date().getTime();') !== -1,
+    'S13 要記下發佈時刻，否則 S14 的證據講不出相隔多少秒');
+  assert.ok(src.indexOf('ctx.lastPublishIsoDate = isoDate;') !== -1, src.length);
+});
+
+// ⚠️ S14 刻意用**另一個主日**（dates[1]）：防重複的時間戳是逐個主日分開
+//    存的，用 S13 那一個主日的話，S13 留下的時間戳會令 S14 的第一次發佈
+//    就被擋住——那樣又變成依賴上一個情境。
+test('S14 用 dates[1]，而且兩次用不同內容的 PDF（兩個都要有理由寫在註解）', function () {
+  const src = require('fs').readFileSync(
+    require('path').join(__dirname, '..', 'src', 'SelfTest.gs'), 'utf8');
+  const body = src.slice(src.indexOf('function selfTestS14_'), src.indexOf('function selfTestDescribePublishGap_'));
+
+  assert.ok(body.indexOf('var isoDate = dates[1];') !== -1,
+    'S14 要用另一個主日，令 S13 的時間戳影響不到它');
+  assert.ok(body.indexOf('pdfFirst') !== -1 && body.indexOf('pdfSecond') !== -1,
+    '兩次要用不同內容的 PDF');
+  assert.ok(body.indexOf('checkUploadedPdfIsNew_') !== -1,
+    '要寫明為什麼不可以用同一份：那道防線排在防重複之前');
 });
 
 // =====================================================================
