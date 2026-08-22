@@ -58,8 +58,8 @@ const validTypes = Object.keys(COLUMN_TYPES).map(function (k) { return COLUMN_TY
 // SHEETS ⇄ COLUMNS 一致性
 // =====================================================================
 
-test('SHEETS 剛好定義 23 張工作表', function () {
-  assert.strictEqual(sheetIds.length, 23);
+test('SHEETS 剛好定義 24 張工作表（23 ＋ 內容表登記表 ContentSheets）', function () {
+  assert.strictEqual(sheetIds.length, 24);
 });
 
 test('每個 SHEETS 的 key 在 COLUMNS 都有對應定義，且沒有多餘的 COLUMNS key', function () {
@@ -170,8 +170,8 @@ test('BulletinWeeks：浸禮副框六欄的中文標題與機器鍵一一對應�
   assert.strictEqual(JSON.stringify(def.headers.slice(-6)), JSON.stringify(expectedHeaders));
 });
 
-test('CONFIG_KEYS 剛好 69 個（與 DEFAULTS 一一對應）', function () {
-  assert.strictEqual(Object.keys(CONFIG_KEYS).length, 69);
+test('CONFIG_KEYS 剛好 78 個（與 DEFAULTS 一一對應）', function () {
+  assert.strictEqual(Object.keys(CONFIG_KEYS).length, 78);
 });
 
 test('這一輪新增的 Config 鍵 FINANCE_PERIOD_LABEL_PATTERN 有定義、有預設值', function () {
@@ -204,8 +204,22 @@ test('CONFIG_KEYS 每一個值都有對應的 DEFAULTS 項目（不會有「有�
   });
 });
 
-test('DEFAULTS 剛好 69 筆（prompt1 的 29 ＋ prompt2 的 1 ＋ prompt3 的 9 ＋ prompt4 的 4 ＋ prompt5 的 7 ＋ prompt6 的 1 ＋ prompt7 的 6 ＋ prompt8 的 8 － prompt8b 刪除的 2 ＋ prompt9 的 2 ＋ 自我檢測季度推算補漏的 1 ＋ 自我檢測報告行數上限補漏的 2 ＋ 財政期別標籤的 1）', function () {
-  assert.strictEqual(DEFAULTS.length, 69);
+test('DEFAULTS 剛好 78 筆（之前的 69 ＋ 內容表第一階段的 9）', function () {
+  assert.strictEqual(DEFAULTS.length, 78);
+});
+
+test('內容表那 9 個 Config 鍵齊備，而且 ID 類 seed 成空字串', function () {
+  const contentKeys = Object.keys(CONFIG_KEYS).filter(function (k) { return k.indexOf('CONTENT_SHEET_') === 0; });
+  assert.strictEqual(contentKeys.length, 9, '實際：' + contentKeys.join('、'));
+
+  const byKey = {};
+  DEFAULTS.forEach(function (d) { byKey[d.key] = d; });
+  contentKeys.forEach(function (k) {
+    assert.ok(byKey[k], k + ' 應該有 DEFAULTS 項目');
+  });
+  // ⚠️ 資料夾 ID 一律 seed 成空字串，絕對不可以寫死真實 ID（本 repo 會公開）。
+  assert.strictEqual(byKey.CONTENT_SHEET_FOLDER_ID.value, '');
+  assert.strictEqual(byKey.CONTENT_SHEET_ADMIN_CONTACT.value, '', '聯絡方法一樣不可以寫死');
 });
 
 test('prompt8b：DOC_TEMPLATE_ID_NORMAL／DOC_TEMPLATE_ID_COMBINED 兩個廢棄鍵已從 CONFIG_KEYS 與 DEFAULTS 移除', function () {

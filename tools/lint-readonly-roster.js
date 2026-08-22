@@ -16,11 +16,18 @@
  * 掃描三條規則
  * ─────────────────────────────────────────────────────────────────────
  *
- * 1. `openById(` 只准出現在 src/RosterRead.gs。任何一個週報自己的
- *    Google 試算表操作都是透過 SpreadsheetApp.getActiveSpreadsheet()，
- *    唯一需要另外開啟「別的試算表」的地方就是讀職事表；把 openById 這個
- *    能力鎖死在單一檔案，才有辦法用第 2 條規則稽核「這個檔案有沒有偷偷
- *    寫入」，也讓日後任何人一眼就看得出「跨試算表讀取只集中在這裡」。
+ * 1. `openById(` 只准出現在 src/RosterRead.gs 與 src/ContentSheetIo.gs。
+ *    任何一個週報自己的 Google 試算表操作都是透過
+ *    SpreadsheetApp.getActiveSpreadsheet()；需要另外開啟「別的試算表」的
+ *    地方只有兩個——讀職事表（RosterRead.gs），與讀寫每季的「內容表」
+ *    （ContentSheetIo.gs，R-010／R-013）。把 openById 這個能力鎖死在
+ *    **少數幾個指定檔案**，才有辦法逐一稽核，也讓日後任何人一眼就看得出
+ *    「跨試算表存取只集中在這幾個地方」。
+ *
+ *    ⚠️ ContentSheetIo.gs 是內容表那一輪新加入的。它會**寫入**內容表
+ *    （那是它的職責），所以第 2 條那種「不准有寫入方法」的稽核對它不適用；
+ *    改為用第 4 條那一招把它跟職事表隔開——它拿不到職事表 ID，就沒有辦法
+ *    自己找到職事表。
  *
  * 2. src/RosterRead.gs 內不准出現任何寫入類方法（見 FORBIDDEN_WRITE_METHODS）。
  *    這一條是唯讀承諾真正的防線：就算 1 沒破，只要這個檔案本身不含任何
@@ -37,7 +44,7 @@
  *    所以這個工具只在 `sort(` 後面**不是**緊接著 `function` 關鍵字或箭頭
  *    函式時才算違規——真正呼叫 Range.sort() 幾乎不可能長成比較函式的樣子。
  *
- * 3. `DriveApp` 只准出現在 src/DocxIo.gs。
+ * 3. `DriveApp` 只准出現在 src/DocxIo.gs 與 src/ContentSheetIo.gs。
  *
  *    ⚠️ 這一條在第七輪之前是「全 src/ 一律不准」。當時的註解寫明「日後
  *    真的需要才另外設計審查」——第七輪就是那個時候：Word（`.docx`）範本
@@ -48,14 +55,16 @@
  *    照舊一律不准，這樣「有沒有人用 Drive 繞過唯讀邊界」永遠只需要審
  *    一個檔案。配合規則 4，那個檔案物理上拿不到職事表的 ID。
  *
- * 4. src/DocxIo.gs 內不准出現 `ROSTER_SPREADSHEET_ID`，也不准出現
- *    `openById(`（後者已由規則 1 涵蓋）。
+ * 4. 凡是獲准使用 `DriveApp` 或 `openById(` 的檔案（RosterRead.gs 除外），
+ *    一律不准出現 `ROSTER_SPREADSHEET_ID`。目前是 src/DocxIo.gs 與
+ *    src/ContentSheetIo.gs。
  *
- *    這是規則 3 放寬之後補上的防線：`DriveApp.getFileById()` 理論上可以
- *    開啟**任何**檔案，包括職事表本身。靜態上無法證明某個執行期變數不是
- *    職事表 ID，但可以證明**這個檔案拿不到職事表 ID 這個設定鍵**——只要
- *    它從來沒有引用過那個 Config 鍵，它就沒有辦法自己找到職事表。
- *    真正需要職事表 ID 的只有 RosterRead.gs，而那個檔案不准有寫入方法。
+ *    這是規則 1／3 放寬之後補上的防線：`DriveApp.getFileById()` 與
+ *    `SpreadsheetApp.openById()` 理論上都可以開啟**任何**檔案，包括職事表
+ *    本身。靜態上無法證明某個執行期變數不是職事表 ID，但可以證明**這個
+ *    檔案拿不到職事表 ID 這個設定鍵**——只要它從來沒有引用過那個 Config
+ *    鍵，它就沒有辦法自己找到職事表。真正需要職事表 ID 的只有
+ *    RosterRead.gs，而那個檔案不准有任何寫入方法（規則 2）。
  *
  * 四條規則都會先用 tools/lib/maskSource.js 把字串與註解內容遮罩掉，
  * 避免像本檔案自己這種「解釋規則」的文件字串／註解，被自己掃到而誤判。
@@ -71,17 +80,28 @@ const JSON_OUTPUT = process.argv.indexOf('--json') !== -1;
 const DEFAULT_SRC_DIR = path.join(__dirname, '..', 'src');
 const ROSTER_READ_FILE = 'RosterRead.gs';
 
-/**
- * 唯一准許使用 `DriveApp` 的檔案（第七輪起）。見檔頭規則 3／4 的說明：
- * 能力鎖死在單一檔案，而且那個檔案拿不到職事表 ID。
- */
-const DRIVE_APP_FILE = 'DocxIo.gs';
+/** 每季「內容表」的 Drive／跨試算表 IO，全部鎖死在這一個檔案。 */
+const CONTENT_SHEET_IO_FILE = 'ContentSheetIo.gs';
 
 /**
- * `DRIVE_APP_FILE` 內不准出現的識別碼——拿不到職事表 ID，就沒有辦法用
- * `DriveApp.getFileById()` 開啟職事表。
+ * 准許使用 `DriveApp` 的檔案。見檔頭規則 3／4 的說明：能力鎖死在少數
+ * 幾個指定檔案，而且那幾個檔案一律拿不到職事表 ID。
+ */
+const DRIVE_APP_FILES = ['DocxIo.gs', CONTENT_SHEET_IO_FILE];
+
+/** 准許使用 `openById(` 的檔案。見檔頭規則 1。 */
+const OPEN_BY_ID_FILES = [ROSTER_READ_FILE, CONTENT_SHEET_IO_FILE];
+
+/**
+ * 拿得到 `DriveApp`／`openById(` 的檔案內，一律不准出現這個識別碼——
+ * 拿不到職事表 ID，就沒有辦法開啟職事表。`RosterRead.gs` 是唯一例外
+ * （它本來就要讀職事表），改為由規則 2 保證它一個格都寫不到。
  */
 const ROSTER_ID_CONFIG_KEY = 'ROSTER_SPREADSHEET_ID';
+
+/** 要套用規則 4 的檔案：獲准的高權限檔案，扣除 RosterRead.gs。 */
+const ROSTER_ID_FORBIDDEN_FILES = DRIVE_APP_FILES.concat(OPEN_BY_ID_FILES)
+  .filter(function (f, i, arr) { return f !== ROSTER_READ_FILE && arr.indexOf(f) === i; });
 
 const FORBIDDEN_WRITE_METHODS = [
   'setValue', 'setValues', 'setFormula', 'setFormulas', 'appendRow', 'insertRows',
@@ -159,13 +179,13 @@ function lint(srcDir) {
     const source = fs.readFileSync(path.join(srcDir, fileName), 'utf8');
     const masked = maskStringsAndComments(source);
 
-    // 規則 1：openById( 只准出現在 RosterRead.gs。
-    if (fileName !== ROSTER_READ_FILE) {
+    // 規則 1：openById( 只准出現在指定檔案。
+    if (OPEN_BY_ID_FILES.indexOf(fileName) === -1) {
       findOccurrenceLines(masked, 'openById(').forEach(function (line) {
         violations.push({
-          file: fileName, line: line, rule: 'OPEN_BY_ID_OUTSIDE_ROSTER_READ',
-          message: '「openById(」只准出現在 ' + ROSTER_READ_FILE + '。硬規則：對職事表試算表一律唯讀，'
-            + '跨試算表的讀取一律集中在單一檔案，才有辦法稽核「這個檔案有沒有偷偷寫入」。'
+          file: fileName, line: line, rule: 'OPEN_BY_ID_OUTSIDE_ALLOWED_FILES',
+          message: '「openById(」只准出現在 ' + OPEN_BY_ID_FILES.join('、') + '。硬規則：對職事表試算表一律唯讀，'
+            + '跨試算表的存取一律集中在少數幾個指定檔案，才有辦法逐一稽核。'
         });
       });
     }
@@ -186,25 +206,25 @@ function lint(srcDir) {
       });
     }
 
-    // 規則 3：DriveApp 只准出現在 DocxIo.gs。
-    if (fileName !== DRIVE_APP_FILE) {
+    // 規則 3：DriveApp 只准出現在指定檔案。
+    if (DRIVE_APP_FILES.indexOf(fileName) === -1) {
       findOccurrenceLines(masked, 'DriveApp').forEach(function (line) {
         violations.push({
-          file: fileName, line: line, rule: 'DRIVE_APP_OUTSIDE_DOCX_IO',
-          message: '「DriveApp」只准出現在 ' + DRIVE_APP_FILE + '（有繞過職事表唯讀邊界的風險）。'
-            + 'Word 範本要讀寫 Drive 是唯一的例外，而且一律集中在那個檔案，'
-            + '這樣「有沒有人用 Drive 繞過唯讀邊界」永遠只需要審一個檔案。'
+          file: fileName, line: line, rule: 'DRIVE_APP_OUTSIDE_ALLOWED_FILES',
+          message: '「DriveApp」只准出現在 ' + DRIVE_APP_FILES.join('、') + '（有繞過職事表唯讀邊界的風險）。'
+            + 'Word 範本讀寫 Drive、內容表建立檔案是僅有的兩個例外，而且各自集中在單一檔案，'
+            + '這樣「有沒有人用 Drive 繞過唯讀邊界」永遠只需要審嗰幾個檔案。'
         });
       });
     }
 
-    // 規則 4：DocxIo.gs 拿不到職事表 ID（規則 3 放寬之後補上的防線）。
-    if (fileName === DRIVE_APP_FILE) {
+    // 規則 4：高權限檔案（RosterRead.gs 除外）一律拿不到職事表 ID。
+    if (ROSTER_ID_FORBIDDEN_FILES.indexOf(fileName) !== -1) {
       findOccurrenceLines(masked, ROSTER_ID_CONFIG_KEY).forEach(function (line) {
         violations.push({
-          file: fileName, line: line, rule: 'ROSTER_ID_IN_DRIVE_APP_FILE',
-          message: '「' + ROSTER_ID_CONFIG_KEY + '」不可以出現在 ' + DRIVE_APP_FILE + '。'
-            + '這個檔案是全 src/ 唯一可以用 DriveApp 的地方，而 DriveApp.getFileById() 可以開啟任何檔案；'
+          file: fileName, line: line, rule: 'ROSTER_ID_IN_PRIVILEGED_FILE',
+          message: '「' + ROSTER_ID_CONFIG_KEY + '」不可以出現在 ' + fileName + '。'
+            + '這個檔案獲准使用 DriveApp／openById()，而兩者都可以開啟任何檔案；'
             + '只要它從來拿不到職事表 ID，它就沒有辦法自己找到職事表。'
         });
       });
@@ -225,8 +245,10 @@ function main() {
   console.log('掃描 src/*.gs（' + result.files.length + ' 個檔案）的職事表唯讀邊界：\n');
 
   if (result.violations.length === 0) {
-    console.log('✓ 沒有發現違規——openById 只在 ' + ROSTER_READ_FILE + '、該檔案沒有任何寫入方法、'
-      + 'DriveApp 只在 ' + DRIVE_APP_FILE + '、而那個檔案拿不到職事表 ID。');
+    console.log('✓ 沒有發現違規——openById 只在 ' + OPEN_BY_ID_FILES.join('、') + '、'
+      + ROSTER_READ_FILE + ' 沒有任何寫入方法、'
+      + 'DriveApp 只在 ' + DRIVE_APP_FILES.join('、') + '、'
+      + '而 ' + ROSTER_ID_FORBIDDEN_FILES.join('、') + ' 拿不到職事表 ID。');
     process.exit(0);
   }
 
@@ -246,7 +268,10 @@ if (require.main === module) {
     listGasFiles: listGasFiles,
     FORBIDDEN_WRITE_METHODS: FORBIDDEN_WRITE_METHODS,
     findSuspiciousSortCalls: findSuspiciousSortCalls,
-    DRIVE_APP_FILE: DRIVE_APP_FILE,
+    DRIVE_APP_FILES: DRIVE_APP_FILES,
+    OPEN_BY_ID_FILES: OPEN_BY_ID_FILES,
+    ROSTER_ID_FORBIDDEN_FILES: ROSTER_ID_FORBIDDEN_FILES,
+    CONTENT_SHEET_IO_FILE: CONTENT_SHEET_IO_FILE,
     ROSTER_READ_FILE: ROSTER_READ_FILE
   };
 }

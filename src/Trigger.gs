@@ -76,6 +76,21 @@ function weeklyBulletinSendTrigger_() {
       });
     }
 
+    // R-015：新季度快到（距離第一個主日少於 CONTENT_SHEET_INVITE_LEAD_DAYS）
+    // 而且未寄過內容表邀請的話，自動建立內容表並寄出。同樣包一層 try/catch
+    // ——這件事失敗不應該連累週報寄送。
+    try {
+      autoCreateContentSheetsForUpcomingQuarters_();
+    } catch (contentErr) {
+      appendErrorLog_({
+        source: ERROR_LOG_SOURCE.TRIGGER,
+        functionName: 'weeklyBulletinSendTrigger_/autoCreateContentSheetsForUpcomingQuarters_',
+        errorCode: (contentErr && contentErr.code) || 'ERROR',
+        message: (contentErr && contentErr.message) ? contentErr.message : String(contentErr),
+        detail: buildErrorDetail_(contentErr)
+      });
+    }
+
     sendBulletinForDate_(targetIso, {});
   } catch (err) {
     appendErrorLog_({

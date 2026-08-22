@@ -67,7 +67,8 @@ var SHEETS = Object.freeze({
   CONFLICT_NOTICE_LOG: 'ConflictNoticeLog',
   FELLOWSHIP_DEFAULTS: 'FellowshipDefaults',
   FILL_SNAPSHOT: 'FillSnapshot',
-  FILL_BACKUP: 'FillBackup'
+  FILL_BACKUP: 'FillBackup',
+  CONTENT_SHEETS: 'ContentSheets'
 });
 
 /**
@@ -352,6 +353,14 @@ var COLUMNS = Object.freeze({
     keys: ['BACKUP_ID', 'PART_NO', 'QUARTER_ID', 'CREATED_AT', 'CREATED_BY', 'REASON', 'PAYLOAD_JSON', 'ROW_COUNT'],
     types: ['TEXT', 'INT', 'TEXT', 'DATE', 'TEXT', 'TEXT', 'TEXT', 'INT'],
     textFormatColumns: ['PAYLOAD_JSON']
+  },
+
+  // R-013：每季一個「內容表」（獨立試算表，放 Shared Drive）的登記表。
+  // ⚠️ 這張表只記**指向哪一個檔案**，內容本身住在那個檔案裡面，不在這裡。
+  CONTENT_SHEETS: {
+    headers: ['季度', '檔案 ID', '連結', '建立時間', '最後匯入時間', '邀請寄出時間', '有效'],
+    keys: ['QUARTER_ID', 'FILE_ID', 'FILE_URL', 'CREATED_AT', 'LAST_IMPORTED_AT', 'INVITE_SENT_AT', 'ACTIVE'],
+    types: ['TEXT', 'TEXT', 'TEXT', 'DATE', 'DATE', 'DATE', 'BOOLEAN']
   }
 
 });
@@ -450,7 +459,20 @@ var CONFIG_KEYS = Object.freeze({
   WORKING_QUARTER_ID: 'WORKING_QUARTER_ID',
   // ---- 完成度自我檢測報告行數上限補漏：結論優先於明細 ----
   SELFCHECK_MAX_ROWS: 'SELFCHECK_MAX_ROWS',
-  SELFCHECK_MISSING_DETAIL_ROWS: 'SELFCHECK_MISSING_DETAIL_ROWS'
+  SELFCHECK_MISSING_DETAIL_ROWS: 'SELFCHECK_MISSING_DETAIL_ROWS',
+  // ---- R-010／R-013／R-014／R-015：每季一個獨立的「內容表」試算表 ----
+  CONTENT_SHEET_FOLDER_ID: 'CONTENT_SHEET_FOLDER_ID',
+  CONTENT_SHEET_NAME_PATTERN: 'CONTENT_SHEET_NAME_PATTERN',
+  CONTENT_SHEET_DOMAIN: 'CONTENT_SHEET_DOMAIN',
+  CONTENT_SHEET_INVITE_GROUPS: 'CONTENT_SHEET_INVITE_GROUPS',
+  CONTENT_SHEET_INVITE_LEAD_DAYS: 'CONTENT_SHEET_INVITE_LEAD_DAYS',
+  CONTENT_SHEET_OWNERS: 'CONTENT_SHEET_OWNERS',
+  CONTENT_SHEET_DEADLINE_NOTE: 'CONTENT_SHEET_DEADLINE_NOTE',
+  CONTENT_SHEET_SEED_SAMPLE: 'CONTENT_SHEET_SEED_SAMPLE',
+  // prompt 第 2 部分要求 `_說明` 分頁印「幹事聯絡方法（取自 Config，不要
+  // 寫死）」，但第 4 部分嗰張新鍵表冇列到——所以另外加呢一個。
+  // 見 docs/待確認事項.md J-2。
+  CONTENT_SHEET_ADMIN_CONTACT: 'CONTENT_SHEET_ADMIN_CONTACT'
 });
 
 // =====================================================================
@@ -552,7 +574,25 @@ var DEFAULTS = Object.freeze([
     note: '手動指定系統預設使用的季度（例如 2027T4）。留空則自動推算：先試下一個要寄的主日，失敗則用 ROSTER_TEST_DATE，見 resolveWorkingQuarter_()'
   },
   { key: CONFIG_KEYS.SELFCHECK_MAX_ROWS, value: '140', note: '完成度自我檢測報告最多寫入 Diagnostics 幾多行；大於 DIAGNOSTICS_MAX_ROWS 時取兩者較小值' },
-  { key: CONFIG_KEYS.SELFCHECK_MISSING_DETAIL_ROWS, value: '20', note: '完成度自我檢測「本季待填欄位總數」逐主日彙總明細最多列幾多行，其餘以「尚有 N 項」帶過；完整明細見選單「本季待填清單」' }
+  { key: CONFIG_KEYS.SELFCHECK_MISSING_DETAIL_ROWS, value: '20', note: '完成度自我檢測「本季待填欄位總數」逐主日彙總明細最多列幾多行，其餘以「尚有 N 項」帶過；完整明細見選單「本季待填清單」' },
+  // ---- 內容表（R-010／R-013／R-014／R-015）----
+  { key: CONFIG_KEYS.CONTENT_SHEET_FOLDER_ID, value: '', note: '⚠️ 必填：內容表要建立在哪一個 Shared Drive 資料夾（資料夾 ID）。留空時「建立本季內容表」會停下來並講明要填哪一個鍵' },
+  { key: CONFIG_KEYS.CONTENT_SHEET_NAME_PATTERN, value: '週報內容_{{QUARTER_ID}}', note: '內容表的檔名樣式；{{QUARTER_ID}} 換成季度 ID' },
+  // ⚠️ 網域**一律 seed 成空字串**，不可以寫死教會的真實網域——本檔案開頭
+  // 的硬規則（不可出現真實 ID／電郵／姓名）同樣涵蓋網域，`tools/scan-staged-secrets.js`
+  // 亦會直接擋住 commit。留空時 createContentSpreadsheet_() 不設分享權限，
+  // 由人手處理，並在對話框講明。見 docs/待確認事項.md J-8。
+  { key: CONFIG_KEYS.CONTENT_SHEET_DOMAIN, value: '', note: '⚠️ 必填：內容表分享給哪一個網域（網域內任何人可編輯），例如教會的 Google Workspace 網域。留空時不會自動設定分享權限，要人手設。一律不設成「任何知道連結的人」' },
+  { key: CONFIG_KEYS.CONTENT_SHEET_INVITE_GROUPS, value: 'CC,DB,ADMIN,IT', note: '「寄出內容表連結」要寄給哪幾個 Recipients.GROUP_NAME' },
+  { key: CONFIG_KEYS.CONTENT_SHEET_INVITE_LEAD_DAYS, value: '21', note: '距離新一季第一個主日少於幾多日，就自動建立內容表並寄出邀請（同一季只寄一次）' },
+  {
+    key: CONFIG_KEYS.CONTENT_SHEET_OWNERS,
+    value: '家事報告=幹事,代禱事項=堂委,團契聚會=堂委,財政報告=執事,崇拜人數=幹事,宣召=幹事',
+    note: '內容表每一張分頁由誰負責，格式「分頁名稱=負責人」，逗號分隔。會印在內容表的 _說明 分頁與邀請信內'
+  },
+  { key: CONFIG_KEYS.CONTENT_SHEET_DEADLINE_NOTE, value: '請於該主日之前的星期三下午 5 時前填妥', note: '內容表的截止日期說明，印在 _說明 分頁與邀請信內' },
+  { key: CONFIG_KEYS.CONTENT_SHEET_SEED_SAMPLE, value: 'TRUE', note: '建立內容表時，是否在該季第一個主日預填樣本資料（示範格式與長度）' },
+  { key: CONFIG_KEYS.CONTENT_SHEET_ADMIN_CONTACT, value: '', note: '內容表 _說明 分頁印出來的「有問題搵邊個」聯絡方法（例如幹事的電郵或電話）。⚠️ 一律由這裡填，不可以寫死在原始碼' }
 ]);
 
 // =====================================================================
