@@ -158,3 +158,23 @@ function driveCountFilesByNameInFolder_(folderId, fileName) {
     return -1;
   }
 }
+
+/**
+ * 用途：試探 Drive **進階服務**是否真係用得（唔淨係「個名存唔存在」）。
+ *   一次最小、唯讀、冇副作用嘅呼叫（列 1 個檔案）。
+ *
+ *   ⚠️ 畀「完成度自我檢測」用：進階服務未啟用會拋 `ReferenceError`，
+ *   已啟用但冇授權／配額用完會拋另一種例外——兩者呢度都當「唔可用」，
+ *   訊息原樣帶返出去，由呼叫方決定點樣顯示。
+ * Args: （無）
+ * Returns:
+ *   {{ok:boolean, message:string}}
+ */
+function probeDriveAdvancedService_() {
+  try {
+    Drive.Files.list(driveSharedOptions_({ maxResults: 1, fields: 'items(id)' }));
+    return { ok: true, message: '可用。' };
+  } catch (err) {
+    return { ok: false, message: (err && err.message) ? err.message : String(err) };
+  }
+}

@@ -106,6 +106,26 @@
     font-size: 13px;
   }
 
+  /* 使用者測試期間的兩條保險。刻意放在整頁最頂端、常駐（不是收在
+     「發佈及匯出」區塊裏面）——寄出這件事的風險不會因為使用者沒有
+     捲到那個區塊而變小。 */
+  .top-banner {
+    padding: 0.55em 1em;
+    font-size: 13.5px;
+    font-weight: 600;
+    text-align: center;
+  }
+  .top-banner-dryrun {
+    background: #fff3e0;
+    color: #8a5000;
+    border-bottom: 1px solid #ffb74d;
+  }
+  .top-banner-test {
+    background: #e3f2fd;
+    color: #0d47a1;
+    border-bottom: 1px solid #90caf9;
+  }
+
   /* 頂部忙碌指示列：載入／儲存／重新讀取職事表期間顯示，含一條動畫進度條與文字。 */
   .busy-bar {
     position: sticky;
@@ -452,18 +472,6 @@
   .publish-groups label { display: inline-flex; align-items: center; gap: 0.3em; font-size: 13px; }
   .publish-custom { display: inline-flex; align-items: center; gap: 0.4em; font-size: 13px; }
   .publish-custom input { min-width: 20em; }
-
-  /* DRY_RUN 橫幅：橙色，而且一定顯示——這是「以為寄了其實沒寄」唯一
-     的視覺提示，淡色或者可收起都不行。 */
-  .publish-dryrun {
-    background: #fff3e0;
-    border: 1px solid #ffb74d;
-    border-radius: 4px;
-    padding: 0.5em 0.8em;
-    font-size: 13px;
-    color: #8a5000;
-    margin: 0.7em 0;
-  }
 
   .publish-result {
     background: #f6f8fa;

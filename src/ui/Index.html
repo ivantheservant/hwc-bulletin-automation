@@ -6,6 +6,19 @@
   <div class="schema-warning">工作表結構落後於程式碼（<?= schemaWarning ?>），請先在試算表撳「週報系統 ▸ 初始化工作表」。</div>
   <? } ?>
 
+  <!--
+    使用者測試期間的兩條保險，一律放在**整個頁面最頂端**（不隨捲動、
+    不藏在任何要展開才看得到的區塊裏面）：
+    - 橙色：DRY_RUN=TRUE 時常駐顯示，文字要講清楚「寄出」這件事是假的。
+    - 藍色：Config TEST_MODE_BANNER 有值時顯示，內容由 Ivan 自己填
+      （例如「這是測試系統，資料可以隨便改」），留空就不出現。
+    兩者互不影響，都可能同時出現。
+  -->
+  <div id="dryRunTopBanner" class="top-banner top-banner-dryrun hidden">
+    ⚠ 測試模式：任何寄出都只會記錄，不會真的寄給任何人。
+  </div>
+  <div id="testModeTopBanner" class="top-banner top-banner-test hidden"></div>
+
   <div id="busyBar" class="busy-bar hidden">
     <div class="busy-bar-progress"></div>
     <span id="busyBarText" class="busy-bar-text"></span>
@@ -28,16 +41,17 @@
     </div>
     <!-- R-008：常駐一行，不隨主日下拉改變。 -->
     <div id="publishStatusBar" class="publish-status-bar">
-      <span id="publishStatusText">載入中…</span>
-      <a id="publishStatusLink" class="btn btn-small hidden" target="_blank" rel="noopener">開啟</a>
       <!--
-        ⚠️ 這一顆刻意放在**狀態列**、而不是「發佈及匯出」區塊裏面，而且
-        文字是「開啟」不是「下載」：實際發生過的事是幹事在發佈區塊按了
-        「下載目前已發佈的 PDF」，然後在選檔案時把同一個檔案選回去上載，
-        等於用舊內容覆寫自己。放在這裏，它跟「目前已發佈：…」講的是同
-        一件事，而且不會出現在「選 PDF」那一步的旁邊。
+        ⚠️ 這裏只有**一顆**連結（正常的超連結元素，不是拼出來的文字），
+        避免「開啟」與另一顆按鈕的文字疊在一起變成看起來重複。
+        它刻意放在狀態列、而不是「發佈及匯出」區塊裏面：實際發生過的事
+        是幹事在發佈區塊按了「下載目前已發佈的 PDF」，然後在選檔案時把
+        同一個檔案選回去上載，等於用舊內容覆寫自己。放在這裏，它跟
+        「目前已發佈：…」講的是同一件事，而且不會出現在「選 PDF」那一
+        步的旁邊。
       -->
-      <a id="openPublishedPdfBtn" class="btn btn-small hidden" target="_blank" rel="noopener">開啟目前已發佈的 PDF</a>
+      <span id="publishStatusText">載入中…</span>
+      <a id="publishStatusLink" class="btn btn-small hidden" target="_blank" rel="noopener">開啟 PDF</a>
       <span id="publishStatusHint" class="hint hidden"></span>
     </div>
     <div id="messageBar" class="message-bar hidden"></div>
@@ -269,10 +283,6 @@
             <input type="text" id="publishCustomEmails" placeholder="以逗號分隔">
           </label>
         </div>
-      </div>
-
-      <div id="publishDryRunBanner" class="publish-dryrun hidden">
-        ⚠ 模擬模式開啟中，寄出只會記錄，不會真的寄出。
       </div>
 
       <div class="publish-row">

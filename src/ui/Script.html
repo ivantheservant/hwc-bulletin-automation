@@ -1242,8 +1242,16 @@
 
     document.getElementById('doPublishCheck').checked = (resp.data.prefs || {}).doPublish === true;
     document.getElementById('doSendCheck').checked = (resp.data.prefs || {}).doSend === true;
-    document.getElementById('publishDryRunBanner').classList.toggle('hidden', resp.data.dryRun !== true);
     applyPublishSubStates();
+
+    // 使用者測試期間的兩條保險（見 Index.html 開頭那兩個常駐橫幅的說明）：
+    // 一律放在整頁最頂端，不藏在「發佈及匯出」區塊裏面。
+    document.getElementById('dryRunTopBanner').classList.toggle('hidden', resp.data.dryRun !== true);
+
+    var testBanner = document.getElementById('testModeTopBanner');
+    var testText = String(resp.data.testModeBanner || '').trim();
+    testBanner.textContent = testText;
+    testBanner.classList.toggle('hidden', !testText);
   }
 
   /**
@@ -1257,6 +1265,11 @@
     var s = status || {};
     document.getElementById('publishStatusText').textContent = s.text || '';
 
+    // ⚠️ 只有**一顆**連結，是正常的 HTML <a>——之前這裏同時放了兩顆
+    // 文字重疊的按鈕（「開啟」＋「開啟目前已發佈的 PDF」），視覺上看
+    // 起來像「開啟開啟目前已發佈的 PDF」，見 docs/已知bug類型.md
+    // 事故二十六。用 `view`（新分頁開啟）而不是 `download`：手上不會
+    // 多一個容易選錯、拿去重新上載的檔案。
     var link = document.getElementById('publishStatusLink');
     var canOpen = Boolean(s.hasMaster && s.links && s.links.view);
     link.classList.toggle('hidden', !canOpen);
@@ -1267,18 +1280,6 @@
     hint.classList.toggle('hidden', !needsSetup);
     if (needsSetup) {
       hint.textContent = '請先在試算表按「週報系統 ▸ 建立 master 發佈檔案」建立一次，之後那一條連結就永遠不變。';
-    }
-
-    // ⚠️ 用 `view`（新分頁開啟）而**不是** `download`：以前這一顆放在
-    // 發佈區塊、寫著「下載目前已發佈的 PDF」，結果幹事下載完就在下一步
-    // 把同一個檔案選回去上載，等於用舊內容覆寫自己。改成「開啟」之後，
-    // 手上不會多一個容易選錯的檔案。
-    var openBtn = document.getElementById('openPublishedPdfBtn');
-    if (canOpen) {
-      openBtn.href = s.links.view;
-      openBtn.classList.remove('hidden');
-    } else {
-      openBtn.classList.add('hidden');
     }
   }
 

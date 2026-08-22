@@ -382,6 +382,106 @@ function selfCheckFeatureItems_() {
 }
 
 // =====================================================================
+// 發佈及匯出類（prompt-pre-usertest 新增，放在既有項目之後）
+// =====================================================================
+
+/**
+ * 用途：發佈及匯出（R-001 至 R-009）相關的檢測項目。**放在既有項目之
+ *   後**——這一輪是後補的，不要打亂原有設定／資料／功能／紀錄四大類
+ *   的次序，讓已經習慣舊報告版面的人看得出「這幾項是新加的」。
+ * Args:
+ *   quarterResolution {Object} `resolveWorkingQuarter_()` 的回傳值——
+ *     跟其餘檢測項目共用同一次推算結果，不可以自己再猜一次季度
+ *     （見本檔案檔頭與 docs/已知bug類型.md 第 3 類）。
+ * Returns:
+ *   {{label:string, status:string, message:string, detail:string[]}[]}
+ */
+function selfCheckPublishItems_(quarterResolution) {
+  var items = [];
+  var S = SELF_CHECK_STATUS_;
+  var config = publishConfig_();
+
+  // ---- Drive 進階服務是否可用 ----
+  var driveProbe = probeDriveAdvancedService_();
+  items.push(selfCheckItem_(
+    'Drive 進階服務（發佈用）',
+    driveProbe.ok ? S.GREEN : S.YELLOW,
+    driveProbe.ok
+      ? '可用。'
+      : '尚未啟用或無法呼叫：' + driveProbe.message
+        + '　請在 Apps Script 編輯器的「服務」加入 Drive API（版本 v2）。'
+  ));
+
+  // ---- 三個資料夾 Config 是否已填 ----
+  [
+    { key: CONFIG_KEYS.PUBLISHED_PDF_FOLDER_ID, label: 'master 發佈檔案資料夾' },
+    { key: CONFIG_KEYS.PUBLISHED_ARCHIVE_FOLDER_ID, label: '發佈存檔資料夾' },
+    { key: CONFIG_KEYS.CONTENT_SHEET_FOLDER_ID, label: '內容表資料夾' }
+  ].forEach(function (f) {
+    var value = String(getConfig(f.key, '') || '').trim();
+    items.push(selfCheckItem_(
+      'Config：' + f.label,
+      value ? S.GREEN : S.YELLOW,
+      value ? '已填。' : '尚未設定 ' + f.key + '。'
+    ));
+  });
+
+  // ---- master 發佈檔案已建立且開得到 ----
+  if (!config.masterFileId) {
+    items.push(selfCheckItem_('master 發佈檔案', S.YELLOW, '尚未建立，請撳選單「建立 master 發佈檔案」。'));
+  } else {
+    var probe = probeMasterPdfFile_(config.masterFileId);
+    if (probe.exists) {
+      items.push(selfCheckItem_('master 發佈檔案', S.GREEN, '已建立且開得到（' + probe.fileName + '）。'));
+    } else if (probe.serviceUnavailable) {
+      items.push(selfCheckItem_('master 發佈檔案', S.YELLOW, 'Drive 進階服務未啟用，暫時無法確認（見上一項）。'));
+    } else {
+      items.push(selfCheckItem_('master 發佈檔案', S.YELLOW,
+        'Config 已有檔案 ID 但目前開不到，可能已被刪除或搬移，請確認。'));
+    }
+  }
+
+  // ---- 本季內容表是否已建立、最後匯入時間 ----
+  var currentQuarterId = quarterResolution.ok ? quarterResolution.quarterId : null;
+  if (!currentQuarterId) {
+    items.push(selfCheckItem_('本季內容表', S.YELLOW, '未能決定季度，見『檢測季度』一項。'));
+  } else {
+    var contentRow = null;
+    try {
+      contentRow = findContentSheetRow_(currentQuarterId);
+    } catch (err) {
+      contentRow = null;
+    }
+    if (!contentRow) {
+      items.push(selfCheckItem_('本季（' + currentQuarterId + '）內容表', S.YELLOW, '尚未建立。'));
+    } else {
+      var lastImported = (contentRow.LAST_IMPORTED_AT instanceof Date)
+        ? Utilities.formatDate(contentRow.LAST_IMPORTED_AT, config.timezone, 'yyyy-MM-dd HH:mm')
+        : '尚未匯入過';
+      items.push(selfCheckItem_('本季（' + currentQuarterId + '）內容表', S.GREEN, '已建立。最後匯入：' + lastImported + '。'));
+    }
+  }
+
+  // ---- 最近一次發佈的主日與版本 ----
+  var publishRows = [];
+  try {
+    publishRows = readSheet(SHEETS.PUBLISH_LOG);
+  } catch (err) {
+    publishRows = [];
+  }
+  var latestPublish = latestPublishLogRow_(publishRows);
+  items.push(selfCheckItem_(
+    '最近一次發佈',
+    latestPublish ? S.GREEN : S.YELLOW,
+    latestPublish
+      ? publishRowIsoDate_(latestPublish) + '（第 ' + Number(latestPublish.VERSION_NO || 0) + ' 版）。'
+      : '尚未發佈過任何一期。'
+  ));
+
+  return items;
+}
+
+// =====================================================================
 // 紀錄類
 // =====================================================================
 
@@ -452,7 +552,9 @@ function runSelfCheck_() {
     .concat([selfCheckQuarterItem_(quarterResolution)])
     .concat(selfCheckDataItems_(quarterResolution))
     .concat(selfCheckFeatureItems_())
-    .concat(selfCheckLogItems_());
+    .concat(selfCheckLogItems_())
+    // prompt-pre-usertest：發佈及匯出相關檢測，放在既有項目之後。
+    .concat(selfCheckPublishItems_(quarterResolution));
 
   var S = SELF_CHECK_STATUS_;
   var greenCount = items.filter(function (i) { return i.status === S.GREEN; }).length;

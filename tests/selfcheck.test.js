@@ -56,7 +56,10 @@ function makeEnv(options) {
 
   const env = makeFillEnv(Object.assign({ withGrid: false, config: config }, o.fillEnvOptions || {}, {
     driveApp: drive.DriveApp,
-    driveAdvanced: drive.Drive,
+    // prompt-pre-usertest：「Drive 進階服務是否可用」那一項要能測到
+    // 「不可用」的情況——不傳 driveAdvanced 給 fillEnv，Drive 就不存在，
+    // probeDriveAdvancedService_() 會拋 ReferenceError 並回 ok:false。
+    driveAdvanced: o.driveAdvancedUnavailable ? undefined : drive.Drive,
     utilitiesZip: makeFakeUtilities()
   }));
 
@@ -65,6 +68,14 @@ function makeEnv(options) {
 
 function findItem(summary, labelSubstring) {
   return summary.items.filter(function (i) { return i.label.indexOf(labelSubstring) !== -1; });
+}
+
+/**
+ * ⚠️ 「master 發佈檔案」是「master 發佈檔案資料夾」的字首，substring 比對
+ * 會誤中後者；用**精確相等**才分得開兩個標籤幾乎一樣的項目。
+ */
+function findExactItem(summary, label) {
+  return summary.items.filter(function (i) { return i.label === label; })[0];
 }
 
 const MANY_GAS_STUBS = {
@@ -527,6 +538,163 @@ test('menuCheckAuthorizationScopes_：把結果寫進 Diagnostics（報告名稱
   const rows = diagnostics.filter(function (r) { return r.REPORT_NAME === '檢查授權範圍'; });
   assert.ok(rows.length > 0);
   assert.ok(rows.some(function (r) { return r.CONTENT.indexOf('DriveApp') !== -1; }));
+});
+
+// =====================================================================
+// 20. prompt-pre-usertest：發佈及匯出相關的檢測項目
+// =====================================================================
+
+test('20a. 三個資料夾 Config 未填 → 對應項目各自報 🟡 並指明是哪一個設定鍵', function () {
+  const env = makeEnv({ config: {
+    PUBLISHED_PDF_FOLDER_ID: '', PUBLISHED_ARCHIVE_FOLDER_ID: '', CONTENT_SHEET_FOLDER_ID: ''
+  } });
+  const summary = env.sandbox.runSelfCheck_();
+
+  [
+    ['master 發佈檔案資料夾', 'PUBLISHED_PDF_FOLDER_ID'],
+    ['發佈存檔資料夾', 'PUBLISHED_ARCHIVE_FOLDER_ID'],
+    ['內容表資料夾', 'CONTENT_SHEET_FOLDER_ID']
+  ].forEach(function (pair) {
+    const item = findItem(summary, pair[0])[0];
+    assert.ok(item, '找不到「' + pair[0] + '」這一項');
+    assert.strictEqual(item.status, '🟡');
+    assert.ok(item.message.indexOf(pair[1]) !== -1, item.message);
+  });
+});
+
+test('20b. 三個資料夾 Config 都已填 → 對應項目報 🟢', function () {
+  const env = makeEnv({ config: {
+    PUBLISHED_PDF_FOLDER_ID: 'FOLDER_A', PUBLISHED_ARCHIVE_FOLDER_ID: 'FOLDER_B', CONTENT_SHEET_FOLDER_ID: 'FOLDER_C'
+  } });
+  const summary = env.sandbox.runSelfCheck_();
+
+  ['master 發佈檔案資料夾', '發佈存檔資料夾', '內容表資料夾'].forEach(function (label) {
+    assert.strictEqual(findItem(summary, label)[0].status, '🟢', label);
+  });
+});
+
+test('20c. Drive 進階服務不可用 → 報 🟡，訊息說明要啟用，不拋錯', function () {
+  const env = makeEnv({ driveAdvancedUnavailable: true });
+  const summary = env.sandbox.runSelfCheck_(); // 不拋錯本身就是這一條的重點
+  const item = findItem(summary, 'Drive 進階服務')[0];
+
+  assert.ok(item);
+  assert.strictEqual(item.status, '🟡');
+  assert.ok(item.message.indexOf('啟用') !== -1, item.message);
+});
+
+test('20d. Drive 進階服務可用 → 報 🟢', function () {
+  const env = makeEnv({});
+  const summary = env.sandbox.runSelfCheck_();
+  assert.strictEqual(findItem(summary, 'Drive 進階服務')[0].status, '🟢');
+});
+
+test('20e. master 發佈檔案：Config 未設定 ID → 🟡，提示去撳選單建立', function () {
+  const env = makeEnv({ config: { PUBLISHED_PDF_FILE_ID: '' } });
+  const summary = env.sandbox.runSelfCheck_();
+  const item = findExactItem(summary, 'master 發佈檔案');
+  assert.ok(item, 'label 相同的兩個項目要用精確比對，不要用 findItem() 的字首誤中');
+  assert.strictEqual(item.status, '🟡');
+  assert.ok(item.message.indexOf('建立 master 發佈檔案') !== -1, item.message);
+});
+
+test('20f. master 發佈檔案：已設定 ID 且開得到 → 🟢', function () {
+  const env = makeEnv({ config: { PUBLISHED_PDF_FILE_ID: FAKE_TEMPLATE_NORMAL } });
+  // 借用已經在假 Drive 裏的一個檔案 ID，模擬「開得到」。
+  const summary = env.sandbox.runSelfCheck_();
+  assert.strictEqual(findExactItem(summary, 'master 發佈檔案').status, '🟢');
+});
+
+test('20g. master 發佈檔案：已設定 ID 但開不到 → 🟡（不是 🔴——不是核心功能）', function () {
+  const env = makeEnv({ config: { PUBLISHED_PDF_FILE_ID: 'NOT_A_REAL_FILE' } });
+  const summary = env.sandbox.runSelfCheck_();
+  assert.strictEqual(findExactItem(summary, 'master 發佈檔案').status, '🟡');
+});
+
+test('20h. 本季內容表：尚未建立 → 🟡', function () {
+  const env = makeEnv({});
+  const summary = env.sandbox.runSelfCheck_();
+  const item = findExactItem(summary, '本季（' + QUARTER_ID + '）內容表');
+  assert.ok(item, '找不到「本季內容表」這一項；標籤裏帶了季度 ID，跟「內容表資料夾」是兩個不同項目');
+  assert.strictEqual(item.status, '🟡');
+  assert.ok(item.message.indexOf('尚未建立') !== -1, item.message);
+});
+
+test('20i. 本季內容表：已建立且有最後匯入時間 → 🟢，顯示該時間（走 Utilities.formatDate）', function () {
+  // ⚠️ makeEnv() 的 utilitiesZip（tests/helpers/fakeDrive.js 的
+  // makeFakeUtilities()）把 formatDate 換成一個固定回傳
+  // '2027-11-07 09:00' 的替身，不論傳入哪一個 Date——所以這裏斷言的是
+  // 「有沒有真的呼叫 formatDate 並把結果放進訊息」，不是斷言某個具體
+  // 日期字串本身。
+  const env = makeEnv({});
+  env.sandbox.writeSheet(env.sandbox.SHEETS.CONTENT_SHEETS, [{
+    QUARTER_ID: QUARTER_ID, FILE_ID: 'CS1', FILE_URL: 'https://example.invalid/cs1',
+    CREATED_AT: '2027-09-01', LAST_IMPORTED_AT: '2027-10-05', INVITE_SENT_AT: '', ACTIVE: true
+  }]);
+  const summary = env.sandbox.runSelfCheck_();
+  const item = findExactItem(summary, '本季（' + QUARTER_ID + '）內容表');
+  assert.strictEqual(item.status, '🟢');
+  assert.ok(item.message.indexOf('2027-11-07 09:00') !== -1, item.message);
+});
+
+test('20j. 本季內容表：已建立但從未匯入過 → 🟢，講明「尚未匯入過」', function () {
+  const env = makeEnv({});
+  env.sandbox.writeSheet(env.sandbox.SHEETS.CONTENT_SHEETS, [{
+    QUARTER_ID: QUARTER_ID, FILE_ID: 'CS1', FILE_URL: 'https://example.invalid/cs1',
+    CREATED_AT: '2027-09-01', LAST_IMPORTED_AT: '', INVITE_SENT_AT: '', ACTIVE: true
+  }]);
+  const summary = env.sandbox.runSelfCheck_();
+  const item = findExactItem(summary, '本季（' + QUARTER_ID + '）內容表');
+  assert.ok(item.message.indexOf('尚未匯入過') !== -1, item.message);
+});
+
+test('20k. 最近一次發佈：從未發佈過 → 🟡', function () {
+  const env = makeEnv({});
+  const summary = env.sandbox.runSelfCheck_();
+  const item = findItem(summary, '最近一次發佈')[0];
+  assert.ok(item);
+  assert.strictEqual(item.status, '🟡');
+  assert.ok(item.message.indexOf('尚未發佈') !== -1, item.message);
+});
+
+test('20l. 最近一次發佈：有記錄 → 🟢，顯示主日與版本號', function () {
+  const env = makeEnv({});
+  env.sandbox.writeSheet(env.sandbox.SHEETS.PUBLISH_LOG, [{
+    SERVICE_DATE: '2027-11-07', VERSION_NO: 2, PUBLISHED_AT: '2027-11-06',
+    PUBLISHED_BY: 'tester@x.com', ARCHIVE_FILE_ID: 'A1', SENT: true,
+    SENT_GROUPS: 'CC', MISSING_COUNT: 0, FORCED: false, FORCED_REASON: ''
+  }]);
+  const summary = env.sandbox.runSelfCheck_();
+  const item = findItem(summary, '最近一次發佈')[0];
+  assert.strictEqual(item.status, '🟢');
+  assert.ok(item.message.indexOf('2027-11-07') !== -1, item.message);
+  assert.ok(item.message.indexOf('第 2 版') !== -1, item.message);
+});
+
+test('20m. 新增的六類檢測項目全部出現在報告內，且總行數不超過 SELFCHECK_MAX_ROWS', function () {
+  const env = makeEnv({});
+  const summary = env.sandbox.runSelfCheck_();
+
+  ['Drive 進階服務', 'master 發佈檔案資料夾', '發佈存檔資料夾', '內容表資料夾',
+    'master 發佈檔案', '內容表', '最近一次發佈'
+  ].forEach(function (label) {
+    assert.ok(findItem(summary, label).length > 0, '找不到「' + label + '」這一項');
+  });
+
+  const maxRows = Number(env.sandbox.getConfig(env.sandbox.CONFIG_KEYS.SELFCHECK_MAX_ROWS, '140'));
+  const lines = env.sandbox.buildSelfCheckReportLines_(summary);
+  assert.ok(lines.length <= maxRows, '報告行數 ' + lines.length + ' 超過上限 ' + maxRows);
+});
+
+test('20n. 新增項目排在既有項目之後（不打亂原有四大類的次序）', function () {
+  const env = makeEnv({});
+  const summary = env.sandbox.runSelfCheck_();
+  const labels = summary.items.map(function (i) { return i.label; });
+
+  const lastOldIndex = labels.indexOf('AuditLog 行數'); // 紀錄類最後一項
+  const firstNewIndex = labels.findIndex(function (l) { return l.indexOf('Drive 進階服務') !== -1; });
+  assert.ok(lastOldIndex !== -1 && firstNewIndex !== -1);
+  assert.ok(lastOldIndex < firstNewIndex, '新項目應該排在既有項目（含紀錄類）之後');
 });
 
 // =====================================================================

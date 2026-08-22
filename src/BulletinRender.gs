@@ -620,6 +620,13 @@ function generateBulletinDocx_(isoDate) {
     });
   }
 
+  // ---- 異體字正規化：記錄替換了多少次（保險，見 normalizeVariantCharacters_）----
+  // ⚠️ 只在真的有替換過才寫——範本改好之後這個數字會變 0，不應該每次都
+  // 洗一次 Diagnostics（那張表是「最新一次報告」快照，見 src/Diagnostics.gs）。
+  if (renderStats && renderStats.variantCharsReplaced > 0) {
+    writeDiagnosticsReport_('異體字正規化', buildVariantCharsReportLines_(isoDate, fileName, renderStats.variantCharsBreakdown));
+  }
+
   return {
     ok: true,
     blob: rendered.blob,
@@ -630,6 +637,32 @@ function generateBulletinDocx_(isoDate) {
     warnings: renderWarnings.concat(model.warnings || []),
     modelMissingCount: (model.missing || []).length
   };
+}
+
+/**
+ * 用途：組出「異體字正規化」Diagnostics 報告的內容行。**純函式。**
+ * Args:
+ *   isoDate {string} 主日日期，yyyy-MM-dd。
+ *   fileName {string} 產生的檔名。
+ *   breakdown {Object<string,number>} `normalizeVariantCharacters_()` 的
+ *     \`breakdown\`——key 是正確的那個字，value 是替換次數。
+ * Returns:
+ *   {string[]}
+ */
+function buildVariantCharsReportLines_(isoDate, fileName, breakdown) {
+  var lines = [
+    '主日：' + isoDate + '　檔案：' + fileName,
+    '',
+    '範本原稿有兩個字用了錯誤的 Unicode 異體字（視覺上看不出分別，但複製、',
+    '搜尋、朗讀軟件會出問題），本次產生時已經自動修正：'
+  ];
+  Object.keys(breakdown).forEach(function (correctChar) {
+    lines.push('　「' + correctChar + '」：' + breakdown[correctChar] + ' 次');
+  });
+  lines.push('');
+  lines.push('這是輸出前的保險，不是永久修法——請在 Word 範本原稿用「尋找及取代」');
+  lines.push('修正，詳見 docs/待確認事項.md 這一輪的記錄。');
+  return lines;
 }
 
 /**

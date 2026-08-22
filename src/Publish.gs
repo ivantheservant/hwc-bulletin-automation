@@ -1146,7 +1146,27 @@ function runPublishFlow_(payload) {
 
   // ---- 發佈前檢查（R-006／R-007）----
   var precheck = buildPublishPrecheck_(isoDate);
-  if (precheck.needsConfirm && p.confirmed !== true) {
+
+  // ⚠️ 使用者測試模式的保險（prompt-pre-usertest 第 3 部分）：`DRY_RUN`
+  // 只影響「寄出」，發佈本身一樣會真的覆寫 master 連結。測試期間這一點
+  // 很容易被誤會成「反正是測試系統，撳什麼都是假的」，所以**不論有沒有
+  // 未填欄位／日期異常**，只要真的要發佈而且目前是 DRY_RUN，都要在確認
+  // 視窗加這一句、而且一樣要勾方框才能繼續。
+  //
+  // ⚠️ 這一句刻意**不計入** `precheck.forcedReason`／`FORCED`——那兩個
+  // 記的是 R-006／R-007 那種「資料本身有問題」的強制發佈，跟「這是測試
+  // 環境」是兩件不相關的事，混在一起會令 `PublishLog.FORCED_REASON`
+  // 失真（日後回頭查會以為那一次發佈資料不齊全，其實只是提醒過一句）。
+  precheck.dryRunPublishNotice = (doPublish === true && config.dryRun === true);
+  if (precheck.dryRunPublishNotice) {
+    precheck.lines = precheck.lines.concat([
+      '',
+      '⚠ 測試模式（DRY_RUN=TRUE）只影響「寄出」——發佈會真的覆寫網站上那條 master 連結，不是模擬。'
+    ]);
+  }
+
+  var needsConfirmDialog = precheck.needsConfirm || precheck.dryRunPublishNotice;
+  if (needsConfirmDialog && p.confirmed !== true) {
     return {
       ok: false, reason: 'NEEDS_CONFIRM', precheck: precheck, lines: precheck.lines,
       message: '發佈前檢查發現需要確認的事項，請閱讀後勾選確認方框。'
@@ -1337,13 +1357,20 @@ function buildPublishStatusForWebApp_() {
     publishedAt = Utilities.formatDate(latest.PUBLISHED_AT, config.timezone, 'yyyy-MM-dd HH:mm');
   }
 
+  var recipientRows = [];
+  try {
+    recipientRows = readSheet(SHEETS.RECIPIENTS);
+  } catch (err) {
+    recipientRows = [];
+  }
+
   var status = {
     hasMaster: Boolean(config.masterFileId),
     published: Boolean(latest),
     isoDate: latest ? publishRowIsoDate_(latest) : '',
     versionNo: latest ? Number(latest.VERSION_NO || 0) : 0,
     publishedAt: publishedAt,
-    publishedBy: latest ? publishActorLabel_(latest.PUBLISHED_BY) : '',
+    publishedBy: latest ? resolvePublishActorDisplayName_(latest.PUBLISHED_BY, recipientRows) : '',
     links: links
   };
   status.text = buildPublishStatusText_(status);
@@ -1354,9 +1381,11 @@ function buildPublishStatusForWebApp_() {
  * 用途：把發佈人嘅電郵縮成一個顯示用嘅名（`@` 前面嗰截）。**純函式。**
  *
  *   ⚠️ 介面上唔應該長期掛住一個完整電郵地址——呢個畫面會投影出嚟示範、
- *   會截圖貼落求助訊息。前面嗰截已經夠分得出係邊個。
+ *   會截圖貼落求助訊息。前面嗰截已經夠分得出係邊個。呢個係
+ *   `resolvePublishActorDisplayName_()` 揾唔到 `Recipients` 顯示名稱時嘅
+ *   退回，唔係頂部狀態列直接用嘅函式（見下面嗰個）。
  * Args:
- *   value {*} `PublishLog.PUBLISHED_BY`。
+ *   value {*} `PublishLog.PUBLISHED_BY`（一個電郵地址）。
  * Returns:
  *   {string}
  */
@@ -1365,6 +1394,36 @@ function publishActorLabel_(value) {
   if (!text) return '';
   var at = text.indexOf('@');
   return at > 0 ? text.slice(0, at) : text;
+}
+
+/**
+ * 用途：頂部狀態列「由 XXX 發佈」嗰個名——優先用 `Recipients` 嘅顯示
+ *   名稱，查唔到先退回電郵 `@` 前半部。**純函式。**
+ *
+ *   ⚠️ `PublishLog.PUBLISHED_BY` 存嘅係
+ *   `Session.getActiveUser().getEmail()`，即係 Google 帳戶電郵——喺
+ *   Workspace 網域入面通常係 `ivantheservant@…` 呢種帳戶名，唔一定係
+ *   會友慣用嘅稱呼。`Recipients` 嗰個「姓名」欄先至係人手填嘅、真正
+ *   想畀人睇到嘅顯示名稱，所以優先用佢。
+ * Args:
+ *   email {*} `PublishLog.PUBLISHED_BY`。
+ *   recipientRows {Object[]} `readSheet(SHEETS.RECIPIENTS)` 嘅輸出。
+ * Returns:
+ *   {string} 兩者都揾唔到（例如 email 本身係空）就回空字串。
+ */
+function resolvePublishActorDisplayName_(email, recipientRows) {
+  var target = String(email || '').trim().toLowerCase();
+  if (!target) return '';
+
+  var match = (recipientRows || []).filter(function (r) {
+    return String(r.EMAIL || '').trim().toLowerCase() === target;
+  })[0];
+  if (match) {
+    var name = String(match.NAME || '').trim();
+    if (name) return name;
+  }
+
+  return publishActorLabel_(email);
 }
 
 /**

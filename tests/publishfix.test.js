@@ -679,18 +679,29 @@ test('14b. 撳「執行」之後兩顆按鈕都會停用並改文字，成功或
     '成功與失敗兩條路徑都要還原，否則按鈕會永遠停在「發佈中…」');
 });
 
-test('14c. 「下載目前已發佈的 PDF」已經移出發佈區塊，改為在狀態列「開啟」', function () {
+test('14c. 「開啟目前已發佈的 PDF」已經移出發佈區塊，在狀態列以單一連結「開啟 PDF」呈現', function () {
+  // ⚠️ 這一條在 prompt-pre-usertest.md 那一輪被進一步簡化：狀態列裏
+  // 原本同時放了 publishStatusLink（「開啟」）與 openPublishedPdfBtn
+  // （「開啟目前已發佈的 PDF」）兩顆按鈕，視覺上文字疊在一起變成
+  // 「開啟開啟目前已發佈的 PDF」。現在只保留**一顆**，文字是「開啟 PDF」。
   const index = uiFiles().filter(function (f) { return f.name === 'Index.html'; })[0].text;
   const script = uiFiles().filter(function (f) { return f.name === 'Script.html'; })[0].text;
 
   assert.ok(index.indexOf('downloadPublishedPdfBtn') === -1, '舊那一顆要拿走');
-  assert.ok(index.indexOf('id="openPublishedPdfBtn"') !== -1);
-  assert.ok(index.indexOf('開啟目前已發佈的 PDF') !== -1);
-  // 它要在狀態列裏面，不在發佈區塊。
+  assert.ok(index.indexOf('id="openPublishedPdfBtn"') === -1, '這一顆已經併入 publishStatusLink，不應該還存在');
+
+  // 狀態列裏只有一個 <a>，而且文字是「開啟 PDF」。
   const statusBarStart = index.indexOf('id="publishStatusBar"');
+  const statusBarEnd = index.indexOf('</div>', statusBarStart);
+  const statusBarHtml = index.slice(statusBarStart, statusBarEnd);
+  const anchorCount = (statusBarHtml.match(/<a\b/g) || []).length;
+  assert.strictEqual(anchorCount, 1, '狀態列裏只可以有一個連結，避免文字重疊看起來像重複');
+  assert.ok(statusBarHtml.indexOf('>開啟 PDF<') !== -1, statusBarHtml);
+
+  // 它要在狀態列裏面，不在發佈區塊。
   const panelStart = index.indexOf('class="panel publish-panel"');
-  const btnAt = index.indexOf('id="openPublishedPdfBtn"');
-  assert.ok(statusBarStart < btnAt && btnAt < panelStart,
+  const linkAt = index.indexOf('id="publishStatusLink"');
+  assert.ok(statusBarStart < linkAt && linkAt < panelStart,
     '這一顆要在狀態列之內、發佈區塊之前——放在「選 PDF」旁邊正是揀錯檔案的成因');
   // 三步驟寫成編號清單。
   assert.ok(index.indexOf('class="publish-steps"') !== -1);

@@ -558,7 +558,12 @@ function publishPanelDataForWebApp_() {
     dryRun: config.dryRun,
     attachPdf: config.attachPdf,
     maxPdfMb: config.maxPdfMb,
-    prefs: loadPublishPrefs_(config.sendGroups)
+    prefs: loadPublishPrefs_(config.sendGroups),
+    // 使用者測試模式的保險（prompt-pre-usertest 第 3 部分）：Ivan 自己
+    // 在 Config 填一句話，頁面頂部就會常駐顯示一條藍色橫幅。留空就不
+    // 顯示——這是唯一一個「有值才出現」的頂部橫幅，另一條（DRY_RUN）
+    // 是系統狀態，不是人手決定要不要講。
+    testModeBanner: getConfig(CONFIG_KEYS.TEST_MODE_BANNER, '')
   };
 }
 

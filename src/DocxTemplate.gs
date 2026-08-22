@@ -1472,6 +1472,51 @@ function applyOptionalLabelledCellRows_(xml, values, rowGroups) {
  * Raises:
  *   Error 當 `missingValueMode` 是 `'ERROR'` 而且有佔位符找不到值。
  */
+/**
+ * 用途：範本原稿有兩個字用咗錯誤嘅 Unicode 異體字（來源見
+ *   docs/待確認事項.md 呢一輪嘅記錄），視覺上睇唔出分別，但複製、搜尋、
+ *   朗讀軟件會出問題。輸出前正規化返做正確嘅字，係一個**保險**——
+ *   真正嘅修法係喺 `.docx` 原稿改（本專案唔可以自己改範本檔案）。
+ *
+ *   - U+2FA7「⾧」（康熙部首）→ U+9577「長」
+ *   - U+31D0「㇐」（CJK 筆畫）→ U+4E00「一」
+ *
+ *   **純函式**，唔碰任何 Apps Script 服務，方便獨立測試。
+ * Args:
+ *   xml {string} 已經完成全部替換之後嘅 document.xml。
+ * Returns:
+ *   {{xml:string, count:number, breakdown:Object<string,number>}}
+ *     `breakdown` 嘅 key 係正確嗰隻字（`'長'`／`'一'`），value 係
+ *     替換咗幾多次；一次都冇就係空物件。
+ */
+function normalizeVariantCharacters_(xml) {
+  var text = String(xml || '');
+  // ⚠️ 刻意用 \u 逸出序列寫死碼位，唔用字面上嗰隻字：兩隻異體字同正確字
+  // 視覺上一模一樣，字面寫法容易被編輯器「自動修正」、或者被人手複製貼上
+  // 嗰陣不知不覺換咗做正確字，令呢個保險自己都測唔到自己想擋嘅嘢。
+  var replacements = [
+    { from: '\u2FA7', to: '長' }, // 康熙部首 U+2FA7 → 正確嘅「長」
+    { from: '\u31D0', to: '一' }  // CJK 筆畫 U+31D0 → 正確嘅「一」
+  ];
+
+  var breakdown = {};
+  replacements.forEach(function (r) {
+    var count = 0;
+    var idx = text.indexOf(r.from);
+    while (idx !== -1) {
+      count++;
+      idx = text.indexOf(r.from, idx + r.from.length);
+    }
+    if (count > 0) {
+      breakdown[r.to] = count;
+      text = text.split(r.from).join(r.to);
+    }
+  });
+
+  var total = Object.keys(breakdown).reduce(function (sum, k) { return sum + breakdown[k]; }, 0);
+  return { xml: text, count: total, breakdown: breakdown };
+}
+
 function renderDocumentXml_(xml, context) {
   var ctx = context || {};
   var values = ctx.values || {};
@@ -1545,6 +1590,10 @@ function renderDocumentXml_(xml, context) {
     });
   });
 
+  // ---- 6. 異體字正規化（保險，見 normalizeVariantCharacters_ 的說明）----
+  var variantFix = normalizeVariantCharacters_(working);
+  working = variantFix.xml;
+
   return {
     xml: working,
     stats: {
@@ -1559,7 +1608,9 @@ function renderDocumentXml_(xml, context) {
       collapsedParagraphs: prepared.collapsedParagraphs,
       missingKeys: simple.missingKeys,
       broken: broken,
-      lists: listStats
+      lists: listStats,
+      variantCharsReplaced: variantFix.count,
+      variantCharsBreakdown: variantFix.breakdown
     },
     warnings: warnings
   };
