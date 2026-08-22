@@ -5,13 +5,16 @@
  * 存一份帶日期同版本號嘅副本。
  *
  * ─────────────────────────────────────────────────────────────────────
- * ⚠️ 呢個檔案係全 src/ 三個高權限檔案之一，改動之前請先讀 lint 嘅說明
+ * ⚠️ 呢個檔案係全 src/ 四個高權限檔案之一，改動之前請先讀 lint 嘅說明
  * ─────────────────────────────────────────────────────────────────────
  *
  *   `tools/lint-readonly-roster.js` 對本檔案有兩條硬規則：
  *
- *     - **准用 `DriveApp` 同 `Drive.Files`**（規則 3）：建立檔案、設定
- *       「知道連結的人可檢視」、覆寫內容，冇 Drive 做唔到。
+ *     - **准用 `DriveApp`**（規則 3）：建立檔案、設定「知道連結的人可
+ *       檢視」、讀返目前內容，冇 Drive 做唔到。
+ *       ⚠️ Drive **進階服務**（`Drive.Files.*`）唔喺呢度——全部集中喺
+ *       `src/DriveShared.gs`，因為每一個呼叫都一定要帶
+ *       `supportsAllDrives: true`（見嗰個檔案嘅檔頭）。
  *     - **一個格都唔准出現 `ROSTER_SPREADSHEET_ID`**（規則 4）：Drive
  *       理論上開得到**任何**檔案，包括職事表本身。靜態上證明唔到某個
  *       執行期變數唔係職事表 ID，但證明得到「呢個檔案由頭到尾拎唔到
@@ -29,7 +32,7 @@
  *   2. **唔可以用 `DriveApp` 嘅 `setContent()`。** 佢淨係處理得到文字，
  *      餵 PDF 落去會寫出一個「內容係一堆亂碼字元」嘅檔案，副檔名仲係
  *      `.pdf`，開得開但係壞嘅。原地覆寫二進位內容只有一條路：Drive
- *      **進階服務** `Drive.Files.update()`。
+ *      **進階服務**（`driveUpdateFileContent_()`，src/DriveShared.gs）。
  *
  *   ⚠️ 進階服務要喺 Apps Script 編輯器人手啟用一次（見
  *   docs/幹事操作說明.md）。未啟用時 `Drive` 呢個名根本唔存在，會拋
@@ -162,27 +165,41 @@ function createMasterPdfFile_(fileName, folderId, blob) {
  * Args:
  *   fileId {string} 檔案 ID。
  * Returns:
- *   {{exists:boolean, fileName:string}} 開唔到回 `{exists:false, fileName:''}`，
- *     **唔拋錯**——呼叫方要分得出「未建立過」同「建立過但而家開唔到」。
+ *   {{exists:boolean, fileName:string, serviceUnavailable:boolean}}
+ *     開唔到回 `exists:false`，**唔拋錯**——呼叫方要分得出「未建立過」
+ *     同「建立過但而家開唔到」。
+ *     `serviceUnavailable:true` 係第三種：**進階服務未啟用**，即係
+ *     「查唔到」而唔係「唔存在」，訊息完全唔同（一個叫人去編輯器撳一次，
+ *     一個叫人重新建立檔案，後者會換咗條連結）。
  */
 function probeMasterPdfFile_(fileId) {
   var id = String(fileId || '').trim();
   if (!id) return { exists: false, fileName: '' };
-  try {
-    var file = DriveApp.getFileById(id);
-    return { exists: true, fileName: file.getName() };
-  } catch (err) {
-    return { exists: false, fileName: '' };
+
+  // ⚠️ 走進階服務（`driveGetFileMetadata_()`）而唔係 `DriveApp`：兩者
+  // 對 Shared Drive 嘅預設行為唔同，而「檔案存唔存在」呢個答案一定要同
+  // 之後真正覆寫嗰一步用同一條路徑得出——用唔同路徑問，就會出現
+  // 「探測話存在、覆寫話 404」呢種冇得解釋嘅狀況。
+  if (!driveAdvancedServiceAvailable_()) {
+    return { exists: false, fileName: '', serviceUnavailable: true };
   }
+  var meta = driveGetFileMetadata_(id);
+  if (!meta) return { exists: false, fileName: '', serviceUnavailable: false };
+  return { exists: true, fileName: String(meta.title || meta.name || ''), serviceUnavailable: false };
 }
 
 /**
  * 用途：原地覆寫 master PDF 檔案嘅內容，並把檔名設回指定值。**檔案 ID
  *   前後唔變**，所以條連結唔變（R-001 個核心承諾）。
  *
- *   ⚠️ 一定要行 `Drive.Files.update()`（進階服務）。理由同「唔可以用
- *   `setContent()`」嘅說明見檔頭。`title` 一併喺同一次呼叫傳埋，
- *   慳返一次 API，亦避免「內容已經換咗但檔名仲係舊嗰個」嘅中間狀態。
+ *   ⚠️ 一定要行 Drive **進階服務**。理由同「唔可以用 `setContent()`」
+ *   嘅說明見檔頭。檔名一併喺同一次呼叫傳埋，慳返一次 API，亦避免
+ *   「內容已經換咗但檔名仲係舊嗰個」嘅中間狀態。
+ *
+ *   ⚠️ 實際嘅呼叫喺 `driveUpdateFileContent_()`（`src/DriveShared.gs`）
+ *   ——全部 `Drive.` 呼叫集中喺嗰一個檔案，因為每一個都一定要帶
+ *   `supportsAllDrives: true`，否則喺 Shared Drive 上會回一句假嘅
+ *   「File not found」（見 docs/已知bug類型.md 事故二十四）。
  * Args:
  *   fileId {string} master 檔案 ID。
  *   blob {Blob} 新內容（PDF）。
@@ -194,9 +211,29 @@ function probeMasterPdfFile_(fileId) {
  *     原樣拋出，由 `classifyPublishError_()` 分類成人睇得明嘅訊息。
  */
 function overwriteMasterPdf_(fileId, blob, fileName) {
+  return driveUpdateFileContent_(fileId, blob, fileName);
+}
+
+/**
+ * 用途：讀返 master 檔案**目前**嘅內容位元組。
+ *
+ *   ⚠️ 用途唔係顯示，係比對：上載嘅 PDF 如果同 master 目前內容一模一樣，
+ *   代表使用者揀錯咗檔案（多數係啱啱先撳過「開啟目前已發佈的 PDF」，
+ *   然後把嗰一份再上載一次），等於用舊內容覆寫自己。
+ * Args:
+ *   fileId {string} 檔案 ID。
+ * Returns:
+ *   {?number[]} 讀唔到回 `null`，**唔拋錯**——讀唔到 master 目前內容
+ *     只係代表「呢一次比對唔到」，唔應該連發佈都做唔到。
+ */
+function readMasterPdfBytes_(fileId) {
   var id = String(fileId || '').trim();
-  var updated = Drive.Files.update({ title: String(fileName || '') }, id, blob);
-  return { fileId: (updated && updated.id) ? updated.id : id };
+  if (!id) return null;
+  try {
+    return DriveApp.getFileById(id).getBlob().getBytes();
+  } catch (err) {
+    return null;
+  }
 }
 
 /**

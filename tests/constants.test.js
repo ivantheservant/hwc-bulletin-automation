@@ -170,8 +170,8 @@ test('BulletinWeeks：浸禮副框六欄的中文標題與機器鍵一一對應�
   assert.strictEqual(JSON.stringify(def.headers.slice(-6)), JSON.stringify(expectedHeaders));
 });
 
-test('CONFIG_KEYS 剛好 85 個（與 DEFAULTS 一一對應）', function () {
-  assert.strictEqual(Object.keys(CONFIG_KEYS).length, 85);
+test('CONFIG_KEYS 剛好 87 個（與 DEFAULTS 一一對應）', function () {
+  assert.strictEqual(Object.keys(CONFIG_KEYS).length, 87);
 });
 
 test('這一輪新增的 Config 鍵 FINANCE_PERIOD_LABEL_PATTERN 有定義、有預設值', function () {
@@ -204,8 +204,8 @@ test('CONFIG_KEYS 每一個值都有對應的 DEFAULTS 項目（不會有「有�
   });
 });
 
-test('DEFAULTS 剛好 85 筆（之前的 78 ＋ 發佈及匯出的 7）', function () {
-  assert.strictEqual(DEFAULTS.length, 85);
+test('DEFAULTS 剛好 87 筆（之前的 85 ＋ 發佈修正的 2）', function () {
+  assert.strictEqual(DEFAULTS.length, 87);
 });
 
 test('內容表那 9 個 Config 鍵齊備，而且 ID 類 seed 成空字串', function () {

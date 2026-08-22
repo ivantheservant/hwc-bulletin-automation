@@ -44,6 +44,7 @@ function makeRehearsalEnv(options) {
 
   const env = makeFillEnv(Object.assign({ withGrid: false, config: config }, o.fillEnvOptions || {}, {
     driveApp: drive.DriveApp,
+    driveAdvanced: drive.Drive,
     utilitiesZip: makeFakeUtilities()
   }));
 

@@ -135,6 +135,7 @@ function menuResolveFillConflicts_() {
     var template = HtmlService.createTemplateFromFile('ui/FillConflict');
     template.quarterId = quarterId;
     template.conflictsJson = JSON.stringify(conflicts);
+    template.callTimeoutSec = webAppCallTimeoutSec_();
     ui.showModalDialog(
       template.evaluate().setWidth(900).setHeight(600),
       '處理填寫表衝突（' + quarterId + '，共 ' + conflicts.length + ' 格）'

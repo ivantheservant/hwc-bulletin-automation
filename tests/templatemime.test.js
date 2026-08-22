@@ -31,6 +31,7 @@ function makeEnv(files) {
   const utilities = makeFakeUtilities();
   return loadAllSrcFilesInOrder(Object.assign({}, BASE_STUBS, {
     DriveApp: drive.DriveApp,
+    Drive: drive.Drive,
     Utilities: utilities,
     SpreadsheetApp: {},
     CacheService: {}

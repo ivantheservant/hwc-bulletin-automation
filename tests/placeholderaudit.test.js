@@ -147,6 +147,7 @@ function makeAuditEnv(overrides) {
       TEMPLATE_FILE_ID_ANNIVERSARY: FAKE_TEMPLATE_ANNIVERSARY
     },
     driveApp: drive.DriveApp,
+    driveAdvanced: drive.Drive,
     utilitiesZip: makeFakeUtilities()
   });
 }

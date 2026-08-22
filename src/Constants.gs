@@ -497,7 +497,10 @@ var CONFIG_KEYS = Object.freeze({
   PUBLISHED_ARCHIVE_FOLDER_ID: 'PUBLISHED_ARCHIVE_FOLDER_ID',
   PUBLISH_SEND_GROUPS: 'PUBLISH_SEND_GROUPS',
   PUBLISH_ATTACH_PDF: 'PUBLISH_ATTACH_PDF',
-  PUBLISH_MAX_PDF_MB: 'PUBLISH_MAX_PDF_MB'
+  PUBLISH_MAX_PDF_MB: 'PUBLISH_MAX_PDF_MB',
+  // ---- 發佈修正那一輪新增 ----
+  PUBLISH_DEDUP_SEC: 'PUBLISH_DEDUP_SEC',
+  WEBAPP_CALL_TIMEOUT_SEC: 'WEBAPP_CALL_TIMEOUT_SEC'
 });
 
 // =====================================================================
@@ -625,7 +628,9 @@ var DEFAULTS = Object.freeze([
   { key: CONFIG_KEYS.PUBLISHED_ARCHIVE_FOLDER_ID, value: '', note: '⚠️ 必填：每次發佈存一份帶日期與版本號的副本到哪一個資料夾（資料夾 ID）' },
   { key: CONFIG_KEYS.PUBLISH_SEND_GROUPS, value: 'CC,DB,ADMIN', note: '「發佈及匯出」內收件組別的預設勾選（逗號分隔的 Recipients.GROUP_NAME）' },
   { key: CONFIG_KEYS.PUBLISH_ATTACH_PDF, value: 'TRUE', note: '發佈通知郵件要不要把 PDF 一併附上（FALSE 就只放連結）' },
-  { key: CONFIG_KEYS.PUBLISH_MAX_PDF_MB, value: '10', note: '上載的 PDF 檔案大小上限（MB），超過會被拒絕' }
+  { key: CONFIG_KEYS.PUBLISH_MAX_PDF_MB, value: '10', note: '上載的 PDF 檔案大小上限（MB），超過會被拒絕' },
+  { key: CONFIG_KEYS.PUBLISH_DEDUP_SEC, value: '30', note: '同一個主日在幾多秒內重複發佈會被視為「撳多了一次」，直接回報上一次的版本號，不再產生新版本' },
+  { key: CONFIG_KEYS.WEBAPP_CALL_TIMEOUT_SEC, value: '120', note: '填寫介面等候伺服器回應的上限（秒）；超過就顯示逾時訊息，不會一直轉圈' }
 ]);
 
 // =====================================================================

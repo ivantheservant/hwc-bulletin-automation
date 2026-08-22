@@ -205,6 +205,43 @@ function makeFakeDriveApp(options) {
         return makeFolderHandle(id);
       }
     },
+    // Drive **進階服務**的替身。`uniqueOutputFileName_()` 改走
+    // `driveCountFilesByNameInFolder_()`（Shared Drive 一定要帶
+    // `supportsAllDrives`），所以測試環境也要有這一個。
+    Drive: {
+      Files: {
+        list: function (optionalArgs) {
+          const args = optionalArgs || {};
+          if (args.supportsAllDrives !== true) {
+            throw new Error('Drive.Files.list：缺少 supportsAllDrives，Shared Drive 會回 File not found');
+          }
+          // 刻意用字串切割而不是正規表示式：查詢字串本身含有引號與
+          // 跳脫字元，用正規表示式寫在測試替身裡只會多一個容易寫錯的地方。
+          const q = String(args.q || '');
+          const folderEnd = q.indexOf("' in parents");
+          const nameKey = "title = '";
+          const nameStart = q.indexOf(nameKey);
+          if (folderEnd === -1 || nameStart === -1) return { items: [] };
+
+          const folderId = q.slice(q.indexOf("'") + 1, folderEnd);
+          const afterName = q.slice(nameStart + nameKey.length);
+          const wanted = afterName.slice(0, afterName.indexOf("'"));
+          const items = (createdByFolder[folderId] || [])
+            .filter(function (f) { return f.name === wanted; })
+            .map(function (f) { return { id: f.id }; });
+          return { items: items };
+        },
+        get: function (fileId, optionalArgs) {
+          if (!optionalArgs || optionalArgs.supportsAllDrives !== true) {
+            throw new Error('Drive.Files.get：缺少 supportsAllDrives');
+          }
+          if (!Object.prototype.hasOwnProperty.call(files, fileId)) {
+            throw new Error('File not found: ' + fileId);
+          }
+          return { id: fileId, title: files[fileId].getName() };
+        }
+      }
+    },
     listFolderFiles: function (folderId) { return (createdByFolder[folderId] || []).slice(); },
     createdFiles: createdFiles
   };

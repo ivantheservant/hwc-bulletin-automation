@@ -45,7 +45,8 @@
  *    函式時才算違規——真正呼叫 Range.sort() 幾乎不可能長成比較函式的樣子。
  *
  * 3. `DriveApp` 與 Drive **進階服務**（`Drive.Files`）只准出現在
- *    src/DocxIo.gs、src/ContentSheetIo.gs、src/PublishIo.gs。
+ *    src/DocxIo.gs、src/ContentSheetIo.gs、src/PublishIo.gs、
+ *    src/DriveShared.gs。
  *
  *    ⚠️ 這一條在第七輪之前是「全 src/ 一律不准」。當時的註解寫明「日後
  *    真的需要才另外設計審查」——第七輪就是那個時候：Word（`.docx`）範本
@@ -88,10 +89,20 @@ const CONTENT_SHEET_IO_FILE = 'ContentSheetIo.gs';
 const PUBLISH_IO_FILE = 'PublishIo.gs';
 
 /**
+ * Drive **進階服務**（`Drive.Files.*`）的唯一呼叫點。
+ *
+ * ⚠️ 它存在的理由是 Shared Drive：每一個 `Drive.` 呼叫都必須帶
+ * `supportsAllDrives: true`，否則會回一句假的「File not found」。
+ * 集中在一個檔案，那個參數才只有一處會寫漏（另見
+ * `tools/lint-drive-shared.js`）。
+ */
+const DRIVE_SHARED_FILE = 'DriveShared.gs';
+
+/**
  * 准許使用 `DriveApp`／`Drive.Files`（進階服務）的檔案。見檔頭規則 3／4
  * 的說明：能力鎖死在少數幾個指定檔案，而且那幾個檔案一律拿不到職事表 ID。
  */
-const DRIVE_APP_FILES = ['DocxIo.gs', CONTENT_SHEET_IO_FILE, PUBLISH_IO_FILE];
+const DRIVE_APP_FILES = ['DocxIo.gs', CONTENT_SHEET_IO_FILE, PUBLISH_IO_FILE, DRIVE_SHARED_FILE];
 
 /**
  * Drive **進階服務**的呼叫形式。`DriveApp` 與它是兩個不同的識別碼，但
@@ -289,6 +300,7 @@ if (require.main === module) {
     ROSTER_ID_FORBIDDEN_FILES: ROSTER_ID_FORBIDDEN_FILES,
     CONTENT_SHEET_IO_FILE: CONTENT_SHEET_IO_FILE,
     PUBLISH_IO_FILE: PUBLISH_IO_FILE,
+    DRIVE_SHARED_FILE: DRIVE_SHARED_FILE,
     DRIVE_ADVANCED_TOKEN: DRIVE_ADVANCED_TOKEN,
     ROSTER_READ_FILE: ROSTER_READ_FILE
   };

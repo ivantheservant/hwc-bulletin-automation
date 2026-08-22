@@ -1,6 +1,6 @@
 <?!= include('ui/Style'); ?>
 
-<div id="app">
+<div id="app" data-call-timeout-sec="<?= callTimeoutSec ?>">
 
   <? if (schemaWarning) { ?>
   <div class="schema-warning">工作表結構落後於程式碼（<?= schemaWarning ?>），請先在試算表撳「週報系統 ▸ 初始化工作表」。</div>
@@ -30,6 +30,14 @@
     <div id="publishStatusBar" class="publish-status-bar">
       <span id="publishStatusText">載入中…</span>
       <a id="publishStatusLink" class="btn btn-small hidden" target="_blank" rel="noopener">開啟</a>
+      <!--
+        ⚠️ 這一顆刻意放在**狀態列**、而不是「發佈及匯出」區塊裏面，而且
+        文字是「開啟」不是「下載」：實際發生過的事是幹事在發佈區塊按了
+        「下載目前已發佈的 PDF」，然後在選檔案時把同一個檔案選回去上載，
+        等於用舊內容覆寫自己。放在這裏，它跟「目前已發佈：…」講的是同
+        一件事，而且不會出現在「選 PDF」那一步的旁邊。
+      -->
+      <a id="openPublishedPdfBtn" class="btn btn-small hidden" target="_blank" rel="noopener">開啟目前已發佈的 PDF</a>
       <span id="publishStatusHint" class="hint hidden"></span>
     </div>
     <div id="messageBar" class="message-bar hidden"></div>
@@ -225,14 +233,15 @@
       <h2>發佈及匯出</h2>
       <p class="hint">主日：<strong id="publishServiceDate">—</strong></p>
 
+      <ol class="publish-steps">
+        <li>按「下載 Word」</li>
+        <li>用 Word 開啟核對，另存為 PDF</li>
+        <li>在下面選那個 PDF，按「執行」</li>
+      </ol>
+
       <div class="publish-row">
         <button id="downloadWordBtn" type="button" class="btn btn-secondary">下載 Word</button>
-        <a id="downloadPublishedPdfBtn" class="btn btn-secondary" target="_blank" rel="noopener">下載目前已發佈的 PDF</a>
       </div>
-      <p class="hint">
-        「下載目前已發佈的 PDF」下載的是 master 檔案<strong>目前的內容</strong>，
-        不是即時把這一期轉成 PDF。
-      </p>
 
       <div class="publish-block">
         <label class="publish-check">
@@ -283,6 +292,12 @@
         <input type="checkbox" id="publishForcedCheck">
         我明白以上情況，仍然要發佈（未填的欄位會在成品留空）
       </label>
+      <!--
+        ⚠️ 失敗訊息一定要顯示在**視窗之內**：視窗是 modal，蓋住了下面
+        那條訊息列，錯誤寫在下面等於沒有寫——使用者只會見到轉圈完結、
+        視窗還開著、甚麼都沒有發生，然後再按一次。
+      -->
+      <div id="publishConfirmError" class="publish-result is-error hidden"></div>
       <div class="dialog-actions">
         <button type="button" class="btn btn-secondary" id="publishConfirmCancelBtn">取消</button>
         <button type="button" class="btn btn-primary" id="publishConfirmOkBtn" disabled>確認發佈</button>

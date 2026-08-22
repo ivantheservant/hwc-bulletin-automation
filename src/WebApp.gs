@@ -59,10 +59,30 @@ function doGet(e) {
   var schema = checkSheetSchema_();
   var template = HtmlService.createTemplateFromFile('ui/Index');
   template.schemaWarning = buildSchemaShortSummary_(schema);
+  // ⚠️ 前端沒有辦法自己讀 Config，所以由這裏放進 `#app` 的 data 屬性。
+  // 不可以用 include('ui/Script') 那一邊的樣板變數——`include()` 造的是
+  // 一個**全新的**樣板，這裏設的值傳不過去。
+  template.callTimeoutSec = webAppCallTimeoutSec_();
 
   return template.evaluate()
     .setTitle(APP_NAME + '－填寫介面')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+/**
+ * 用途：讀出 Config `WEBAPP_CALL_TIMEOUT_SEC`（填寫介面等候伺服器回應的
+ *   上限，秒）。設定不合法或者非正數一律回 120。
+ *
+ *   ⚠️ 這個值一定要有一個**有限**的上限：`google.script.run` 本身沒有
+ *   逾時機制，伺服器那一邊卡住的話，成功與失敗兩個處理函式都不會被呼叫，
+ *   介面就永遠停在忙碌狀態（見 docs/已知bug類型.md 事故二十五）。
+ * Args: （無）
+ * Returns:
+ *   {number} 秒。
+ */
+function webAppCallTimeoutSec_() {
+  var seconds = normalizeInt_(getConfig(CONFIG_KEYS.WEBAPP_CALL_TIMEOUT_SEC, '120'));
+  return (seconds === null || seconds <= 0) ? 120 : seconds;
 }
 
 /**

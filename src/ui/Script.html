@@ -190,11 +190,14 @@
   }
 
   /**
-   * 用途：發出一個「會停用整個介面」的 `google.script.run` 請求前呼叫。
-   *   跟 `endRequest()` 成對——每一次 `beginRequest()` 都必須有對應的
-   *   `endRequest()`，放在該次請求的 `withSuccessHandler`／
-   *   `withFailureHandler` 處理函式**最前面**，避免任何提早 `return`
-   *   的分支漏減，導致 `inFlight` 卡住、介面永遠停用。
+   * 用途：發出一個「會停用整個介面」的請求前呼叫。
+   *
+   *   ⚠️ **只由 `callServer()` 呼叫**，不要在別處直接叫。它跟
+   *   `endRequest()` 必須成對，而「成對」這件事以前靠每一個處理函式
+   *   自己記得在最前面減一次——只要有一個分支提早 `return`，或者有
+   *   一個呼叫忘了寫失敗處理，`inFlight` 就會卡住、介面永遠停用。
+   *   現在改為由 `callServer()` 一處負責，成功、失敗、逾時三條路徑
+   *   都經同一個 `settle()`，所以只可能減一次，也不可能漏。
    * Args:
    *   text {string} 忙碌指示列要顯示的文字（例如「載入中…」）。
    * Returns:
@@ -222,12 +225,131 @@
     applyBusyState();
   }
 
-  function onApiFailure(err) {
-    endRequest();
-    setSaveButtonText('儲存');
-    var message = '呼叫伺服器失敗：' + (err && err.message ? err.message : String(err));
-    showMessage('error', message);
-    reportClientError_(message, err && err.stack ? String(err.stack).split('\n').slice(0, 5).join('\n') : '', 'onApiFailure');
+  // =====================================================================
+  // callServer()：**全部**伺服器呼叫的唯一入口
+  // =====================================================================
+  //
+  // ⚠️ 為什麼一定要統一：`google.script.run` 的 `withFailureHandler` 是
+  // 可以不寫的，而不寫的後果是**後端拋的錯全部人間蒸發**——使用者只會
+  // 見到轉圈結束、視窗還開著、甚麼都沒有發生，然後再按一次。實際發生過
+  // 的事故正正是這樣（見 docs/已知bug類型.md 事故二十五）。
+  //
+  // 而且 `google.script.run` **沒有逾時**：伺服器那一邊如果卡住（拿不到
+  // 鎖、Drive 慢、6 分鐘上限），成功與失敗兩個處理函式都不會被呼叫，
+  // 介面就永遠停在忙碌狀態。所以這裏自己加一個計時器。
+  //
+  // 每一個呼叫都經這裏，就只有一處會寫漏。
+
+  /**
+   * 用途：讀出 Config `WEBAPP_CALL_TIMEOUT_SEC`（由 doGet 放進
+   *   `#app` 的 data 屬性）。讀不到就用 120 秒。
+   * Returns:
+   *   {number} 毫秒。
+   */
+  function serverCallTimeoutMs() {
+    var raw = document.getElementById('app').getAttribute('data-call-timeout-sec');
+    var seconds = parseInt(raw, 10);
+    if (!(seconds > 0)) seconds = 120;
+    return seconds * 1000;
+  }
+
+  /**
+   * 用途：把失敗（例外或逾時）整理成一句人看得懂、而且**看得到後端訊息**
+   *   的文字。
+   *
+   *   ⚠️ 只取前 300 字：後端的例外訊息可能很長（含堆疊），整段塞進一條
+   *   橫幅會把畫面推爆，反而看不到重點。完整內容在 `ErrorLog`。
+   * Args:
+   *   fnName {string} 伺服器函式名稱。
+   *   err {*} 例外物件。
+   * Returns:
+   *   {string}
+   */
+  /**
+   * 用途：把例外的堆疊縮成頭 5 行，供 `ErrorLog.DETAIL` 用。
+   *   ⚠️ 只可以放技術性內容，不可以夾帶電郵或表單完整內容。
+   * Args:
+   *   err {*} 例外物件。
+   * Returns:
+   *   {string}
+   */
+  function stackSummary(err) {
+    if (!err || !err.stack) return '';
+    return String(err.stack).split('\n').slice(0, 5).join('\n');
+  }
+
+  function describeServerFailure(fnName, err) {
+    var raw = (err && err.message) ? String(err.message) : String(err);
+    if (raw.length > 300) raw = raw.slice(0, 300) + '…（訊息過長，完整內容請看 ErrorLog）';
+    return '呼叫伺服器失敗（' + fnName + '）：' + raw;
+  }
+
+  /**
+   * 用途：**所有**伺服器呼叫的唯一入口。統一處理忙碌狀態、逾時、失敗顯示。
+   * Args:
+   *   fnName {string} 伺服器端的 api* 函式名稱。
+   *   args {Array} 參數陣列。
+   *   onOk {function(*):void} 成功時的處理（收到伺服器回傳值）。
+   *   options {{busy:(string|undefined), busyText:(string|undefined),
+   *            onError:(function(string,*):void|undefined),
+   *            noReport:(boolean|undefined)}=}
+   *     `busy`：`'request'`（預設，停用整個介面）／`'preview'`（只顯示
+   *     小小的「更新中」）／`'none'`（完全不動忙碌狀態）。
+   *     `onError`：自訂失敗處理；不提供就顯示紅色訊息列。
+   *     `noReport`：不要把這次失敗回報去 ErrorLog（只有回報本身那一個
+   *     呼叫要用，否則會無限遞迴）。
+   * Returns:
+   *   {void}
+   */
+  function callServer(fnName, args, onOk, options) {
+    var opts = options || {};
+    var mode = opts.busy || 'request';
+    var settled = false;
+    var timer = null;
+
+    if (mode === 'request') beginRequest(opts.busyText || '處理中…');
+    else if (mode === 'preview') beginPreview();
+
+    function release() {
+      if (mode === 'request') endRequest();
+      else if (mode === 'preview') endPreview();
+    }
+
+    // ⚠️ 每一條路徑（成功、失敗、逾時）都經過這裏，所以忙碌狀態一定只
+    // 會解除一次，也不會漏。逾時之後才回來的那一個回應會被 settled 擋掉。
+    function settle(handler) {
+      return function (value) {
+        if (settled) return;
+        settled = true;
+        if (timer) { clearTimeout(timer); timer = null; }
+        release();
+        handler(value);
+      };
+    }
+
+    var fail = settle(function (err) {
+      var message = describeServerFailure(fnName, err);
+      if (opts.onError) opts.onError(message, err);
+      else showMessage('error', message);
+      if (!opts.noReport) {
+        reportClientError_(message, stackSummary(err), fnName);
+      }
+    });
+
+    timer = setTimeout(function () {
+      fail(new Error('伺服器在 ' + Math.round(serverCallTimeoutMs() / 1000)
+        + ' 秒內沒有回應。這一次的動作**可能已經做了、也可能沒有做**，'
+        + '請先看試算表的 ErrorLog 與 Apps Script 的「執行項目」確認，不要直接再按一次。'));
+    }, serverCallTimeoutMs());
+
+    try {
+      var runner = google.script.run
+        .withSuccessHandler(settle(function (resp) { onOk(resp); }))
+        .withFailureHandler(fail);
+      runner[fnName].apply(runner, args || []);
+    } catch (err) {
+      fail(err);
+    }
   }
 
   /**
@@ -241,14 +363,13 @@
    *   {void}
    */
   function reportClientError_(message, detail, functionName) {
-    try {
-      google.script.run
-        .withSuccessHandler(function () {})
-        .withFailureHandler(function () {})
-        .apiLogClientError({ message: message, detail: detail, functionName: functionName });
-    } catch (e) {
-      // 連呼叫 google.script.run 本身都失敗：吞掉，不要因為回報錯誤這件事再產生新的例外。
-    }
+    // ⚠️ `noReport: true` 是必須的：回報失敗時如果又去回報一次，就會
+    // 變成無限遞迴。`onError` 也刻意吞掉——回報錯誤這件事本身失敗了，
+    // 不應該再跳一個新的錯誤橫幅打斷使用者。
+    callServer('apiLogClientError',
+      [{ message: message, detail: detail, functionName: functionName }],
+      function () {},
+      { busy: 'none', noReport: true, onError: function () {} });
   }
 
   // =====================================================================
@@ -361,15 +482,11 @@
     if (!state.isoDate) return;
     if (state.inFlight > 0) return;
     hideMessage();
-    beginRequest('計算差異中…');
-    google.script.run
-      .withSuccessHandler(onContentImportPreviewed)
-      .withFailureHandler(onApiFailure)
-      .apiPreviewContentImport(state.isoDate);
+    callServer('apiPreviewContentImport', [state.isoDate], onContentImportPreviewed,
+      { busyText: '計算差異中…' });
   }
 
   function onContentImportPreviewed(resp) {
-    endRequest();
     if (!resp.ok) { showMessage('error', resp.error.message); return; }
     if (!resp.data.ok) { showMessage('error', resp.data.message); return; }
 
@@ -385,15 +502,10 @@
       return;
     }
 
-    beginRequest('匯入中…');
-    google.script.run
-      .withSuccessHandler(onContentImportDone)
-      .withFailureHandler(onApiFailure)
-      .apiRunContentImport(state.isoDate);
+    callServer('apiRunContentImport', [state.isoDate], onContentImportDone, { busyText: '匯入中…' });
   }
 
   function onContentImportDone(resp) {
-    endRequest();
     if (!resp.ok) { showMessage('error', resp.error.message); return; }
     if (!resp.data.ok) { showMessage('error', resp.data.message); return; }
     showMessage('success', '匯入完成。' + resp.data.lines[2]);
@@ -804,15 +916,12 @@
     var opts = options || {};
     if (!opts.keepMessage) hideMessage();
     setLoaded(false);
-    beginRequest('載入中…');
-    google.script.run
-      .withSuccessHandler(function (resp) { onWeekLoaded(isoDate, resp); })
-      .withFailureHandler(onApiFailure)
-      .apiLoadWeek(isoDate);
+    callServer('apiLoadWeek', [isoDate],
+      function (resp) { onWeekLoaded(isoDate, resp); },
+      { busyText: '載入中…', onError: function (message) { setLoaded(false); showMessage('error', message); } });
   }
 
   function onWeekLoaded(isoDate, resp) {
-    endRequest();
     if (!resp.ok) { setLoaded(false); showMessage('error', resp.error.message); return; }
     var data = resp.data;
 
@@ -867,11 +976,7 @@
     if (!state.isoDate) return;
     if (state.inFlight > 0) return;
     hideMessage();
-    beginRequest('讀取職事表中…');
-    google.script.run
-      .withSuccessHandler(onRosterReloaded)
-      .withFailureHandler(onApiFailure)
-      .apiLoadWeek(state.isoDate);
+    callServer('apiLoadWeek', [state.isoDate], onRosterReloaded, { busyText: '讀取職事表中…' });
   }
 
   /**
@@ -881,7 +986,6 @@
    * 訊息文案由伺服器的 buildRosterReloadMessage_() 算好，直接顯示。
    */
   function onRosterReloaded(resp) {
-    endRequest();
     if (!resp.ok) { showMessage('error', resp.error.message); return; }
     renderReadOnly(resp.data.readOnly);
     renderStats(resp.data.missing, resp.data.warnings, state.lastSavedAt);
@@ -933,11 +1037,12 @@
     }
     hideMessage();
     setSaveButtonText('儲存中…');
-    beginRequest('儲存中…');
-    google.script.run
-      .withSuccessHandler(onSaveSuccess)
-      .withFailureHandler(onApiFailure)
-      .apiSaveWeek(buildSavePayload());
+    callServer('apiSaveWeek', [buildSavePayload()], onSaveSuccess, {
+      busyText: '儲存中…',
+      // 失敗時一定要把按鈕文字改回來，否則會一直寫著「儲存中…」，
+      // 看起來像仍然在跑。
+      onError: function (message) { setSaveButtonText('儲存'); showMessage('error', message); }
+    });
   }
 
   /**
@@ -950,7 +1055,6 @@
    * hideMessage() 立刻清走（見 MESSAGE_MIN_VISIBLE_MS 的註解）。
    */
   function onSaveSuccess(resp) {
-    endRequest();
     setSaveButtonText('儲存');
     if (!resp.ok) {
       showMessage('error', resp.error.message);
@@ -975,15 +1079,11 @@
     if (!state.isoDate) return;
     if (state.inFlight > 0) return;
     hideMessage();
-    beginRequest('讀取職事表中…');
-    google.script.run
-      .withSuccessHandler(onFetchCandidatesLoaded)
-      .withFailureHandler(onApiFailure)
-      .apiGetRosterFetchCandidates(state.isoDate);
+    callServer('apiGetRosterFetchCandidates', [state.isoDate], onFetchCandidatesLoaded,
+      { busyText: '讀取職事表中…' });
   }
 
   function onFetchCandidatesLoaded(resp) {
-    endRequest();
     if (!resp.ok) { showMessage('error', resp.error.message); return; }
     state.fetchCandidates = resp.data.rows || [];
     renderFetchDialog();
@@ -1074,17 +1174,12 @@
       return;
     }
 
-    beginRequest('由職事表重新取數中…');
-    google.script.run
-      .withSuccessHandler(function (resp) {
-        endRequest();
-        if (!resp.ok) { showMessage('error', resp.error.message); return; }
-        showMessage(resp.data.message.type, resp.data.message.text);
-        // 重新載入才看得到新的名單與衝突狀態；一定要保留剛顯示的訊息。
-        loadWeek(state.isoDate, { keepMessage: true });
-      })
-      .withFailureHandler(onApiFailure)
-      .apiFetchFromRoster(state.isoDate, selections);
+    callServer('apiFetchFromRoster', [state.isoDate, selections], function (resp) {
+      if (!resp.ok) { showMessage('error', resp.error.message); return; }
+      showMessage(resp.data.message.type, resp.data.message.text);
+      // 重新載入才看得到新的名單與衝突狀態；一定要保留剛顯示的訊息。
+      loadWeek(state.isoDate, { keepMessage: true });
+    }, { busyText: '由職事表重新取數中…' });
   }
 
   // =====================================================================
@@ -1104,11 +1199,14 @@
   function refreshPreview() {
     if (!state.isoDate) return;
     var draft = collectWeekFieldsFromForm();
-    beginPreview();
-    google.script.run
-      .withSuccessHandler(function (resp) { endPreview(); if (resp.ok) renderProgramPreview(resp.data.rows); })
-      .withFailureHandler(function () { endPreview(); /* 預覽失敗不打擾使用者，維持上一次的預覽內容 */ })
-      .apiPreviewProgram(state.isoDate, draft);
+    callServer('apiPreviewProgram', [state.isoDate, draft], function (resp) {
+      if (resp.ok) renderProgramPreview(resp.data.rows);
+    }, {
+      busy: 'preview',
+      // 預覽失敗不打擾使用者，維持上一次的預覽內容；但仍然要回報，
+      // 否則「預覽一直不更新」這件事永遠沒有人知道。
+      onError: function () {}
+    });
   }
 
   // =====================================================================
@@ -1124,13 +1222,13 @@
    *   {void}
    */
   function loadPublishPanel() {
-    google.script.run
-      .withSuccessHandler(onPublishPanelLoaded)
-      .withFailureHandler(function () {
-        // 狀態列載不到不應該擋住整個填寫介面——照樣寫一句，其餘功能照用。
+    callServer('apiGetPublishStatus', [], onPublishPanelLoaded, {
+      busy: 'none',
+      // 狀態列載不到不應該擋住整個填寫介面——照樣寫一句，其餘功能照用。
+      onError: function () {
         document.getElementById('publishStatusText').textContent = '發佈狀態載入失敗，其餘功能不受影響。';
-      })
-      .apiGetPublishStatus();
+      }
+    });
   }
 
   function onPublishPanelLoaded(resp) {
@@ -1171,12 +1269,16 @@
       hint.textContent = '請先在試算表按「週報系統 ▸ 建立 master 發佈檔案」建立一次，之後那一條連結就永遠不變。';
     }
 
-    var dl = document.getElementById('downloadPublishedPdfBtn');
-    if (canOpen && s.links.download) {
-      dl.href = s.links.download;
-      dl.classList.remove('hidden');
+    // ⚠️ 用 `view`（新分頁開啟）而**不是** `download`：以前這一顆放在
+    // 發佈區塊、寫著「下載目前已發佈的 PDF」，結果幹事下載完就在下一步
+    // 把同一個檔案選回去上載，等於用舊內容覆寫自己。改成「開啟」之後，
+    // 手上不會多一個容易選錯的檔案。
+    var openBtn = document.getElementById('openPublishedPdfBtn');
+    if (canOpen) {
+      openBtn.href = s.links.view;
+      openBtn.classList.remove('hidden');
     } else {
-      dl.classList.add('hidden');
+      openBtn.classList.add('hidden');
     }
   }
 
@@ -1218,14 +1320,15 @@
   }
 
   function savePublishPrefs() {
-    google.script.run
-      .withSuccessHandler(function () {})
-      .withFailureHandler(function () { /* 記住勾選只是方便，存不到不用打擾使用者 */ })
-      .apiSavePublishPrefs({
-        doPublish: document.getElementById('doPublishCheck').checked,
-        doSend: document.getElementById('doSendCheck').checked,
-        groups: selectedPublishGroups()
-      });
+    callServer('apiSavePublishPrefs', [{
+      doPublish: document.getElementById('doPublishCheck').checked,
+      doSend: document.getElementById('doSendCheck').checked,
+      groups: selectedPublishGroups()
+    }], function () {}, {
+      busy: 'none',
+      // 記住勾選只是方便，存不到不用打擾使用者。
+      onError: function () {}
+    });
   }
 
   /**
@@ -1293,25 +1396,78 @@
     }
 
     hideMessage();
-    beginRequest(doPublish ? '發佈中…' : '寄出中…');
-    google.script.run
-      .withSuccessHandler(onPublishDone)
-      .withFailureHandler(onApiFailure)
-      .apiRunPublish({
-        isoDate: state.isoDate,
-        doPublish: doPublish,
-        doSend: doSend,
-        pdfBase64: doPublish ? state.publish.pdfBase64 : '',
-        pdfName: state.publish.pdfName,
-        groups: selectedPublishGroups(),
-        customEmails: document.getElementById('publishCustomEmails').value,
-        confirmed: confirmed === true
-      });
+    setPublishButtonsBusy(true, doPublish ? '發佈中…' : '寄出中…');
+
+    callServer('apiRunPublish', [{
+      isoDate: state.isoDate,
+      doPublish: doPublish,
+      doSend: doSend,
+      pdfBase64: doPublish ? state.publish.pdfBase64 : '',
+      pdfName: state.publish.pdfName,
+      groups: selectedPublishGroups(),
+      customEmails: document.getElementById('publishCustomEmails').value,
+      confirmed: confirmed === true
+    }], function (resp) {
+      setPublishButtonsBusy(false);
+      onPublishDone(resp);
+    }, {
+      busyText: doPublish ? '發佈中…' : '寄出中…',
+      // ⚠️ 失敗一定要（1）把按鈕還原、（2）**在確認視窗之內**顯示紅字。
+      // 視窗是 modal，蓋住了下面那條訊息列——錯誤寫在下面等於沒有寫。
+      onError: function (message) {
+        setPublishButtonsBusy(false);
+        showPublishConfirmError(message);
+        showPublishResult(message, true);
+        showMessage('error', message);
+      }
+    });
+  }
+
+  /**
+   * 用途：撳下去之後立即停用兩顆「執行／確認發佈」按鈕並改文字，成功或
+   *   失敗都要還原（第 3 部分）。
+   *
+   *   ⚠️ 這是防重複的**第一道**防線，不是唯一一道：後端另外有指令碼鎖
+   *   與「N 秒內同一主日不再產生新版本」的判斷。只擋前端等於沒有擋。
+   * Args:
+   *   busy {boolean} 是否忙碌中。
+   *   text {string=} 忙碌時要顯示的按鈕文字。
+   * Returns:
+   *   {void}
+   */
+  function setPublishButtonsBusy(busy, text) {
+    var runBtn = document.getElementById('publishRunBtn');
+    var okBtn = document.getElementById('publishConfirmOkBtn');
+    runBtn.disabled = busy === true;
+    runBtn.textContent = busy ? (text || '處理中…') : '執行';
+    okBtn.disabled = busy === true
+      ? true
+      : !document.getElementById('publishForcedCheck').checked;
+    okBtn.textContent = busy ? (text || '處理中…') : '確認發佈';
+  }
+
+  /**
+   * 用途：在發佈前檢查視窗**之內**顯示一段紅色錯誤訊息。
+   * Args:
+   *   message {string} 空字串代表清走。
+   * Returns:
+   *   {void}
+   */
+  function showPublishConfirmError(message) {
+    var box = document.getElementById('publishConfirmError');
+    box.textContent = message || '';
+    box.classList.toggle('hidden', !message);
   }
 
   function onPublishDone(resp) {
-    endRequest();
-    if (!resp.ok) { showMessage('error', resp.error.message); return; }
+    // 伺服器層的失敗（例外、權限）——訊息同時放在視窗內與訊息列，
+    // 因為視窗是 modal，只寫訊息列的話會被蓋住。
+    if (!resp.ok) {
+      showPublishConfirmError(resp.error.message);
+      showPublishResult(resp.error.message, true);
+      showMessage('error', resp.error.message);
+      return;
+    }
 
     var data = resp.data;
     if (!data.ok && data.reason === 'NEEDS_CONFIRM') {
@@ -1319,13 +1475,19 @@
       return;
     }
     if (!data.ok) {
+      // 業務層的拒絕（揀錯檔案、拿不到鎖、格式不對……）。同樣要在視窗內
+      // 顯示——這一段訊息正正是使用者最需要看到的那一句。
+      showPublishConfirmError(data.message || '未能執行。');
       showPublishResult(data.message || '未能執行。', true);
+      showMessage('error', data.message || '未能執行。');
       return;
     }
 
     closePublishConfirm();
     showPublishResult((data.lines || []).join('\n'), false);
-    showMessage('info', data.published ? '已發佈第 ' + data.published.versionNo + ' 版。' : '已完成。');
+    showMessage('info', data.duplicate
+      ? '剛才已經發佈過（第 ' + data.published.versionNo + ' 版），這一次沒有再產生新版本。'
+      : (data.published ? '已發佈第 ' + data.published.versionNo + ' 版。' : '已完成。'));
 
     // 發佈成功之後才需要刷新狀態列；只寄出不會改變「目前已發佈」那一行，
     // 不過一併刷新也無害，而且 `SENT` 欄位可能有更新。
@@ -1342,12 +1504,14 @@
   function openPublishConfirm(lines) {
     var body = document.getElementById('publishConfirmBody');
     body.textContent = (lines || []).join('\n');
+    showPublishConfirmError('');
     document.getElementById('publishForcedCheck').checked = false;
     document.getElementById('publishConfirmOkBtn').disabled = true;
     document.getElementById('publishConfirmBackdrop').classList.remove('hidden');
   }
 
   function closePublishConfirm() {
+    showPublishConfirmError('');
     document.getElementById('publishConfirmBackdrop').classList.add('hidden');
   }
 
@@ -1362,17 +1526,12 @@
   function downloadWord() {
     if (!state.isoDate) { showMessage('error', '未選擇主日，無法下載。'); return; }
     hideMessage();
-    beginRequest('產生 Word 檔中…');
-    google.script.run
-      .withSuccessHandler(function (resp) {
-        endRequest();
-        if (!resp.ok) { showMessage('error', resp.error.message); return; }
-        triggerBinaryDownload(resp.data.base64, resp.data.fileName,
-          'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-        showMessage('info', '已產生 ' + resp.data.fileName + '，請在瀏覽器的下載清單查看。');
-      })
-      .withFailureHandler(onApiFailure)
-      .apiDownloadBulletinDocx(state.isoDate);
+    callServer('apiDownloadBulletinDocx', [state.isoDate], function (resp) {
+      if (!resp.ok) { showMessage('error', resp.error.message); return; }
+      triggerBinaryDownload(resp.data.base64, resp.data.fileName,
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+      showMessage('info', '已產生 ' + resp.data.fileName + '，請在瀏覽器的下載清單查看。');
+    }, { busyText: '產生 Word 檔中…' });
   }
 
   function triggerBinaryDownload(base64, fileName, mimeType) {
@@ -1447,7 +1606,7 @@
   /**
    * 用途：捕捉前端沒有被任何 try/catch 接住的例外（一般執行錯誤與未處理
    *   的 Promise rejection），顯示紅色橫幅並回報 ErrorLog——理由同
-   *   onApiFailure()：Apps Script 執行紀錄看不到前端發生了什麼事，不記
+   *   callServer() 的失敗處理：Apps Script 執行紀錄看不到前端發生了什麼事，不記
    *   下來就沒有人知道。
    * Returns:
    *   {void}
@@ -1482,16 +1641,11 @@
     document.getElementById('missingPanel').classList.add('hidden');
     document.getElementById('conflictPanel').classList.add('hidden');
     applyBusyState();
-    beginRequest('載入中…');
     loadPublishPanel();
-    google.script.run
-      .withSuccessHandler(onWeeksLoaded)
-      .withFailureHandler(onApiFailure)
-      .apiListWeeks();
+    callServer('apiListWeeks', [], onWeeksLoaded, { busyText: '載入中…' });
   }
 
   function onWeeksLoaded(resp) {
-    endRequest();
     if (!resp.ok) { showMessage('error', resp.error.message); return; }
     populateWeekSelect(resp.data.weeks, resp.data.defaultIsoDate);
     if (resp.data.defaultIsoDate) {

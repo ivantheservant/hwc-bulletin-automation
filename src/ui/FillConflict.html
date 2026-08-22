@@ -121,6 +121,60 @@
 <script>
   var QUARTER_ID = <?!= JSON.stringify(quarterId) ?>;
   var CONFLICTS = <?!= conflictsJson ?>;
+  var CALL_TIMEOUT_SEC = <?!= JSON.stringify(callTimeoutSec) ?>;
+
+  /**
+   * 用途：這個對話框**唯一**的伺服器呼叫入口。
+   *
+   *   ⚠️ 跟 ui/Script.html 的 callServer() 是同一套設計，但這裏是一個
+   *   獨立的 HTML 文件（modal dialog），共用不到那一份，所以另寫一份
+   *   精簡版。兩件事一定要做：
+   *     1. **一定有失敗處理**——沒有的話，後端拋錯時使用者只會見到
+   *        「處理中…」永遠停在那裏（見 docs/已知bug類型.md 事故二十五）。
+   *     2. **一定有逾時**——google.script.run 本身沒有逾時機制，伺服器
+   *        卡住時成功與失敗兩個處理函式都不會被呼叫。
+   * Args:
+   *   fnName {string} 伺服器函式名稱。
+   *   args {Array} 參數。
+   *   onOk {function(*):void} 成功處理。
+   *   onFail {function(string):void} 失敗處理，收到一句可以直接顯示的訊息。
+   * Returns:
+   *   {void}
+   */
+  function callServer(fnName, args, onOk, onFail) {
+    var settled = false;
+    var timer = null;
+
+    function settle(handler) {
+      return function (value) {
+        if (settled) return;
+        settled = true;
+        if (timer) { clearTimeout(timer); timer = null; }
+        handler(value);
+      };
+    }
+
+    var fail = settle(function (err) {
+      var raw = (err && err.message) ? String(err.message) : String(err);
+      if (raw.length > 300) raw = raw.slice(0, 300) + '…（訊息過長，完整內容請看 ErrorLog）';
+      onFail('呼叫伺服器失敗（' + fnName + '）：' + raw);
+    });
+
+    var seconds = parseInt(CALL_TIMEOUT_SEC, 10);
+    if (!(seconds > 0)) seconds = 120;
+    timer = setTimeout(function () {
+      fail(new Error('伺服器在 ' + seconds + ' 秒內沒有回應。請看試算表的 ErrorLog 或 Apps Script 的「執行項目」。'));
+    }, seconds * 1000);
+
+    try {
+      var runner = google.script.run
+        .withSuccessHandler(settle(onOk))
+        .withFailureHandler(fail);
+      runner[fnName].apply(runner, args || []);
+    } catch (err) {
+      fail(err);
+    }
+  }
 
   // 每一項目前的選擇；null 代表這一行還沒有人選過。
   var decisions = CONFLICTS.map(function () { return null; });
@@ -236,8 +290,7 @@
     document.getElementById('cancelBtn').disabled = true;
     document.getElementById('status').textContent = '處理中…';
 
-    google.script.run
-      .withSuccessHandler(function (resp) {
+    callServer('apiResolveFillConflicts', [QUARTER_ID, payload], function (resp) {
         document.getElementById('cancelBtn').disabled = false;
         if (!resp.ok) {
           document.getElementById('status').textContent = '失敗：' + resp.error.message;
@@ -256,13 +309,11 @@
         confirmBtn.textContent = '關閉';
         confirmBtn.disabled = false;
         confirmBtn.onclick = function () { google.script.host.close(); };
-      })
-      .withFailureHandler(function (err) {
-        document.getElementById('status').textContent = '失敗：' + (err && err.message ? err.message : err);
+      }, function (message) {
+        document.getElementById('status').textContent = message;
         document.getElementById('confirmBtn').disabled = false;
         document.getElementById('cancelBtn').disabled = false;
-      })
-      .apiResolveFillConflicts(QUARTER_ID, payload);
+      });
   }
 
   render();

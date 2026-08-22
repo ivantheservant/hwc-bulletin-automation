@@ -35,6 +35,10 @@ const TARGET_DATE = '2027-11-07';
 
 /** 一個最小、合法的 PDF 的 base64（頭四個位元組是 `%PDF`）。 */
 const PDF_BASE64 = Buffer.from('%PDF-1.4\n1 0 obj\nendobj\n%%EOF\n', 'latin1').toString('base64');
+/** 另一份內容**不同**的合法 PDF（重複發佈那一條要用兩份不同的檔案）。 */
+const PDF_BASE64_V2 = Buffer.from(
+  ['%PDF-1.4', '1 0 obj', '(second version)', 'endobj', '%%EOF', ''].join('\n'), 'latin1'
+).toString('base64');
 /** 一個**不是** PDF 的檔案（Word 檔的 ZIP 標記 `PK`）。 */
 const NOT_PDF_BASE64 = Buffer.from('PKrest of a docx', 'latin1').toString('base64');
 
@@ -123,6 +127,18 @@ function baseStubs(o) {
       base64Encode: function (bytes) {
         return Buffer.from((bytes || []).map(function (b) { return b < 0 ? b + 256 : b; })).toString('base64');
       },
+      DigestAlgorithm: { MD5: 'MD5' },
+      /**
+       * ⚠️ 一定要有：`pdfFingerprint_()` 靠它認出「使用者選回了目前
+       * 已發佈的那一份」。缺了它，指紋一律是空字串，那一道防線就會
+       * **靜靜地永遠不生效**——測試全部照樣通過，正是最危險的那一種。
+       */
+      computeDigest: function (algorithm, value) {
+        const bytes = Array.isArray(value)
+          ? Buffer.from(value.map(function (b) { return b < 0 ? b + 256 : b; }))
+          : Buffer.from(String(value), 'utf8');
+        return Array.prototype.slice.call(require('crypto').createHash('md5').update(bytes).digest());
+      },
       newBlob: function (content, mimeType, name) {
         let bytes;
         if (Array.isArray(content)) {
@@ -142,9 +158,17 @@ function baseStubs(o) {
     HtmlService: {},
     PropertiesService: {
       getUserProperties: function () {
+        return { getProperty: function () { return null; }, setProperty: function () {} };
+      },
+      // 指令碼層屬性是防重複發佈與佔位檔指紋的存放處。**同一個 options
+      // 物件共用一份**，這樣同一個測試內連續兩次發佈才看得到第一次留下
+      // 的時間戳記。
+      getScriptProperties: function () {
+        if (!opts.__scriptProps) opts.__scriptProps = {};
+        const store = opts.__scriptProps;
         return {
-          getProperty: function () { return null; },
-          setProperty: function () {}
+          getProperty: function (k) { return Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null; },
+          setProperty: function (k, v) { store[k] = String(v); return this; }
         };
       }
     }
@@ -241,6 +265,7 @@ function makeEnv(options) {
       getId: function () { return record.fileId; },
       getName: function () { return record.name; },
       getUrl: function () { return 'https://drive.google.com/file/d/' + record.fileId + '/view'; },
+      getBlob: function () { return makeFakeBlob(record.bytes || [], 'application/pdf', record.name); },
       setName: function (n) { record.name = n; return this; },
       setSharing: function (access, permission) {
         drive.sharingCalls.push({ fileId: record.fileId, access: access, permission: permission });
@@ -282,16 +307,40 @@ function makeEnv(options) {
     }
   };
 
+  // ⚠️ 這個替身刻意在**缺少 `supportsAllDrives`** 時拋 `File not found`
+  // ——真正的 Drive 進階服務在 Shared Drive 上就是這樣回應的（見
+  // docs/已知bug類型.md 事故二十四）。這樣寫，日後有人把那個參數拿走，
+  // 測試就會表現成一模一樣的症狀，而不是靜靜通過。
+  function assertSharedDriveOption(optionalArgs, method) {
+    if (!optionalArgs || optionalArgs.supportsAllDrives !== true) {
+      throw new Error('File not found（' + method + ' 缺少 supportsAllDrives）');
+    }
+  }
+
   const FakeDrive = {
     Files: {
-      update: function (metadata, fileId, blob) {
+      update: function (metadata, fileId, blob, optionalArgs) {
+        assertSharedDriveOption(optionalArgs, 'Drive.Files.update');
         if (o.overwriteError) throw new Error(o.overwriteError);
         if (!drive.files[fileId]) throw new Error('File not found: ' + fileId);
-        drive.updateCalls.push({ fileId: fileId, title: metadata && metadata.title, byteCount: blob.getBytes().length });
+        drive.updateCalls.push({
+          fileId: fileId, title: metadata && metadata.title,
+          byteCount: blob.getBytes().length,
+          supportsAllDrives: optionalArgs.supportsAllDrives
+        });
         drive.files[fileId].bytes = blob.getBytes();
         if (metadata && metadata.title) drive.files[fileId].name = metadata.title;
         // Drive v2 回傳的物件用 `id` 這個欄位。
         return { id: fileId };
+      },
+      get: function (fileId, optionalArgs) {
+        assertSharedDriveOption(optionalArgs, 'Drive.Files.get');
+        if (!drive.files[fileId]) throw new Error('File not found: ' + fileId);
+        return { id: fileId, title: drive.files[fileId].name };
+      },
+      list: function (optionalArgs) {
+        assertSharedDriveOption(optionalArgs, 'Drive.Files.list');
+        return { items: [] };
       }
     }
   };
@@ -401,7 +450,11 @@ function makeCleanEnv(extra) {
       PUBLISHED_BY: 'tester@example.com', ARCHIVE_FILE_ID: 'OLD', SENT: true,
       SENT_GROUPS: 'CC,DB', MISSING_COUNT: 0, FORCED: false, FORCED_REASON: ''
     }],
-    config: { DRY_RUN: 'FALSE' }
+    // ⚠️ 這一組測試預設**關掉防重複**（`PUBLISH_DEDUP_SEC: '0'`）：它們
+    // 要驗的是發佈本身的行為，而測試裏兩次呼叫之間相隔幾毫秒，一開著
+    // 防重複就會全部變成「剛才已經發佈過」。防重複自己那幾條在
+    // tests/publishfix.test.js 專門驗。
+    config: { DRY_RUN: 'FALSE', PUBLISH_DEDUP_SEC: '0' }
   }, extra || {});
   return makeEnv(o);
 }
@@ -531,13 +584,16 @@ test('7. 發佈：存檔副本命名正確，含日期與版本號', function ()
 
 test('8. 同一主日發佈兩次 → VERSION_NO 由 1 變 2', function () {
   const env = makeCleanEnv();
-  const payload = {
+  // ⚠️ 兩次刻意用**不同內容**的 PDF：改完再發佈一次才是真實情境，而且
+  // 用同一份會被「你選的是目前已發佈的那一份」那一道防線擋住（那是對的）。
+  const first = env.sandbox.runPublishFlow_({
     isoDate: TARGET_DATE, doPublish: true, doSend: false,
     pdfBase64: PDF_BASE64, pdfName: '週報.pdf', confirmed: true
-  };
-
-  const first = env.sandbox.runPublishFlow_(payload);
-  const second = env.sandbox.runPublishFlow_(payload);
+  });
+  const second = env.sandbox.runPublishFlow_({
+    isoDate: TARGET_DATE, doPublish: true, doSend: false,
+    pdfBase64: PDF_BASE64_V2, pdfName: '週報-修訂.pdf', confirmed: true
+  });
 
   assert.strictEqual(first.published.versionNo, 1);
   assert.strictEqual(second.published.versionNo, 2);

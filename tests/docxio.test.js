@@ -74,6 +74,7 @@ function makeEnv(o) {
   return {
     sandbox: loadAllSrcFilesInOrder(Object.assign({}, BASE_STUBS, {
       DriveApp: drive.DriveApp,
+      Drive: drive.Drive,
       Utilities: utilities
     })),
     drive: drive,
@@ -468,6 +469,7 @@ test('（跨層）範本 ID 未設定時 generateBulletinDocx_() 回 notConfigur
   const sb = loadAllSrcFilesInOrder(Object.assign({}, BASE_STUBS, {
     SpreadsheetApp: FakeSpreadsheetApp,
     DriveApp: drive.DriveApp,
+    Drive: drive.Drive,
     Utilities: makeFakeUtilities()
   }));
 

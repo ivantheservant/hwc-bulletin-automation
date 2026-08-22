@@ -43,6 +43,21 @@ var PUBLISH_SEND_STATUS_ = 'PUBLISH';
 /** 「我自己」呢個收件選項嘅鍵。刻意唔係 `Recipients` 嘅組別名。 */
 var PUBLISH_GROUP_SELF_ = 'SELF';
 
+/**
+ * ScriptProperties 內「某個主日最後一次成功發佈」嘅鍵前綴。
+ *
+ * ⚠️ 刻意**唔用 `PublishLog.PUBLISHED_AT`** 做防重複判斷：Sheets 讀返
+ * 出嚟嘅日期會經過型別正規化，秒級精度唔可靠；而防重複要比嘅係「幾秒
+ * 之內」。ScriptProperties 存一個純毫秒數，兩邊都冇歧義。
+ */
+var PUBLISH_LAST_KEY_PREFIX_ = 'PUBLISH_LAST|';
+
+/** ScriptProperties 內「建立 master 時嗰個佔位 PDF」嘅指紋。 */
+var PUBLISH_PLACEHOLDER_FINGERPRINT_KEY_ = 'PUBLISH_PLACEHOLDER_FINGERPRINT';
+
+/** 攞指令碼鎖最多等幾多毫秒。 */
+var PUBLISH_LOCK_WAIT_MS_ = 20000;
+
 // =====================================================================
 // Config
 // =====================================================================
@@ -54,10 +69,12 @@ var PUBLISH_GROUP_SELF_ = 'SELF';
  * Returns:
  *   {{masterFileId:string, masterFolderId:string, masterFileName:string,
  *     archiveFolderId:string, sendGroups:string[], attachPdf:boolean,
- *     maxPdfMb:number, timezone:string, dryRun:boolean, churchName:string}}
+ *     maxPdfMb:number, dedupSec:number, timezone:string, dryRun:boolean,
+ *     churchName:string}}
  */
 function publishConfig_() {
   var maxMb = normalizeInt_(getConfig(CONFIG_KEYS.PUBLISH_MAX_PDF_MB, '10'));
+  var dedupSec = normalizeInt_(getConfig(CONFIG_KEYS.PUBLISH_DEDUP_SEC, '30'));
   return {
     masterFileId: String(getConfig(CONFIG_KEYS.PUBLISHED_PDF_FILE_ID, '') || '').trim(),
     masterFolderId: String(getConfig(CONFIG_KEYS.PUBLISHED_PDF_FOLDER_ID, '') || '').trim(),
@@ -66,6 +83,7 @@ function publishConfig_() {
     sendGroups: getConfigTextList_(CONFIG_KEYS.PUBLISH_SEND_GROUPS, 'CC,DB,ADMIN'),
     attachPdf: normalizeBoolean_(getConfig(CONFIG_KEYS.PUBLISH_ATTACH_PDF, 'TRUE')) === true,
     maxPdfMb: (maxMb === null || maxMb <= 0) ? 10 : maxMb,
+    dedupSec: (dedupSec === null || dedupSec < 0) ? 30 : dedupSec,
     timezone: getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland'),
     dryRun: normalizeBoolean_(getConfig(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true,
     churchName: getConfig(CONFIG_KEYS.CHURCH_NAME, '')
@@ -615,6 +633,189 @@ function resolvePublishRecipients_(groups, customText, selfEmail) {
 }
 
 // =====================================================================
+// 揀錯檔案嘅防線（上載內容指紋）
+// =====================================================================
+
+/**
+ * 用途：把一串位元組轉成一個「長度＋MD5」嘅指紋字串。
+ *
+ *   ⚠️ **兩樣都要**：淨係比長度，兩份唔同內容但同樣大細嘅 PDF 會撞；
+ *   淨係比 MD5，睇 log 嗰陣完全睇唔出兩個指紋差幾遠。長度放前面，
+ *   人眼一睇就知係咪同一個數量級。
+ * Args:
+ *   bytes {number[]} 位元組陣列。
+ * Returns:
+ *   {string} 例如 `102400:9e107d9d372bb682`；算唔到（服務唔得、空陣列）
+ *     回空字串。**空字串代表「比對唔到」，唔可以當成「唔相同」。**
+ */
+function pdfFingerprint_(bytes) {
+  var list = bytes || [];
+  if (list.length === 0) return '';
+  try {
+    var digest = Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, list);
+    var hex = digest.map(function (b) {
+      var v = (Number(b) + 256) % 256;
+      return (v < 16 ? '0' : '') + v.toString(16);
+    }).join('');
+    return list.length + ':' + hex;
+  } catch (err) {
+    return '';
+  }
+}
+
+/**
+ * 用途：判斷使用者上載嘅 PDF 係咪「揀錯咗檔案」。**純函式。**
+ *
+ *   實際發生過嘅事：幹事撳咗「下載目前已發佈的 PDF」，然後喺選檔案嗰陣
+ *   揀返同一個檔案上載——等於**用舊內容覆寫自己**，而且系統會照樣回報
+ *   「已發佈第 N 版」，冇任何人會發現嗰一期根本冇更新過。
+ *
+ *   ⚠️ 指紋係空字串一律當「比對唔到」，**唔可以當成「唔相同」**——
+ *   比對唔到就放行（比對只係一道額外防線，唔應該因為讀唔到 master
+ *   內容就連發佈都做唔到）。
+ * Args:
+ *   uploadFingerprint {string} 上載內容嘅指紋。
+ *   masterFingerprint {string} master 檔案**目前**內容嘅指紋；讀唔到傳空字串。
+ *   placeholderFingerprint {string} 建立 master 嗰陣個佔位 PDF 嘅指紋；
+ *     未記錄過傳空字串。
+ *   hasPublished {boolean} 呢個系統有冇發佈過任何一期。
+ * Returns:
+ *   {{ok:boolean, reason:string, message:string}}
+ */
+function classifyUploadedPdfSource_(uploadFingerprint, masterFingerprint, placeholderFingerprint, hasPublished) {
+  var upload = String(uploadFingerprint || '');
+  var master = String(masterFingerprint || '');
+  var placeholder = String(placeholderFingerprint || '');
+
+  var placeholderMessage = '你選的是佔位檔，不是週報。那一份是建立 master 發佈檔案時放進去的一頁'
+    + '「本週週報尚未發佈」。請先按「下載 Word」，用 Word 開啟核對，另存為 PDF，再選那一個檔案。';
+
+  if (!upload) return { ok: true, reason: '', message: '' };
+
+  if (placeholder && upload === placeholder) {
+    return { ok: false, reason: 'UPLOAD_IS_PLACEHOLDER', message: placeholderMessage };
+  }
+
+  if (master && upload === master) {
+    // master 仲未發佈過任何一期 → 佢裏面放住嘅就係佔位檔本身。
+    if (!hasPublished) {
+      return { ok: false, reason: 'UPLOAD_IS_PLACEHOLDER', message: placeholderMessage };
+    }
+    return {
+      ok: false, reason: 'UPLOAD_IS_CURRENT_MASTER',
+      message: '你選的是目前已發佈的那一份，請選用 Word 另存的新 PDF。'
+        + '（系統比對過檔案內容，與 master 連結裏面現在那一份一模一樣——'
+        + '如果就這樣發佈，等於用舊內容覆寫自己，而且外表看不出分別。）'
+    };
+  }
+
+  return { ok: true, reason: '', message: '' };
+}
+
+/**
+ * 用途：上載 PDF 嘅「揀錯檔案」檢查（IO 層）。
+ * Args:
+ *   bytes {number[]} 上載內容。
+ *   config {Object} `publishConfig_()` 嘅回傳值。
+ *   hasPublished {boolean} `PublishLog` 有冇任何一行。
+ * Returns:
+ *   {{ok:boolean, reason:string, message:string}}
+ */
+function checkUploadedPdfIsNew_(bytes, config, hasPublished) {
+  return classifyUploadedPdfSource_(
+    pdfFingerprint_(bytes),
+    pdfFingerprint_(readMasterPdfBytes_(config.masterFileId)),
+    readPublishScriptProperty_(PUBLISH_PLACEHOLDER_FINGERPRINT_KEY_),
+    hasPublished === true
+  );
+}
+
+// =====================================================================
+// 防重複發佈（ScriptProperties）
+// =====================================================================
+
+/**
+ * 用途：讀一個 ScriptProperties 值。讀唔到回空字串，**唔拋錯**。
+ * Args:
+ *   key {string} 鍵名。
+ * Returns:
+ *   {string}
+ */
+function readPublishScriptProperty_(key) {
+  try {
+    return String(PropertiesService.getScriptProperties().getProperty(key) || '');
+  } catch (err) {
+    return '';
+  }
+}
+
+/**
+ * 用途：寫一個 ScriptProperties 值。寫唔到回 `false`，**唔拋錯**。
+ * Args:
+ *   key {string} 鍵名。
+ *   value {string} 值。
+ * Returns:
+ *   {boolean}
+ */
+function writePublishScriptProperty_(key, value) {
+  try {
+    PropertiesService.getScriptProperties().setProperty(key, String(value));
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+/**
+ * 用途：記低「呢個主日啱啱成功發佈咗第 N 版」，供防重複用。
+ * Args:
+ *   isoDate {string} 主日日期。
+ *   versionNo {number} 版本號。
+ *   nowMs {number} 現在嘅毫秒數。
+ * Returns:
+ *   {boolean} 有冇寫得入。
+ */
+function recordPublishStamp_(isoDate, versionNo, nowMs) {
+  return writePublishScriptProperty_(
+    PUBLISH_LAST_KEY_PREFIX_ + String(isoDate || ''),
+    JSON.stringify({ at: Number(nowMs), versionNo: Number(versionNo) })
+  );
+}
+
+/**
+ * 用途：判斷「呢一次撳，係咪同一個主日喺 N 秒內撳多咗一次」。**純函式。**
+ *
+ *   ⚠️ 呢個唔係取代 `LockService`，而係補佢嘅漏：鎖擋得住「同時」，
+ *   擋唔住「一個做完、第二個緊接住入嚟」——而使用者見唔到反應撳多一次，
+ *   兩次之間隔咗成個第一次嘅執行時間，鎖早就放返出嚟。
+ * Args:
+ *   stampJson {string} `recordPublishStamp_()` 存落去嗰個 JSON；冇就傳空字串。
+ *   nowMs {number} 現在嘅毫秒數。
+ *   dedupSec {number} Config `PUBLISH_DEDUP_SEC`。
+ * Returns:
+ *   {?{versionNo:number, secondsAgo:number}} 唔算重複回 `null`。
+ */
+function findRecentPublishStamp_(stampJson, nowMs, dedupSec) {
+  var seconds = Number(dedupSec);
+  if (!stampJson || !(seconds > 0)) return null;
+
+  var parsed;
+  try {
+    parsed = JSON.parse(stampJson);
+  } catch (err) {
+    return null;
+  }
+  if (!parsed || typeof parsed.at !== 'number') return null;
+
+  var elapsedMs = Number(nowMs) - parsed.at;
+  // 負數（時鐘倒退、指紋來自未來）一律當唔算重複——寧可多發佈一版，
+  // 都好過因為一個對唔上嘅時間戳記，永遠拒絕發佈。
+  if (elapsedMs < 0 || elapsedMs > seconds * 1000) return null;
+
+  return { versionNo: Number(parsed.versionNo || 0), secondsAgo: Math.round(elapsedMs / 1000) };
+}
+
+// =====================================================================
 // 執行發佈（第 6 部分）
 // =====================================================================
 
@@ -713,6 +914,10 @@ function executePublish_(isoDate, blob, options) {
     field: 'VERSION_NO', oldValue: String(versionNo - 1), newValue: String(versionNo),
     notes: '已覆寫 master 發佈檔案；存檔副本：' + (archive.fileId ? archiveFileName : '（未能存檔）')
   });
+
+  // ⚠️ 記低「呢個主日啱啱發佈咗第 N 版」，供防重複用。寫唔入去唔可以
+  // 令成次發佈失敗——master 已經換咗，防重複只係一個方便，唔係正確性。
+  recordPublishStamp_(isoDate, versionNo, new Date().getTime());
 
   return {
     ok: true,
@@ -917,6 +1122,12 @@ function runPublishFlow_(payload) {
     }
     var check = validateUploadedPdf_(bytes, config.maxPdfMb);
     if (!check.ok) return { ok: false, reason: check.reason, message: check.message, lines: [] };
+
+    // ⚠️ 「揀錯檔案」嘅防線（第 4 部分）。排喺呢度係刻意嘅：仲未動過
+    // 任何嘢，可以乾淨咁拒絕。
+    var source = checkUploadedPdfIsNew_(bytes, config, readSheet(SHEETS.PUBLISH_LOG).length > 0);
+    if (!source.ok) return { ok: false, reason: source.reason, message: source.message, lines: [] };
+
     pdfSizeMb = check.sizeMb;
     blob = Utilities.newBlob(bytes, 'application/pdf', String(p.pdfName || config.masterFileName));
   }
@@ -945,19 +1156,91 @@ function runPublishFlow_(payload) {
   var sentGroups = (p.groups || []).join(',');
   var result = { ok: true, lines: [], precheck: precheck };
 
+  // ---- 由這裏開始會真的寫東西，所以要拿鎖（第 3 部分）----
+  //
+  // ⚠️ 鎖擋住「兩個請求同時進來」；下面那個防重複時間戳記擋住「一個
+  // 做完、使用者見不到反應又撳一次」。兩者缺一不可——只有鎖的話，第二
+  // 次會在第一次放鎖之後乖乖地再發佈一版。
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(PUBLISH_LOCK_WAIT_MS_)) {
+    return {
+      ok: false, reason: 'LOCK_BUSY', lines: [],
+      message: '另一個發佈或匯入正在執行中，' + Math.round(PUBLISH_LOCK_WAIT_MS_ / 1000)
+        + ' 秒內都拿不到指令碼鎖，因此這一次沒有做任何事。請稍等片刻再按一次執行。'
+        + '（如果剛才已經按過一次「執行」，請先等它完成，不要重複按。）'
+    };
+  }
+
+  try {
+    return runPublishFlowLocked_(p, {
+      isoDate: isoDate, doPublish: doPublish, doSend: doSend,
+      blob: blob, pdfSizeMb: pdfSizeMb, sentGroups: sentGroups,
+      precheck: precheck, result: result
+    });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * 用途：`runPublishFlow_()` 拿到鎖之後嘅那一段——防重複、發佈、寄出。
+ *
+ *   ⚠️ 抽成獨立函式純粹係為咗令 `try/finally` 只包住「真正會寫嘢」嗰段，
+ *   而唔使喺十幾個 `return` 分支各自記得放鎖。
+ * Args:
+ *   payload {Object} 原本嘅 payload（要用 `groups`／`customEmails`）。
+ *   ctx {{isoDate:string, doPublish:boolean, doSend:boolean, blob:(Blob|null),
+ *        pdfSizeMb:number, sentGroups:string, precheck:Object, result:Object}}
+ * Returns:
+ *   {Object} 同 `runPublishFlow_()`。
+ */
+function runPublishFlowLocked_(payload, ctx) {
+  var p = payload || {};
+  var isoDate = ctx.isoDate;
+  var doPublish = ctx.doPublish;
+  var doSend = ctx.doSend;
+  var precheck = ctx.precheck;
+  var result = ctx.result;
+  var config = publishConfig_();
+
+  // ---- 防重複：同一個主日剛剛已經成功發佈過 ----
+  if (doPublish) {
+    var recent = findRecentPublishStamp_(
+      readPublishScriptProperty_(PUBLISH_LAST_KEY_PREFIX_ + isoDate),
+      new Date().getTime(),
+      config.dedupSec
+    );
+    if (recent) {
+      return {
+        ok: true, duplicate: true, precheck: precheck,
+        published: {
+          versionNo: recent.versionNo,
+          fileId: config.masterFileId,
+          links: masterPdfLinks_(config.masterFileId)
+        },
+        lines: [
+          '剛才已經發佈過（第 ' + recent.versionNo + ' 版），因此這一次沒有再產生新版本。',
+          '（' + recent.secondsAgo + ' 秒之前發佈的。如果你是因為看不到反應而多按了一次，'
+            + '那一次其實已經成功了。）',
+          'master 連結（永遠不變）：' + masterPdfLinks_(config.masterFileId).view
+        ]
+      };
+    }
+  }
+
   // ---- 發佈 ----
   if (doPublish) {
-    var published = executePublish_(isoDate, blob, {
+    var published = executePublish_(isoDate, ctx.blob, {
       forced: precheck.needsConfirm === true,
       forcedReason: precheck.forcedReason,
       missingCount: precheck.missingCount,
       sent: doSend,
-      sentGroups: doSend ? sentGroups : ''
+      sentGroups: doSend ? ctx.sentGroups : ''
     });
     if (!published.ok) {
       return { ok: false, reason: published.reason, message: published.message, lines: [] };
     }
-    published.pdfSizeMb = pdfSizeMb;
+    published.pdfSizeMb = ctx.pdfSizeMb;
     result.published = published;
   }
 
@@ -966,7 +1249,7 @@ function runPublishFlow_(payload) {
     var sent = sendPublishNotice_(isoDate, {
       groups: p.groups || [],
       customEmails: p.customEmails || '',
-      blob: blob
+      blob: ctx.blob
     });
     if (!sent.ok) {
       // ⚠️ 發佈已經成功嘅話，唔可以因為寄唔出就話成件事失敗——master
@@ -1131,6 +1414,21 @@ function ensureMasterPublishFile_() {
         sharingApplied: true, sharingError: ''
       };
     }
+    // ⚠️ 「查唔到」同「唔存在」要分開講：前者叫人去編輯器啟用服務，
+    // 後者叫人重新建立——而重新建立會換咗條連結。講錯一句，人就會去
+    // 做一件唔應該做嘅事。
+    if (probe.serviceUnavailable) {
+      return {
+        ok: false, created: false, fileId: config.masterFileId,
+        links: masterPdfLinks_(config.masterFileId),
+        sharingApplied: false, sharingError: '', reason: 'ADVANCED_SERVICE_DISABLED',
+        message: 'Drive 進階服務尚未啟用，因此無法確認 master 發佈檔案的狀況。'
+          + '請在 Apps Script 編輯器左邊的「服務」按 ＋，加入「Drive API」'
+          + '（識別碼保持 Drive、版本選 v2），儲存後再按一次。'
+          + '⚠️ 在這之前**不要**清空 Config 那一格——檔案很可能好端端在，只是查不到。'
+      };
+    }
+
     return {
       ok: false, created: false, fileId: config.masterFileId,
       links: masterPdfLinks_(config.masterFileId),
@@ -1153,10 +1451,14 @@ function ensureMasterPublishFile_() {
     };
   }
 
-  var created = createMasterPdfFile_(
-    config.masterFileName,
-    config.masterFolderId,
-    buildPlaceholderPdfBlob_(PUBLISH_PLACEHOLDER_TITLE_)
+  var placeholderBlob = buildPlaceholderPdfBlob_(PUBLISH_PLACEHOLDER_TITLE_);
+  var created = createMasterPdfFile_(config.masterFileName, config.masterFolderId, placeholderBlob);
+
+  // ⚠️ 記低佔位檔嘅指紋：日後有人把它當成週報上載（實際發生過——先撳
+  // 「開啟目前已發佈的 PDF」，再把同一個檔案選回來），就認得出並拒絕。
+  writePublishScriptProperty_(
+    PUBLISH_PLACEHOLDER_FINGERPRINT_KEY_,
+    pdfFingerprint_(placeholderBlob.getBytes())
   );
 
   setConfig(CONFIG_KEYS.PUBLISHED_PDF_FILE_ID, created.fileId);

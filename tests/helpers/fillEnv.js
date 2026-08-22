@@ -380,7 +380,10 @@ function makeFillEnv(options) {
     MailApp: mail,
     ScriptApp: FakeScriptApp,
     Utilities: utilitiesForSandbox
-  }, o.driveApp ? { DriveApp: o.driveApp } : {}));
+  }, o.driveApp ? { DriveApp: o.driveApp } : {},
+  // Drive 進階服務（Shared Drive 的 supportsAllDrives 那一套）跟 DriveApp
+  // 一起注入——`uniqueOutputFileName_()` 兩者都要用得到。
+  o.driveAdvanced ? { Drive: o.driveAdvanced } : {}));
 
   return {
     sandbox: sandbox, sheets: sheets, mail: mail, triggers: triggers,

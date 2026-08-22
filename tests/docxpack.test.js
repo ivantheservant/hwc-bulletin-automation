@@ -29,6 +29,7 @@ function makeEnv(docxOptions) {
   const utilities = makeFakeUtilities();
   const sandbox = loadAllSrcFilesInOrder(Object.assign({}, BASE_STUBS, {
     DriveApp: drive.DriveApp,
+    Drive: drive.Drive,
     Utilities: utilities,
     SpreadsheetApp: {},
     CacheService: {}

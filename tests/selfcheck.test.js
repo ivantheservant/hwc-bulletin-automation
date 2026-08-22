@@ -56,6 +56,7 @@ function makeEnv(options) {
 
   const env = makeFillEnv(Object.assign({ withGrid: false, config: config }, o.fillEnvOptions || {}, {
     driveApp: drive.DriveApp,
+    driveAdvanced: drive.Drive,
     utilitiesZip: makeFakeUtilities()
   }));
 
@@ -310,6 +311,7 @@ test('17k. 範本用到系統不提供的佔位符 → 該範本的佔位符對�
     withGrid: false,
     config: { TEMPLATE_FILE_ID_NORMAL: FAKE_TEMPLATE_NORMAL, BULLETIN_OUTPUT_FOLDER_ID: FAKE_FOLDER_ID },
     driveApp: drive.DriveApp,
+    driveAdvanced: drive.Drive,
     utilitiesZip: makeFakeUtilities()
   });
   const summary = env.sandbox.runSelfCheck_();

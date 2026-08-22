@@ -118,6 +118,7 @@ function makeEnv(options) {
     sandbox: loadAllSrcFilesInOrder(Object.assign({}, GAS_STUBS, {
       SpreadsheetApp: FakeSpreadsheetApp,
       DriveApp: drive.DriveApp,
+      Drive: drive.Drive,
       Utilities: makeFakeUtilities()
     })),
     drive: drive,

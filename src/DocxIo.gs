@@ -474,6 +474,17 @@ function splitFileName_(name) {
  *   ⚠️ **同名檔案一律新增，不覆蓋。** 幹事很可能為同一個主日產生好幾次
  *   （改完內容再產生一次），覆蓋掉舊檔就沒有辦法回頭比對「上一版印了
  *   什麼」。Drive 本身也允許同名檔案並存，靠檔名加序號才分得清楚。
+ *   ⚠️ **不可以用 `Folder.getFilesByName()`／`DriveApp.searchFiles()`。**
+ *   兩者對 **Shared Drive** 的預設行為是「不搜」，於是「這個檔名有沒有
+ *   撞」永遠答「沒有撞」——而本專案的輸出資料夾正正在 Shared Drive 上。
+ *   結果是這個函式每次都回傳原檔名，同名檔案一個疊一個地建立（Drive
+ *   容許同名並存），或者更差：看起來像覆蓋。改為走
+ *   `driveCountFilesByNameInFolder_()`（`src/DriveShared.gs`），那邊會帶
+ *   `supportsAllDrives` 與 `includeItemsFromAllDrives`。見
+ *   docs/已知bug類型.md 事故二十四。
+ *
+ *   ⚠️ 查不到（`-1`）時**當作「已經有同名」處理**：查不到就不敢肯定，
+ *   加一個序號最多只是多一個不必要的 `(2)`，比起靜靜撞名安全得多。
  * Args:
  *   folder {Folder} 目標資料夾。
  *   name {string} 想要的檔名。
@@ -485,15 +496,24 @@ function splitFileName_(name) {
 function uniqueOutputFileName_(folder, name, maxAttempts) {
   var limit = maxAttempts || 200;
   var parts = splitFileName_(name);
+  var folderId = folder.getId();
 
-  if (!folder.getFilesByName(name).hasNext()) return name;
+  function stampedName() {
+    return parts.base + '(' + new Date().getTime() + ')' + parts.ext;
+  }
+
+  var probe = driveCountFilesByNameInFolder_(folderId, name);
+  if (probe === 0) return name;
+  // 查不到就**立刻**用時間戳記：既保證唯一，又不會為了問一個問不到的
+  // 問題連打 200 次 API。
+  if (probe < 0) return stampedName();
 
   for (var n = 2; n <= limit; n++) {
     var candidate = parts.base + '(' + n + ')' + parts.ext;
-    if (!folder.getFilesByName(candidate).hasNext()) return candidate;
+    if (driveCountFilesByNameInFolder_(folderId, candidate) === 0) return candidate;
   }
 
-  return parts.base + '(' + new Date().getTime() + ')' + parts.ext;
+  return stampedName();
 }
 
 /**
