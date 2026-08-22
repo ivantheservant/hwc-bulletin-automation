@@ -72,9 +72,9 @@ function contentSheetTabDefs_() {
       plainTextColumns: [],
       wrapColumns: [{ key: 'TEXT', width: 600 }],
       activeKey: 'ACTIVE',
-      note: '一個主日可以有多行，用「次序」排先後（10、20、30 咁跳號，方便中間插入）。'
-        + '「連續到」＝要連登幾個星期嗰啲報告只需要輸入一次：喺「主日日期」填第一次出現嗰個主日，'
-        + '喺「連續到」揀最後一次出現嗰個主日。留空＝只出現喺「主日日期」嗰一週。'
+      note: '一個主日可以有多行，用「次序」排先後（10、20、30 這樣跳號，方便日後在中間插入）。'
+        + '「連續到」：需要連續刊登多個星期的報告只需輸入一次——在「主日日期」填第一次出現的主日，'
+        + '在「連續到」選最後一次出現的主日。留空即表示只在「主日日期」那一週出現。'
     },
     {
       tabName: '代禱事項',
@@ -85,7 +85,7 @@ function contentSheetTabDefs_() {
       plainTextColumns: [],
       wrapColumns: [{ key: 'TEXT', width: 600 }],
       activeKey: 'ACTIVE',
-      note: '欄位同「家事報告」完全一樣，「連續到」用法都一樣。'
+      note: '欄位與「家事報告」完全相同，「連續到」的用法亦相同。'
     },
     {
       tabName: '團契聚會',
@@ -99,8 +99,8 @@ function contentSheetTabDefs_() {
       plainTextColumns: ['DATE_TEXT', 'TIME_TEXT'],
       wrapColumns: [{ key: 'CONTENT', width: 400 }],
       activeKey: 'ACTIVE',
-      note: '「日期」「時間」兩欄係**純文字**，照你想印出嚟嘅樣打就得'
-        + '（例如「28/11 星期日」、「4:30pm」、「10:00AM」），系統唔會自動轉格式。'
+      note: '「日期」「時間」兩欄為**純文字**，請按希望印出來的樣式直接輸入'
+        + '（例如「28/11 星期日」、「4:30pm」、「10:00AM」），系統不會自動轉換格式。'
     },
     {
       tabName: '財政報告',
@@ -112,9 +112,9 @@ function contentSheetTabDefs_() {
       plainTextColumns: ['COL1', 'COL2', 'COL3', 'COL4'],
       wrapColumns: [{ key: 'ROW_LABEL', width: 220 }],
       activeKey: 'ACTIVE',
-      note: '「報告標題」可以留空——留空時系統會用預設嘅「綜合收支財務報告」標題。'
-        + '實際週報有兩種財政表輪流出現：綜合收支（四個數字欄都填）與特殊海外奉獻及慈惠基金'
-        + '（**只填「欄一」「欄二」**，其餘留空）。五個數字欄都係純文字，可以直接打 $6.42、--。'
+      note: '「報告標題」可以留空——留空時系統會採用預設的「綜合收支財務報告」標題。'
+        + '實際週報有兩種財政表輪流出現：綜合收支（四個數字欄全部填寫）與特殊海外奉獻及慈惠基金'
+        + '（**只填「欄一」「欄二」**，其餘留空）。數字欄全部為純文字，可以直接輸入 $6.42、--。'
     },
     {
       tabName: '崇拜人數',
@@ -146,8 +146,8 @@ function contentSheetTabDefs_() {
       ],
       wrapColumns: [],
       activeKey: 'ACTIVE',
-      note: '⚠️ 「崇拜日期」係**崇拜當日**，唔係週報嗰個主日——週報自己會搵返「該主日減七天」嗰一行。'
-        + '所以下拉入面會多咗該季第一個主日之前嗰個星期日。十二格都係純文字，可以打「--」、「前:5 / 後:120」。'
+      note: '⚠️ 「崇拜日期」是**崇拜當日**，並非週報那一個主日——週報會自動對應到「崇拜日期加七天」那一期。'
+        + '因此下拉選單額外包含該季第一個主日之前的那個主日。十二格全部為純文字，可以輸入「--」、「前:5 / 後:120」。'
     },
     {
       tabName: '宣召',
@@ -158,7 +158,7 @@ function contentSheetTabDefs_() {
       plainTextColumns: [],
       wrapColumns: [{ key: 'CALL_TEXT', width: 600 }],
       activeKey: 'ACTIVE',
-      note: '一個主日一行。「宣召出處」例如「詩篇 100:1-2」，「宣召經文」係成段經文。'
+      note: '一個主日一行。「宣召出處」例如「詩篇 100:1-2」，「宣召經文」為整段經文。'
     }
   ];
 }
@@ -227,7 +227,7 @@ function contentSheetAttendanceDateOptions_(serviceDates) {
 function buildContentSheetTabNote_(tabDef, owners, deadlineNote) {
   var owner = (owners || {})[tabDef.tabName];
   var parts = [];
-  parts.push('負責：' + (owner || '（未指定，請喺 Config 補上 CONTENT_SHEET_OWNERS）'));
+  parts.push('負責：' + (owner || '（未指定，請在 Config 補上 CONTENT_SHEET_OWNERS）'));
   if (deadlineNote) parts.push(deadlineNote);
   parts.push(tabDef.note);
   return parts.join('　｜　');
@@ -247,10 +247,10 @@ function buildContentSheetInstructionLines_(input) {
   var lines = [];
   lines.push('週報內容表　' + input.quarterId);
   lines.push('');
-  lines.push('呢個檔案係畀堂委、執事同幹事輸入週報內容用嘅。填好之後，幹事會喺週報系統撳「從內容表匯入」。');
+  lines.push('這個檔案供堂委、執事與幹事輸入週報內容。填妥之後，幹事會在週報系統按「從內容表匯入」。');
   lines.push('');
 
-  lines.push('【每張分頁由邊個負責】');
+  lines.push('【各分頁的負責人】');
   contentSheetTabDefs_().forEach(function (def) {
     var owner = (input.owners || {})[def.tabName];
     lines.push('　' + def.tabName + '：' + (owner || '（未指定）'));
@@ -262,11 +262,11 @@ function buildContentSheetInstructionLines_(input) {
   lines.push('');
 
   lines.push('【三條規則，請務必遵守】');
-  lines.push('　1. **不要刪行。** 唔要嗰行，請將最後一欄「有效」改做 FALSE，唔好整行刪走——');
-  lines.push('　   刪咗行之後，系統對唔返之前匯入過乜嘢。');
-  lines.push('　2. **不要改第 1、2 行。** 第 1 行係中文標題、第 2 行係系統用嘅機器鍵，');
-  lines.push('　   改咗其中一格，成張表就匯入唔到。資料由第 3 行開始填。');
-  lines.push('　3. **日期只可以用下拉選單揀。** 手打嘅日期系統認唔到，會被拒絕。');
+  lines.push('　1. **請勿刪除任何一行。** 不需要的一行，請將最後一欄「有效」改為 FALSE，');
+  lines.push('　   不要整行刪去——刪去之後，系統無法對照之前匯入過的內容。');
+  lines.push('　2. **請勿修改第 1、2 行。** 第 1 行是中文標題，第 2 行是系統使用的機器鍵；');
+  lines.push('　   任何一格被改動，整張分頁都會無法匯入。資料請由第 3 行開始填寫。');
+  lines.push('　3. **日期只可以用下拉選單選擇。** 手動輸入的日期系統無法辨識，會被拒絕。');
   lines.push('');
 
   lines.push('【本季主日（共 ' + (input.serviceDates || []).length + ' 個）】');
@@ -274,14 +274,14 @@ function buildContentSheetInstructionLines_(input) {
   lines.push('');
 
   if (input.seededSample) {
-    lines.push('【關於首個主日嗰幾行】');
-    lines.push('　首個主日嘅資料係**樣本**，用嚟示範格式同長度。');
-    lines.push('　確認格式之後，請自行修改，或者把「有效」改為 FALSE。');
+    lines.push('【關於首個主日的幾行資料】');
+    lines.push('　首個主日的資料是**樣本**，用來示範格式與長度。');
+    lines.push('　確認格式之後，請自行修改，或將「有效」改為 FALSE。');
     lines.push('');
   }
 
-  lines.push('【有問題搵邊個】');
-  lines.push('　' + (input.adminContact || '（未設定，請喺週報系統 Config 填 CONTENT_SHEET_ADMIN_CONTACT）'));
+  lines.push('【如有疑問，請聯絡】');
+  lines.push('　' + (input.adminContact || '（未設定，請在週報系統 Config 填寫 CONTENT_SHEET_ADMIN_CONTACT）'));
 
   return lines;
 }
@@ -479,13 +479,13 @@ function buildContentSheetInviteHtml_(input) {
 
   var parts = [];
   parts.push('<p>各位主內肢體：</p>');
-  parts.push('<p>平安！' + esc(input.quarterId) + ' 季度嘅週報內容表已經開好，'
-    + '麻煩各位喺截止日期之前填妥自己負責嗰幾張分頁。</p>');
+  parts.push('<p>平安！' + esc(input.quarterId) + ' 季度的週報內容表已經建立，'
+    + '敬請各位在截止日期之前填妥自己負責的分頁。</p>');
 
   parts.push('<p><a href="' + esc(input.fileUrl) + '" style="font-size:16px;font-weight:bold;">'
     + '➜ 開啟 ' + esc(input.quarterId) + ' 週報內容表</a></p>');
 
-  parts.push('<h3 style="margin:1.2em 0 0.4em;">每張分頁由邊個負責</h3>');
+  parts.push('<h3 style="margin:1.2em 0 0.4em;">各分頁的負責人</h3>');
   parts.push('<table style="border-collapse:collapse;"><tbody>');
   contentSheetTabDefs_().forEach(function (def) {
     var owner = (input.owners || {})[def.tabName] || '（未指定）';
@@ -505,11 +505,11 @@ function buildContentSheetInviteHtml_(input) {
     + (input.serviceDates || []).map(esc).join('　') + '</p>');
 
   parts.push('<p style="color:#8c231c;font-weight:bold;margin-top:1.2em;">'
-    + '⚠️ 兩件事一定要注意：唔好刪行（唔要嗰行請將「有效」改做 FALSE），'
-    + '唔好改頭兩行（第 1 行中文標題、第 2 行機器鍵）。'
-    + '日期請用下拉選單揀，手打嘅系統認唔到。</p>');
+    + '⚠️ 有兩點務請注意：請勿刪除任何一行（不需要的一行請將「有效」改為 FALSE），'
+    + '亦請勿修改首兩行（第 1 行中文標題、第 2 行機器鍵）。'
+    + '日期請用下拉選單選擇，手動輸入的系統無法辨識。</p>');
 
-  parts.push('<p style="color:#666;font-size:13px;">詳細說明喺內容表第一張分頁「'
+  parts.push('<p style="color:#666;font-size:13px;">詳細說明載於內容表第一張分頁「'
     + esc(CONTENT_SHEET_INSTRUCTIONS_TAB_) + '」。</p>');
 
   return parts.join('\n');

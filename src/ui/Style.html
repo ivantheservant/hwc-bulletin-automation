@@ -367,4 +367,41 @@
   }
   .dialog-actions { display: flex; justify-content: flex-end; gap: 0.5em; margin-top: 0.8em; }
   .dialog-empty { font-size: 13px; color: #555; padding: 1em 0; }
+
+  /* ---- 內容表接管的七個區塊（R-011）---- */
+  .content-sheet-bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5em;
+    font-size: 13px;
+    color: #444;
+    background: #eef3f8;
+    border: 1px solid #d3dfea;
+    border-radius: 4px;
+    padding: 0.45em 0.7em;
+    margin: 0 0 0.7em;
+  }
+  .content-sheet-bar .hint { margin: 0; }
+
+  /* 唯讀輸入框：仍然看得到值，但一眼看得出不能修改。 */
+  input.is-readonly,
+  textarea.is-readonly {
+    background: #f4f5f7;
+    color: #444;
+    cursor: not-allowed;
+  }
+
+  /* 唯讀清單（家事報告／代禱／團契／財政）。 */
+  .repeatable-row.readonly-row { background: #fafbfc; }
+  .repeatable-row.readonly-row .readonly-value {
+    font-size: 13px;
+    color: #333;
+    padding: 0.35em 0.5em;
+    border: 1px solid #e6e8ec;
+    border-radius: 3px;
+    background: #fff;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
 </style>

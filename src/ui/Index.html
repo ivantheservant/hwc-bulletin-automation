@@ -69,6 +69,8 @@
         <label class="field-wide">宣召經文
           <textarea data-field="CALL_TEXT" rows="2"></textarea>
         </label>
+        <!-- 宣召出處與宣召經文兩欄由內容表接管（R-011），其餘欄位照舊可以編輯。 -->
+        <div class="field-wide" data-content-sheet-bar></div>
         <label>誦讀（覆寫）
           <select data-field="RECITATION_OVERRIDE" id="recitationSelect"></select>
         </label>
@@ -100,6 +102,7 @@
 
     <section class="panel">
       <h2>乙、上週崇拜人數</h2>
+      <div data-content-sheet-bar></div>
       <div class="field-grid">
         <label>人數表標題
           <input type="text" data-field="ATTENDANCE_HEADING">
@@ -185,8 +188,8 @@
 
     <section class="panel">
       <h2>丁、家事報告</h2>
+      <div data-content-sheet-bar></div>
       <div id="announcementsList" class="repeatable-list"></div>
-      <button type="button" class="btn btn-secondary" data-add-list="announcements">新增一則家事報告</button>
     </section>
 
     <section class="panel">
@@ -195,20 +198,20 @@
         <input type="text" id="prayerBlockHeadingInput" data-field="PRAYER_BLOCK_HEADING" list="prayerBlockHeadingOptions">
         <datalist id="prayerBlockHeadingOptions"></datalist>
       </label>
+      <div data-content-sheet-bar></div>
       <div id="prayersList" class="repeatable-list"></div>
-      <button type="button" class="btn btn-secondary" data-add-list="prayers">新增一則代禱事項</button>
     </section>
 
     <section class="panel">
       <h2>己、本週團契聚會</h2>
+      <div data-content-sheet-bar></div>
       <div id="fellowshipsList" class="repeatable-list repeatable-list-fellowship"></div>
-      <button type="button" class="btn btn-secondary" data-add-list="fellowships">新增一項團契聚會</button>
     </section>
 
     <section class="panel">
       <h2>庚、月度財政報告</h2>
+      <div data-content-sheet-bar></div>
       <div id="financeList" class="repeatable-list repeatable-list-finance"></div>
-      <button type="button" class="btn btn-secondary" data-add-list="finance">新增一項財政報告</button>
     </section>
 
   </main>

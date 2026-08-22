@@ -256,18 +256,20 @@ function basicPayload(overrides) {
   }, overrides || {});
 }
 
-test('真正入口：第一次儲存（lastSavedAt 皆空）→ 成功，並寫入 12 個人數欄與團契日期，原樣保存', function () {
+test('真正入口：第一次儲存（lastSavedAt 皆空）→ 成功，仍然可以編輯的欄位照樣寫入', function () {
+  // ⚠️ 十二個人數欄與團契聚會**已經改由內容表接管**（R-011），填寫介面
+  // 不可以再儲存它們，所以這條測試改用仍然可以編輯的欄位。
+  // 「人數原樣保存」「團契日期不可以變成 Date」那兩個承諾仍然有測試守住，
+  // 只是搬到匯入那一邊（tests/contentimport.test.js 的第 18、19 條）。
   const env = makeEnv({
     bulletinWeeks: [{ SERVICE_DATE: '2027-10-03', QUARTER_ID: '2027T4', WEEK_OF_MONTH: 1, STATUS: 'DRAFT' }]
   });
 
   const payload = basicPayload({
     week: {
-      ATT_ENG_WORSHIP: '45', ATT_CANE_WORSHIP: '前:5 / 後:120', ATT_CANN_WORSHIP: '--', ATT_MAN_WORSHIP: '60',
-      ATT_ENG_PRAYER: '--', ATT_CANE_PRAYER: '--', ATT_CANN_PRAYER: '--', ATT_MAN_PRAYER: '--',
-      ATT_ENG_CHILD: '--', ATT_CANE_CHILD: '--', ATT_CANN_CHILD: '--', ATT_MAN_CHILD: '--'
-    },
-    fellowships: [{ seqNo: null, FELLOWSHIP_NAME: '安提阿團契', MEETING_DATE: '10/5 星期日', MEETING_TIME: '4:30pm', CONTENT: '查經' }]
+      SERMON_TITLE: '因信稱義', SCRIPTURE_REF: '羅馬書 3:21-26',
+      HYMN_PRAISE: '奇異恩典', FLOWER_THIS_WEEK: '假甲'
+    }
   });
 
   const result = env.sandbox.saveWeekFromWebApp_(payload);
@@ -275,18 +277,13 @@ test('真正入口：第一次儲存（lastSavedAt 皆空）→ 成功，並寫�
   assert.ok(result.lastSavedAt, 'lastSavedAt 要有值');
 
   const week = env.sandbox.readSheet('BulletinWeeks')[0];
-  assert.strictEqual(week.ATT_CANE_WORSHIP, '前:5 / 後:120', '人數欄原樣保存，不是數字');
-  assert.strictEqual(week.ATT_CANN_WORSHIP, '--');
-  assert.strictEqual(typeof week.ATT_ENG_WORSHIP, 'string');
-
-  const fellowship = env.sandbox.readSheet('Fellowships')[0];
-  assert.strictEqual(fellowship.MEETING_DATE, '10/5 星期日', '團契日期原樣保存，不可以變成 Date');
-  assert.strictEqual(typeof fellowship.MEETING_DATE, 'string');
+  assert.strictEqual(week.SERMON_TITLE, '因信稱義');
+  assert.strictEqual(week.FLOWER_THIS_WEEK, '假甲');
 
   const auditRows = env.sandbox.readSheet('AuditLog');
   assert.ok(auditRows.length > 0, '應該有 AuditLog 記錄');
   assert.ok(
-    auditRows.every(function (r) { return r.ACTION === 'WEBAPP_SAVE_WEEK' || r.ACTION === 'WEBAPP_SAVE_FELLOWSHIPS'; }),
+    auditRows.every(function (r) { return r.ACTION === 'WEBAPP_SAVE_WEEK'; }),
     '實際 ACTION：' + JSON.stringify(auditRows.map(function (r) { return r.ACTION; }))
   );
   assert.strictEqual(
@@ -326,43 +323,55 @@ test('真正入口：沒有改動的欄位重新儲存同樣的內容 → change
   });
 
   const first = env.sandbox.saveWeekFromWebApp_(basicPayload({
-    week: { SERMON_TITLE: '講題甲' },
-    announcements: [{ seqNo: null, TEXT: '第一則' }]
+    week: { SERMON_TITLE: '講題甲' }
   }));
   assert.ok(first.changedFieldCount > 0);
 
   const savedWeek = env.sandbox.readSheet('BulletinWeeks')[0];
-  const savedAnnouncements = env.sandbox.readSheet('Announcements');
 
   const second = env.sandbox.saveWeekFromWebApp_(basicPayload({
     lastSavedAt: savedWeek.LAST_SAVED_AT,
-    week: { SERMON_TITLE: '講題甲' },
-    announcements: [{ seqNo: savedAnnouncements[0].SEQ_NO, TEXT: '第一則' }]
+    week: { SERMON_TITLE: '講題甲' }
   }));
 
   assert.strictEqual(second.changedFieldCount, 0, '內容完全沒變，不應該產生任何新的 AuditLog 記錄');
 });
 
-test('真正入口：家事報告刪一項再儲存 → 該行 ACTIVE=FALSE，工作表上仍然找得到（沒有被刪除）', function () {
+test('真正入口：填寫介面送空的清單陣列 → 一行都不會被停用（R-011 之後清單只由內容表寫）', function () {
+  // ⚠️ 這是 R-011 最危險的一個轉角：改成唯讀之後前端不再送清單，
+  // 而舊的 `computeListUpsertPlan_()` 對「沒有送」與「送一個空陣列」的
+  // 處理完全一樣——兩者都會把現有全部行改成 ACTIVE=FALSE。所以儲存路徑
+  // 必須**完全不處理清單**，這條測試就是那道鎖。
+  const env = makeEnv({
+    bulletinWeeks: [{ SERVICE_DATE: '2027-10-03', QUARTER_ID: '2027T4', WEEK_OF_MONTH: 1, STATUS: 'DRAFT' }],
+    announcements: [{ SERVICE_DATE: '2027-10-03', SEQ_NO: 10, TEXT: '由內容表匯入的那一項', ACTIVE: true }]
+  });
+
+  env.sandbox.saveWeekFromWebApp_(basicPayload({ week: { SERMON_TITLE: '講題甲' }, announcements: [] }));
+
+  const rows = env.sandbox.readSheet('Announcements');
+  assert.strictEqual(rows.length, 1);
+  assert.strictEqual(rows[0].ACTIVE, true, '一行都不可以被停用——清單已經不歸填寫介面管');
+  assert.strictEqual(rows[0].TEXT, '由內容表匯入的那一項');
+});
+
+test('真正入口：填寫介面送**有內容**的清單 → 拒絕，而且一格都沒有寫入', function () {
   const env = makeEnv({
     bulletinWeeks: [{ SERVICE_DATE: '2027-10-03', QUARTER_ID: '2027T4', WEEK_OF_MONTH: 1, STATUS: 'DRAFT' }]
   });
 
-  const first = env.sandbox.saveWeekFromWebApp_(basicPayload({
-    announcements: [{ seqNo: null, TEXT: '要被刪的那一項' }]
-  }));
+  assert.throws(function () {
+    env.sandbox.saveWeekFromWebApp_(basicPayload({
+      week: { SERMON_TITLE: '講題甲' },
+      announcements: [{ seqNo: null, TEXT: '想由介面新增的一則' }]
+    }));
+  }, function (err) {
+    return err.code === 'CONTENT_SHEET_READONLY';
+  });
 
-  const savedWeek = env.sandbox.readSheet('BulletinWeeks')[0];
-
-  env.sandbox.saveWeekFromWebApp_(basicPayload({
-    lastSavedAt: savedWeek.LAST_SAVED_AT,
-    announcements: []
-  }));
-
-  const rows = env.sandbox.readSheet('Announcements');
-  assert.strictEqual(rows.length, 1, '整行仍然在，只是 ACTIVE 改掉');
-  assert.strictEqual(rows[0].ACTIVE, false);
-  assert.strictEqual(rows[0].TEXT, '要被刪的那一項', '內容沒有被清空');
+  assert.strictEqual(env.sandbox.readSheet('Announcements').length, 0);
+  assert.strictEqual(env.sandbox.readSheet('BulletinWeeks')[0].SERMON_TITLE, '',
+    '拒絕之後，連其他欄位都不可以寫進去——整個儲存要原子性地失敗');
 });
 
 // =====================================================================

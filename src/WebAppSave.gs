@@ -375,19 +375,19 @@ function buildSaveOperations_(input) {
     throw err;
   }
 
-  var weekChanges = computeFieldDiff_(currentWeek || {}, payload.week || {}, webAppWeekFieldKeys_());
+  var weekChanges = computeFieldDiff_(currentWeek || {}, payload.week || {}, webAppEditableWeekFieldKeys_());
 
-  var listDefs = webAppListDefs_();
-  var listPlans = {};
-  Object.keys(listDefs).forEach(function (type) {
-    listPlans[type] = computeListUpsertPlan_(
-      (input.existingLists && input.existingLists[type]) || [],
-      payload[type] || [],
-      listDefs[type].fieldKeys
-    );
-  });
-
-  return { weekChanges: weekChanges, listPlans: listPlans };
+  // ⚠️ R-011 起，四張清單（家事報告／代禱事項／團契聚會／財政報告）**全部
+  // 改由內容表輸入**，填寫介面一行都不會再送。所以這裡**完全不處理清單**，
+  // 一律回空計畫。
+  //
+  // 這一點不是「順手清理」，是安全要求：`computeListUpsertPlan_()` 對
+  // 「payload 沒有這個清單」與「payload 明確送一個空陣列」的處理是一樣的
+  // ——兩者都會把現有全部行改成 `ACTIVE=FALSE`。前端改成唯讀之後不再送，
+  // 如果這裡照舊用 `payload[type] || []`，第一次儲存就會把整週的家事報告
+  // 與代禱事項靜靜清光。清單的唯一寫入路徑，從此只有
+  // `src/ContentImport.gs`。
+  return { weekChanges: weekChanges, listPlans: {} };
 }
 
 /**
@@ -425,6 +425,114 @@ function normalizeWeekPayloadForCompare_(rawWeek) {
 }
 
 // =====================================================================
+// 內容表接管的七個區塊：後端硬擋
+// =====================================================================
+
+/**
+ * 用途：內容表接管之後、填寫介面**不可以再寫入**的 `BulletinWeeks` 欄位。
+ *
+ *   由 `contentImportTargets_()`（`src/ContentImport.gs`）衍生，不另抄
+ *   一份——多一份就多一個會不同步的地方。
+ * Args: （無）
+ * Returns:
+ *   {string[]} `BulletinWeeks` 的機器鍵。
+ */
+function contentSheetOwnedWeekKeys_() {
+  var keys = [];
+  contentImportTargets_().forEach(function (def) {
+    if (def.targetSheet !== SHEETS.BULLETIN_WEEKS) return;
+    Object.keys(def.fieldMap).forEach(function (sourceKey) {
+      var targetKey = def.fieldMap[sourceKey];
+      if (keys.indexOf(targetKey) === -1) keys.push(targetKey);
+    });
+  });
+  // 人數統計日期跟著十二個人數欄一起由內容表決定，不再由介面填。
+  if (keys.indexOf('ATTENDANCE_DATE') === -1) keys.push('ATTENDANCE_DATE');
+  return keys;
+}
+
+/**
+ * 用途：內容表接管之後、填寫介面**不可以再送**的清單名稱。
+ * Args: （無）
+ * Returns:
+ *   {string[]} `webAppListDefs_()` 的 key（`announcements` 等）。
+ */
+function contentSheetOwnedListTypes_() {
+  var defs = webAppListDefs_();
+  var owned = [];
+  contentImportTargets_().forEach(function (def) {
+    if (def.kind !== 'LIST') return;
+    Object.keys(defs).forEach(function (type) {
+      if (defs[type].sheetName === def.targetSheet && owned.indexOf(type) === -1) owned.push(type);
+    });
+  });
+  return owned;
+}
+
+/**
+ * 用途：擋住「填寫介面試圖寫入內容表接管的七個區塊」。
+ *
+ *   ⚠️ **前端不送、後端也要擋**——只擋前端等於沒有擋：任何人打開瀏覽器
+ *   主控台就可以直接呼叫 `apiSaveWeek()`，而且日後前端改版漏了一個欄位，
+ *   靜靜寫進去之後下一次匯入才會被蓋回去，中間那段時間幹事會以為自己
+ *   改到了。所以這裡拋錯，不是靜靜忽略。
+ * Args:
+ *   payload {Object} `apiSaveWeek()` 收到的 payload。
+ * Returns:
+ *   {void}
+ * Raises:
+ *   Error（`code = 'CONTENT_SHEET_READONLY'`）只要 payload 帶了任何一個
+ *     被接管的欄位或清單。
+ */
+/**
+ * 用途：填寫介面**仍然可以編輯**的 `BulletinWeeks` 欄位——就是
+ *   `webAppWeekFieldKeys_()` 扣除內容表接管的那幾個。
+ *
+ *   ⚠️ 兩份清單分工要分清楚：
+ *     - `webAppWeekFieldKeys_()`　**讀取**用。七個唯讀區塊仍然要送去前端
+ *       **顯示**，所以那幾個欄位照樣要在載入清單內。
+ *     - 本函式　**寫入**用。差異計算與儲存一律只看這一份。
+ *   把兩者混為一談，就會出現「介面顯示得到、但一儲存就被當成改動寫回去」。
+ * Args: （無）
+ * Returns:
+ *   {string[]}
+ */
+function webAppEditableWeekFieldKeys_() {
+  var owned = contentSheetOwnedWeekKeys_();
+  return webAppWeekFieldKeys_().filter(function (key) { return owned.indexOf(key) === -1; });
+}
+
+function assertContentSheetFieldsNotSubmitted_(payload) {
+  var week = (payload && payload.week) || {};
+
+  // ⚠️ 判斷準則是「**有沒有真的帶內容**」，不是「有沒有這個 key」。
+  // 舊版前端（使用者瀏覽器有快取）會送 `announcements: []`、
+  // `ATT_ENG_WORSHIP: ''` 這類空值；那些空值寫不到任何嘢（清單根本不再
+  // 處理，見 `buildSaveOperations_()`），為此整個儲存失敗只會令幹事連
+  // 其他欄位都改不到。真正要擋的是「帶住實際內容想寫入」。
+  var offending = contentSheetOwnedWeekKeys_().filter(function (key) {
+    var v = week[key];
+    return v !== undefined && v !== null && String(v).trim() !== '';
+  });
+
+  contentSheetOwnedListTypes_().forEach(function (type) {
+    var items = payload ? payload[type] : undefined;
+    if (Array.isArray(items) && items.length > 0) offending.push(type);
+  });
+
+  if (offending.length === 0) return;
+
+  var err = new Error(
+    '家事報告、代禱事項、本週團契聚會、月度財政報告、上週崇拜人數、宣召出處、宣召經文，'
+    + '這七項內容已改由內容表輸入，填寫介面不可以再儲存它們。'
+    + '請到內容表修改，然後按「重新匯入」。'
+    + '（收到的欄位：' + offending.join('、') + '）'
+  );
+  err.code = 'CONTENT_SHEET_READONLY';
+  throw err;
+}
+
+// =====================================================================
 // 真正入口
 // =====================================================================
 
@@ -459,6 +567,11 @@ function saveWeekFromWebApp_(payload) {
     throw new Error('saveWeekFromWebApp_：isoDate 必須是 yyyy-MM-dd 格式，收到：' + JSON.stringify(isoDate));
   }
 
+  // ⚠️ 一定要排在**任何讀取與寫入之前**：內容表接管的七個區塊一旦出現在
+  // payload，整個儲存直接拒絕，一格都不寫。見
+  // `assertContentSheetFieldsNotSubmitted_()`。
+  assertContentSheetFieldsNotSubmitted_(payload);
+
   var normalizedWeek = normalizeWeekPayloadForCompare_(payload.week);
 
   var weekRowInfo = readBulletinWeekRowWithRowNo_(isoDate);
@@ -483,7 +596,10 @@ function saveWeekFromWebApp_(payload) {
     weekRowInfo = readBulletinWeekRowWithRowNo_(isoDate);
   }
 
-  Object.keys(listDefs).forEach(function (type) {
+  // 四張清單改由內容表接管之後，`ops.listPlans` 一定是空的（見
+  // `buildSaveOperations_()`）。這裡保留迴圈只是為了不讓「日後有人把清單
+  // 加回來」時忘記套用計畫——現在它一格都不會寫。
+  Object.keys(ops.listPlans).forEach(function (type) {
     applyListPlan_(listDefs[type].sheetName, targetDate, isoDate, type, ops.listPlans[type], auditEntries);
   });
 

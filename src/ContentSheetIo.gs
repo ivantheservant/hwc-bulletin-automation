@@ -44,10 +44,10 @@ function checkContentSheetFolderConfigured_(folderId) {
   if (!id) {
     return {
       ok: false,
-      message: '尚未設定內容表要放喺邊個資料夾。請喺 Config 工作表填入 '
+      message: '尚未設定內容表要存放在哪一個資料夾。請在 Config 工作表填入 '
         + CONFIG_KEYS.CONTENT_SHEET_FOLDER_ID
-        + '（Shared Drive 內某個資料夾嘅 ID——喺瀏覽器打開嗰個資料夾，'
-        + '網址 /folders/ 後面嗰一串就係），然後再撳一次。'
+        + '（Shared Drive 內某個資料夾的 ID——在瀏覽器開啟該資料夾，'
+        + '網址 /folders/ 後面那一串就是），然後再按一次。'
     };
   }
   return { ok: true, message: '' };

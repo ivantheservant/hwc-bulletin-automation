@@ -281,6 +281,73 @@ function apiLoadWeek(isoDate) {
 }
 
 /**
+ * 用途：前端呼叫，預覽「由內容表匯入這一個主日」會改動什麼。**唯讀。**
+ *
+ *   ⚠️ 與選單「從內容表匯入」呼叫**同一個** `previewContentImport_()`，
+ *   不可以各寫一套差異計算。
+ * Args:
+ *   isoDate {string} 主日日期，yyyy-MM-dd。
+ * Returns:
+ *   {{ok:boolean, data:Object, error?:Object}}
+ */
+function apiPreviewContentImport(isoDate) {
+  return withApiResult_(function () { return contentImportForWebApp_(isoDate, false); },
+    { functionName: 'apiPreviewContentImport', argsSummary: 'isoDate=' + isoDate });
+}
+
+/**
+ * 用途：前端呼叫，真的把這一個主日由內容表匯入。
+ * Args:
+ *   isoDate {string} 主日日期，yyyy-MM-dd。
+ * Returns:
+ *   {{ok:boolean, data:Object, error?:Object}}
+ */
+function apiRunContentImport(isoDate) {
+  return withApiResult_(function () { return contentImportForWebApp_(isoDate, true); },
+    { functionName: 'apiRunContentImport', argsSummary: 'isoDate=' + isoDate });
+}
+
+/**
+ * 用途：Web App 的「重新匯入」按鈕背後的共用實作——先由主日反查季度，
+ *   再叫跟選單完全一樣的預覽／匯入函式。
+ * Args:
+ *   isoDate {string} 主日日期，yyyy-MM-dd。
+ *   apply {boolean} `false` 只預覽；`true` 真的寫入。
+ * Returns:
+ *   {{ok:boolean, scope:string, summary:(Object|undefined), lines:string[],
+ *     reason:(string|undefined), message:(string|undefined)}}
+ *     `lines` 是可以直接顯示的差異摘要行。
+ */
+function contentImportForWebApp_(isoDate, apply) {
+  var quarterId = lookupQuarterIdForIsoDate_(isoDate);
+  if (!quarterId) {
+    return {
+      ok: false, scope: 'ONE_WEEK', lines: [], reason: 'NO_QUARTER',
+      message: '找不到主日 ' + isoDate + ' 屬於哪一個季度，無法匯入。'
+    };
+  }
+
+  var result = apply
+    ? applyContentImport_(quarterId, { isoDate: isoDate })
+    : previewContentImport_(quarterId, { isoDate: isoDate });
+
+  if (!result.ok) {
+    return { ok: false, scope: 'ONE_WEEK', lines: [], reason: result.reason, message: result.message };
+  }
+
+  var dryRun = normalizeBoolean_(getConfig(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
+  return {
+    ok: true,
+    scope: result.scope,
+    summary: {
+      added: result.plan.added, updated: result.plan.updated,
+      removed: result.plan.removed, unchanged: result.plan.unchanged
+    },
+    lines: buildContentImportDialogLines_(result, { dryRun: dryRun, applied: Boolean(apply) })
+  };
+}
+
+/**
  * 用途：前端呼叫，用**未儲存**的草稿欄位值即時重算一次程序表，不寫入
  *   任何工作表。
  * Args:
@@ -542,9 +609,54 @@ function loadWeekForWebApp_(isoDate) {
     // 第八輪：直達本季季度填寫表的連結。格子表未建立時是空字串，
     // 前端就不顯示那個按鈕——顯示一條開不到的連結比不顯示更差。
     fillGridUrl: buildFillGridUrlForWebApp_(model.quarterId),
+    // R-011：七個唯讀區塊上方那一行要用的資料（內容表連結、最後匯入時間）。
+    contentSheet: buildContentSheetStatusForWebApp_(model.quarterId),
     // 「重新讀取職事表」按鈕成功之後要顯示的文案；一律算好給前端，
     // 前端只在那個按鈕的情境下使用，一般切換主日時不理會這個欄位。
     rosterReloadMessage: buildRosterReloadMessage_(model.rosterVersionUsed, model.rosterIsOfficial)
+  };
+}
+
+/**
+ * 用途：組出七個唯讀區塊上方那一行要用的資料——該季有沒有內容表、
+ *   連結、最後匯入時間。
+ *
+ *   ⚠️ 三種狀態要分得清楚，前端的文案完全不同：
+ *     - 該季未建立內容表　→ `exists:false`，介面顯示「本季尚未建立內容表」
+ *       並提示去選單建立。
+ *     - 已建立、從未匯入　→ `exists:true`、`lastImportedAt:''`，
+ *       介面顯示「尚未匯入過」，兩個按鈕照樣可用。
+ *     - 已建立、匯入過　　→ 顯示實際時間。
+ * Args:
+ *   quarterId {?string} `model.quarterId`。
+ * Returns:
+ *   {{exists:boolean, quarterId:string, fileUrl:string, lastImportedAt:string}}
+ */
+function buildContentSheetStatusForWebApp_(quarterId) {
+  var qid = String(quarterId || '').trim();
+  var empty = { exists: false, quarterId: qid, fileUrl: '', lastImportedAt: '' };
+  if (!qid) return empty;
+
+  var row;
+  try {
+    row = findContentSheetRow_(qid);
+  } catch (err) {
+    // 這一行只是介面上的提示，讀不到不應該令整個載入失敗。
+    return empty;
+  }
+  if (!row) return empty;
+
+  var lastImported = '';
+  if (row.LAST_IMPORTED_AT instanceof Date) {
+    lastImported = Utilities.formatDate(
+      row.LAST_IMPORTED_AT, getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland'), 'yyyy-MM-dd HH:mm'
+    );
+  }
+
+  return {
+    exists: true, quarterId: qid,
+    fileUrl: String(row.FILE_URL || ''),
+    lastImportedAt: lastImported
   };
 }
 

@@ -755,7 +755,7 @@ test('15b. 寄連結：DRY_RUN=FALSE → 真係寄，信入面有連結同三條
 
   const html = env.mail.calls[0].htmlBody;
   assert.ok(html.indexOf(built.fileUrl) !== -1, '信入面要有內容表連結');
-  assert.ok(html.indexOf('唔好刪行') !== -1, '要有「唔好刪行」嘅提醒');
+  assert.ok(html.indexOf('請勿刪除任何一行') !== -1, '要有「請勿刪除任何一行」的提醒');
   assert.ok(html.indexOf('2027-11-07') !== -1, '要列出本季主日');
   assert.ok(html.indexOf('幹事') !== -1, '要列出每張表由邊個負責');
 });
@@ -910,8 +910,8 @@ test('補充 c. _說明 分頁列出負責人、截止日期、三條規則、�
 
   assert.ok(text.indexOf('家事報告：幹事') !== -1, '要列出每張表由邊個負責');
   assert.ok(text.indexOf('星期三') !== -1, '要有截止日期');
-  assert.ok(text.indexOf('不要刪行') !== -1);
-  assert.ok(text.indexOf('不要改第 1、2 行') !== -1);
+  assert.ok(text.indexOf('請勿刪除任何一行') !== -1);
+  assert.ok(text.indexOf('請勿修改第 1、2 行') !== -1);
   assert.ok(text.indexOf('下拉選單') !== -1);
   assert.ok(text.indexOf('幹事（測試用聯絡方法）') !== -1, '聯絡方法要由 Config 讀，唔可以寫死');
   assert.ok(text.indexOf('樣本') !== -1, '有預填樣本時要註明');

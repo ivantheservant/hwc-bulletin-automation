@@ -188,7 +188,7 @@ function buildOrRefreshContentSheet_(quarterId) {
   if (serviceDates.length === 0) {
     return {
       ok: false, created: false, quarterId: qid, reason: 'NO_SERVICE_DATES',
-      message: '職事表 ServiceDates 揾唔到季度「' + qid + '」嘅任何主日。請先確認季度 ID 冇打錯。'
+      message: '職事表 ServiceDates 找不到季度「' + qid + '」的任何主日。請先確認季度 ID 沒有輸入錯誤。'
     };
   }
 
@@ -203,10 +203,10 @@ function buildOrRefreshContentSheet_(quarterId) {
   if (existing && !spreadsheet) {
     return {
       ok: false, created: false, quarterId: qid, reason: 'FILE_MISSING',
-      message: 'ContentSheets 有登記季度「' + qid + '」嘅內容表（檔案 ID 開頭 '
-        + maskContentFileId_(existing.FILE_ID) + '），但而家開唔到——可能被刪咗、'
-        + '搬咗去冇權限嘅地方，或者 ID 唔啱。請人手確認嗰個檔案，或者把 ContentSheets '
-        + '嗰一行嘅「有效」改做 FALSE，然後再撳一次建立。'
+      message: 'ContentSheets 已登記季度「' + qid + '」的內容表（檔案 ID 開頭 '
+        + maskContentFileId_(existing.FILE_ID) + '），但現在無法開啟——可能已被刪除、'
+        + '移到沒有權限的位置，或者 ID 不正確。請人手確認該檔案，或將 ContentSheets '
+        + '該一行的「有效」改為 FALSE，然後再按一次建立。'
     };
   }
 
@@ -269,7 +269,7 @@ function buildOrRefreshContentSheet_(quarterId) {
       action: 'CONTENT_SHEET_CREATE',
       sheetName: SHEETS.CONTENT_SHEETS, rowKey: qid,
       field: 'FILE_ID', oldValue: '', newValue: maskContentFileId_(fileId),
-      notes: '建立季度 ' + qid + ' 嘅內容表，共 ' + serviceDates.length + ' 個主日。'
+      notes: '建立季度 ' + qid + ' 的內容表，共 ' + serviceDates.length + ' 個主日。'
     });
   }
 
@@ -327,7 +327,7 @@ function sendContentSheetInvite_(quarterId) {
   if (!row) {
     return {
       sent: false, dryRun: dryRun, recipientCount: 0, reason: 'NO_CONTENT_SHEET',
-      message: '季度「' + qid + '」仲未建立內容表。請先撳「建立本季內容表」，然後再寄連結。'
+      message: '季度「' + qid + '」尚未建立內容表。請先按「建立本季內容表」，然後再寄出連結。'
     };
   }
 
@@ -336,7 +336,7 @@ function sendContentSheetInvite_(quarterId) {
   if (recipientsResult.recipients.length === 0) {
     return {
       sent: false, dryRun: dryRun, recipientCount: 0, reason: 'NO_RECIPIENTS',
-      message: 'Recipients 揾唔到屬於 ' + config.inviteGroups.join('／') + ' 嘅有效收件人。'
+      message: 'Recipients 找不到屬於 ' + config.inviteGroups.join('／') + ' 的有效收件人。'
     };
   }
 
@@ -514,7 +514,7 @@ function recordContentSheetInviteFingerprint_(quarterId, fingerprint) {
     SLOT_INDEX: '',
     FINGERPRINT: sanitizeCellText_(fingerprint),
     ROSTER_VALUE: sanitizeCellText_(quarterId),
-    NOTES: '已寄出季度內容表邀請；同一季唔會再寄第二次。'
+    NOTES: '已寄出季度內容表邀請；同一季不會再寄第二次。'
   }]);
 }
 
@@ -585,19 +585,75 @@ function buildContentSheetResultLines_(result) {
       lines.push('⚠️ 分享權限設定失敗：' + result.sharingError + '　請人手設定。');
     } else {
       lines.push('⚠️ 未設定 ' + CONFIG_KEYS.CONTENT_SHEET_DOMAIN
-        + '，所以冇自動設分享權限——請人手把檔案分享畀教會網域內嘅人（可編輯）。');
+        + '，因此沒有自動設定分享權限——請人手將檔案分享給教會網域內的同工（可編輯）。');
     }
   } else {
-    lines.push('**已更新，未重建**——已經有嘅內容表唔會重做，人手輸入嘅資料一格都冇郁。');
+    lines.push('**已更新，未重建**——既有的內容表不會重做，人手輸入的資料一格都沒有改動。');
     lines.push('已刷新：欄位、下拉選單（本季 ' + result.serviceDateCount + ' 個主日）、版面。');
     if (result.tabsCreated.length > 0) {
-      lines.push('補返缺少嘅分頁：' + result.tabsCreated.join('、'));
+      lines.push('已補回缺少的分頁：' + result.tabsCreated.join('、'));
     }
   }
 
   lines.push('');
   lines.push('連結：' + result.fileUrl);
   return lines;
+}
+
+/**
+ * 用途：選單項目「從內容表匯入」的處理函式。先顯示差異，確認之後才寫入。
+ *
+ *   ⚠️ 與 Web App 那個「重新匯入」按鈕呼叫**同一組函式**
+ *   （`previewContentImport_()` ／ `applyContentImport_()`），不可以各寫
+ *   一套——兩套差異計算遲早會不一致，而不一致的那一刻沒有人會發現。
+ * Args: （無）
+ * Returns:
+ *   {void}
+ */
+function menuImportFromContentSheet_() {
+  var ui = SpreadsheetApp.getUi();
+  try {
+    var quarterResolution = resolveWorkingQuarter_();
+    var defaultQuarterId = quarterResolution.ok ? quarterResolution.quarterId : '';
+    var resp = ui.prompt(
+      '從內容表匯入',
+      '請輸入季度 ID' + (defaultQuarterId ? '（例如 ' + defaultQuarterId + '）' : '（例如 2027T4）') + '：',
+      ui.ButtonSet.OK_CANCEL
+    );
+    if (resp.getSelectedButton() !== ui.Button.OK) return;
+
+    var quarterId = resp.getResponseText().trim() || defaultQuarterId;
+    if (!quarterId) {
+      ui.alert('請輸入季度 ID。');
+      return;
+    }
+
+    var preview = previewContentImport_(quarterId, {});
+    if (!preview.ok) {
+      ui.alert('未能匯入', preview.message, ui.ButtonSet.OK);
+      return;
+    }
+
+    // 完整明細一律寫入 Diagnostics，對話框只放前 20 行。
+    writeDiagnosticsReport_('內容表匯入預覽', buildContentImportReportLines_(preview));
+
+    var dryRun = normalizeBoolean_(getConfig(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
+    var previewLines = buildContentImportDialogLines_(preview, { dryRun: dryRun, applied: false });
+    previewLines.push('');
+    previewLines.push('確定要寫入嗎？');
+
+    var confirmed = ui.alert('內容表匯入預覽', previewLines.join('\n'), ui.ButtonSet.YES_NO);
+    if (confirmed !== ui.Button.YES) {
+      ui.alert('已取消', '沒有寫入任何資料。差異明細已寫入 Diagnostics 工作表，可以慢慢核對。', ui.ButtonSet.OK);
+      return;
+    }
+
+    var applied = applyContentImport_(quarterId, {});
+    ui.alert('匯入完成', buildContentImportDialogLines_(applied, { dryRun: dryRun, applied: true }).join('\n'), ui.ButtonSet.OK);
+  } catch (err) {
+    logMenuError_('menuImportFromContentSheet_', err);
+    ui.alert('從內容表匯入失敗', enrichAuthError_(err), ui.ButtonSet.OK);
+  }
 }
 
 /**
@@ -635,7 +691,7 @@ function menuSendContentSheetInvite_() {
       [
         '季度：' + quarterId,
         '收件人數：' + result.recipientCount,
-        '是否試行（DRY_RUN）：' + (result.dryRun ? '是（冇真係寄出任何郵件）' : '否'),
+        '是否試行（DRY_RUN）：' + (result.dryRun ? '是（並未實際寄出任何郵件）' : '否'),
         '',
         '詳情見 SendLog 工作表。'
       ].join('\n'),
