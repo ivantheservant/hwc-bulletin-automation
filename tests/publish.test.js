@@ -323,20 +323,25 @@ function makeEnv(options) {
         assertSharedDriveOption(optionalArgs, 'Drive.Files.update');
         if (o.overwriteError) throw new Error(o.overwriteError);
         if (!drive.files[fileId]) throw new Error('File not found: ' + fileId);
+        // ⚠️ v3 的檔名欄位是 `name`（v2 才叫 `title`）。這個假替身本來
+        //    模仿 v2，於是與 src/ 那一邊一齊錯——見事故三十七。
+        if (metadata && metadata.title) {
+          throw new Error('Drive.Files.update：用了 v2 的 title，v3 應該用 name');
+        }
         drive.updateCalls.push({
-          fileId: fileId, title: metadata && metadata.title,
+          fileId: fileId, name: metadata && metadata.name,
           byteCount: blob.getBytes().length,
           supportsAllDrives: optionalArgs.supportsAllDrives
         });
         drive.files[fileId].bytes = blob.getBytes();
-        if (metadata && metadata.title) drive.files[fileId].name = metadata.title;
+        if (metadata && metadata.name) drive.files[fileId].name = metadata.name;
         // Drive v2 回傳的物件用 `id` 這個欄位。
         return { id: fileId };
       },
       get: function (fileId, optionalArgs) {
         assertSharedDriveOption(optionalArgs, 'Drive.Files.get');
         if (!drive.files[fileId]) throw new Error('File not found: ' + fileId);
-        return { id: fileId, title: drive.files[fileId].name };
+        return { id: fileId, name: drive.files[fileId].name };
       },
       list: function (optionalArgs) {
         assertSharedDriveOption(optionalArgs, 'Drive.Files.list');
@@ -566,7 +571,7 @@ test('6. 發佈：master 檔案 ID 前後不變（R-001 的核心承諾）', fun
   assert.strictEqual(env.drive.updateCalls.length, 1, '一定要原地覆寫，不可以刪除再上載');
   assert.strictEqual(env.drive.updateCalls[0].fileId, MASTER_FILE_ID);
   // 檔名同時在那一次 update 設回 Config 的名稱。
-  assert.strictEqual(env.drive.updateCalls[0].title, '粵語堂週報（最新一期）.pdf');
+  assert.strictEqual(env.drive.updateCalls[0].name, '粵語堂週報（最新一期）.pdf');
   assert.strictEqual(env.drive.files[MASTER_FILE_ID].fileId, MASTER_FILE_ID, '檔案 ID 一個字元都不可以變');
 });
 

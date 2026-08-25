@@ -256,13 +256,17 @@ function makeEnv(options) {
         guard(optionalArgs, 'update');
         if (!drive.files[fileId]) throw new Error('File not found: ' + fileId);
         drive.files[fileId].bytes = blob.getBytes();
-        if (metadata && metadata.title) drive.files[fileId].name = metadata.title;
+        // ⚠️ v3 用 `name`，不是 v2 的 `title`（事故三十七）。
+        if (metadata && metadata.title) {
+          throw new Error('Drive.Files.update：用了 v2 的 title，v3 應該用 name');
+        }
+        if (metadata && metadata.name) drive.files[fileId].name = metadata.name;
         return { id: fileId };
       },
       get: function (fileId, optionalArgs) {
         guard(optionalArgs, 'get');
         if (!drive.files[fileId]) throw new Error('File not found: ' + fileId);
-        return { id: fileId, title: drive.files[fileId].name };
+        return { id: fileId, name: drive.files[fileId].name };
       },
       list: function (optionalArgs) {
         guard(optionalArgs, 'list');
@@ -658,65 +662,107 @@ test('9g. isSelfTestMasterFileId_：沙盒未設定時一律 false（空字串�
   assert.strictEqual(env.sandbox.isSelfTestMasterFileId_(MASTER_FILE_ID), false);
 });
 
-// ⚠️ 指紋要**一個 master 檔案一份**。舊版只有一個共用的鍵，於是自測機
-//    發佈完沙盒 master 之後，正式那一份指紋即刻被蓋走——I06 之後拿沙盒
-//    的指紋去對正式檔案，必然對不上，而且再也復原不到。
-test('9h. 沙盒發佈不會蓋走正式那一份指紋（一個 master 檔案一份）', function () {
-  const env = makeEnv({
-    config: { PUBLISH_DEDUP_SEC: '0', SELFTEST_MASTER_PDF_FILE_ID: 'SANDBOX_MASTER' }
-  });
-
-  // 先做一次正式發佈。
+// ⚠️ 第四輪：Script Property 那條路**整條移除**。實測結果是它「沒有記錄」，
+//    而 I06 把「取不到」當成「對不上」。Script Property 會被清、會遺失，
+//    而且是全 script 共用的一個袋——不可以做真相來源。
+//    見 docs/已知bug類型.md 事故三十六。
+test('9h. 發佈指紋只記在 PublishLog 那一行上，完全不碰 Script Property', function () {
+  const env = makeEnv({ config: { PUBLISH_DEDUP_SEC: '0' } });
   publishOnce(env, PDF_A);
-  const production = env.sandbox.readPublishOutputFingerprint_(MASTER_FILE_ID);
-  assert.ok(production, '正式那一份要記得到');
-  assert.strictEqual(production.masterFileId, MASTER_FILE_ID);
 
-  // 再模擬一次沙盒發佈（直接叫記錄函式，不需要真的覆寫另一個檔案）。
-  env.sandbox.recordPublishOutputFingerprint_(TARGET_DATE, 9, 'SANDBOX_FINGERPRINT', 'SANDBOX_MASTER');
+  const row = readPublishLog(env).filter(function (r) {
+    return env.sandbox.publishRowIsoDate_(r) === TARGET_DATE;
+  })[0];
+  assert.ok(Number(row.CONTENT_BYTES) > 0, '發佈成功一定要寫 CONTENT_BYTES');
+  assert.ok(String(row.CONTENT_MD5).length > 0, '發佈成功一定要寫 CONTENT_MD5');
 
-  const after = env.sandbox.readPublishOutputFingerprint_(MASTER_FILE_ID);
-  assert.strictEqual(after.fingerprint, production.fingerprint,
-    '沙盒發佈不可以蓋走正式那一份');
-  assert.strictEqual(after.versionNo, production.versionNo);
-
-  const sandbox = env.sandbox.readPublishOutputFingerprint_('SANDBOX_MASTER');
-  assert.strictEqual(sandbox.fingerprint, 'SANDBOX_FINGERPRINT');
-  assert.strictEqual(sandbox.versionNo, 9);
+  const props = env.scriptProps || {};
+  const leftovers = Object.keys(props).filter(function (k) {
+    return k.indexOf('PUBLISH_LAST_OUTPUT') !== -1;
+  });
+  assert.strictEqual(leftovers.length, 0,
+    '不可以再寫任何 PUBLISH_LAST_OUTPUT 的 Script Property：' + leftovers.join('、'));
 });
 
-// ⚠️ 這一條在第三輪**改變了預期**，理由是第二輪那個假設**是錯的**。
-//
-//    第二輪寫成「沒有 masterFileId 的舊記錄一律當成正式那一邊」，理由是
-//    「加入這兩個鍵之前全部發佈都是正式發佈」。但第一輪的自測機已經會
-//    發佈沙盒 master，而那時只有一個共用的鍵——所以舊記錄有可能是沙盒
-//    那一次寫的。當成正式那一邊，I06 就會拿一份沙盒的版本號去對正式
-//    那一行，報出「1 條通道對不上（正式）」。那正是第三輪報告的症狀。
-//    見 docs/已知bug類型.md 事故三十三。
-test('9i. 認不出屬於哪一個檔案的舊記錄，一律不採用（寧可驗證不到）', function () {
-  const env = makeEnv({
-    config: { SELFTEST_MASTER_PDF_FILE_ID: 'SANDBOX_MASTER' },
-    scriptProps: {
-      PUBLISH_LAST_OUTPUT: JSON.stringify({ isoDate: TARGET_DATE, versionNo: 4, fingerprint: 'OLD' })
-    }
-  });
+// ⚠️ 靜態檢查：整個 src/ 不可以再出現那幾個函式名或那個鍵。只驗行為的話，
+//    有人日後再加回去也抓不到。
+test('9h-2. 全 repo 已經沒有 Script Property 指紋那條路（靜態檢查）', function () {
+  const fsMod = require('fs');
+  const pathMod = require('path');
+  const srcDir = pathMod.join(__dirname, '..', 'src');
+  const banned = ['PUBLISH_LAST_OUTPUT', 'recordPublishOutputFingerprint_',
+    'readPublishOutputFingerprint_', 'publishOutputFingerprintKey_',
+    'parsePublishOutputFingerprint_'];
+  const offenders = [];
 
-  assert.strictEqual(env.sandbox.readPublishOutputFingerprint_(MASTER_FILE_ID), null,
-    '舊記錄講不出自己屬於哪一個檔案，就不可以當成正式那一邊的');
-  assert.strictEqual(env.sandbox.readPublishOutputFingerprint_('SANDBOX_MASTER'), null);
+  fsMod.readdirSync(srcDir).filter(function (n) { return String(n).slice(-3) === '.gs'; })
+    .forEach(function (fileName) {
+      const text = fsMod.readFileSync(pathMod.join(srcDir, fileName), 'utf8');
+      text.split(String.fromCharCode(10)).forEach(function (line, i) {
+        // 註解（解釋為甚麼移除）不算。
+        const trimmed = line.replace(/^[ 	]+/, '');
+        if (trimmed.slice(0, 2) === '//' || trimmed.slice(0, 1) === '*') return;
+        banned.forEach(function (name) {
+          if (line.indexOf(name) !== -1) offenders.push(fileName + ':' + (i + 1) + '　' + line.trim());
+        });
+      });
+    });
+
+  assert.strictEqual(offenders.length, 0,
+    'Script Property 那條路已經移除，不可以再出現：' + offenders.join('；'));
 });
 
-test('9i-2. 舊記錄有 masterFileId 而且對得上 → 照樣採用', function () {
-  const env = makeEnv({
-    scriptProps: {
-      PUBLISH_LAST_OUTPUT: JSON.stringify({
-        isoDate: TARGET_DATE, versionNo: 4, fingerprint: 'OLD', masterFileId: MASTER_FILE_ID
-      })
-    }
+// ⚠️ 這一條是 prompt 第 1 部分第 2 步：CONTENT_MD5 空、存檔副本在 →
+//    用存檔副本的指紋比。實測那一次兩邊完全一樣，所以會直接通過。
+test('9i. CONTENT_MD5 空但存檔副本在 → 用存檔副本的指紋，講明來源', function () {
+  const env = makeEnv({ config: { PUBLISH_DEDUP_SEC: '0' } });
+  publishOnce(env, PDF_A);
+
+  // 把那一行的 CONTENT_MD5／CONTENT_BYTES 清空，模擬加欄之前的舊資料。
+  const sheet = env.sheets.PublishLog;
+  const def = env.sandbox.COLUMNS.PUBLISH_LOG;
+  const rows = readPublishLog(env);
+  const rowNo = rows.length + 2;
+  sheet.getRange(rowNo, def.keys.indexOf('CONTENT_BYTES') + 1).setValue('');
+  sheet.getRange(rowNo, def.keys.indexOf('CONTENT_MD5') + 1).setValue('');
+
+  const cleared = readPublishLog(env)[rows.length - 1];
+  assert.strictEqual(env.sandbox.publishRowFingerprint_(cleared), '', '前置條件：兩欄要真的空了');
+
+  const expected = env.sandbox.resolvePublishExpectedFingerprint_(cleared);
+  assert.ok(expected.fingerprint.length > 0, '應該退回存檔副本：' + expected.reason);
+  assert.ok(expected.sourceLabel.indexOf('存檔副本') !== -1,
+    '一定要講明指紋來自存檔副本，不可以扮成發佈當時記下的值：' + expected.sourceLabel);
+});
+
+test('9i-2. CONTENT_MD5 空、又沒有 ARCHIVE_FILE_ID → 取不到，並講明哪一邊取不到', function () {
+  const env = makeEnv({});
+  const expected = env.sandbox.resolvePublishExpectedFingerprint_({
+    SERVICE_DATE: TARGET_DATE, VERSION_NO: 1, ARCHIVE_FILE_ID: ''
   });
-  const got = env.sandbox.readPublishOutputFingerprint_(MASTER_FILE_ID);
-  assert.ok(got, '講得出屬於哪一個檔案的舊記錄，仍然要用得到');
-  assert.strictEqual(got.fingerprint, 'OLD');
+  assert.strictEqual(expected.fingerprint, '');
+  assert.ok(expected.reason.indexOf('沒有 ARCHIVE_FILE_ID') !== -1, expected.reason);
+  assert.ok(expected.reason.indexOf('自己好返') !== -1, '要講明下一次發佈就會好返：' + expected.reason);
+});
+
+test('9i-3. 存檔副本讀不到 → 取不到，並講明是存檔副本那一邊讀不到', function () {
+  const env = makeEnv({});
+  const expected = env.sandbox.resolvePublishExpectedFingerprint_({
+    SERVICE_DATE: TARGET_DATE, VERSION_NO: 1, ARCHIVE_FILE_ID: 'MISSING_ARCHIVE'
+  });
+  assert.strictEqual(expected.fingerprint, '');
+  assert.ok(expected.reason.indexOf('存檔副本') !== -1, expected.reason);
+  assert.ok(expected.reason.indexOf('讀不到') !== -1, expected.reason);
+});
+
+test('9i-4. CONTENT_MD5 有值 → 優先用它，不會去讀存檔副本', function () {
+  const env = makeEnv({});
+  const expected = env.sandbox.resolvePublishExpectedFingerprint_({
+    SERVICE_DATE: TARGET_DATE, VERSION_NO: 1, ARCHIVE_FILE_ID: 'MISSING_ARCHIVE',
+    CONTENT_BYTES: 123, CONTENT_MD5: 'abc123'
+  });
+  assert.strictEqual(expected.fingerprint, '123:abc123');
+  assert.strictEqual(expected.sourceLabel, '這一行的 CONTENT_MD5');
 });
 
 // =====================================================================

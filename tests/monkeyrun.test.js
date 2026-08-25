@@ -663,6 +663,63 @@ test('MonkeyState：SEED 與 RNG_STATE 登記為純文字欄', function () {
 });
 
 // =====================================================================
+// 走過的路：累計、跨批接得上
+// =====================================================================
+
+// ⚠️ 「走到這裏的完整步驟」是亂行機**最重要的輸出**——一條隨機路徑紅了，
+//    重現不到那個發現就等於零。舊版 pathSoFar 是一個 local 陣列，每一批
+//    由空開始，所以續跑之後路徑由第 1 步重新數。
+//    見 docs/已知bug類型.md 事故三十八。
+test('走過的路：跑 20 步，第 20 步的路徑包含 20 個動作', function () {
+  const env = makeResumableEnv();
+  const summary = env.sandbox.runMonkey_({ steps: 20, seed: 4242 });
+
+  assert.strictEqual(summary.steps.length, 20, summary.message);
+  const last = summary.steps[summary.steps.length - 1];
+  assert.strictEqual(last.pathSoFar.split(' → ').length, 20,
+    '第 20 步的路徑應該有 20 個動作：' + last.pathSoFar);
+  assert.strictEqual(summary.pathSteps.length, 20);
+  assert.strictEqual(summary.pathSteps[0].stepNo, 1, '一定要由第 1 步開始');
+  assert.strictEqual(summary.pathSteps[19].stepNo, 20);
+});
+
+test('走過的路：跨批續跑接得上，最後一步的路徑仍然由第 1 步數起', function () {
+  const env = makeResumableEnv();
+
+  const first = env.sandbox.runMonkey_({ steps: 4, seed: 4242 });
+  assert.strictEqual(first.steps.length, 4);
+
+  // 模擬「時間到，走了 4 步就停低」：目標改成 10、狀態改成 PAUSED，
+  // 而且**帶住已經走過的路**。
+  env.sandbox.monkeyWriteStateRow_({
+    runId: first.runId, seed: 4242, targetSteps: 10, stepsDone: 4,
+    rngState: env2RngState(env, 4242, 4), status: 'PAUSED',
+    startedAt: new Date(), pathSteps: first.pathSteps, notes: ''
+  });
+
+  const second = env.sandbox.runMonkey_({ resume: true });
+  assert.strictEqual(second.ok, true, second.message);
+  assert.strictEqual(second.stepsDoneBefore, 4);
+
+  const last = second.steps[second.steps.length - 1];
+  assert.strictEqual(last.pathSoFar.split(' → ').length, 10,
+    '續跑之後路徑要接住上一批，不可以由第 1 步重新數：' + last.pathSoFar);
+  assert.strictEqual(second.pathSteps[0].stepNo, 1, '第 1 步要仍然在');
+  assert.strictEqual(second.pathSteps[9].stepNo, 10);
+});
+
+test('走過的路：寫入 MonkeyState 的是精簡格式，讀回來解得出', function () {
+  const env = makeResumableEnv();
+  const summary = env.sandbox.runMonkey_({ steps: 3, seed: 77 });
+
+  const rows = env.sandbox.readSheet(env.sandbox.SHEETS.MONKEY_STATE);
+  const stored = String(rows[rows.length - 1].PATH_SO_FAR || '');
+  assert.ok(stored.indexOf('1:') === 0, '精簡格式要由 1: 開始：' + stored);
+
+  const decoded = env.sandbox.decodeMonkeyPath_(stored);
+  deepEq(decoded, summary.pathSteps);
+});
+// =====================================================================
 // 摘要：累計進度
 // =====================================================================
 

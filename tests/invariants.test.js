@@ -224,9 +224,13 @@ function makeEnv(options) {
         if (o.revisionCount === null || o.revisionCount === undefined) {
           throw new Error('Drive.Revisions 不可用');
         }
-        const items = [];
-        for (let i = 0; i < o.revisionCount; i++) items.push({ id: 'rev' + i });
-        return { items: items };
+        // ⚠️ **v3 的形狀**：結果在 `revisions`，不是 v2 的 `items`。
+        //    這個假替身本來模仿 v2，與 src/ 那一邊一齊錯——見事故三十七。
+        const list = [];
+        for (let i = 0; i < o.revisionCount; i++) {
+          list.push({ id: 'rev' + i, modifiedTime: '2027-11-0' + (i % 9) + 'T00:00:00Z', size: 100 + i });
+        }
+        return { revisions: list };
       }
     }
   });
@@ -453,7 +457,10 @@ test('I05 ⚪：DRY_RUN=FALSE → 這一刻驗不到，不是綠', function () {
 function publishRow(overrides) {
   return Object.assign({
     SERVICE_DATE: TARGET_DATE, VERSION_NO: 1, PUBLISHED_AT: '2027-11-06',
-    PUBLISHED_BY: 'x@example.com', ARCHIVE_FILE_ID: 'A1', SENT: false,
+    // ⚠️ 預設**沒有** ARCHIVE_FILE_ID：I06 第 2 步會退回存檔副本，留一個
+    //    讀不到的 ID 在這裡會令每一條測試都走那條退回路徑。要驗那條路徑
+    //    的測試自己傳 ARCHIVE_FILE_ID。
+    PUBLISHED_BY: 'x@example.com', ARCHIVE_FILE_ID: '', SENT: false,
     SENT_GROUPS: '', MISSING_COUNT: 0, FORCED: false, FORCED_REASON: '',
     MASTER_FILE_ID: 'MASTER1', IS_SELFTEST: false
   }, overrides || {});
@@ -521,31 +528,74 @@ test('I06 紅：大小相同但 MD5 不同 → 成因講「大小相同」，不
   assert.ok(r.evidence.indexOf('大小相同') !== -1, r.evidence);
 });
 
-// ⚠️ 這一條在第三輪**改變了預期**（🔴 → ⚪），理由要寫清楚：
-//    「共用的指紋記錄講的是另一次發佈」代表那一份指紋**根本不屬於這一行**
-//    ——拿它去比內容，得出的「不一致」是**假的**。第三輪報告那個
-//    「1 條通道對不上（正式）」就是這樣來的，已經逐字重現過。
-//    所以正確的答案是「驗證不到」加一句成因，不是「對不上」。
-//    真正的內容不一致由上面兩條（該行自己的 CONTENT_MD5）驗。
-test('I06 ⚪：共用指紋記錄講的是另一次發佈 → 驗證不到，並講明那份指紋不屬於這一行', function () {
-  const bytes = [0x25, 0x50, 0x44, 0x46];
+// ⚠️ 這一條在第四輪**整條換掉**：Script Property 那條路已經移除（實測
+//    結果是它「沒有記錄」，而 I06 把「取不到」當成「對不上」）。
+//    現在驗的是 prompt 第 1 部分第 2 步：CONTENT_MD5 空、存檔副本在 →
+//    用存檔副本的指紋比，而且要講明指紋來自存檔副本。
+//    見 docs/已知bug類型.md 事故三十六。
+test('I06 綠：CONTENT_MD5 空但存檔副本在 → 用存檔副本比對，並講明來源', function () {
+  const bytes = [0x25, 0x50, 0x44, 0x46, 0x33];
   const env = makeEnv({
     config: { PUBLISHED_PDF_FILE_ID: 'MASTER1' },
     masterBytes: bytes,
-    publishLog: [publishRow({ VERSION_NO: 3 })],
-    scriptProps: {
-      'PUBLISH_LAST_OUTPUT::MASTER1': JSON.stringify({
-        isoDate: TARGET_DATE, versionNo: 2,
-        fingerprint: md5Fingerprint(bytes), masterFileId: 'MASTER1'
-      })
-    }
+    extraPdfFiles: { ARCHIVE_1: bytes },
+    publishLog: [publishRow({ VERSION_NO: 3, ARCHIVE_FILE_ID: 'ARCHIVE_1' })]
+  });
+  const r = env.sandbox.runInvariantI06_();
+  assert.strictEqual(r.ok, true, r.evidence);
+  assert.ok(r.evidence.indexOf('存檔副本') !== -1,
+    '一定要講明指紋來自存檔副本，不可以扮成發佈當時記下的值：' + r.evidence);
+});
+
+test('I06 紅：存檔副本與 master 目前內容不同 → 報紅（退回路徑一樣驗得到）', function () {
+  const env = makeEnv({
+    config: { PUBLISHED_PDF_FILE_ID: 'MASTER1' },
+    masterBytes: [0x25, 0x50, 0x44, 0x46, 0x33, 0xAA],
+    extraPdfFiles: { ARCHIVE_1: [0x25, 0x50, 0x44, 0x46, 0x33] },
+    publishLog: [publishRow({ VERSION_NO: 3, ARCHIVE_FILE_ID: 'ARCHIVE_1' })]
+  });
+  const r = env.sandbox.runInvariantI06_();
+  assert.strictEqual(r.ok, false, r.evidence);
+  assert.ok(r.evidence.indexOf('被換過') !== -1, r.evidence);
+});
+
+// ⚠️ 兩者都取不到 → 「驗證不到」，而且要講明**是哪一邊**取不到。
+//    這正是實測撞到那個假紅：CONTENT_MD5 空、Script Property 沒有記錄，
+//    而 I06 報成「對不上」。
+test('I06 ⚪：CONTENT_MD5 空、又沒有存檔副本 → 驗證不到，講明哪一邊取不到', function () {
+  const env = makeEnv({
+    config: { PUBLISHED_PDF_FILE_ID: 'MASTER1' },
+    masterBytes: [0x25, 0x50, 0x44, 0x46],
+    publishLog: [publishRow({ VERSION_NO: 3 })]
   });
   const r = env.sandbox.runInvariantI06_();
   assert.strictEqual(r.ok, null, r.evidence);
-  assert.ok(r.evidence.indexOf('第 3 版') !== -1, r.evidence);
-  assert.ok(r.evidence.indexOf('第 2 版') !== -1, r.evidence);
-  assert.ok(r.evidence.indexOf('不屬於這一行') !== -1, '要講明那份指紋不屬於這一行：' + r.evidence);
-  assert.ok(r.evidence.indexOf('自己好返') !== -1, '要講明下一次發佈就會好返：' + r.evidence);
+  assert.ok(r.evidence.indexOf('驗證不到（不是對不上）') !== -1, r.evidence);
+  assert.ok(r.evidence.indexOf('沒有 ARCHIVE_FILE_ID') !== -1,
+    '要講明是哪一邊取不到：' + r.evidence);
+  assert.ok(r.evidence.indexOf('自己好返') !== -1, r.evidence);
+});
+
+test('I06 ⚪：存檔副本讀不到 → 驗證不到，並講明是存檔副本讀不到', function () {
+  const env = makeEnv({
+    config: { PUBLISHED_PDF_FILE_ID: 'MASTER1' },
+    masterBytes: [0x25, 0x50, 0x44, 0x46],
+    publishLog: [publishRow({ VERSION_NO: 3, ARCHIVE_FILE_ID: 'MISSING_ARCHIVE' })]
+  });
+  const r = env.sandbox.runInvariantI06_();
+  assert.strictEqual(r.ok, null, r.evidence);
+  assert.ok(r.evidence.indexOf('存檔副本') !== -1 && r.evidence.indexOf('讀不到') !== -1, r.evidence);
+});
+
+// ⚠️ 靜態檢查：I06 那一支完全不可以再讀 Script Property。
+test('I06 完全不讀 Script Property（靜態檢查）', function () {
+  const src = require('fs').readFileSync(
+    require('path').join(__dirname, '..', 'src', 'Invariants.gs'), 'utf8');
+  ['PUBLISH_LAST_OUTPUT', 'readPublishOutputFingerprint_', 'PropertiesService']
+    .forEach(function (banned) {
+      assert.ok(src.indexOf(banned) === -1,
+        'Invariants.gs 不可以再出現 ' + banned + '（見事故三十六）');
+    });
 });
 
 test('I06 ⚪：master 檔案讀不到 → 驗證不到，不是紅也不是綠', function () {
@@ -596,23 +646,13 @@ test('I06 綠：自測發佈之後，正式那一邊仍然成立', function () {
     masterBytes: prodBytes,
     sandboxMasterBytes: sandboxBytes,
     publishLog: [
-      publishRow({ VERSION_NO: 3 }),
+      publishRowWithMd5(prodBytes, { VERSION_NO: 3 }),
       // 自測那一行**在後面**（時間較新）——舊版就是被它騙到的。
-      publishRow({
+      publishRowWithMd5(sandboxBytes, {
         VERSION_NO: 7, PUBLISHED_AT: '2027-11-07',
         MASTER_FILE_ID: SANDBOX_MASTER, IS_SELFTEST: true
       })
-    ],
-    scriptProps: {
-      'PUBLISH_LAST_OUTPUT::MASTER1': JSON.stringify({
-        isoDate: TARGET_DATE, versionNo: 3,
-        fingerprint: md5Fingerprint(prodBytes), masterFileId: 'MASTER1'
-      }),
-      ['PUBLISH_LAST_OUTPUT::' + SANDBOX_MASTER]: JSON.stringify({
-        isoDate: TARGET_DATE, versionNo: 7,
-        fingerprint: md5Fingerprint(sandboxBytes), masterFileId: SANDBOX_MASTER
-      })
-    }
+    ]
   });
 
   const r = env.sandbox.runInvariantI06_();
@@ -628,13 +668,7 @@ test('I06 ⚪：沙盒未設定 → 那一條通道回報「不適用」，不�
   const env = makeEnv({
     config: { PUBLISHED_PDF_FILE_ID: 'MASTER1', SELFTEST_MASTER_PDF_FILE_ID: '' },
     masterBytes: prodBytes,
-    publishLog: [publishRow({ VERSION_NO: 3 })],
-    scriptProps: {
-      'PUBLISH_LAST_OUTPUT::MASTER1': JSON.stringify({
-        isoDate: TARGET_DATE, versionNo: 3,
-        fingerprint: md5Fingerprint(prodBytes), masterFileId: 'MASTER1'
-      })
-    }
+    publishLog: [publishRowWithMd5(prodBytes, { VERSION_NO: 3 })]
   });
 
   const r = env.sandbox.runInvariantI06_();
@@ -656,13 +690,7 @@ test('I06：用該行的 MASTER_FILE_ID 決定比對對象，不靠 Config 猜',
     config: { PUBLISHED_PDF_FILE_ID: 'MASTER1', SELFTEST_MASTER_PDF_FILE_ID: SANDBOX_MASTER },
     masterBytes: [0x25, 0x50, 0x44, 0x46, 0x01],
     extraPdfFiles: { OLD_MASTER: oldBytes },
-    publishLog: [publishRow({ VERSION_NO: 5, MASTER_FILE_ID: 'OLD_MASTER' })],
-    scriptProps: {
-      'PUBLISH_LAST_OUTPUT::OLD_MASTER': JSON.stringify({
-        isoDate: TARGET_DATE, versionNo: 5,
-        fingerprint: md5Fingerprint(oldBytes), masterFileId: 'OLD_MASTER'
-      })
-    }
+    publishLog: [publishRowWithMd5(oldBytes, { VERSION_NO: 5, MASTER_FILE_ID: 'OLD_MASTER' })]
   });
 
   const r = env.sandbox.runInvariantI06_();
@@ -680,19 +708,11 @@ test('I06 紅：沙盒那一邊被人手改過 → 報紅，而且指名是沙�
     masterBytes: prodBytes,
     sandboxMasterBytes: [0x25, 0x50, 0x44, 0x46, 0xAA],
     publishLog: [
-      publishRow({ VERSION_NO: 3 }),
-      publishRow({ VERSION_NO: 7, MASTER_FILE_ID: SANDBOX_MASTER, IS_SELFTEST: true })
-    ],
-    scriptProps: {
-      'PUBLISH_LAST_OUTPUT::MASTER1': JSON.stringify({
-        isoDate: TARGET_DATE, versionNo: 3,
-        fingerprint: md5Fingerprint(prodBytes), masterFileId: 'MASTER1'
-      }),
-      ['PUBLISH_LAST_OUTPUT::' + SANDBOX_MASTER]: JSON.stringify({
-        isoDate: TARGET_DATE, versionNo: 7,
-        fingerprint: md5Fingerprint([0x25, 0x50, 0x44, 0x46, 0xBB]), masterFileId: SANDBOX_MASTER
+      publishRowWithMd5(prodBytes, { VERSION_NO: 3 }),
+      publishRowWithMd5([0x25, 0x50, 0x44, 0x46, 0xBB], {
+        VERSION_NO: 7, MASTER_FILE_ID: SANDBOX_MASTER, IS_SELFTEST: true
       })
-    }
+    ]
   });
 
   const r = env.sandbox.runInvariantI06_();
@@ -1137,13 +1157,15 @@ test('buildSendLogBodyPreview_：以 = 開頭的內文會被公式跳脫（sanit
   assert.strictEqual(env.sandbox.buildSendLogBodyPreview_('=SUM(A1:A2)'), "'=SUM(A1:A2)");
 });
 
-test('SendLog 的 COLUMNS 有 BODY_PREVIEW，而且加在最後（不可以插在中間）', function () {
+test('SendLog 新欄位一律加在最後（BODY_PREVIEW、BATCH_ID）', function () {
   const env = makeEnv({});
   const keys = env.sandbox.COLUMNS.SEND_LOG.keys;
-  assert.strictEqual(keys[keys.length - 1], 'BODY_PREVIEW',
-    '新欄位一律加在最後——插在中間會令既有資料整排錯位');
-  assert.strictEqual(env.sandbox.COLUMNS.SEND_LOG.headers.length, keys.length);
-  assert.strictEqual(env.sandbox.COLUMNS.SEND_LOG.types.length, keys.length);
+  // 第三輪加 BODY_PREVIEW，第四輪加 BATCH_ID——次序不可以調轉，
+  // 插在中間會令既有資料整排錯位。
+  assert.strictEqual(keys[keys.length - 2], 'BODY_PREVIEW');
+  assert.strictEqual(keys[keys.length - 1], 'BATCH_ID');
+  assert.strictEqual(keys.length, env.sandbox.COLUMNS.SEND_LOG.headers.length);
+  assert.strictEqual(keys.length, env.sandbox.COLUMNS.SEND_LOG.types.length);
 });
 
 // =====================================================================

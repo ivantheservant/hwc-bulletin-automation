@@ -217,19 +217,27 @@ function makeFakeDriveApp(options) {
           }
           // 刻意用字串切割而不是正規表示式：查詢字串本身含有引號與
           // 跳脫字元，用正規表示式寫在測試替身裡只會多一個容易寫錯的地方。
+          // ⚠️ **v3 的形狀**（appsscript.json 把進階服務釘死在 v3）。
+          //    這個假替身本來模仿的是 v2（`title = '…'`、回 `{items}`），
+          //    於是它與 src/ 那一邊**一齊錯**——測試全部綠，而真環境每一次
+          //    呼叫都回「Invalid field selection items」。
+          //    見 docs/已知bug類型.md 事故三十七。
           const q = String(args.q || '');
           const folderEnd = q.indexOf("' in parents");
-          const nameKey = "title = '";
+          const nameKey = "name = '";
           const nameStart = q.indexOf(nameKey);
-          if (folderEnd === -1 || nameStart === -1) return { items: [] };
+          if (q.indexOf("title = '") !== -1) {
+            throw new Error("Drive.Files.list：查詢用了 v2 的 title，v3 應該用 name");
+          }
+          if (folderEnd === -1 || nameStart === -1) return { files: [] };
 
           const folderId = q.slice(q.indexOf("'") + 1, folderEnd);
           const afterName = q.slice(nameStart + nameKey.length);
           const wanted = afterName.slice(0, afterName.indexOf("'"));
-          const items = (createdByFolder[folderId] || [])
+          const found = (createdByFolder[folderId] || [])
             .filter(function (f) { return f.name === wanted; })
             .map(function (f) { return { id: f.id }; });
-          return { items: items };
+          return { files: found };
         },
         get: function (fileId, optionalArgs) {
           if (!optionalArgs || optionalArgs.supportsAllDrives !== true) {
@@ -238,7 +246,8 @@ function makeFakeDriveApp(options) {
           if (!Object.prototype.hasOwnProperty.call(files, fileId)) {
             throw new Error('File not found: ' + fileId);
           }
-          return { id: fileId, title: files[fileId].getName() };
+          // v3 的檔名欄位是 `name`。
+          return { id: fileId, name: files[fileId].getName() };
         }
       }
     },

@@ -531,6 +531,7 @@ function runInvariantI04_(options) {
     var loggedCount = batch.length;
 
     var evidence = '最近一批：狀態 ' + batch[0].STATUS + '、' + loggedCount + ' 行；'
+      + '圈法：' + invariantSendBatchSource_(batch) + '；'
       + '用同一組收件組別（' + groups.join('、') + '）重新預覽是 ' + previewCount + ' 人。';
 
     if (previewCount === loggedCount) {
@@ -563,8 +564,21 @@ function invariantLatestSendLogBatch_(rows, sinceMs) {
 
   var sorted = withTime.slice().sort(function (a, b) { return a.TIMESTAMP.getTime() - b.TIMESTAMP.getTime(); });
   var last = sorted[sorted.length - 1];
-  var batch = [];
 
+  // ⚠️ **有批次編號就用批次編號**。時間視窗是一個猜：連續兩次寄出（亂行機
+  //    幾秒就一步、幹事連按兩次）會被併成一批，行數變成兩倍，I04 報一個
+  //    假的落差。實測第 18、19 步就是這樣紅的，第 20 步隔遠了又自己好返。
+  //    見 docs/已知bug類型.md 事故三十九。
+  var lastBatchId = String(last.BATCH_ID || '').trim();
+  if (lastBatchId) {
+    return sorted.filter(function (row) {
+      return String(row.BATCH_ID || '').trim() === lastBatchId;
+    });
+  }
+
+  // 退回時間視窗：加欄之前的舊資料沒有批次編號。這一條路**本身就會**
+  // 把兩次近距離的寄出併埋，所以 I04 的證據要講明它用了哪一條路。
+  var batch = [];
   for (var i = sorted.length - 1; i >= 0; i--) {
     var row = sorted[i];
     if (String(row.STATUS) !== String(last.STATUS)) break;
@@ -572,6 +586,23 @@ function invariantLatestSendLogBatch_(rows, sinceMs) {
     batch.unshift(row);
   }
   return batch;
+}
+
+/**
+ * 用途：講出「這一批」是靠甚麼圈出來的。**純函式。**
+ * Args:
+ *   batch {Object[]}
+ * Returns:
+ *   {string}
+ */
+function invariantSendBatchSource_(batch) {
+  var list = batch || [];
+  if (list.length === 0) return '（沒有）';
+  var batchId = String(list[list.length - 1].BATCH_ID || '').trim();
+  if (batchId) return '批次編號 ' + batchId;
+  return '時間視窗（' + Math.round(INVARIANT_SEND_BATCH_MS_ / 1000)
+    + ' 秒）——加欄之前的舊資料沒有批次編號；⚠️ 這條路會把相隔不足 '
+    + Math.round(INVARIANT_SEND_BATCH_MS_ / 1000) + ' 秒的兩次寄出併成一批';
 }
 
 /**
@@ -780,44 +811,16 @@ function checkPublishChannelFingerprint_(channel) {
     return { ok: null, detail: stamp + '，但推不出 master 檔案 ID（不適用）' };
   }
 
-  // ⚠️ 指紋**優先取這一行自己記的**（CONTENT_BYTES／CONTENT_MD5）。
-  //    共用那一份 Script Property 會被下一次發佈蓋走——包括沙盒發佈——
-  //    於是拿到一份不屬於這一行的指紋，報出假的「內容對不上」。
-  //    見 docs/已知bug類型.md 事故三十三。
-  var rowFingerprint = publishRowFingerprint_(row);
-  var recordedFingerprint = rowFingerprint;
-  var fingerprintSource = '這一行的 CONTENT_MD5';
-
-  if (!recordedFingerprint) {
-    var recorded = readPublishOutputFingerprint_(fileId);
-    if (!recorded) {
-      return {
-        ok: null,
-        detail: stamp + '，這一行沒有記 CONTENT_MD5（加欄之前的舊資料），'
-          + '而共用的指紋記錄也認不出屬於 ' + maskFileId_(fileId) + '。'
-          + '⚠️ 這是「驗證不到」，不是「對不上」——下一次發佈之後，'
-          + '指紋會直接記在該行上，這一條就會自己好返'
-      };
-    }
-    // ⚠️ 退回共用記錄時，一定要先確認它講的是**同一次發佈**。講的是另一次
-    //    的話，拿它去比內容得出的「不一致」是假的。
-    if (recorded.isoDate !== isoDate || Number(recorded.versionNo) !== versionNo) {
-      return {
-        ok: null,
-        detail: stamp + '，但共用的指紋記錄講的是 ' + recorded.isoDate
-          + ' 第 ' + recorded.versionNo + ' 版——**那一份指紋不屬於這一行**，'
-          + '所以不可以拿來比。成因：舊版把發佈指紋存在一個共用的鍵上，'
-          + '下一次發佈（包括自測機發佈沙盒 master）就會蓋走它。'
-          + '⚠️ 這是「驗證不到」，不是「內容對不上」——'
-          + '下一次正式發佈之後，指紋會直接記在該行上，這一條就會自己好返'
-      };
-    }
-    recordedFingerprint = recorded.fingerprint;
-    fingerprintSource = '共用的指紋記錄';
-  }
-
-  if (!recordedFingerprint) {
-    return { ok: null, detail: stamp + '，發佈當時算不到內容指紋（Utilities.computeDigest 不可用）' };
+  var expected = resolvePublishExpectedFingerprint_(row);
+  if (!expected.fingerprint) {
+    // ⚠️ 「取不到」不是「對不上」。這是實測撞到的假紅：那一行沒有記過
+    //    CONTENT_MD5，存檔副本又讀不到，而 I06 報成「內容對不上」。
+    //    見 docs/已知bug類型.md 事故三十六。
+    return {
+      ok: null,
+      detail: stamp + '，取不到「發佈當時的內容指紋」，所以驗證不到（不是對不上）。'
+        + '　' + expected.reason
+    };
   }
 
   var currentBytes = readMasterPdfBytes_(fileId);
@@ -831,27 +834,90 @@ function checkPublishChannelFingerprint_(channel) {
 
   var currentFingerprint = pdfFingerprint_(currentBytes);
   if (!currentFingerprint) {
-    return { ok: null, detail: stamp + '，算不到目前內容的指紋' };
+    return { ok: null, detail: stamp + '，算不到目前內容的指紋（Utilities.computeDigest 不可用）' };
   }
 
-  if (currentFingerprint === recordedFingerprint) {
+  if (currentFingerprint === expected.fingerprint) {
     return {
       ok: true,
       detail: stamp + '，內容與發佈當時完全相同（' + source + '：' + maskFileId_(fileId)
-        + '；指紋來自' + fingerprintSource + '）'
+        + '；指紋來自' + expected.sourceLabel + '）'
     };
   }
 
-  // ⚠️ 不成立的時候要講**成因**，不是只講「對不上」。只講「對不上」的話，
-  //    看完仍然不知道要做什麼——那正是第三輪要修的東西。
+  // ⚠️ 不成立的時候要講**成因**，不是只講「對不上」。
   return {
     ok: false,
     detail: stamp + '，⚠️ ' + maskFileId_(fileId) + ' 的內容在最後一次發佈之後被換過。'
-      + describeFingerprintGap_(recordedFingerprint, currentFingerprint)
+      + describeFingerprintGap_(expected.fingerprint, currentFingerprint)
+      + '　（發佈當時的指紋來自' + expected.sourceLabel + '）'
       + '　成因通常是：有人手動上載覆寫了 master 檔案，或者有一次發佈換了內容'
       + '但沒有寫 PublishLog。'
       + '　下一步：撳選單「診斷 I06（唯讀）」看完整證據；'
       + '確認那一次覆寫是有意的話，撳「重新對齊 I06」把目前內容記回 PublishLog'
+  };
+}
+
+/**
+ * 用途：算出「這一行發佈當時的內容指紋」，並講明它來自哪一個來源。
+ *
+ *   來源次序（**不再讀 Script Property**）：
+ *     1. 該行自己的 `CONTENT_MD5` ＋ `CONTENT_BYTES`（發佈時即時寫入）；
+ *     2. 空的話 → 該行 `ARCHIVE_FILE_ID` 那一份存檔副本的實際指紋；
+ *     3. 兩者都取不到 → 回空字串，並講明**是哪一邊取不到**。
+ *
+ *   ⚠️ Script Property 那條路已經整條移除。它會被清、會遺失，而且是全
+ *   script 共用的一個袋（任何一次發佈都會蓋走它）——不可以做真相來源。
+ *   實測結果正是「沒有記錄」，而 I06 把「取不到」當成「對不上」。
+ *   見 docs/已知bug類型.md 事故三十六。
+ *
+ *   ⚠️ 第 2 步是一個**有前提的推斷**：存檔副本是發佈那一刻由同一個 blob
+ *   存出來的，所以理論上與 master 相同。實測那一次兩邊的指紋完全一樣
+ *   （`2007999:6e3f92…`）。但它畢竟是另一個檔案，所以 `sourceLabel` 一定
+ *   要講明是「存檔副本」，不可以扮成發佈當時直接記下的值。
+ * Args:
+ *   row {Object} `PublishLog` 一行。
+ * Returns:
+ *   {{fingerprint:string, sourceLabel:string, reason:string}}
+ */
+function resolvePublishExpectedFingerprint_(row) {
+  var rowFingerprint = publishRowFingerprint_(row);
+  if (rowFingerprint) {
+    return { fingerprint: rowFingerprint, sourceLabel: '這一行的 CONTENT_MD5', reason: '' };
+  }
+
+  var archiveFileId = String((row || {}).ARCHIVE_FILE_ID || '').trim();
+  if (!archiveFileId) {
+    return {
+      fingerprint: '', sourceLabel: '',
+      reason: '這一行沒有記 CONTENT_MD5（加欄之前的舊資料），而且沒有 ARCHIVE_FILE_ID，'
+        + '所以連存檔副本都沒有得對。下一次發佈之後，指紋會直接記在該行上，這一條就會自己好返。'
+    };
+  }
+
+  var archiveBytes = readMasterPdfBytes_(archiveFileId);
+  if (archiveBytes === null) {
+    return {
+      fingerprint: '', sourceLabel: '',
+      reason: '這一行沒有記 CONTENT_MD5（加欄之前的舊資料），退而求其次想用存檔副本（'
+        + maskFileId_(archiveFileId) + '）對，但那一個檔案讀不到'
+        + '（可能被刪、被搬、或者權限不足）。'
+    };
+  }
+
+  var archiveFingerprint = pdfFingerprint_(archiveBytes);
+  if (!archiveFingerprint) {
+    return {
+      fingerprint: '', sourceLabel: '',
+      reason: '存檔副本（' + maskFileId_(archiveFileId) + '）讀得到，但算不到指紋'
+        + '（Utilities.computeDigest 不可用）。'
+    };
+  }
+
+  return {
+    fingerprint: archiveFingerprint,
+    sourceLabel: '存檔副本（' + maskFileId_(archiveFileId) + '）',
+    reason: ''
   };
 }
 

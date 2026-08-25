@@ -289,7 +289,10 @@ test('6. 兩邊的來源名稱明確寫出來（不是只印兩個值）', funct
   const text = env.sandbox.buildI06DiagnosisLines_(d).join('\n');
 
   assert.ok(text.indexOf('左邊：') !== -1 && text.indexOf('右邊：') !== -1, text);
-  assert.ok(d.comparison.leftName.indexOf('Script Property') !== -1, d.comparison.leftName);
+  // ⚠️ 第四輪：左邊不再是 Script Property，而是「這一行的 CONTENT_MD5」
+  //    或者「存檔副本」——見事故三十六。
+  assert.ok(d.comparison.leftName.indexOf('發佈當時的內容指紋') !== -1, d.comparison.leftName);
+  assert.ok(String(d.comparison.leftSourceLabel).length > 0, '一定要講明指紋來自哪一個來源');
   assert.ok(d.comparison.rightName.indexOf('Drive 檔案') !== -1, d.comparison.rightName);
   assert.ok(text.indexOf('PublishLog 那一行講的是：') !== -1, text);
 });
@@ -301,10 +304,10 @@ test('7. 大小不同 → 講「大小不同」並算出差幾多位元組', fun
   });
   const d = env.sandbox.collectI06Diagnosis_({
     revisionLister: fakeRevisions([]),
-    fingerprintReader: function () {
+    expectedResolver: function () {
       return {
-        isoDate: TARGET_DATE, versionNo: 2,
-        fingerprint: md5Fingerprint([0x25, 0x50, 0x44, 0x46, 0x01]), masterFileId: MASTER_ID
+        fingerprint: md5Fingerprint([0x25, 0x50, 0x44, 0x46, 0x01]),
+        sourceLabel: '這一行的 CONTENT_MD5', reason: ''
       };
     }
   });
@@ -317,10 +320,10 @@ test('7b. 大小相同但 MD5 不同 → 講「大小相同」，不會亂講大
   const env = fullEnv({ masterBytes: [0x25, 0x50, 0x44, 0x46, 0x02] });
   const d = env.sandbox.collectI06Diagnosis_({
     revisionLister: fakeRevisions([]),
-    fingerprintReader: function () {
+    expectedResolver: function () {
       return {
-        isoDate: TARGET_DATE, versionNo: 2,
-        fingerprint: md5Fingerprint([0x25, 0x50, 0x44, 0x46, 0x01]), masterFileId: MASTER_ID
+        fingerprint: md5Fingerprint([0x25, 0x50, 0x44, 0x46, 0x01]),
+        sourceLabel: '這一行的 CONTENT_MD5', reason: ''
       };
     }
   });
@@ -328,25 +331,31 @@ test('7b. 大小相同但 MD5 不同 → 講「大小相同」，不會亂講大
   assert.ok(d.difference.summary.indexOf('大小相同') !== -1, d.difference.summary);
 });
 
-// ⚠️ 這一條就是第三輪那個假紅的診斷結果：指紋記錄講的是另一次發佈。
-test('7c. 指紋記錄講的是另一次發佈 → kind 是 VERSION_MISMATCH，並講明那份指紋不屬於這一行', function () {
+// ⚠️ 第四輪：VERSION_MISMATCH 那一類已經不存在。Script Property 那條路
+//    整條移除之後，指紋只會來自「這一行的 CONTENT_MD5」或者「這一行的
+//    存檔副本」，不可能講的是另一次發佈。見 docs/已知bug類型.md 事故三十六。
+test('7c. 退回存檔副本時，來源名稱要講明是存檔副本（不可以扮成發佈當時記下的值）', function () {
   const env = fullEnv();
   const d = env.sandbox.collectI06Diagnosis_({
     revisionLister: fakeRevisions([]),
-    fingerprintReader: function () {
-      return { isoDate: '2028-10-01', versionNo: 4, fingerprint: 'SANDBOX_FP', masterFileId: '' };
+    expectedResolver: function () {
+      return {
+        fingerprint: md5Fingerprint([0x25, 0x50, 0x44, 0x46, 0x01]),
+        sourceLabel: '存檔副本（ARCHI…）', reason: ''
+      };
     }
   });
-  assert.strictEqual(d.difference.kind, 'VERSION_MISMATCH');
-  assert.ok(d.difference.detail.indexOf('不屬於這一行') !== -1, d.difference.detail);
-  assert.ok(d.difference.detail.indexOf('得出的「不一致」是假的') !== -1, d.difference.detail);
+  assert.strictEqual(d.difference.kind, 'SAME');
+  assert.ok(d.difference.detail.indexOf('存檔副本') !== -1, d.difference.detail);
 });
 
 test('7d. 其中一邊取不到 → kind 是 UNAVAILABLE，明講「不等於內容不對」', function () {
   const env = fullEnv();
   const d = env.sandbox.collectI06Diagnosis_({
     revisionLister: fakeRevisions([]),
-    fingerprintReader: function () { return null; }
+    expectedResolver: function () {
+      return { fingerprint: '', sourceLabel: '', reason: '這一行沒有記 CONTENT_MD5，也沒有 ARCHIVE_FILE_ID。' };
+    }
   });
   assert.strictEqual(d.difference.kind, 'UNAVAILABLE');
   assert.ok(d.difference.detail.indexOf('不等於「內容不對」') !== -1, d.difference.detail);
@@ -362,10 +371,10 @@ test('報告最後一定有「接著做什麼」，而且按結果講不同的�
   const sameText = same.sandbox.buildI06DiagnosisLines_(
     same.sandbox.collectI06Diagnosis_({
       revisionLister: fakeRevisions([]),
-      fingerprintReader: function () {
+      expectedResolver: function () {
         return {
-          isoDate: TARGET_DATE, versionNo: 2,
-          fingerprint: md5Fingerprint([0x25, 0x50, 0x44, 0x46, 0x01]), masterFileId: MASTER_ID
+          fingerprint: md5Fingerprint([0x25, 0x50, 0x44, 0x46, 0x01]),
+          sourceLabel: '這一行的 CONTENT_MD5', reason: ''
         };
       }
     })).join('\n');
@@ -376,10 +385,10 @@ test('報告最後一定有「接著做什麼」，而且按結果講不同的�
   const changedText = changed.sandbox.buildI06DiagnosisLines_(
     changed.sandbox.collectI06Diagnosis_({
       revisionLister: fakeRevisions([]),
-      fingerprintReader: function () {
+      expectedResolver: function () {
         return {
-          isoDate: TARGET_DATE, versionNo: 2,
-          fingerprint: md5Fingerprint([0x25, 0x50, 0x44, 0x46, 0x01]), masterFileId: MASTER_ID
+          fingerprint: md5Fingerprint([0x25, 0x50, 0x44, 0x46, 0x01]),
+          sourceLabel: '這一行的 CONTENT_MD5', reason: ''
         };
       }
     })).join('\n');

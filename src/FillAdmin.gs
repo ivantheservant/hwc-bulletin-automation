@@ -423,7 +423,7 @@ function sendFillInvite_(quarterId) {
     });
   });
 
-  writeSheet(SHEETS.SEND_LOG, sendLogRows);
+  writeSendLogRows_(sendLogRows);
 
   return { sent: true, dryRun: dryRun, recipientCount: recipientsResult.recipients.length };
 }
@@ -640,7 +640,7 @@ function sendFillConflictNotice_(result) {
     });
   });
 
-  writeSheet(SHEETS.SEND_LOG, sendLogRows);
+  writeSendLogRows_(sendLogRows);
 
   // 指紋是**狀態**，試行模式不可以消耗它（同 src/ConflictNotice.gs）。
   if (!dryRun) {

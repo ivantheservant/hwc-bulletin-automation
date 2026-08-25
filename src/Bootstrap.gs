@@ -37,6 +37,7 @@ function initializeAllSheets() {
 
   var deprecatedCleanup = cleanupDeprecatedConfigKeys_();
   var publishLogBackfill = backfillPublishLogMasterFileId_();
+  var publishLogMd5Backfill = backfillPublishLogContentFingerprint_();
   var configKeysAdded = seedConfigDefaults_();
   var seedRowsAdded = {
     POST_DISPLAY: seedPostDisplay_(),
@@ -53,6 +54,7 @@ function initializeAllSheets() {
     configKeysRemoved: deprecatedCleanup.removed,
     deprecatedConfigWarnings: deprecatedCleanup.warnings,
     publishLogBackfill: publishLogBackfill,
+    publishLogMd5Backfill: publishLogMd5Backfill,
     seedRowsAdded: seedRowsAdded
   };
 
@@ -232,6 +234,17 @@ function writeInitializeDiagnosticsReport_(summary) {
       + backfill.skipReason + '）——「補寫不到」不等於「沒問題」，請人手確認。');
   }
 
+  var md5Backfill = summary.publishLogMd5Backfill;
+  if (md5Backfill && md5Backfill.filled > 0) {
+    lines.push('PublishLog 補寫內容指紋：' + md5Backfill.filled + ' 行'
+      + '（⚠️ 指紋來自**存檔副本**，不是發佈當時直接記下的值）');
+  }
+  if (md5Backfill && md5Backfill.skipped > 0) {
+    lines.push('PublishLog 有 ' + md5Backfill.skipped + ' 行補寫不到內容指紋'
+      + '——「補寫不到」不等於「沒問題」，那幾行的 I06 會報「驗證不到」：');
+    md5Backfill.skipReasons.forEach(function (reason) { lines.push('　－' + reason); });
+  }
+
   Object.keys(summary.seedRowsAdded).forEach(function (id) {
     lines.push(SHEETS[id] + ' 新增行數：' + summary.seedRowsAdded[id]);
   });
@@ -324,6 +337,84 @@ function backfillPublishLogMasterFileId_() {
         + '補寫 ' + out.filled + ' 行，補寫不到 ' + out.skipped + ' 行。'
     });
   }
+
+  return out;
+}
+
+
+/**
+ * 用途：一次性補寫 `PublishLog` 的 `CONTENT_BYTES`／`CONTENT_MD5`——用該行
+ *   `ARCHIVE_FILE_ID` 那一份**存檔副本**的實際指紋。
+ *
+ *   ⚠️ 這是一個**有前提的推斷**，前提要講出來：存檔副本是發佈那一刻由
+ *   同一個 blob 存出來的，所以理論上與 master 相同。實測那一次兩邊的指紋
+ *   完全一樣（`2007999:6e3f92…`）。
+ *
+ *   但它畢竟是**另一個檔案**。所以：
+ *     - `NOTES` 與 `AuditLog` 都會註明「來自存檔副本」，不會扮成發佈當時
+ *       直接記下的值；
+ *     - 讀不到存檔副本的一律**留空**並報「補寫不到」——填一個猜出來的值，
+ *       等於把「不知道」記成「知道」。
+ *
+ *   ⚠️ **只補空白的格**。已經有值的一律不動：重跑「初始化工作表」是常事，
+ *   第二次跑不可以把真正的發佈指紋改成存檔副本的指紋。
+ * Args: （無）
+ * Returns:
+ *   {{filled:number, skipped:number, skipReasons:string[]}}
+ */
+function backfillPublishLogContentFingerprint_() {
+  var out = { filled: 0, skipped: 0, skipReasons: [] };
+
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(SHEETS.PUBLISH_LOG);
+  if (!sheet) return out;
+
+  var rows = readSheet(SHEETS.PUBLISH_LOG);
+  if (rows.length === 0) return out;
+
+  var def = COLUMNS.PUBLISH_LOG;
+  if (def.keys.indexOf('CONTENT_MD5') === -1) return out;
+
+  rows.forEach(function (row, index) {
+    if (publishRowFingerprint_(row)) return; // 已經有值，不動
+
+    var rowNo = index + 3;
+    var archiveFileId = String(row.ARCHIVE_FILE_ID || '').trim();
+    var stamp = publishRowIsoDate_(row) + ' 第 ' + Number(row.VERSION_NO || 0) + ' 版';
+
+    if (!archiveFileId) {
+      out.skipped++;
+      out.skipReasons.push(stamp + '：沒有 ARCHIVE_FILE_ID，推不出當時的內容指紋');
+      return;
+    }
+
+    var bytes = readMasterPdfBytes_(archiveFileId);
+    if (bytes === null) {
+      out.skipped++;
+      out.skipReasons.push(stamp + '：存檔副本（' + maskFileId_(archiveFileId) + '）讀不到');
+      return;
+    }
+
+    var fingerprint = pdfFingerprint_(bytes);
+    var parts = splitPdfFingerprint_(fingerprint);
+    if (!parts.md5) {
+      out.skipped++;
+      out.skipReasons.push(stamp + '：存檔副本讀得到但算不到指紋');
+      return;
+    }
+
+    setCellValueTextSafe_(sheet, def, rowNo, 'CONTENT_BYTES', parts.bytes);
+    setCellValueTextSafe_(sheet, def, rowNo, 'CONTENT_MD5', sanitizeCellText_(parts.md5));
+    out.filled++;
+
+    appendAuditLog_({
+      action: 'PUBLISH_LOG_BACKFILL_MD5', sheetName: SHEETS.PUBLISH_LOG,
+      rowKey: publishRowIsoDate_(row), field: 'CONTENT_MD5',
+      oldValue: '', newValue: fingerprint,
+      notes: '一次性補寫：指紋**來自存檔副本**（' + maskFileId_(archiveFileId)
+        + '），不是發佈當時直接記下的值。'
+    });
+  });
 
   return out;
 }

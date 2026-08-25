@@ -248,7 +248,7 @@ function sendConflictNoticeIfNeeded_(isoDate) {
     });
   });
 
-  writeSheet(SHEETS.SEND_LOG, sendLogRows);
+  writeSendLogRows_(sendLogRows);
 
   if (!dryRun) {
     recordNotifiedFingerprints_(isoDate, fresh);

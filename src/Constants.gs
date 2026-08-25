@@ -295,10 +295,16 @@ var COLUMNS = Object.freeze({
   // 試行模式最主要的用途。內文取前 `SEND_LOG_BODY_PREVIEW_CHARS` 個字元。
   // ⚠️ 新欄位一律加在**最後**（`ensureSheet_()` 只重寫第 1、2 行，
   // 插在中間會令既有資料整排錯位）。
+  // ⚠️ 第四輪加最尾那一欄 BATCH_ID：同一次寄出寫入的每一行共用一個編號。
+  //    沒有它的話，不變量 I04 唯有用**時間視窗**（90 秒）去圈「一批」——
+  //    而連續兩次寄出（亂行機幾秒就一步）會被併成一批，行數變成兩倍，
+  //    I04 報一個假的「預覽講的與實際做的不同」。見 docs/已知bug類型.md
+  //    事故三十九。
   SEND_LOG: {
-    headers: ['時間', '主日日期', '收件人', '主旨', '狀態', '是否試行', '職事表版本', '錯誤', '內文摘要'],
-    keys: ['TIMESTAMP', 'SERVICE_DATE', 'RECIPIENT_EMAIL', 'SUBJECT', 'STATUS', 'DRY_RUN', 'ROSTER_VERSION_USED', 'ERROR', 'BODY_PREVIEW'],
-    types: ['DATE', 'DATE', 'TEXT', 'TEXT', 'TEXT', 'BOOLEAN', 'TEXT', 'TEXT', 'TEXT']
+    headers: ['時間', '主日日期', '收件人', '主旨', '狀態', '是否試行', '職事表版本', '錯誤', '內文摘要', '批次編號'],
+    keys: ['TIMESTAMP', 'SERVICE_DATE', 'RECIPIENT_EMAIL', 'SUBJECT', 'STATUS', 'DRY_RUN', 'ROSTER_VERSION_USED', 'ERROR', 'BODY_PREVIEW', 'BATCH_ID'],
+    types: ['DATE', 'DATE', 'TEXT', 'TEXT', 'TEXT', 'BOOLEAN', 'TEXT', 'TEXT', 'TEXT', 'TEXT'],
+    textFormatColumns: ['BATCH_ID']
   },
 
   // 第四b輪新增：把例外「看得見、留得低」——伺服器／前端／選單三種來源
@@ -465,12 +471,16 @@ var COLUMNS = Object.freeze({
   // ⚠️ `RNG_STATE` 是**續跑的關鍵**：亂數產生器走到哪一步的內部狀態。
   //    只存種子不夠——由種子重新開始，等於重播頭 N 步，不是接住走。
   MONKEY_STATE: {
-    headers: ['執行編號', '亂數種子', '目標步數', '已走步數', '亂數狀態', '狀態', '開始時間', '更新時間', '備註'],
-    keys: ['RUN_ID', 'SEED', 'TARGET_STEPS', 'STEPS_DONE', 'RNG_STATE', 'STATUS', 'STARTED_AT', 'UPDATED_AT', 'NOTES'],
-    types: ['TEXT', 'TEXT', 'INT', 'INT', 'TEXT', 'TEXT', 'DATE', 'DATE', 'TEXT'],
+    headers: ['執行編號', '亂數種子', '目標步數', '已走步數', '亂數狀態', '狀態',
+      '開始時間', '更新時間', '備註', '走過的路'],
+    keys: ['RUN_ID', 'SEED', 'TARGET_STEPS', 'STEPS_DONE', 'RNG_STATE', 'STATUS',
+      'STARTED_AT', 'UPDATED_AT', 'NOTES', 'PATH_SO_FAR'],
+    types: ['TEXT', 'TEXT', 'INT', 'INT', 'TEXT', 'TEXT', 'DATE', 'DATE', 'TEXT', 'TEXT'],
     // 種子與亂數狀態是 32 位元整數，會超出試算表的顯示精度而被改寫成
     // 科學記數法——一律當文字存，見 docs/已知bug類型.md 事故二十八。
-    textFormatColumns: ['SEED', 'RNG_STATE']
+    // ⚠️ PATH_SO_FAR 用「步數:動作」的精簡格式（`1:CREATE_WEEKS,2:EDIT_FIELDS`），
+    //    帶冒號與數字，不設純文字格式的話會被試算表當成時間（事故二十八）。
+    textFormatColumns: ['SEED', 'RNG_STATE', 'PATH_SO_FAR']
   }
 
 });

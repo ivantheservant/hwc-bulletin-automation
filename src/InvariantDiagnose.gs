@@ -27,7 +27,7 @@
  */
 function collectI06Diagnosis_(options) {
   var o = options || {};
-  var readFingerprint = o.fingerprintReader || readPublishOutputFingerprint_;
+  var resolveExpected = o.expectedResolver || resolvePublishExpectedFingerprint_;
   var readFacts = o.factsReader || readDriveFileFacts_;
   var listRevisions = o.revisionLister || driveListRevisions_;
 
@@ -121,14 +121,16 @@ function collectI06Diagnosis_(options) {
     : { ok: false, revisions: [], total: 0, message: '沒有檔案 ID，讀不到版本記錄。' };
 
   // ---- 6. I06 目前實際比對哪兩樣東西 ----
-  var recorded = compareFileId ? readFingerprint(compareFileId) : null;
+  // ⚠️ 左邊已經不再讀 Script Property（見事故三十六）：來源次序是
+  //    「該行的 CONTENT_MD5」→「該行 ARCHIVE_FILE_ID 的實際指紋」→ 取不到。
+  var expected = resolveExpected(latest);
+  out.expected = expected;
   out.comparison = {
-    leftName: '發佈當時記下的指紋（Script Property '
-      + (compareFileId ? publishOutputFingerprintKey_(compareFileId) : '（無）') + '）',
-    leftValue: recorded ? recorded.fingerprint : '（沒有記錄）',
-    leftIsoDate: recorded ? recorded.isoDate : '',
-    leftVersionNo: recorded ? recorded.versionNo : null,
-    leftMasterFileId: recorded ? (recorded.masterFileId || '（舊記錄，沒有記檔案 ID）') : '',
+    leftName: '發佈當時的內容指紋（來源：'
+      + (expected.sourceLabel || '取不到') + '）',
+    leftValue: expected.fingerprint || '（取不到）',
+    leftSourceLabel: expected.sourceLabel,
+    leftReason: expected.reason,
     rightName: 'master 檔案目前內容的指紋（Drive 檔案 '
       + (compareFileId ? maskFileId_(compareFileId) : '（無）') + '）',
     rightValue: (out.master && out.master.ok) ? out.master.fingerprint : '（讀不到）',
@@ -157,12 +159,12 @@ function collectI06Diagnosis_(options) {
 function describeI06Difference_(comparison, master) {
   var c = comparison || {};
 
-  if (!c.leftValue || c.leftValue === '（沒有記錄）') {
+  if (!c.leftValue || c.leftValue === '（取不到）') {
     return {
       kind: 'UNAVAILABLE',
-      summary: '取不到「發佈當時的指紋」',
-      detail: '那一次發佈是在加入指紋記錄之前做的，或者記錄被蓋走了。'
-        + '⚠️「取不到」不等於「內容不對」——這種情況 I06 應該報「驗證不到」。'
+      summary: '取不到「發佈當時的內容指紋」',
+      detail: (c.leftReason || '')
+        + '　⚠️「取不到」不等於「內容不對」——這種情況 I06 應該報「驗證不到」。'
     };
   }
   if (!master || !master.ok) {
@@ -173,42 +175,32 @@ function describeI06Difference_(comparison, master) {
     };
   }
 
-  if (c.leftIsoDate !== c.rowIsoDate || Number(c.leftVersionNo) !== Number(c.rowVersionNo)) {
+  if (c.leftValue === c.rightValue) {
     return {
-      kind: 'VERSION_MISMATCH',
-      summary: '指紋記錄講的是另一次發佈',
-      detail: 'PublishLog 最新一行是 ' + c.rowIsoDate + ' 第 ' + c.rowVersionNo + ' 版，'
-        + '但指紋記錄講的是 ' + c.leftIsoDate + ' 第 ' + c.leftVersionNo + ' 版'
-        + '（記錄的檔案 ID：' + c.leftMasterFileId + '）。'
-        + '⚠️ 兩者對不上，代表那一份指紋根本不屬於這一行——'
-        + '拿它去對內容，得出的「不一致」是假的。'
+      kind: 'SAME', summary: '兩邊完全相同',
+      detail: '發佈當時的指紋來自' + (c.leftSourceLabel || '（沒有講明）') + '。'
     };
   }
 
-  if (c.leftValue === c.rightValue) {
-    return { kind: 'SAME', summary: '兩邊完全相同', detail: '' };
-  }
+  var left = splitPdfFingerprint_(c.leftValue);
+  var right = splitPdfFingerprint_(c.rightValue);
 
-  // 指紋格式是「位元組數:md5」，拆得開就講得出是大小差還是內容差。
-  var left = String(c.leftValue).split(':');
-  var right = String(c.rightValue).split(':');
-  var leftBytes = Number(left[0]);
-  var rightBytes = Number(right[0]);
-
-  if (left.length === 2 && right.length === 2 && leftBytes !== rightBytes) {
+  if (left.md5 && right.md5 && left.bytes !== right.bytes) {
     return {
       kind: 'CONTENT_MISMATCH',
-      summary: '大小不同：發佈當時 ' + leftBytes + ' 位元組，現在 ' + rightBytes + ' 位元組',
-      detail: '差 ' + Math.abs(rightBytes - leftBytes) + ' 位元組。'
+      summary: '大小不同：發佈當時 ' + left.bytes + ' 位元組，現在 ' + right.bytes + ' 位元組',
+      detail: '差 ' + Math.abs(right.bytes - left.bytes) + ' 位元組。'
         + '大小都變了，代表檔案內容真的被換過（不是編碼差異）。'
+        + '發佈當時的指紋來自' + (c.leftSourceLabel || '（沒有講明）') + '。'
     };
   }
 
   return {
     kind: 'CONTENT_MISMATCH',
-    summary: '大小相同（' + leftBytes + ' 位元組）但 MD5 不同',
+    summary: '大小相同（' + left.bytes + ' 位元組）但 MD5 不同',
     detail: '同樣長度、不同內容——通常代表檔案被另一份同樣大小的內容覆寫，'
       + '或者 Drive 重新編碼過。'
+      + '發佈當時的指紋來自' + (c.leftSourceLabel || '（沒有講明）') + '。'
   };
 }
 
@@ -310,8 +302,7 @@ function buildI06DiagnosisLines_(d) {
   } else {
     lines.push('　左邊：' + d.comparison.leftName);
     lines.push('　　值：' + d.comparison.leftValue);
-    lines.push('　　它講的是：' + (d.comparison.leftIsoDate || '（沒有）')
-      + ' 第 ' + (d.comparison.leftVersionNo === null ? '？' : d.comparison.leftVersionNo) + ' 版');
+    if (d.comparison.leftReason) lines.push('　　取不到的原因：' + d.comparison.leftReason);
     lines.push('　右邊：' + d.comparison.rightName);
     lines.push('　　值：' + d.comparison.rightValue);
     lines.push('　PublishLog 那一行講的是：' + d.comparison.rowIsoDate
@@ -380,11 +371,11 @@ function i06NextStepText_(d) {
     return '　兩邊相同，I06 的「正式」通道應該是綠的。如果它報「對不上」，'
       + '那是 I06 的 bug，請把這份報告連同自測報告一齊交出來。';
   }
-  if (kind === 'VERSION_MISMATCH') {
-    return '　指紋記錄不屬於這一行——這是**記錄放錯地方**，不是內容出問題。'
-      + '正確的修法是把指紋直接記在 PublishLog 每一行上（CONTENT_MD5／'
-      + 'CONTENT_BYTES 兩欄），不再依賴一份會被覆蓋的共用記錄。'
-      + '下一次發佈之後，這一條就會自己好返。';
+  if (kind === 'UNAVAILABLE') {
+    return '　其中一邊取不到，所以 I06 應該報「驗證不到」而不是「對不上」。'
+      + '如果取不到的是「發佈當時的指紋」，撳選單「初始化工作表」跑一次'
+      + '一次性補寫（會用存檔副本的指紋補上），或者直接做一次新的發佈'
+      + '——之後那一行就會帶住 CONTENT_MD5。';
   }
   if (kind === 'CONTENT_MISMATCH') {
     return '　master 檔案的內容在最後一次發佈之後真的被換過。'
@@ -562,5 +553,356 @@ function menuRealignI06_() {
   } catch (err) {
     logMenuError_('menuRealignI06_', err);
     ui.alert('重新對齊 I06 失敗', enrichAuthError_(err), ui.ButtonSet.OK);
+  }
+}
+
+// =====================================================================
+// 發佈版本記錄（發佈錯了怎樣救）
+// =====================================================================
+
+/**
+ * 用途：把 master 發佈檔案的 Drive 版本記錄排成報告內容行。**純函式。**
+ *
+ *   ⚠️ 這是「發佈錯了怎樣救」那條路。Drive 保留檔案的每一個版本，所以
+ *   即使覆寫了錯的內容，舊那一版仍然在——但**前提是有人知道去哪裏找**。
+ *   見 docs/復工指引.md 第七節。
+ *
+ *   ⚠️ 「讀不到版本記錄」與「真的一個版本都沒有」是兩件事，要分開報。
+ * Args:
+ *   info {{fileId:string, fileName:string, revisions:Object, publishRows:Object[]}}
+ * Returns:
+ *   {string[]}
+ */
+function buildPublishRevisionLines_(info) {
+  var lines = [];
+  lines.push('【master 發佈檔案】');
+  if (!info.fileId) {
+    lines.push('　尚未設定 ' + CONFIG_KEYS.PUBLISHED_PDF_FILE_ID + '，沒有檔案可以看。');
+    return lines;
+  }
+  lines.push('　檔案：' + (info.fileName || '（讀不到檔名）') + '（' + maskFileId_(info.fileId) + '）');
+  lines.push('');
+
+  lines.push('【Drive 版本記錄】');
+  var revisions = info.revisions || { ok: false, revisions: [], total: 0, message: '' };
+  if (!revisions.ok) {
+    lines.push('　讀不到，原因是：' + (revisions.message || '（沒有原因）'));
+    lines.push('　⚠️「讀不到」不等於「沒有版本」——請人手開啟該檔案 ▸ 檔案 ▸ 版本記錄確認。');
+  } else if (revisions.total === 0) {
+    lines.push('　真的一個版本都沒有（不是讀不到）。');
+  } else {
+    lines.push('　共 ' + revisions.total + ' 個版本，以下是最新 ' + revisions.revisions.length + ' 個（由新到舊）：');
+    revisions.revisions.forEach(function (rev, index) {
+      lines.push('　　' + (index + 1) + '.　' + (rev.modifiedDate || '（沒有時間）')
+        + '　' + (rev.fileSize === null ? '（沒有大小）' : (rev.fileSize + ' 位元組'))
+        + (rev.modifiedBy ? ('　' + rev.modifiedBy) : ''));
+    });
+  }
+  lines.push('');
+
+  lines.push('【對照：PublishLog 記錄的發佈】');
+  if (!info.publishRows || info.publishRows.length === 0) {
+    lines.push('　沒有發佈紀錄。');
+  } else {
+    info.publishRows.forEach(function (row) {
+      lines.push('　' + publishRowIsoDate_(row) + ' 第 ' + Number(row.VERSION_NO || 0) + ' 版　'
+        + (publishRowFingerprint_(row) || '（沒有記內容指紋）')
+        + (row.IS_SELFTEST === true ? '　（自測）' : ''));
+    });
+    lines.push('　⚠️ 位元組數對得上哪一個 Drive 版本，就是那一次發佈寫進去的內容。');
+  }
+  lines.push('');
+
+  lines.push('【發佈錯了怎樣還原】');
+  lines.push('　Drive 的版本記錄不能由這個系統還原——一定要人手做，步驟如下：');
+  lines.push('　1. 在 Drive 找到上面那個 master 檔案，按右鍵 ▸ 管理版本。');
+  lines.push('　2. 對照上面的時間與位元組數，找出你要的那一版。');
+  lines.push('　3. 按那一版右邊的三點 ▸ 下載，先把它存到電腦。');
+  lines.push('　4. 回到週報系統的填寫介面，用「發佈及匯出」把剛才下載的那一份重新發佈。');
+  lines.push('');
+  lines.push('　⚠️ 刻意**不做**「一鍵還原」：還原等於再覆寫一次 master，');
+  lines.push('　　而按錯的代價是網站上那條固定連結指向錯的一期。');
+  lines.push('　　多一步人手下載，是要你親眼看過那一份內容才發佈。');
+  lines.push('');
+  lines.push('　⚠️ 用「發佈及匯出」重新發佈會產生**新的一版**（版本號 +1），');
+  lines.push('　　不是把舊版本刪走。PublishLog 會看得出還原這一次。');
+
+  return lines;
+}
+
+/**
+ * 用途：選單「發佈版本記錄」——列出 master 檔案的全部 Drive 版本。
+ *   **唯讀**，只讀不寫。
+ * Returns:
+ *   {void}
+ */
+function menuShowPublishRevisions_() {
+  var ui = SpreadsheetApp.getUi();
+  try {
+    var fileId = String(getConfig(CONFIG_KEYS.PUBLISHED_PDF_FILE_ID, '') || '').trim();
+    var facts = fileId ? readDriveFileFacts_(fileId) : { ok: false, fileName: '', message: '' };
+    var revisions = fileId
+      ? driveListRevisions_(fileId, 20)
+      : { ok: false, revisions: [], total: 0, message: '尚未設定 master 發佈檔案。' };
+
+    var publishRows = readSheet(SHEETS.PUBLISH_LOG)
+      .filter(function (r) { return r.IS_SELFTEST !== true; })
+      .slice(-10);
+
+    var lines = buildPublishRevisionLines_({
+      fileId: fileId,
+      fileName: facts.ok ? facts.fileName : '',
+      revisions: revisions,
+      publishRows: publishRows
+    });
+    writeDiagnosticsReport_('發佈版本記錄', lines);
+
+    var headline = revisions.ok
+      ? ('共 ' + revisions.total + ' 個版本。')
+      : ('讀不到版本記錄：' + (revisions.message || '（沒有原因）'));
+    ui.alert('發佈版本記錄',
+      headline + '\n\n完整清單與還原步驟已經寫入 Diagnostics 工作表。\n'
+        + '⚠️ 這次只讀不寫，master 檔案的內容沒有被碰過。',
+      ui.ButtonSet.OK);
+  } catch (err) {
+    logMenuError_('menuShowPublishRevisions_', err);
+    ui.alert('發佈版本記錄失敗', enrichAuthError_(err), ui.ButtonSet.OK);
+  }
+}
+
+
+// =====================================================================
+// 診斷 I04
+// =====================================================================
+
+/**
+ * 用途：收集「診斷 I04」要用的全部事實。**不寫任何東西。**
+ *
+ * ⚠️ 同「診斷 I06」一樣的做法：I04 報「不成立」的時候，那一句話講不出
+ *   **兩邊分別是什麼、分別取自哪裏、為什麼會差**。先把證據打出來。
+ * Args:
+ *   options {{sinceMs:number=}} 選填。
+ * Returns:
+ *   {Object}
+ */
+function collectI04Diagnosis_(options) {
+  var o = options || {};
+  var rows = readSheet(SHEETS.SEND_LOG);
+
+  var out = {
+    totalRows: rows.length,
+    batch: [],
+    batchStatus: '',
+    batchWindowMs: INVARIANT_SEND_BATCH_MS_,
+    groups: [],
+    previewCount: null,
+    loggedCount: 0,
+    distinctTimestamps: [],
+    spanMs: null,
+    mergedSendCount: null,
+    recipients: [],
+    notes: []
+  };
+
+  if (rows.length === 0) {
+    out.notes.push('SendLog 一行都沒有，I04 應該回「驗證不到」。');
+    return out;
+  }
+
+  var batch = invariantLatestSendLogBatch_(rows, o.sinceMs);
+  out.batch = batch;
+  out.loggedCount = batch.length;
+  if (batch.length === 0) {
+    out.notes.push('指定時間之後 SendLog 沒有新增任何行。');
+    return out;
+  }
+
+  out.batchStatus = String(batch[0].STATUS || '');
+  out.groups = invariantSendGroupsForStatus_(out.batchStatus);
+
+  try {
+    out.previewCount = buildRecipientList_(readSheet(SHEETS.RECIPIENTS), out.groups, null).recipients.length;
+  } catch (err) {
+    out.previewCount = null;
+    out.notes.push('重新預覽收件人時拋錯：' + ((err && err.message) ? err.message : String(err)));
+  }
+
+  // ⚠️ 這一段是關鍵：同一「批」裡面到底有幾多個**不同的時間戳記**。
+  //    一次 writeSheet() 是一次 setValues()，全部行同一刻寫入，所以正常
+  //    情況下只會有一兩個。多過那個數，就代表**兩次不同的寄出被併成一批**。
+  var seenTimes = {};
+  batch.forEach(function (row) {
+    var at = row.TIMESTAMP;
+    if (Object.prototype.toString.call(at) !== '[object Date]') return;
+    // 秒級——同一次寄出逐個收件人求值 new Date()，會跨秒但不會跨很多秒。
+    var key = Math.floor(at.getTime() / 1000);
+    seenTimes[key] = (seenTimes[key] || 0) + 1;
+  });
+  out.distinctTimestamps = Object.keys(seenTimes).sort().map(function (key) {
+    return { epochSec: Number(key), count: seenTimes[key] };
+  });
+
+  if (out.distinctTimestamps.length > 0) {
+    var first = out.distinctTimestamps[0].epochSec;
+    var last = out.distinctTimestamps[out.distinctTimestamps.length - 1].epochSec;
+    out.spanMs = (last - first) * 1000;
+  }
+
+  // 如果 previewCount 除得盡 loggedCount，很可能是 N 次寄出被併成一批。
+  if (out.previewCount && out.previewCount > 0 && out.loggedCount % out.previewCount === 0) {
+    out.mergedSendCount = out.loggedCount / out.previewCount;
+  }
+
+  out.recipients = readSheet(SHEETS.RECIPIENTS)
+    .filter(function (r) { return r.ACTIVE === true; })
+    .map(function (r) { return String(r.GROUP_NAME || '（未分組）'); });
+
+  return out;
+}
+
+/**
+ * 用途：把 I04 診斷排版成 `Diagnostics` 報告的內容行。
+ *
+ *   ⚠️ 區段標題一律用全形括號「【…】」（事故六）。
+ * Args:
+ *   d {Object} `collectI04Diagnosis_()` 的輸出。
+ * Returns:
+ *   {string[]}
+ */
+function buildI04DiagnosisLines_(d) {
+  var lines = [];
+
+  lines.push('【這份報告的用途】');
+  lines.push('I04 報「不成立」的時候，這裏列出它實際比對的兩邊、各自的來源、');
+  lines.push('以及「一批」的判定過程。全部都是唯讀，一個位元組都沒有寫。');
+  lines.push('');
+
+  lines.push('【1. I04 比對的兩邊】');
+  lines.push('　左邊（預期）：用同一組收件組別重新預覽 → '
+    + (d.previewCount === null ? '（算不到）' : (d.previewCount + ' 人')));
+  lines.push('　　來源：Recipients 工作表 ＋ 收件組別 ' + (d.groups.join('、') || '（沒有）'));
+  lines.push('　右邊（實際）：SendLog **最近一批**的行數 → ' + d.loggedCount + ' 行');
+  lines.push('　　來源：SendLog（全表 ' + d.totalRows + ' 行）'
+    + '，狀態 ' + (d.batchStatus || '（沒有）'));
+  lines.push('');
+
+  lines.push('【2. 「一批」是怎樣圈出來的】');
+  lines.push('　規則：由最後一行往上數，狀態相同、而且與最後一行相差不超過 '
+    + Math.round(d.batchWindowMs / 1000) + ' 秒的，全部當成同一批。');
+  lines.push('　圈到 ' + d.loggedCount + ' 行，其中有 ' + d.distinctTimestamps.length
+    + ' 個不同的時間戳記（秒）。');
+  if (d.spanMs !== null) {
+    lines.push('　這一批最早與最新相差 ' + Math.round(d.spanMs / 1000) + ' 秒。');
+  }
+  d.distinctTimestamps.forEach(function (entry) {
+    lines.push('　　時間戳記 ' + entry.epochSec + '　' + entry.count + ' 行');
+  });
+  lines.push('');
+
+  lines.push('【3. 差在哪裏】');
+  lines.push(i04DifferenceText_(d));
+  lines.push('');
+
+  lines.push('【4. Recipients 目前的組別分佈】');
+  if (d.recipients.length === 0) {
+    lines.push('　沒有任何有效收件人。');
+  } else {
+    var byGroup = {};
+    d.recipients.forEach(function (group) { byGroup[group] = (byGroup[group] || 0) + 1; });
+    Object.keys(byGroup).sort().forEach(function (group) {
+      lines.push('　' + group + '：' + byGroup[group] + ' 人');
+    });
+  }
+  lines.push('');
+
+  if (d.notes.length > 0) {
+    lines.push('【其他發現】');
+    d.notes.forEach(function (note) { lines.push('　' + note); });
+    lines.push('');
+  }
+
+  lines.push('【接著做什麼】');
+  lines.push(i04NextStepText_(d));
+
+  return lines;
+}
+
+/**
+ * 用途：判斷 I04 兩邊差在哪裏，並講出**最可能的成因**。**純函式。**
+ *
+ *   ⚠️ 「兩次寄出被併成一批」是這個規則的已知弱點：「一批」是用**時間
+ *   視窗**圈出來的，而亂行機在幾秒之內連續寄兩次是很平常的事。
+ * Args:
+ *   d {Object}
+ * Returns:
+ *   {string}
+ */
+function i04DifferenceText_(d) {
+  if (d.loggedCount === 0) return '　沒有可以比對的一批。';
+  if (d.previewCount === null) return '　左邊算不到，所以 I04 應該報「驗證不到」。';
+
+  if (d.previewCount === d.loggedCount) {
+    return '　兩邊相同（' + d.previewCount + '），I04 應該是綠的。';
+  }
+
+  var text = '　預期 ' + d.previewCount + ' 封，實際 ' + d.loggedCount + ' 行，差 '
+    + Math.abs(d.loggedCount - d.previewCount) + '。';
+
+  if (d.mergedSendCount && d.mergedSendCount > 1) {
+    text += '\n　⚠️ 行數剛好是預期的 ' + d.mergedSendCount + ' 倍，而且這一批有 '
+      + d.distinctTimestamps.length + ' 個不同的時間戳記——'
+      + '極可能是**' + d.mergedSendCount + ' 次不同的寄出被時間視窗併成了一批**。'
+      + '\n　　那不是系統寄錯，是 I04 圈「一批」的規則本身不準。';
+  } else if (d.distinctTimestamps.length > 2) {
+    text += '\n　⚠️ 這一批有 ' + d.distinctTimestamps.length + ' 個不同的時間戳記，'
+      + '一次 writeSheet() 正常只會有一兩個——很可能是多次寄出被併成一批。';
+  } else {
+    text += '\n　這一批的時間戳記只有 ' + d.distinctTimestamps.length + ' 個，'
+      + '不像是多次寄出被併埋。要查的是 Recipients 在那一次寄出之後有沒有改過。';
+  }
+  return text;
+}
+
+/**
+ * 用途：按診斷結果講一句「接著做什麼」。
+ * Args:
+ *   d {Object}
+ * Returns:
+ *   {string}
+ */
+function i04NextStepText_(d) {
+  if (d.loggedCount === 0) return '　先寄一次（試行也可以），之後這一條才驗得到。';
+  if (d.previewCount === null) return '　先修好「算收件人」那一段，見上面的其他發現。';
+  if (d.previewCount === d.loggedCount) {
+    return '　兩邊相同。如果自測機仍然報 I04 不成立，請把這份報告連同自測報告一齊交出來。';
+  }
+  if (d.mergedSendCount && d.mergedSendCount > 1) {
+    return '　這是 I04 自己的問題，不是寄送的問題：'
+      + '「一批」用時間視窗圈，連續兩次寄出會被併埋。'
+      + '正確的做法是替每一次寄出寫一個批次編號（SendLog.BATCH_ID），'
+      + '由編號圈一批，不再靠時間猜。';
+  }
+  return '　先確認 Recipients 在那一次寄出之後有沒有改過——'
+    + '改過的話那個落差是預期之內的，I04 的證據本來就有寫明這一點。';
+}
+
+/**
+ * 用途：選單「診斷 I04（唯讀）」。
+ * Returns:
+ *   {void}
+ */
+function menuDiagnoseI04_() {
+  var ui = SpreadsheetApp.getUi();
+  try {
+    var diagnosis = collectI04Diagnosis_({});
+    writeDiagnosticsReport_('I04 診斷', buildI04DiagnosisLines_(diagnosis));
+    ui.alert('I04 診斷',
+      i04DifferenceText_(diagnosis).replace(/^\s+/, '')
+        + '\n\n完整報告已經寫入 Diagnostics 工作表。\n'
+        + '⚠️ 這次診斷全部都是唯讀，一個位元組都沒有寫。',
+      ui.ButtonSet.OK);
+  } catch (err) {
+    logMenuError_('menuDiagnoseI04_', err);
+    ui.alert('診斷 I04 失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
 }

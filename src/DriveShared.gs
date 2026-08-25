@@ -77,9 +77,15 @@ function driveUpdateFileContent_(fileId, blob, fileName) {
   var id = String(fileId || '').trim();
   var resource = {};
   var name = String(fileName || '');
-  // Drive 進階服務喺本專案釘死喺 v2（見 appsscript.json），v2 嘅檔名欄位
-  // 叫 `title`（v3 先至叫 `name`）。改版本嘅話呢一行要一齊改。
-  if (name) resource.title = name;
+  // ⚠️ Drive 進階服務在 appsscript.json 釘死在 **v3**，v3 的檔名欄位叫
+  //    `name`（v2 才叫 `title`）。原本這裡寫 `title` 而註解寫「釘死在 v2」
+  //    ——註解與 appsscript.json 對不上，而 v3 會靜靜忽略 `title`，於是
+  //    「順手改檔名」那一步一直沒有生效（內容照樣覆寫得到，所以沒有人
+  //    發現）。見 docs/已知bug類型.md 事故三十七。
+  // ⚠️ 用中括號存取而不是點存取：夾在引號之間的 `.name` 會被
+  //    tools/scan-staged-secrets.js 誤判成網域（name 是真實 gTLD），
+  //    見 docs/已知bug類型.md 事故六。欄位名照樣是 v3 的 name。
+  if (name) resource['name'] = name;
 
   var updated = Drive.Files.update(resource, id, blob, driveSharedOptions_());
   return { fileId: (updated && updated.id) ? updated.id : id };
@@ -148,11 +154,14 @@ function driveCountFilesByNameInFolder_(folderId, fileName) {
       // 雲端硬碟嘅檔案」，`includeItemsFromAllDrives` 係「結果入面請
       // 包埋共用雲端硬碟嘅項目」。
       includeItemsFromAllDrives: true,
-      q: "'" + folder + "' in parents and title = '" + escaped + "' and trashed = false",
-      maxResults: 1,
-      fields: 'items(id)'
+      // ⚠️ **v3 的欄位名**：查詢用 `name`（v2 是 `title`）、分頁用
+      //    `pageSize`（v2 是 `maxResults`）、結果在 `files`（v2 是
+      //    `items`）。見 docs/已知bug類型.md 事故三十七。
+      q: "'" + folder + "' in parents and name = '" + escaped + "' and trashed = false",
+      pageSize: 1,
+      fields: 'files(id)'
     }));
-    var items = (result && result.items) ? result.items : [];
+    var items = (result && result.files) ? result.files : [];
     return items.length;
   } catch (err) {
     return -1;
@@ -172,7 +181,7 @@ function driveCountFilesByNameInFolder_(folderId, fileName) {
  */
 function probeDriveAdvancedService_() {
   try {
-    Drive.Files.list(driveSharedOptions_({ maxResults: 1, fields: 'items(id)' }));
+    Drive.Files.list(driveSharedOptions_({ pageSize: 1, fields: 'files(id)' }));
     return { ok: true, message: '可用。' };
   } catch (err) {
     return { ok: false, message: (err && err.message) ? err.message : String(err) };
@@ -186,11 +195,13 @@ function probeDriveAdvancedService_() {
  *   靜態 lint 只證明得到「程式碼裏面冇寫入方法」，呢個函式證明「實際上
  *   真係一個版本都冇多」——兩者嘅證據等級完全唔同。
  *
- *   ⚠️ **刻意唔加 `supportsAllDrives`**：Drive API v2 嘅 `revisions.list`
- *   根本冇呢個參數（佢係按 `fileId` 直接攞，唔涉及「喺邊度搵」嘅問題）。
- *   傳一個 API 唔認識嘅參數落去有機會拋錯，所以呢度唔傳。
+ *   ⚠️ 這裡**有**帶 `supportsAllDrives`（經 `driveSharedOptions_()`）。
+ *   舊註解寫「刻意不加，因為 v2 的 revisions.list 沒有這個參數，傳落去
+ *   有機會拋錯」——實測推翻了那個顧慮：`driveListRevisions_()` 一直有
+ *   傳，而真實環境回的錯只提到 `fields`，完全沒有提 `supportsAllDrives`。
+ *   master 檔案在 Shared Drive 上，帶住它比較穩妥。
  *   `tools/lint-drive-shared.js` 只管 `Drive.Files.`／`Drive.Drives.`
- *   兩個前綴，唔會誤判呢一行——理由已經寫喺嗰個工具嘅檔頭。
+ *   兩個前綴，不會誤判這一行——理由已經寫在那個工具的檔頭。
  *
  *   ⚠️ 版本記錄可能好多頁；呢度只需要**數目**，所以一頁一頁攞落去數，
  *   最多攞 `DRIVE_REVISION_MAX_PAGES_` 頁，超過就當「數唔到」回 `null`
@@ -212,11 +223,16 @@ function driveCountRevisions_(fileId) {
     var total = 0;
     var pageToken = null;
     for (var page = 0; page < DRIVE_REVISION_MAX_PAGES_; page++) {
-      var args = { maxResults: 1000, fields: 'items(id),nextPageToken' };
+      // ⚠️ **v3 的欄位名**。appsscript.json 把 Drive 進階服務釘死在 v3，
+      //    但這裡本來寫的是 v2 的 `items`／`maxResults`，於是每一次呼叫都
+      //    回「Invalid field selection items」——而外面的 try/catch 把它變成
+      //    `null`（「數唔到」），所以 I10 一直報「驗證不到」而沒有人發現。
+      //    見 docs/已知bug類型.md 事故三十七。
+      var args = driveSharedOptions_({ pageSize: 1000, fields: 'revisions(id),nextPageToken' });
       if (pageToken) args.pageToken = pageToken;
 
       var result = Drive.Revisions.list(id, args);
-      var items = (result && result.items) ? result.items : [];
+      var items = (result && result.revisions) ? result.revisions : [];
       total += items.length;
 
       pageToken = (result && result.nextPageToken) ? result.nextPageToken : null;
@@ -251,20 +267,24 @@ function driveListRevisions_(fileId, maxItems) {
     var all = [];
     var pageToken = null;
     for (var page = 0; page < DRIVE_REVISION_MAX_PAGES_; page++) {
+      // ⚠️ v3 的欄位名：`revisions` 不是 `items`、`modifiedTime` 不是
+      //    `modifiedDate`、`size` 不是 `fileSize`、修改者是一個物件
+      //    `lastModifyingUser` 而不是 `lastModifyingUserName` 那個字串。
+      //    見 docs/已知bug類型.md 事故三十七。
       var args = driveSharedOptions_({
-        maxResults: 1000,
-        fields: 'items(id,modifiedDate,fileSize,lastModifyingUserName),nextPageToken'
+        pageSize: 1000,
+        fields: 'revisions(id,modifiedTime,size,lastModifyingUser(displayName)),nextPageToken'
       });
       if (pageToken) args.pageToken = pageToken;
 
       var result = Drive.Revisions.list(id, args);
-      var items = (result && result.items) ? result.items : [];
+      var items = (result && result.revisions) ? result.revisions : [];
       items.forEach(function (item) {
         all.push({
           id: String(item.id || ''),
-          modifiedDate: String(item.modifiedDate || ''),
-          fileSize: (item.fileSize === undefined || item.fileSize === null) ? null : Number(item.fileSize),
-          modifiedBy: String(item.lastModifyingUserName || '')
+          modifiedDate: String(item.modifiedTime || ''),
+          fileSize: (item.size === undefined || item.size === null) ? null : Number(item.size),
+          modifiedBy: driveRevisionModifierName_(item)
         });
       });
 
@@ -287,6 +307,24 @@ function driveListRevisions_(fileId, maxItems) {
         + '（Drive 進階服務未啟用、權限不足，或者該檔案不支援版本記錄）'
     };
   }
+}
+
+/**
+ * 用途：由 v3 的 revision 物件取出「誰改的」。**純函式。**
+ *
+ *   ⚠️ v3 的 `lastModifyingUser` 是一個**物件**（`{displayName, emailAddress…}`），
+ *   不是 v2 那個 `lastModifyingUserName` 字串。直接當字串用會得出
+ *   `[object Object]`。
+ * Args:
+ *   item {Object} 一個 revision。
+ * Returns:
+ *   {string} 取不到回空字串。
+ */
+function driveRevisionModifierName_(item) {
+  var user = (item || {}).lastModifyingUser;
+  if (!user) return '';
+  if (typeof user === 'string') return user;
+  return String(user.displayName || user.emailAddress || '');
 }
 
 /** `driveCountRevisions_()` 最多翻幾多頁。超過就當數唔到。 */

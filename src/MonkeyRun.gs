@@ -435,7 +435,11 @@ function monkeyWriteStateRow_(state) {
     STATUS: sanitizeCellText_(state.status),
     STARTED_AT: state.startedAt,
     UPDATED_AT: new Date(),
-    NOTES: sanitizeCellText_(state.notes || '')
+    NOTES: sanitizeCellText_(state.notes || ''),
+    // ⚠️ 走過的路要**跨批保存**。舊版它只是一個 local 陣列，每一批都由
+    //    空開始——於是續跑之後「走到這裏的完整步驟」由第 1 步重新數，
+    //    而那正是亂行機最重要的輸出。見 docs/已知bug類型.md 事故三十八。
+    PATH_SO_FAR: sanitizeCellText_(encodeMonkeyPath_(state.pathSteps))
   }]);
 }
 
@@ -467,8 +471,115 @@ function monkeyLatestPausedState_() {
     targetSteps: Number(last.TARGET_STEPS || 0),
     stepsDone: Number(last.STEPS_DONE || 0),
     rngState: Number(String(last.RNG_STATE || '0').trim()),
-    startedAt: last.STARTED_AT
+    startedAt: last.STARTED_AT,
+    pathSteps: decodeMonkeyPath_(last.PATH_SO_FAR)
   };
+}
+
+// =====================================================================
+// 走過的路（PATH_SO_FAR）
+// =====================================================================
+
+/**
+ * 一格儲存格的上限是 50000 個字元。留一段餘裕給「已截斷」那句提示。
+ */
+var MONKEY_PATH_MAX_CHARS_ = 40000;
+
+/**
+ * 用途：把「走過的路」編成可以存進一格的精簡格式
+ *   （`1:CREATE_WEEKS,2:EDIT_FIELDS,…`）。**純函式。**
+ *
+ *   ⚠️ 存精簡格式而不是人看的標籤：標籤是中文、長得多，20 步已經幾百字，
+ *   200 步就會爆格。精簡格式帶住**步數**，所以就算中間補跑過也接得回去。
+ * Args:
+ *   pathSteps {{stepNo:number, actionId:string}[]}
+ * Returns:
+ *   {string}
+ */
+function encodeMonkeyPath_(pathSteps) {
+  return (pathSteps || []).map(function (step) {
+    return String(step.stepNo) + ':' + String(step.actionId);
+  }).join(',');
+}
+
+/**
+ * 用途：把精簡格式解回陣列。**純函式。**
+ *
+ *   ⚠️ 解不到的一段一律**略過**，不可以整條路當成空——續跑時把整條路
+ *   當成空，等於重演這一輪要修的那個 bug（路徑重置）。
+ * Args:
+ *   text {*}
+ * Returns:
+ *   {{stepNo:number, actionId:string}[]}
+ */
+function decodeMonkeyPath_(text) {
+  var raw = String(text === null || text === undefined ? '' : text).trim();
+  if (!raw) return [];
+  var out = [];
+  raw.split(',').forEach(function (piece) {
+    var part = String(piece).trim();
+    if (!part) return;
+    var colon = part.indexOf(':');
+    if (colon <= 0) return;
+    var stepNo = Number(part.slice(0, colon));
+    var actionId = part.slice(colon + 1).trim();
+    if (!isFinite(stepNo) || stepNo <= 0 || !actionId) return;
+    out.push({ stepNo: stepNo, actionId: actionId });
+  });
+  return out;
+}
+
+/**
+ * 用途：把「走過的路」排成給人看的一句。**純函式。**
+ *
+ *   ⚠️ 太長的時候改用精簡格式（`1:CREATE_WEEKS,2:…`），
+ *   **不可以截斷開頭**——「走到這裏的完整步驟」的價值全在「由第 1 步開始」。
+ *   真的連精簡格式都爆格才截**尾**，而且要明寫截斷了幾多步。
+ * Args:
+ *   pathSteps {{stepNo:number, actionId:string}[]}
+ *   labelById {Object<string,string>} 動作編號 → 中文標籤。
+ * Returns:
+ *   {string}
+ */
+function renderMonkeyPath_(pathSteps, labelById) {
+  var steps = pathSteps || [];
+  if (steps.length === 0) return '';
+  var labels = labelById || {};
+
+  var human = steps.map(function (step) {
+    return labels[step.actionId] || step.actionId;
+  }).join(' → ');
+  if (human.length <= MONKEY_PATH_MAX_CHARS_) return human;
+
+  var compact = encodeMonkeyPath_(steps);
+  if (compact.length <= MONKEY_PATH_MAX_CHARS_) {
+    return '（步數太多，改用精簡格式）' + compact;
+  }
+
+  // ⚠️ 截**尾**不截頭。頭幾步才是「怎樣走到這個狀態」的關鍵。
+  var kept = [];
+  var used = 0;
+  for (var i = 0; i < steps.length; i++) {
+    var piece = String(steps[i].stepNo) + ':' + String(steps[i].actionId);
+    if (used + piece.length + 1 > MONKEY_PATH_MAX_CHARS_) break;
+    kept.push(piece);
+    used += piece.length + 1;
+  }
+  return '（步數太多，改用精簡格式；後面 ' + (steps.length - kept.length)
+    + ' 步已經截斷——截的是**尾**，開頭完整）' + kept.join(',');
+}
+
+/**
+ * 用途：動作編號 → 中文標籤的對照表。**純函式。**
+ * Args:
+ *   actions {Object[]} `monkeyActions_()` 的輸出。
+ * Returns:
+ *   {Object<string,string>}
+ */
+function monkeyActionLabelMap_(actions) {
+  var out = {};
+  (actions || []).forEach(function (action) { out[action.id] = action.label; });
+  return out;
 }
 
 // =====================================================================
@@ -533,6 +644,7 @@ function runMonkey_(options) {
 
   var actions = monkeyActions_();
   var startedAt = new Date();
+  var restoredPath = [];
   var runId;
   var seed;
   var savedRngState = null;
@@ -554,6 +666,7 @@ function runMonkey_(options) {
     savedRngState = pending.rngState;
     stepsDoneBefore = pending.stepsDone;
     targetSteps = pending.targetSteps;
+    restoredPath = pending.pathSteps || [];
     startedAt = normalizeDate_(pending.startedAt) || startedAt;
     batchSteps = Math.max(0, targetSteps - stepsDoneBefore);
     if (batchSteps === 0) {
@@ -581,7 +694,9 @@ function runMonkey_(options) {
   var noProgressLimit = normalizeInt_(getConfig(CONFIG_KEYS.MONKEY_NO_PROGRESS_LIMIT, '5'));
   if (!noProgressLimit || noProgressLimit < 1) noProgressLimit = 5;
 
-  var pathSoFar = [];
+  // ⚠️ 由上一批接住，不是由空開始（事故三十八）。
+  var pathSteps = restoredPath.slice();
+  var labelById = monkeyActionLabelMap_(actions);
   var steps = [];
   var failedStep = null;
   var stoppedForTime = false;
@@ -613,7 +728,7 @@ function runMonkey_(options) {
       steps.push({
         stepNo: stepNo, availableIds: [], chosenId: '（沒有合法動作）',
         result: MONKEY_STEP_RESULT_.SKIPPED, detail: '目前狀態下沒有任何合法動作。',
-        invariantStatus: '（未檢查）', pathSoFar: pathSoFar.join(' → '),
+        invariantStatus: '（未檢查）', pathSoFar: renderMonkeyPath_(pathSteps, labelById),
         invariantFailures: []
       });
       break;
@@ -639,7 +754,7 @@ function runMonkey_(options) {
         + '　' + buildErrorDetail_(err, { argsSummary: 'action=' + chosenActionId + ' step=' + stepNo }));
     }
 
-    pathSoFar.push(chosen.label);
+    pathSteps.push({ stepNo: stepNo, actionId: chosen.id });
 
     // ⚠️ 每一步跑完檢查一次全部不變量——亂行機的價值全在這裡。
     var invariants = runAllInvariants_({
@@ -657,11 +772,15 @@ function runMonkey_(options) {
       result: stepResult.ok ? MONKEY_STEP_RESULT_.OK : MONKEY_STEP_RESULT_.FAILED,
       threw: threw,
       detail: stepResult.detail,
+      // ⚠️ 不成立時要寫齊 {expected, actual, evidence}，不可以只寫
+      //    「不成立：I04」。只寫編號的話，看 MonkeyLog 的人要自己重跑一次
+      //    才知道差在哪裏——而亂行機那一條路多數重現不到。
+      //    見 docs/已知bug類型.md 事故三十九。
       invariantStatus: invariants.failedCount === 0
         ? ('全部通過（' + invariants.unknownCount + ' 條驗證不到）')
-        : ('不成立：' + invariantFailureIds_(invariants.failed).join('、')),
+        : monkeyInvariantFailureText_(invariants.failed),
       invariantFailures: invariants.failed,
-      pathSoFar: pathSoFar.join(' → ')
+      pathSoFar: renderMonkeyPath_(pathSteps, labelById)
     };
     steps.push(record);
     monkeyWriteLogRow_(runId, seed, record);
@@ -693,7 +812,7 @@ function runMonkey_(options) {
 
   monkeyWriteStateRow_({
     runId: runId, seed: seed, targetSteps: targetSteps, stepsDone: totalStepsDone,
-    rngState: random.state(), status: status, startedAt: startedAt,
+    rngState: random.state(), status: status, startedAt: startedAt, pathSteps: pathSteps,
     notes: monkeyStateNotes_(failedStep, stoppedForTime, stoppedForNoProgress, noProgressLimit)
   });
 
@@ -705,6 +824,8 @@ function runMonkey_(options) {
     stepsDoneBefore: stepsDoneBefore, totalStepsDone: totalStepsDone,
     targetSteps: targetSteps, status: status,
     coverage: monkeyCoverageList_(coverage),
+    pathSteps: pathSteps,
+    pathSoFar: renderMonkeyPath_(pathSteps, labelById),
     resumed: opts.resume === true,
     noProgressLimit: noProgressLimit
   };
@@ -814,6 +935,29 @@ function monkeyStateNotes_(failedStep, stoppedForTime, stoppedForNoProgress, noP
   if (stoppedForNoProgress) return '連續 ' + noProgressLimit + ' 步狀態完全沒有變，防打轉閘停手。';
   if (stoppedForTime) return '執行時間到，乾淨停低。';
   return '';
+}
+
+/**
+ * 用途：把不成立的不變量排成一句**帶齊證據**的話。**純函式。**
+ *
+ *   ⚠️ 每一條都要有 `預期／實際／證據` 三樣。只寫編號的話，日後看
+ *   `MonkeyLog` 的人根本無從入手——亂行機那一條路多數重現不到。
+ * Args:
+ *   failures {Object[]} `runAllInvariants_().failed`。
+ * Returns:
+ *   {string}
+ */
+function monkeyInvariantFailureText_(failures) {
+  var list = failures || [];
+  if (list.length === 0) return '全部通過';
+  var newline = String.fromCharCode(10);
+  return '不成立：' + invariantFailureIds_(list).join('、') + newline
+    + list.map(function (inv) {
+        var invariantId = inv.id;
+        return invariantId + '　預期：' + inv.expected
+          + '　實際：' + inv.actual
+          + '　證據：' + inv.evidence;
+      }).join(newline);
 }
 
 /**

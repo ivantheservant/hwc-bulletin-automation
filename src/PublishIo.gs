@@ -185,7 +185,8 @@ function probeMasterPdfFile_(fileId) {
   }
   var meta = driveGetFileMetadata_(id);
   if (!meta) return { exists: false, fileName: '', serviceUnavailable: false };
-  return { exists: true, fileName: String(meta.title || meta.name || ''), serviceUnavailable: false };
+  // ⚠️ v3 的檔名欄位是 `name`；`title` 只是 v2 的舊名，留住只為保險。
+  return { exists: true, fileName: String(meta.name || meta.title || ''), serviceUnavailable: false };
 }
 
 /**

@@ -403,7 +403,7 @@ function sendContentSheetInvite_(quarterId) {
     });
   });
 
-  writeSheet(SHEETS.SEND_LOG, sendLogRows);
+  writeSendLogRows_(sendLogRows);
   updateContentSheetField_(qid, 'INVITE_SENT_AT', new Date());
 
   return { sent: true, dryRun: dryRun, recipientCount: recipientsResult.recipients.length };

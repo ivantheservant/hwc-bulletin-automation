@@ -66,7 +66,6 @@ var PUBLISH_PLACEHOLDER_FINGERPRINT_KEY_ = 'PUBLISH_PLACEHOLDER_FINGERPRINT';
  * **驗證用嘅中介狀態**，唔係發佈紀錄本身嘅一部分；而且 `PublishLog`
  * 係人手唯讀嘅正式紀錄，唔應該為咗自測機而改佢嘅結構。
  */
-var PUBLISH_LAST_OUTPUT_KEY_ = 'PUBLISH_LAST_OUTPUT';
 
 /** 攞指令碼鎖最多等幾多毫秒。 */
 var PUBLISH_LOCK_WAIT_MS_ = 20000;
@@ -832,60 +831,12 @@ function recordPublishStamp_(isoDate, versionNo, nowMs) {
 }
 
 /**
- * 用途：記低「最後一次成功發佈嘅係邊一期、第幾版、內容指紋」，供不變量
- *   I06 比對。寫唔入去回 `false`，**唔拋錯**——已經發佈成功嘅嘢唔可以
- *   因為記唔到一個驗證用嘅中介狀態而變成失敗。
- * Args:
- *   isoDate {string} 主日日期。
- *   versionNo {number} 版本號。
- *   fingerprint {string} `pdfFingerprint_()` 嘅輸出；算唔到就傳空字串。
- * Returns:
- *   {boolean}
- */
-function recordPublishOutputFingerprint_(isoDate, versionNo, fingerprint, masterFileId) {
-  var fileId = String(masterFileId || '').trim();
-  var payload = JSON.stringify({
-    isoDate: String(isoDate || ''),
-    versionNo: Number(versionNo),
-    fingerprint: String(fingerprint || ''),
-    masterFileId: fileId
-  });
-
-  // ⚠️ **一個 master 檔案一份指紋**。舊版只有一個共用的鍵，於是自測機
-  //    發佈完沙盒 master 之後，正式那一份指紋即刻被蓋走——I06 之後拿沙盒
-  //    的指紋去對正式檔案的內容，必然對不上，而且再也復原不到。
-  //    見 docs/已知bug類型.md 事故三十一。
-  var ok = true;
-  if (fileId) {
-    ok = writePublishScriptProperty_(publishOutputFingerprintKey_(fileId), payload);
-  }
-
-  // 舊鍵繼續寫，但**只在正式發佈時寫**——它是「最後一次正式發佈」的意思，
-  // 沙盒發佈不可以碰它。
-  if (!isSelfTestMasterFileId_(fileId)) {
-    ok = writePublishScriptProperty_(PUBLISH_LAST_OUTPUT_KEY_, payload) && ok;
-  }
-  return ok;
-}
-
-/**
- * 用途：某一個 master 檔案的指紋記錄，存在哪一個 Script Property 鍵。
- * Args:
- *   masterFileId {string}
- * Returns:
- *   {string}
- */
-function publishOutputFingerprintKey_(masterFileId) {
-  return PUBLISH_LAST_OUTPUT_KEY_ + '::' + String(masterFileId || '').trim();
-}
-
-/**
  * 用途：判斷一個 master 檔案 ID 是不是**自測機專用**那一個。
  *
  *   ⚠️ 刻意由「它等於 `SELFTEST_MASTER_PDF_FILE_ID`」推出來，不是靠呼叫方
  *   自己傳一個旗標下來。旗標會有人忘記傳，而忘記傳的後果是自測發佈被記成
- *   正式發佈——那正是這一輪要修的東西。自測機開跑前已經斷言兩個 ID 不可以
- *   相同（見 `assertSelfTestSandbox_()`），所以這個推論沒有歧義。
+ *   正式發佈。自測機開跑前已經斷言兩個 ID 不可以相同（見
+ *   `assertSelfTestSandbox_()`），所以這個推論沒有歧義。
  * Args:
  *   masterFileId {string}
  * Returns:
@@ -897,65 +848,6 @@ function isSelfTestMasterFileId_(masterFileId) {
   var selfTestId = String(getConfig(CONFIG_KEYS.SELFTEST_MASTER_PDF_FILE_ID, '') || '').trim();
   if (!selfTestId) return false;
   return fileId === selfTestId;
-}
-
-/**
- * 用途：讀返 `recordPublishOutputFingerprint_()` 存低嗰個記錄。
- * Args: （無）
- * Returns:
- *   {?{isoDate:string, versionNo:number, fingerprint:string}}
- *     從來未發佈過、或者讀唔到／解析唔到，一律回 `null`。
- */
-function readPublishOutputFingerprint_(masterFileId) {
-  var fileId = String(masterFileId || '').trim();
-
-  if (fileId) {
-    var scoped = parsePublishOutputFingerprint_(
-      readPublishScriptProperty_(publishOutputFingerprintKey_(fileId)));
-    if (scoped) return scoped;
-
-    // ⚠️ 舊鍵**只可以在它自己講得出屬於哪一個檔案時**採用。
-    //
-    //    第二輪這裡寫成「沒有 masterFileId 的舊記錄一律當成正式那一邊」，
-    //    理由是「加入這兩個鍵之前全部發佈都是正式發佈」。**那個理由是錯的**：
-    //    第一輪的自測機已經會發佈沙盒 master，而那時只有一個共用的鍵——
-    //    所以舊記錄有可能是沙盒那一次寫的。當成正式那一邊的話，I06 會拿
-    //    一份沙盒的版本號去對正式那一行，報出「1 條通道對不上（正式）」。
-    //    那正是第三輪報告的症狀，已經逐字重現過。見事故三十三。
-    //
-    //    認不出屬於哪一個檔案的舊記錄，寧可回 null（I06 報「驗證不到」，
-    //    並講明下一次發佈就會自己好返），也不可以報一個假的「不一致」。
-    var legacy = parsePublishOutputFingerprint_(readPublishScriptProperty_(PUBLISH_LAST_OUTPUT_KEY_));
-    if (!legacy) return null;
-    if (!legacy.masterFileId) return null;
-    if (legacy.masterFileId !== fileId) return null;
-    return legacy;
-  }
-
-  return parsePublishOutputFingerprint_(readPublishScriptProperty_(PUBLISH_LAST_OUTPUT_KEY_));
-}
-
-/**
- * 用途：把 Script Property 存住嗰段 JSON 解析成指紋記錄。**純函式。**
- * Args:
- *   raw {?string}
- * Returns:
- *   {?{isoDate:string, versionNo:number, fingerprint:string, masterFileId:string}}
- */
-function parsePublishOutputFingerprint_(raw) {
-  if (!raw) return null;
-  try {
-    var parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed.isoDate !== 'string') return null;
-    return {
-      isoDate: parsed.isoDate,
-      versionNo: Number(parsed.versionNo || 0),
-      fingerprint: String(parsed.fingerprint || ''),
-      masterFileId: String(parsed.masterFileId || '')
-    };
-  } catch (err) {
-    return null;
-  }
 }
 
 /**
@@ -1106,11 +998,11 @@ function executePublish_(isoDate, blob, options) {
   // 令成次發佈失敗——master 已經換咗，防重複只係一個方便，唔係正確性。
   recordPublishStamp_(isoDate, versionNo, new Date().getTime());
 
-  // 同一時間記低「發佈咗嘅係邊一份內容」，供不變量 I06 比對。
-  // 指紋算唔到（`Utilities.computeDigest` 唔得）就存空字串——I06 見到
-  // 空字串會報「驗證不到」，唔會報「唔一致」，兩者唔可以混為一談。
-  recordPublishOutputFingerprint_(isoDate, versionNo,
-    publishedFingerprint, config.masterFileId);
+  // ⚠️ 發佈指紋**只記在 `PublishLog` 那一行上**（上面的 CONTENT_BYTES／
+  //    CONTENT_MD5）。舊版另外存一份在 Script Property，那是錯的做法：
+  //    Script Property 會被清、會遺失，而且是全 script 共用的一個袋，
+  //    不可以做真相來源。實測結果是它「沒有記錄」，而 I06 把「取不到」
+  //    當成「對不上」。見 docs/已知bug類型.md 事故三十六。
 
   return {
     ok: true,
@@ -1217,7 +1109,7 @@ function sendPublishNotice_(isoDate, options) {
     });
   });
 
-  writeSheet(SHEETS.SEND_LOG, sendLogRows);
+  writeSendLogRows_(sendLogRows);
 
   return {
     ok: true,

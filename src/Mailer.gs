@@ -170,7 +170,7 @@ function sendBulletinForDate_(isoDate, options) {
     });
   });
 
-  writeSheet(SHEETS.SEND_LOG, sendLogRows);
+  writeSendLogRows_(sendLogRows);
 
   if (!dryRun && failedCount === 0) {
     markBulletinAsSent_(isoDate);
@@ -244,6 +244,54 @@ function markBulletinAsSent_(isoDate) {
     return true;
   }
   return false;
+}
+
+/**
+ * 用途：把一批 `SendLog` 行寫入，並替它們**全部**蓋上同一個批次編號。
+ *   全部寄送流程一律經這一支，不可以直接 `writeSheet(SHEETS.SEND_LOG, …)`。
+ *
+ *   ⚠️ 為什麼要有批次編號（docs/已知bug類型.md 事故三十九）：
+ *   不變量 I04 要驗「寄出前預覽的人數 === 實際寄出的封數」，所以它要
+ *   圈得出「最近**一次**寄出寫了哪幾行」。舊版靠**時間視窗**（90 秒）
+ *   去圈，而連續兩次寄出（亂行機幾秒就一步、幹事連按兩次）會被併成
+ *   一批——行數變成兩倍，I04 報一個假的落差。
+ *
+ *   ⚠️ 時間視窗是一個**猜**。同一次寫入共用一個編號才是事實。
+ * Args:
+ *   rows {Object[]} 已經砌好的 `SendLog` 行（不含 `BATCH_ID`）。
+ * Returns:
+ *   {string} 這一批的編號。沒有行要寫時回空字串。
+ */
+function writeSendLogRows_(rows) {
+  var list = rows || [];
+  if (list.length === 0) return '';
+
+  var batchId = newSendBatchId_();
+  list.forEach(function (row) { row.BATCH_ID = sanitizeCellText_(batchId); });
+  writeSheet(SHEETS.SEND_LOG, list);
+  return batchId;
+}
+
+/**
+ * 用途：造一個這一次寄出獨有的批次編號。
+ *
+ *   ⚠️ 時間戳記**加一個隨機尾碼**：只用時間戳記的話，同一秒內連續兩次
+ *   寄出會撞編號——那正是這個欄位要解決的問題。
+ * Args: （無）
+ * Returns:
+ *   {string}
+ */
+function newSendBatchId_() {
+  var timezone = getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland');
+  var stamp;
+  try {
+    stamp = Utilities.formatDate(new Date(), timezone, 'yyyyMMddHHmmss');
+  } catch (err) {
+    stamp = String(new Date().getTime());
+  }
+  var suffix = String(new Date().getTime() % 100000);
+  while (suffix.length < 5) suffix = '0' + suffix;
+  return 'SB' + stamp + '-' + suffix;
 }
 
 /**
