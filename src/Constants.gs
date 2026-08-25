@@ -83,7 +83,8 @@ var SHEETS = Object.freeze({
   NUMBER_REGISTRY: 'NumberRegistry',
   SELF_TEST_STATE: 'SelfTestState',
   SELF_TEST_REPORT: 'SelfTestReport',
-  MONKEY_LOG: 'MonkeyLog'
+  MONKEY_LOG: 'MonkeyLog',
+  MONKEY_STATE: 'MonkeyState'
 });
 
 /**
@@ -455,6 +456,21 @@ var COLUMNS = Object.freeze({
     headers: ['執行編號', '亂數種子', '第幾步', '可選動作', '揀了甚麼', '結果', '不變量狀態', '走到這裏的完整步驟', '時間'],
     keys: ['RUN_ID', 'SEED', 'STEP_NO', 'AVAILABLE_ACTIONS', 'CHOSEN_ACTION', 'RESULT', 'INVARIANT_STATUS', 'PATH_SO_FAR', 'TIMESTAMP'],
     types: ['TEXT', 'TEXT', 'INT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'DATE']
+  },
+
+  // ⚠️ 亂行機的續跑狀態。沒有這一張表，〔繼續亂行〕只會開新一輪：
+  //    新的 RUN_ID、新的種子、STEP_NO 由 1 數起，目標步數永遠跑不滿。
+  //    見 docs/已知bug類型.md 事故三十四。
+  //
+  // ⚠️ `RNG_STATE` 是**續跑的關鍵**：亂數產生器走到哪一步的內部狀態。
+  //    只存種子不夠——由種子重新開始，等於重播頭 N 步，不是接住走。
+  MONKEY_STATE: {
+    headers: ['執行編號', '亂數種子', '目標步數', '已走步數', '亂數狀態', '狀態', '開始時間', '更新時間', '備註'],
+    keys: ['RUN_ID', 'SEED', 'TARGET_STEPS', 'STEPS_DONE', 'RNG_STATE', 'STATUS', 'STARTED_AT', 'UPDATED_AT', 'NOTES'],
+    types: ['TEXT', 'TEXT', 'INT', 'INT', 'TEXT', 'TEXT', 'DATE', 'DATE', 'TEXT'],
+    // 種子與亂數狀態是 32 位元整數，會超出試算表的顯示精度而被改寫成
+    // 科學記數法——一律當文字存，見 docs/已知bug類型.md 事故二十八。
+    textFormatColumns: ['SEED', 'RNG_STATE']
   }
 
 });
@@ -583,7 +599,8 @@ var CONFIG_KEYS = Object.freeze({
   SELFTEST_QUARTER_ID: 'SELFTEST_QUARTER_ID',
   SELFTEST_ROSTER_QUARTER_ID: 'SELFTEST_ROSTER_QUARTER_ID',
   SELFTEST_MASTER_PDF_FILE_ID: 'SELFTEST_MASTER_PDF_FILE_ID',
-  SELFTEST_TIME_BUDGET_SEC: 'SELFTEST_TIME_BUDGET_SEC'
+  SELFTEST_TIME_BUDGET_SEC: 'SELFTEST_TIME_BUDGET_SEC',
+  MONKEY_NO_PROGRESS_LIMIT: 'MONKEY_NO_PROGRESS_LIMIT'
 });
 
 // =====================================================================
@@ -717,7 +734,8 @@ var DEFAULTS = Object.freeze([
   { key: CONFIG_KEYS.SELFTEST_QUARTER_ID, value: '2028T4', note: '⚠️ 自測機的沙盒季度：自測機**只准寫這一季**。刻意選一個職事表沒有資料的季度，順便測「職事表無資料」那條路。改成一個有真實資料的季度＝自測機會寫壞真資料' },
   { key: CONFIG_KEYS.SELFTEST_ROSTER_QUARTER_ID, value: '2027T4', note: '自測機需要真實職事表資料時讀哪一季。**只讀不寫**' },
   { key: CONFIG_KEYS.SELFTEST_MASTER_PDF_FILE_ID, value: '', note: '自測機專用的沙盒 master 發佈檔案 ID（自測機不會碰正式那一個）。留空時自測機會略過發佈相關情境並講明原因' },
-  { key: CONFIG_KEYS.SELFTEST_TIME_BUDGET_SEC, value: '240', note: '自測機／亂行機每一次執行的時間預算（秒）。接近上限就乾淨停低並寫明「跑到哪一步、還有幾多個未跑」，Apps Script 本身的上限是 360 秒' }
+  { key: CONFIG_KEYS.SELFTEST_TIME_BUDGET_SEC, value: '240', note: '自測機／亂行機每一次執行的時間預算（秒）。接近上限就乾淨停低並寫明「跑到哪一步、還有幾多個未跑」，Apps Script 本身的上限是 360 秒' },
+  { key: CONFIG_KEYS.MONKEY_NO_PROGRESS_LIMIT, value: '5', note: '亂行機連續幾多步狀態完全沒有變就當成原地打轉、停手（防打轉閘）' }
 ]);
 
 // =====================================================================

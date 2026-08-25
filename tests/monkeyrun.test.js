@@ -86,6 +86,7 @@ function makeEnv(options) {
   }));
   sheets.BulletinWeeks = ownSheet('BULLETIN_WEEKS', o.weekRows || []);
   sheets.MonkeyLog = ownSheet('MONKEY_LOG', o.monkeyLog || []);
+  sheets.MonkeyState = ownSheet('MONKEY_STATE', o.monkeyState || []);
 
   const sandbox = loadAllSrcFilesInOrder(Object.assign({}, baseStubs(), {
     SpreadsheetApp: {
@@ -297,9 +298,644 @@ function fakeSummary(overrides) {
       }
     ],
     failedStep: null,
-    stoppedForTime: false
+    stoppedForTime: false,
+    // 第三輪新增：累計進度、覆蓋統計、防打轉閘。
+    stoppedForNoProgress: false,
+    stepsDoneBefore: 0,
+    totalStepsDone: 2,
+    targetSteps: 50,
+    status: 'PAUSED',
+    resumed: false,
+    noProgressLimit: 5,
+    coverage: [
+      { id: 'CREATE_WEEKS', label: '建立本季空白週報', chosen: 1, notApplicableReasons: [] },
+      { id: 'IMPORT_CONTENT', label: '從內容表匯入', chosen: 1, notApplicableReasons: [] },
+      { id: 'EDIT_FIELDS', label: '經填寫介面改幾格', chosen: 0, notApplicableReasons: [] },
+      { id: 'PUBLISH', label: '發佈（沙盒 master 檔案）', chosen: 0,
+        notApplicableReasons: ['Config 的 SELFTEST_MASTER_PDF_FILE_ID 是空的'] }
+    ]
   }, overrides || {});
 }
+
+
+// =====================================================================
+// 第三輪：亂數產生器、續跑、覆蓋統計、防打轉閘
+// =====================================================================
+
+// ⚠️ 這一條守的是實測出來的缺陷（docs/已知bug類型.md 事故三十五）：
+//    舊版是模 2^32 的線性同餘 ＋ `state % bound`，而模 2 的冪的 LCG
+//    **低位元週期極短**，`% bound` 取的正是低位元。實測 nextInt(8) 是一個
+//    固定的八循環 1,4,3,6,5,0,7,2 不停重覆。
+//
+//    ⚠️ 用「分佈」去驗是驗不出來的——數 100000 次每個都是 12500。
+//    要驗的是**序列**。
+test('亂數：nextInt(2) 不可以是嚴格交替（舊版 LCG 的低位元週期）', function () {
+  const env = makeEnv({});
+  const r = env.sandbox.monkeyRandom_(922896898);
+  const seq = [];
+  for (let i = 0; i < 20; i++) seq.push(r.nextInt(2));
+
+  let alternating = true;
+  for (let i = 1; i < seq.length; i++) {
+    if (seq[i] === seq[i - 1]) { alternating = false; break; }
+  }
+  assert.strictEqual(alternating, false,
+    'nextInt(2) 嚴格交替代表低位元只有週期 2：' + seq.join(','));
+});
+
+test('亂數：nextInt(8) 不可以有週期 8 的循環', function () {
+  const env = makeEnv({});
+  const r = env.sandbox.monkeyRandom_(922896898);
+  const seq = [];
+  for (let i = 0; i < 24; i++) seq.push(r.nextInt(8));
+
+  const first = seq.slice(0, 8).join(',');
+  const second = seq.slice(8, 16).join(',');
+  const third = seq.slice(16, 24).join(',');
+  assert.ok(!(first === second && second === third),
+    '頭三段完全相同代表週期 8 的固定循環：' + seq.join(','));
+});
+
+// ⚠️ 種子取自時間戳記，連續幾次執行的種子只差幾百。舊版之下這幾個種子
+//    只是同一個循環的旋轉——三次「不同」的執行其實走同一條路。
+test('亂數：相近的種子不可以只是同一個序列的旋轉', function () {
+  const env = makeEnv({});
+  function draw(seed) {
+    const r = env.sandbox.monkeyRandom_(seed);
+    const out = [];
+    for (let i = 0; i < 16; i++) out.push(r.nextInt(8));
+    return out;
+  }
+  const a = draw(922896898).join(',');
+  const b = draw(923417060).join(',');
+  // 旋轉檢查：b 是不是 a 的某一個旋轉（用 a+a 包含 b 判斷）。
+  const doubled = draw(922896898).concat(draw(922896898)).join(',');
+  assert.ok(doubled.indexOf(b) === -1, 'b 是 a 的旋轉：\n  a=' + a + '\n  b=' + b);
+});
+
+test('亂數：8 個候選、25 步，零次被揀中的動作應該很少（舊版是 3 個）', function () {
+  const env = makeEnv({});
+  let totalZero = 0;
+  const runs = 200;
+  for (let k = 0; k < runs; k++) {
+    const r = env.sandbox.monkeyRandom_(1000000 + k * 137);
+    const counts = new Array(8).fill(0);
+    for (let i = 0; i < 25; i++) {
+      counts[r.nextInt(8)]++;
+      r.nextInt(5); // 模擬動作內部也會抽亂數
+    }
+    totalZero += counts.filter(function (c) { return c === 0; }).length;
+  }
+  const avg = totalZero / runs;
+  assert.ok(avg < 1.5, '平均每次執行有 ' + avg.toFixed(2) + ' 個動作零次，太多');
+});
+
+// ⚠️ 這一條是 prompt 的自我檢驗：同一個種子由頭跑滿 20 步，與分三批續跑
+//    到 20 步，**揀中的動作序列必須完全相同**。做不到的話，〔繼續亂行〕
+//    就不是續跑。
+test('續跑等價：一次過 20 步 vs 分三批續跑，序列完全相同', function () {
+  const env = makeEnv({});
+
+  const once = env.sandbox.monkeyRandom_(20281001);
+  const seqOnce = [];
+  for (let i = 0; i < 20; i++) seqOnce.push(once.nextInt(8));
+
+  const seqBatched = [];
+  let saved = null;
+  [7, 6, 7].forEach(function (n) {
+    const r = env.sandbox.monkeyRandom_(20281001, saved);
+    for (let i = 0; i < n; i++) seqBatched.push(r.nextInt(8));
+    saved = r.state();
+  });
+
+  deepEq(seqBatched, seqOnce, '分批續跑走的路必須與一次過跑完全相同');
+});
+
+test('亂數：state() 拿得到內部狀態，而且與種子不同（否則續不到）', function () {
+  const env = makeEnv({});
+  const r = env.sandbox.monkeyRandom_(12345);
+  const before = r.state();
+  r.nextInt(8);
+  assert.notStrictEqual(r.state(), before, '抽過一次之後內部狀態要變');
+  assert.strictEqual(r.seed, 12345, '種子本身不變');
+});
+
+// =====================================================================
+// 續跑狀態
+// =====================================================================
+
+function monkeyStateRow(overrides) {
+  return Object.assign({
+    RUN_ID: 'MK20281001000000', SEED: '987654321', TARGET_STEPS: 20, STEPS_DONE: 7,
+    RNG_STATE: '123456789', STATUS: 'PAUSED',
+    STARTED_AT: '2028-10-01', UPDATED_AT: '2028-10-01', NOTES: ''
+  }, overrides || {});
+}
+
+test('沒有任何續跑紀錄 → monkeyLatestPausedState_ 回 null', function () {
+  const env = makeEnv({});
+  assert.strictEqual(env.sandbox.monkeyLatestPausedState_(), null);
+});
+
+test('最後一行是 DONE → 回 null（不可以往上找更舊的 PAUSED）', function () {
+  // ⚠️ 更舊那一輪的沙盒狀態早就被後來那一輪改過，接住走沒有意義。
+  const env = makeEnv({
+    monkeyState: [
+      monkeyStateRow({ RUN_ID: 'MK_OLD', STATUS: 'PAUSED' }),
+      monkeyStateRow({ RUN_ID: 'MK_NEW', STATUS: 'DONE', STEPS_DONE: 20 })
+    ]
+  });
+  assert.strictEqual(env.sandbox.monkeyLatestPausedState_(), null);
+});
+
+test('最後一行是 PAUSED → 讀得出 RUN_ID、種子、亂數狀態、進度', function () {
+  const env = makeEnv({ monkeyState: [monkeyStateRow()] });
+  const pending = env.sandbox.monkeyLatestPausedState_();
+  assert.ok(pending);
+  assert.strictEqual(pending.runId, 'MK20281001000000');
+  assert.strictEqual(pending.seed, 987654321);
+  assert.strictEqual(pending.rngState, 123456789);
+  assert.strictEqual(pending.stepsDone, 7);
+  assert.strictEqual(pending.targetSteps, 20);
+});
+
+// ⚠️ 這一條就是這一輪的主症狀：撳〔繼續亂行〕開了新的 RUN_ID 與新種子，
+//    STEP_NO 由 1 數起，目標步數永遠跑不滿——而且完全沒有提示。
+test('沒有 PAUSED 紀錄時 resume → 明確拒絕，不會靜靜開新一輪', function () {
+  const env = makeEnv({});
+  const summary = env.sandbox.runMonkey_({ resume: true });
+
+  assert.strictEqual(summary.ok, false);
+  assert.strictEqual(summary.runId, '', '不可以開新的 RUN_ID');
+  assert.strictEqual(summary.seed, 0, '不可以開新種子');
+  deepEq(summary.steps, []);
+  assert.ok(summary.message.indexOf('沒有未完成的執行') !== -1, summary.message);
+  assert.ok(summary.message.indexOf('跑亂行機') !== -1, '要指路去〔跑亂行機〕：' + summary.message);
+});
+
+test('上一輪已經走滿目標步數 → resume 明確拒絕', function () {
+  const env = makeEnv({
+    monkeyState: [monkeyStateRow({ STATUS: 'PAUSED', STEPS_DONE: 20, TARGET_STEPS: 20 })]
+  });
+  const summary = env.sandbox.runMonkey_({ resume: true });
+  assert.strictEqual(summary.ok, false);
+  assert.ok(summary.message.indexOf('已經走滿') !== -1, summary.message);
+});
+
+// =====================================================================
+// 續跑：由真正入口 runMonkey_() 叫下去
+// =====================================================================
+
+/**
+ * 造一個「動作永遠合法、每一步都改變狀態」的環境，令 runMonkey_() 走得完
+ * 指定步數，可以驗續跑本身。動作揀邊一個由亂數決定，所以序列可以對數。
+ */
+function makeResumableEnv(extra) {
+  const env = makeEnv(Object.assign({
+    config: { MONKEY_NO_PROGRESS_LIMIT: '99' },
+    weekRows: [{ SERVICE_DATE: '2028-10-01', QUARTER_ID: '2028T4', WEEK_OF_MONTH: 1, STATUS: 'DRAFT' }]
+  }, extra || {}));
+
+  // 不變量不是這一組要驗的東西（見防打轉閘那兩條的說明）。
+  env.sandbox.runAllInvariants_ = function () {
+    return { results: [], okCount: 0, failedCount: 0, unknownCount: 0, allOk: true, failed: [] };
+  };
+
+  // 八個動作，全部永遠合法、每一步都寫一筆 AuditLog（令狀態指紋每步不同）。
+  env.sandbox.monkeyActions_ = function () {
+    const ids = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+    return ids.map(function (id) {
+      return {
+        id: id, label: '動作' + id,
+        available: function () { return true; },
+        unavailableReason: function () { return '（永遠合法）'; },
+        run: function (ctx) {
+          env.sandbox.appendAuditLog_({
+            action: 'MONKEY_TEST', sheetName: 'x', rowKey: String(ctx.stepNo),
+            field: 'f', oldValue: '', newValue: id, notes: ''
+          });
+          return env.sandbox.monkeyStepResult_(true, '走了 ' + id);
+        }
+      };
+    });
+  };
+  return env;
+}
+
+function chosenSequence(summary) {
+  return summary.steps.map(function (step) { return step.chosenId; });
+}
+
+// ⚠️ 這一條是 prompt 的自我檢驗，而且是由**真正入口** runMonkey_() 叫下去，
+//    不是只驗亂數產生器：同一個種子由頭跑滿 12 步，與分三批續跑到 12 步，
+//    揀中的動作序列必須完全相同。
+//
+//    ⚠️ 分批那一邊要真的**經 MonkeyState 續跑**（runMonkey_({resume:true})），
+//    不可以只叫三次新一輪——那樣測試會恆真，等於沒有驗。
+test('續跑等價（真正入口）：一次過 12 步 vs 分三批續跑，動作序列完全相同', function () {
+  const baseline = chosenSequence(makeResumableEnv().sandbox.runMonkey_({ steps: 12, seed: 20281001 }));
+  assert.strictEqual(baseline.length, 12, '基準要真的走滿 12 步');
+
+  const env = makeResumableEnv();
+  const collected = [];
+  let done = 0;
+
+  [4, 4, 4].forEach(function (batchSize, index) {
+    if (index === 0) {
+      // 第一批：開新一輪，但只走 4 步（目標仍然是 12）。
+      const first = env.sandbox.runMonkey_({ steps: batchSize, seed: 20281001 });
+      collected.push.apply(collected, chosenSequence(first));
+      done = batchSize;
+      // 把目標改成 12、狀態改成 PAUSED，模擬「時間到，走了 4 步就停低」。
+      env.sandbox.monkeyWriteStateRow_({
+        runId: first.runId, seed: 20281001, targetSteps: 12, stepsDone: done,
+        rngState: env2RngState(env, 20281001, done), status: 'PAUSED',
+        startedAt: new Date(), notes: ''
+      });
+      return;
+    }
+
+    const pending = env.sandbox.monkeyLatestPausedState_();
+    assert.ok(pending, '第 ' + (index + 1) + ' 批之前應該有 PAUSED 紀錄');
+    const batch = env.sandbox.runMonkey_({ resume: true });
+    assert.strictEqual(batch.ok, true, batch.message);
+    assert.strictEqual(batch.stepsDoneBefore, done, 'STEP_NO 要接住上一批');
+
+    collected.push.apply(collected, chosenSequence(batch).slice(0, batchSize));
+    done += batchSize;
+
+    if (done < 12) {
+      env.sandbox.monkeyWriteStateRow_({
+        runId: batch.runId, seed: 20281001, targetSteps: 12, stepsDone: done,
+        rngState: env2RngState(env, 20281001, done), status: 'PAUSED',
+        startedAt: new Date(), notes: ''
+      });
+    }
+  });
+
+  deepEq(collected, baseline, '分三批續跑走的路必須與一次過跑完全相同');
+});
+
+// ⚠️ 上面那一條如果測試本身寫錯（例如三批都叫新一輪），會恆真。這一條
+//    專門守住「續跑真的接得上」：把 RNG_STATE 寫錯，序列就一定接不上。
+test('續跑：RNG_STATE 錯了 → 序列接不上（證明上一條測得到分別）', function () {
+  const baseline = chosenSequence(makeResumableEnv().sandbox.runMonkey_({ steps: 8, seed: 424242 }));
+
+  const env = makeResumableEnv({
+    monkeyState: [{
+      RUN_ID: 'MK_WRONG_STATE', SEED: '424242', TARGET_STEPS: 8, STEPS_DONE: 4,
+      // 由頭開始的狀態，而不是抽了 4 次之後的狀態——即是舊版那種「只存種子」。
+      RNG_STATE: String(424242), STATUS: 'PAUSED',
+      STARTED_AT: '2028-10-01', UPDATED_AT: '2028-10-01', NOTES: ''
+    }]
+  });
+  const resumed = chosenSequence(env.sandbox.runMonkey_({ resume: true }));
+
+  assert.notStrictEqual(JSON.stringify(resumed), JSON.stringify(baseline.slice(4)),
+    '只存種子而不存亂數狀態，續跑會由頭重播——這一條要抓得到那個分別');
+});
+
+test('續跑：沿用同一個 RUN_ID 與種子，STEP_NO 接上去', function () {
+  const env = makeResumableEnv();
+  const first = env.sandbox.runMonkey_({ steps: 6, seed: 555 });
+
+  // 人手把狀態改成「只走了 2 步」，模擬中途停低。
+  const stateRows = env.sandbox.readSheet(env.sandbox.SHEETS.MONKEY_STATE);
+  assert.ok(stateRows.length >= 1, '跑完要寫一行 MonkeyState');
+
+  const env2 = makeResumableEnv({
+    monkeyState: [{
+      RUN_ID: 'MK_RESUME_TEST', SEED: '555', TARGET_STEPS: 6, STEPS_DONE: 2,
+      RNG_STATE: String(env2RngState(env, 555, 2)), STATUS: 'PAUSED',
+      STARTED_AT: '2028-10-01', UPDATED_AT: '2028-10-01', NOTES: ''
+    }]
+  });
+  const resumed = env2.sandbox.runMonkey_({ resume: true });
+
+  assert.strictEqual(resumed.runId, 'MK_RESUME_TEST', '要沿用同一個執行編號');
+  assert.strictEqual(resumed.seed, 555, '要沿用同一個種子');
+  assert.strictEqual(resumed.stepsDoneBefore, 2);
+  assert.strictEqual(resumed.steps[0].stepNo, 3, 'STEP_NO 要由 3 接上去，不是由 1 數起');
+  assert.strictEqual(resumed.totalStepsDone, 6);
+  assert.strictEqual(resumed.status, 'DONE');
+  assert.strictEqual(resumed.resumed, true);
+
+  // 續跑那一段的動作序列，要與一次過跑的第 3 至 6 步相同。
+  deepEq(chosenSequence(resumed), chosenSequence(first).slice(2));
+});
+
+/** 算出「用某個種子抽了 n 次之後」的亂數內部狀態。 */
+function env2RngState(env, seed, draws) {
+  const r = env.sandbox.monkeyRandom_(seed);
+  for (let i = 0; i < draws; i++) r.nextInt(8);
+  return r.state();
+}
+
+test('跑滿目標步數 → MonkeyState 記 DONE，之後撳續跑會被拒絕', function () {
+  const env = makeResumableEnv();
+  const summary = env.sandbox.runMonkey_({ steps: 5, seed: 321 });
+  assert.strictEqual(summary.status, 'DONE');
+
+  const rows = env.sandbox.readSheet(env.sandbox.SHEETS.MONKEY_STATE);
+  assert.strictEqual(String(rows[rows.length - 1].STATUS), 'DONE');
+
+  const again = env.sandbox.runMonkey_({ resume: true });
+  assert.strictEqual(again.ok, false);
+  assert.ok(again.message.indexOf('沒有未完成的執行') !== -1, again.message);
+});
+
+test('MonkeyState：每一批新增一行，不刪行', function () {
+  const env = makeResumableEnv();
+  env.sandbox.runMonkey_({ steps: 3, seed: 111 });
+  const after1 = env.sandbox.readSheet(env.sandbox.SHEETS.MONKEY_STATE).length;
+  env.sandbox.runMonkey_({ steps: 3, seed: 222 });
+  const after2 = env.sandbox.readSheet(env.sandbox.SHEETS.MONKEY_STATE).length;
+  assert.strictEqual(after2, after1 + 1, '每一批新增一行');
+});
+
+// ⚠️ 種子與亂數狀態是 32 位元整數，當成數字存會被試算表改寫成科學記數法，
+//    續跑就還原不到正確的狀態。
+test('MonkeyState：SEED 與 RNG_STATE 登記為純文字欄', function () {
+  const env = makeEnv({});
+  const def = env.sandbox.COLUMNS.MONKEY_STATE;
+  assert.ok(def.textFormatColumns.indexOf('SEED') !== -1);
+  assert.ok(def.textFormatColumns.indexOf('RNG_STATE') !== -1);
+});
+
+// =====================================================================
+// 摘要：累計進度
+// =====================================================================
+
+test('摘要顯示累計步數，不是本批步數', function () {
+  const env = makeEnv({});
+  const text = env.sandbox.buildMonkeyShortSummary_(fakeSummary({
+    stepsDoneBefore: 9, totalStepsDone: 14, targetSteps: 20,
+    steps: [{ stepNo: 10, availableIds: ['EDIT_FIELDS'], chosenId: 'EDIT_FIELDS',
+      chosenLabel: '改幾格', result: 'OK', detail: 'x', invariantStatus: 'ok',
+      invariantFailures: [], pathSoFar: 'x' }]
+  }));
+  assert.ok(text.indexOf('走了 14／20 步') !== -1, text);
+  assert.ok(text.indexOf('（本批 1 步）') !== -1, '要同時講本批走了幾多步：' + text);
+});
+
+test('摘要顯示 RUN_ID 與種子', function () {
+  const env = makeEnv({});
+  const text = env.sandbox.buildMonkeyShortSummary_(fakeSummary());
+  assert.ok(text.indexOf('MK20281001000000') !== -1, text);
+  assert.ok(text.indexOf('987654321') !== -1, text);
+});
+
+test('跑滿目標步數 → 摘要寫「已完成 20／20 步」', function () {
+  const env = makeEnv({});
+  const text = env.sandbox.buildMonkeyShortSummary_(fakeSummary({
+    totalStepsDone: 20, targetSteps: 20, status: 'DONE'
+  }));
+  assert.ok(text.indexOf('已完成 20／20 步') !== -1, text);
+});
+
+// =====================================================================
+// 覆蓋統計
+// =====================================================================
+
+test('覆蓋統計：列出每個動作被揀中幾多次', function () {
+  const env = makeEnv({});
+  const line = env.sandbox.monkeyCoverageHeadline_(fakeSummary().coverage);
+  assert.ok(line.indexOf('CREATE_WEEKS 1') !== -1, line);
+  assert.ok(line.indexOf('IMPORT_CONTENT 1') !== -1, line);
+});
+
+// ⚠️ 零次被揀中一定要**明確標出**。不標的話，一個從來沒有跑過的動作
+//    看起來與「跑過而且沒事」一模一樣。
+test('覆蓋統計：零次而且有資格的，標成「從未揀中」', function () {
+  const env = makeEnv({});
+  const lines = env.sandbox.monkeyCoverageProblemLines_(fakeSummary().coverage).join('\n');
+  assert.ok(lines.indexOf('從未揀中') !== -1, lines);
+  assert.ok(lines.indexOf('EDIT_FIELDS') !== -1, lines);
+});
+
+// ⚠️ 「從未揀中」與「不適用」是兩件事：前者有資格但抽不中（可能是亂數有
+//    問題），後者根本沒有資格。分開講，而且不適用的要寫原因。
+test('覆蓋統計：零次而且不適用的，另外標並寫明原因', function () {
+  const env = makeEnv({});
+  const lines = env.sandbox.monkeyCoverageProblemLines_(fakeSummary().coverage).join('\n');
+  assert.ok(lines.indexOf('不適用（未進入候選）：PUBLISH') !== -1, lines);
+  assert.ok(lines.indexOf('SELFTEST_MASTER_PDF_FILE_ID') !== -1, '要寫明原因：' + lines);
+  // PUBLISH 不可以同時出現在「從未揀中」那一行。
+  const neverLine = lines.split('\n').filter(function (l) { return l.indexOf('從未揀中') !== -1; })[0] || '';
+  assert.ok(neverLine.indexOf('PUBLISH') === -1, 'PUBLISH 是不適用，不是抽不中：' + neverLine);
+});
+
+test('覆蓋統計：全部動作都揀過 → 明講「每一個動作都至少被揀中過一次」', function () {
+  const env = makeEnv({});
+  const lines = env.sandbox.monkeyCoverageProblemLines_([
+    { id: 'A', label: 'a', chosen: 3, notApplicableReasons: [] },
+    { id: 'B', label: 'b', chosen: 1, notApplicableReasons: [] }
+  ]).join('\n');
+  assert.ok(lines.indexOf('每一個動作都至少被揀中過一次') !== -1, lines);
+});
+
+test('報告與摘要都有覆蓋統計那一段', function () {
+  const env = makeEnv({});
+  const report = env.sandbox.buildMonkeyReportLines_(fakeSummary()).join('\n');
+  const short = env.sandbox.buildMonkeyShortSummary_(fakeSummary());
+  assert.ok(report.indexOf('動作覆蓋：') !== -1, report);
+  assert.ok(short.indexOf('動作覆蓋：') !== -1, short);
+});
+
+// =====================================================================
+// 候選清單與不適用原因
+// =====================================================================
+
+// ⚠️ prompt 第 2 部分假設 A 提過：要查清楚「可選動作」欄是不是照抄全部
+//    動作清單。查完的結論是——它記錄的**確實是實際候選**（filter 之後),
+//    不是全部動作。這一條把那個結論固定落來。
+test('可選動作記錄的是**實際候選**，不是全部動作清單', function () {
+  const env = makeEnv({});
+  const actions = env.sandbox.monkeyActions_();
+  const split = env.sandbox.monkeySplitActions_(actions, {
+    weekCount: 0, announcementCount: 0, hasContentFolder: false,
+    hasContentSheet: false, hasSandboxMaster: false, canRenderDocx: false,
+    hasRecipients: false
+  });
+  assert.ok(split.available.length < actions.length,
+    '這個狀態之下只有 CREATE_WEEKS 合法，候選不可以等於全部動作');
+  deepEq(split.available.map(function (a) { return a.id; }), ['CREATE_WEEKS']);
+  assert.strictEqual(split.unavailable.length, actions.length - 1);
+});
+
+test('每一個動作都有 unavailableReason（不可以靜靜由候選剔走）', function () {
+  const env = makeEnv({});
+  const bad = [];
+  env.sandbox.monkeyActions_().forEach(function (action) {
+    const actionId = action.id;
+    if (typeof action.unavailableReason !== 'function') bad.push(actionId);
+  });
+  assert.strictEqual(bad.length, 0, '這幾個動作講不出為甚麼不合法：' + bad.join('、'));
+});
+
+test('每一個不合法的動作都講得出原因，而且不是空字串', function () {
+  const env = makeEnv({});
+  const split = env.sandbox.monkeySplitActions_(env.sandbox.monkeyActions_(), {
+    weekCount: 0, announcementCount: 0, hasContentFolder: false,
+    hasContentSheet: false, hasSandboxMaster: false, canRenderDocx: false,
+    hasRecipients: false
+  });
+  split.unavailable.forEach(function (item) {
+    const actionId = item.id;
+    assert.ok(item.reason && item.reason.length > 0, actionId + ' 沒有原因');
+    assert.ok(item.reason.indexOf('沒有講明原因') === -1, actionId + ' 的原因是佔位字串');
+  });
+});
+
+// ⚠️ PUBLISH 是整個系統副作用最大的動作，它零次被揀中一定要有人見到理由。
+test('沙盒 master 未設定 → PUBLISH 的原因講明是哪一個設定鍵，並講明不會碰正式那一個', function () {
+  const env = makeEnv({});
+  const publish = env.sandbox.monkeyActions_().filter(function (a) { return a.id === 'PUBLISH'; })[0];
+  const reason = publish.unavailableReason({ weekCount: 5, hasSandboxMaster: false });
+  assert.ok(reason.indexOf('SELFTEST_MASTER_PDF_FILE_ID') !== -1, reason);
+  assert.ok(reason.indexOf('PUBLISHED_PDF_FILE_ID') !== -1, '要講明不會碰正式那一個：' + reason);
+});
+
+// ⚠️ 亂行機的 PUBLISH 一律經 selfTestRunPublish_（它會把發佈指去沙盒
+//    master，跑完還原），絕對不可以直接用 runPublishFlow_。
+test('PUBLISH 一定經 selfTestRunPublish_，不會直接叫 runPublishFlow_', function () {
+  const src = require('fs').readFileSync(
+    require('path').join(__dirname, '..', 'src', 'MonkeyRun.gs'), 'utf8');
+  assert.ok(src.indexOf('selfTestRunPublish_') !== -1, '要經沙盒發佈包裝');
+  assert.ok(src.indexOf('runPublishFlow_(') === -1,
+    '亂行機不可以直接叫 runPublishFlow_——那會覆寫正式 master 檔案');
+  assert.ok(src.indexOf('PUBLISHED_PDF_FILE_ID') !== -1
+    && src.indexOf('setConfig') === -1,
+    '亂行機自己不可以改 Config（改指沙盒那一步在 selfTestRunPublish_ 裡面做）');
+});
+
+// ⚠️ 每次 PUBLISH 要用內容不同的 PDF，否則第二次之後全部被
+//    UPLOAD_IS_CURRENT_MASTER 擋住，看起來像「跑過了」其實沒有驗到發佈。
+test('PUBLISH 每次用內容不同的 PDF（帶 RUN_ID 與步數，而且是 ASCII）', function () {
+  const src = require('fs').readFileSync(
+    require('path').join(__dirname, '..', 'src', 'MonkeyRun.gs'), 'utf8');
+  const body = src.slice(src.indexOf("id: 'PUBLISH'"), src.indexOf("id: 'SEND_DRY_RUN'"));
+  assert.ok(body.indexOf('ctx.runId') !== -1 && body.indexOf('ctx.stepNo') !== -1,
+    'PDF 內容要帶 RUN_ID 與步數：' + body);
+  // selfTestMakePdfBlob_ 會把非 ASCII 換成 ?，所以文字一定要是 ASCII。
+  const call = body.slice(body.indexOf("selfTestMakePdfBlob_('"));
+  const text = call.slice(call.indexOf("('") + 2, call.indexOf("'", call.indexOf("('") + 2));
+  assert.ok(/^[ -~]*$/.test(text), 'PDF 內文要用 ASCII，否則兩份會變成同一份：' + text);
+});
+
+// =====================================================================
+// 防打轉閘
+// =====================================================================
+
+// ⚠️ 這個閘從來沒有響過，即是從來沒有驗證過它是否真的會響。
+test('防打轉閘：連續 N 步狀態完全沒有變 → 停手並報「偵測到原地打轉」', function () {
+  const env = makeEnv({
+    config: { MONKEY_NO_PROGRESS_LIMIT: '3' },
+    weekRows: [{ SERVICE_DATE: '2028-10-01', QUARTER_ID: '2028T4', WEEK_OF_MONTH: 1, STATUS: 'DRAFT' }]
+  });
+
+
+  // ⚠️ 這一組測試驗的是**閘**，不是不變量。這個骨架環境沒有職事表，
+  //    I03 一定紅，於是第一步就會停手，閘永遠沒有機會響——那樣就變成
+  //    「測試造不出應該綠的情況」。所以這裡把不變量檢查換成永遠通過。
+  env.sandbox.runAllInvariants_ = function () {
+    return { results: [], okCount: 0, failedCount: 0, unknownCount: 0, allOk: true, failed: [] };
+  };
+
+  // 人為造一個「每一步都不改變狀態」的動作：唯讀、永遠合法。
+  env.sandbox.monkeyActions_ = function () {
+    return [{
+      id: 'NOOP', label: '甚麼都不做',
+      available: function () { return true; },
+      unavailableReason: function () { return '（永遠合法）'; },
+      run: function () { return env.sandbox.monkeyStepResult_(true, '甚麼都沒有改'); }
+    }];
+  };
+
+  const summary = env.sandbox.runMonkey_({ steps: 20 });
+  assert.strictEqual(summary.ok, true, summary.message);
+  assert.strictEqual(summary.stoppedForNoProgress, true,
+    '走了 ' + summary.steps.length + ' 步都沒有響閘');
+  assert.ok(summary.steps.length <= 5, '應該在頭幾步就停手，實際走了 ' + summary.steps.length + ' 步');
+
+  const report = env.sandbox.buildMonkeyReportLines_(summary).join('\n');
+  assert.ok(report.indexOf('偵測到原地打轉') !== -1, report);
+});
+
+test('防打轉閘：狀態每一步都有變 → 不會響', function () {
+  const env = makeEnv({
+    config: { MONKEY_NO_PROGRESS_LIMIT: '3' },
+    weekRows: [{ SERVICE_DATE: '2028-10-01', QUARTER_ID: '2028T4', WEEK_OF_MONTH: 1, STATUS: 'DRAFT' }]
+  });
+
+
+  // ⚠️ 這一組測試驗的是**閘**，不是不變量。這個骨架環境沒有職事表，
+  //    I03 一定紅，於是第一步就會停手，閘永遠沒有機會響——那樣就變成
+  //    「測試造不出應該綠的情況」。所以這裡把不變量檢查換成永遠通過。
+  env.sandbox.runAllInvariants_ = function () {
+    return { results: [], okCount: 0, failedCount: 0, unknownCount: 0, allOk: true, failed: [] };
+  };
+
+  // 每一步都寫一筆 AuditLog，於是狀態指紋每一步都不同。
+  env.sandbox.monkeyActions_ = function () {
+    return [{
+      id: 'TOUCH', label: '寫一筆紀錄',
+      available: function () { return true; },
+      unavailableReason: function () { return '（永遠合法）'; },
+      run: function (ctx) {
+        env.sandbox.appendAuditLog_({
+          action: 'MONKEY_TEST', sheetName: 'x', rowKey: String(ctx.stepNo),
+          field: 'f', oldValue: '', newValue: String(ctx.stepNo), notes: ''
+        });
+        return env.sandbox.monkeyStepResult_(true, '寫咗一筆');
+      }
+    }];
+  };
+
+  const summary = env.sandbox.runMonkey_({ steps: 6 });
+  assert.strictEqual(summary.stoppedForNoProgress, false,
+    '狀態每一步都有變，不應該報原地打轉');
+  assert.strictEqual(summary.steps.length, 6);
+});
+
+// ⚠️ 動作拋錯要記入紀錄並繼續，不可以靜靜重揀一個——靜靜重揀的話那個
+//    動作會永遠零次被揀中，而錯誤完全消失。
+test('動作拋錯 → 記入紀錄並繼續，覆蓋統計照樣算它被揀中過', function () {
+  const env = makeEnv({
+    config: { MONKEY_NO_PROGRESS_LIMIT: '99' },
+    weekRows: [{ SERVICE_DATE: '2028-10-01', QUARTER_ID: '2028T4', WEEK_OF_MONTH: 1, STATUS: 'DRAFT' }]
+  });
+
+
+  // ⚠️ 這一組測試驗的是**閘**，不是不變量。這個骨架環境沒有職事表，
+  //    I03 一定紅，於是第一步就會停手，閘永遠沒有機會響——那樣就變成
+  //    「測試造不出應該綠的情況」。所以這裡把不變量檢查換成永遠通過。
+  env.sandbox.runAllInvariants_ = function () {
+    return { results: [], okCount: 0, failedCount: 0, unknownCount: 0, allOk: true, failed: [] };
+  };
+
+  env.sandbox.monkeyActions_ = function () {
+    return [{
+      id: 'ALWAYS_THROWS', label: '一定拋錯',
+      available: function () { return true; },
+      unavailableReason: function () { return '（永遠合法）'; },
+      run: function () { throw new Error('故意拋的錯'); }
+    }];
+  };
+
+  const summary = env.sandbox.runMonkey_({ steps: 3 });
+  assert.ok(summary.steps.length >= 1, '拋錯之後要繼續走');
+  assert.strictEqual(summary.steps[0].result, 'FAILED');
+  assert.strictEqual(summary.steps[0].chosenId, 'ALWAYS_THROWS');
+  assert.ok(summary.steps[0].detail.indexOf('故意拋的錯') !== -1, summary.steps[0].detail);
+
+  const publish = summary.coverage.filter(function (c) { return c.id === 'ALWAYS_THROWS'; })[0];
+  assert.ok(publish.chosen >= 1, '拋錯照樣算被揀中過，不可以扮無揀過');
+
+  const logged = env.sandbox.readSheet(env.sandbox.SHEETS.MONKEY_LOG);
+  assert.ok(logged.length >= 1, '拋錯那一步要寫入 MonkeyLog');
+  assert.ok(String(logged[0].RESULT).indexOf('故意拋的錯') !== -1, String(logged[0].RESULT));
+});
 
 test('報告：亂數種子印在開頭（沒有它就重現不到）', function () {
   const env = makeEnv({});
@@ -307,8 +943,11 @@ test('報告：亂數種子印在開頭（沒有它就重現不到）', function
 
   assert.ok(lines.slice(0, 3).join('\n').indexOf('987654321') !== -1,
     '種子必須印在報告開頭：' + lines.slice(0, 3).join(' | '));
-  assert.ok(lines.slice(0, 3).join('\n').indexOf('同一個種子重跑') !== -1,
-    '要講明種子的用途');
+  // ⚠️ 措辭改了：由「同一個種子重跑」改成「用同一個種子**由乾淨狀態**重跑」。
+  //    舊措辭會令人以為〔繼續亂行〕＝重播那一條路，而沙盒的狀態已經被上
+  //    一批改過，重播不到。見 docs/已知bug類型.md 事故三十四。
+  assert.ok(lines.slice(0, 3).join('\n').indexOf('由乾淨狀態重跑') !== -1,
+    '要講明種子的用途，而且要講明前提是乾淨狀態');
 });
 
 test('報告：紅了的話，「走到這裏的完整步驟」一定要印出來', function () {
