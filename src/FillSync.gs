@@ -493,7 +493,13 @@ function buildFillSyncReportLines_(plan) {
 // =====================================================================
 
 /**
- * 用途：季度填寫表的 installable `onEdit` 觸發器處理函式。
+ * 用途：本試算表的 installable `onEdit` 觸發器處理函式。目前處理兩件事：
+ *   季度填寫表的即時寫回，以及 **`Config` 人手改動的稽核**。
+ *
+ *   ⚠️ 函式名沿用 `onFillGridEdit_`（`FILL_EDIT_TRIGGER_HANDLER_`）——
+ *   已經安裝好的觸發器是**按名字**綁定的，改名等於令現有觸發器指向一支
+ *   不存在的函式，而且 onEdit 出錯是靜默的，不會有人發現。名字舊了不好看，
+ *   但比「靜靜地停止運作」好。
  *
  *   ⚠️ **onEdit 拋錯是靜默的**——Apps Script 不會彈任何東西給使用者看，
  *   出事只會表現成「改了沒反應」。所以整個函式包一層 try/catch 並寫
@@ -511,8 +517,15 @@ function onFillGridEdit_(e) {
     if (!e || !e.range) return;
 
     var sheet = e.range.getSheet();
+
+    // 1. Config 的人手改動：只記帳，不阻止。
+    if (sheet.getName() === SHEETS.CONFIG) {
+      auditManualConfigEdit_(sheet, e);
+      return;
+    }
+
+    // 2. 季度填寫表的即時寫回，其餘直接 return。
     var quarterId = quarterIdFromFillGridSheetName_(sheet.getName());
-    // 1. 只處理季度填寫表的編輯，其餘直接 return。
     if (!quarterId) return;
 
     applyFillGridEdit_(sheet, e.range, quarterId);
@@ -532,6 +545,65 @@ function onFillGridEdit_(e) {
   }
 }
 
+/**
+ * 用途：把 `Config` 的**人手**改動記進 `AuditLog`。
+ *
+ *   ⚠️ 為什麼要特別做這一支（docs/已知bug類型.md 事故四十三）：
+ *   `setConfig()` 會寫稽核，但**在試算表介面直接打字改一格是不經過它的**。
+ *   於是全系統最敏感的一張表，人手改動反而完全沒有紀錄——`Config` 一格
+ *   被改就足以令正式輸出指向錯的地方，而外表完全看不出分別。
+ *
+ *   ⚠️ 只記帳，**不阻止**。Config 本來就是給人改的；要攔的是「改錯了沒有
+ *   人知道」，不是「不准改」。
+ *
+ *   ⚠️ 一次貼上多格也要逐格記。只記第一格的話，批次貼上就等於沒有記。
+ * Args:
+ *   sheet {Sheet} `Config` 工作表。
+ *   e {Object} Apps Script 的編輯事件物件。`e.oldValue` 只有在**單一格**
+ *     編輯時才有；多格編輯時 Apps Script 不提供舊值，那時記「（多格編輯，
+ *     舊值不詳）」——寫一個猜出來的舊值，比留白更差。
+ * Returns:
+ *   {void}
+ */
+function auditManualConfigEdit_(sheet, e) {
+  var range = e.range;
+  var firstRow = range.getRow();
+  var firstCol = range.getColumn();
+  var numRows = range.getNumRows();
+  var numCols = range.getNumColumns();
+
+  var singleCell = numRows === 1 && numCols === 1;
+
+  for (var r = 0; r < numRows; r++) {
+    var rowNo = firstRow + r;
+    // 標題兩行不是設定值，改動與設定無關。
+    if (rowNo < CONFIG_MANUAL_EDIT_FIRST_DATA_ROW_) continue;
+
+    var key = String(sheet.getRange(rowNo, CONFIG_MANUAL_EDIT_KEY_COL_).getValue() || '').trim();
+
+    for (var c = 0; c < numCols; c++) {
+      var colNo = firstCol + c;
+      // 只理「設定鍵」與「值」兩欄；說明與可否修改改了不影響系統行為。
+      if (colNo !== CONFIG_MANUAL_EDIT_KEY_COL_ && colNo !== CONFIG_MANUAL_EDIT_VALUE_COL_) continue;
+
+      var newValue = sheet.getRange(rowNo, colNo).getValue();
+      var oldValue = (singleCell && e.oldValue !== undefined && e.oldValue !== null)
+        ? String(e.oldValue)
+        : '（多格編輯，舊值不詳）';
+
+      appendAuditLog_({
+        action: 'CONFIG_MANUAL_EDIT',
+        sheetName: SHEETS.CONFIG,
+        rowKey: key || ('（第 ' + rowNo + ' 行，設定鍵是空的）'),
+        field: colNo === CONFIG_MANUAL_EDIT_KEY_COL_ ? 'KEY' : 'VALUE',
+        oldValue: oldValue,
+        newValue: String(newValue === null || newValue === undefined ? '' : newValue),
+        notes: '來源：在試算表介面人手編輯（第 ' + rowNo + ' 行第 ' + colNo + ' 欄）。'
+          + '⚠️ Config 一格被改就足以令正式輸出指向錯的地方，所以逐格記帳。'
+      });
+    }
+  }
+}
 /**
  * 用途：算出格子表某一行「真正」的主日日期。當這次編輯的範圍覆蓋到
  *   `_DATE` 欄本身時，不可以相信目前讀到的儲存格內容——那有可能是使用者

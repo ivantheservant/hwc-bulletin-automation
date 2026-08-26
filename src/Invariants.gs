@@ -1404,6 +1404,80 @@ function invariantWeekFieldLabel_(key) {
   return idx === -1 ? key : COLUMNS.BULLETIN_WEEKS.headers[idx];
 }
 
+// =====================================================================
+// I12：正式 master 檔案 ID 不等於沙盒那一個
+// =====================================================================
+
+/**
+ * 用途：I12——Config 的 `PUBLISHED_PDF_FILE_ID` 不可以等於
+ *   `SELFTEST_MASTER_PDF_FILE_ID`。
+ *
+ *   ⚠️ 兩者相同的話，自測機／亂行機每一次發佈都會直接覆寫**教會網站那條
+ *   固定連結指向的 PDF**，而且完全沒有錯誤訊息：發佈成功、`PublishLog`
+ *   綠色、版本 +1。這一種「靜靜地做了一件不是使用者要的事」是最難查的
+ *   一種，所以要有一條不變量拿實際設定值反查。
+ *
+ *   ⚠️ 判斷邏輯與「完成度自我檢測」共用同一支
+ *   `checkMasterFileIdsDistinct_()`——兩處各寫一份的話，遲早會分岔，
+ *   而分岔的方向多數是「其中一邊變成永遠報綠」。
+ * Args: （無）
+ * Returns:
+ *   {Object} `invariantResult_()` 的輸出。沙盒那一個未設定時回 `null`
+ *     （驗證不到），**不是** `true`。
+ */
+function runInvariantI12_() {
+  var label = 'I12　Config 的正式 master 檔案 ID，不等於沙盒那一個';
+  return runInvariantSafely_('I12', label, function () {
+    var check = checkMasterFileIdsDistinct_();
+
+    if (check.ok === null) {
+      return invariantResult_('I12', label, null, '兩個 ID 不同', '比不到', check.message);
+    }
+    if (check.ok === false) {
+      return invariantResult_('I12', label, false, '兩個 ID 不同', '**同一個檔案**', check.message);
+    }
+    return invariantResult_('I12', label, true, '兩個 ID 不同', '兩個 ID 不同', check.message);
+  });
+}
+
+// =====================================================================
+// I13：Config 的 master 檔案 ID 對得上 PublishLog 最新一行正式紀錄
+// =====================================================================
+
+/**
+ * 用途：I13——Config 的 `PUBLISHED_PDF_FILE_ID`，等於 `PublishLog`
+ *   **最新一行非自測紀錄**的 `MASTER_FILE_ID`。
+ *
+ *   ⚠️ 這一條的價值在於：**系統本來就有足夠資料自己發現「Config 那一格被
+ *   換走了」，只是從來沒有人比對過。** `PublishLog` 記住每一次真實發佈當時
+ *   用的是哪一個檔案；Config 現值與它對不上，就代表兩者之間有人動過手腳
+ *   （或者程式寫錯了）。2026-08-27 那一次正正就是這樣——資料一直都在，
+ *   只是沒有一條規則去讀它。
+ *
+ *   ⚠️ 從未正式發佈過 → `null`（不適用），不是失敗。
+ * Args: （無）
+ * Returns:
+ *   {Object} `invariantResult_()` 的輸出。
+ */
+function runInvariantI13_() {
+  var label = 'I13　Config 的 master 檔案 ID，對得上 PublishLog 最新一行正式發佈紀錄';
+  return runInvariantSafely_('I13', label, function () {
+    var check = checkPublishedMasterMatchesLog_();
+
+    if (check.ok === null) {
+      return invariantResult_('I13', label, null, '兩者指向同一個檔案', '不適用', check.message);
+    }
+    if (check.ok === false) {
+      return invariantResult_('I13', label, false, '兩者指向同一個檔案',
+        'Config 是 ' + maskFileId_(check.configValue)
+          + '、PublishLog 是 ' + maskFileId_(check.loggedValue),
+        check.message);
+    }
+    return invariantResult_('I13', label, true, '兩者指向同一個檔案',
+      '兩者指向同一個檔案', check.message);
+  });
+}
+
 /**
  * 用途：全部檢查的登記表——**每一條都明確標明有沒有副作用**。
  *
@@ -1503,6 +1577,18 @@ function invariantDefinitions_(ctx, opts) {
       environmentNote: '「事奉資料不可以來自別一季」在任何環境都必須成立。'
         + '對哪一季由 ctx 決定；ctx 沒有季度時掃全表。',
       run: function () { return runInvariantI11_(ctx); }
+    },
+    {
+      id: 'I12', sideEffect: false, environment: E.ANY,
+      environmentNote: '「正式 master 不可以等於沙盒 master」在任何環境都必須成立——'
+        + '正是自測機會覆寫正式檔案那條路，沙盒尤其要成立。',
+      run: function () { return runInvariantI12_(); }
+    },
+    {
+      id: 'I13', sideEffect: false, environment: E.ANY,
+      environmentNote: '只看 PublishLog **非自測**那些行，所以兩個環境用同一條規則；'
+        + '從未正式發佈過就報「不適用」，不是失敗。',
+      run: function () { return runInvariantI13_(); }
     }
   ];
 }

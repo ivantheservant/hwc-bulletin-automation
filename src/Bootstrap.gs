@@ -41,7 +41,7 @@ function initializeAllSheets() {
   var configKeysAdded = seedConfigDefaults_();
   // ⚠️ 一定要排在 seedConfigDefaults_() 之後：那一支只會補**沒有的**鍵，
   //    已經存在的一律不動，所以舊值要在這裏另外處理。
-  var selfTestQuarterUpgrade = upgradeSelfTestQuarterDefault_();
+  var configUpgrades = upgradeSystemSeededDefaults_();
   var seedRowsAdded = {
     POST_DISPLAY: seedPostDisplay_(),
     MERGE_GROUPS: seedMergeGroups_(),
@@ -58,7 +58,7 @@ function initializeAllSheets() {
     deprecatedConfigWarnings: deprecatedCleanup.warnings,
     publishLogBackfill: publishLogBackfill,
     publishLogMd5Backfill: publishLogMd5Backfill,
-    selfTestQuarterUpgrade: selfTestQuarterUpgrade,
+    configUpgrades: configUpgrades,
     seedRowsAdded: seedRowsAdded
   };
 
@@ -72,51 +72,81 @@ function initializeAllSheets() {
 }
 
 /**
- * 用途：把**系統自己種下的**舊沙盒季度預設值更新為現時的預設值。
+ * 用途：把**系統自己種下的**過時預設值更新為現時的預設值。
  *
- *   ⚠️ 為什麼可以改一個使用者看得見的設定（一般是絕對不可以的）：
- *   `SELFTEST_QUARTER_ID` 的舊值 `2030T2`／`2028T4` 是**系統自己種**下去的
- *   預設值，不是使用者揀的。而那兩個值都不合用：
- *     - `2030T2` 不含夏令時間**提示日**（提示登在轉換日的前一個主日，
- *       4 月那一次的提示日在 3 月底，屬 T1），S22–S24 會永遠報「不適用」；
- *     - `2028T4` 職事表其實有資料（職事表最遠到 2028T4），違反沙盒季度
- *       「職事表沒有這一季」那個條件。
+ *   ⚠️ **這一支是唯一一個會在初始化時改寫既有 Config 值的地方，所以它的
+ *   邊界要寫得死死的**（docs/已知bug類型.md 事故四十三）：
  *
- *   ⚠️ **只更新值仍然等於舊預設值那一種情況。** 使用者自己改成任何其他
- *   值（包括刻意改回 2030T2）都一律不動——那是使用者的決定。
+ *     1. **只准動白名單上的鍵**（`CONFIG_UPGRADABLE_DEFAULTS_`）。白名單以外
+ *        的鍵，不論值是什麼，一格都不會碰。
+ *     2. 白名單上的鍵，也**只有在現值仍然等於某一個「系統種過的舊預設值」**
+ *        時才動。使用者自己揀的值一律不動——就算他刻意改回其中一個舊值也
+ *        不動不了，因為分不出「使用者刻意選了它」與「系統當年種下它」。
+ *        這個取捨是刻意的：寧可少更新一次，也不可以蓋走使用者的決定。
+ *     3. 現值是**空白**的話一樣不動：空白代表使用者刻意清走，或者
+ *        `seedConfigDefaults_()` 未跑過，兩種都不是「過時的舊預設值」。
+ *     4. 每一次更新都寫 `AuditLog`，而且初始化完成的對話框會**逐條列出**
+ *        「更新了哪個鍵、由什麼變成什麼」。
+ *
+ *   ⚠️ 為什麼要這麼小心：`Config` 一格被改就足以令正式輸出指向錯的地方，
+ *   而外表完全看不出分別。`PUBLISHED_PDF_FILE_ID` 被換成沙盒檔案那一次，
+ *   教會網站那條連結差一點就被沙盒 PDF 洗掉——所以「初始化會自動更新
+ *   設定值」這種機制，範圍必須小到可以一眼數得完。
  * Args: （無）
  * Returns:
- *   {{upgraded:boolean, from:string, to:string, note:string}}
+ *   {{upgrades:{key:string, from:string, to:string}[], skipped:Object[],
+ *     lines:string[]}}
+ *     `lines` 是給對話框／報告用的逐條說明；沒有任何更新時是空陣列。
  */
-function upgradeSelfTestQuarterDefault_() {
-  var current = String(getConfig(CONFIG_KEYS.SELFTEST_QUARTER_ID, '') || '').trim();
-  var target = defaultConfigValueFor_(CONFIG_KEYS.SELFTEST_QUARTER_ID);
-  var supersededValues = SELFTEST_QUARTER_SUPERSEDED_VALUES_;
+function upgradeSystemSeededDefaults_() {
+  var upgrades = [];
+  var skipped = [];
 
-  if (!target || current === target) {
-    return { upgraded: false, from: current, to: target, note: '' };
-  }
-  if (supersededValues.indexOf(current) === -1) {
-    return {
-      upgraded: false, from: current, to: target,
-      note: 'Config 的 ' + CONFIG_KEYS.SELFTEST_QUARTER_ID + ' 目前是「' + current
-        + '」，不是系統種下的舊預設值，所以沒有動它。'
-    };
-  }
+  CONFIG_UPGRADABLE_DEFAULTS_.forEach(function (rule) {
+    var key = rule.key;
+    var target = defaultConfigValueFor_(key);
+    var current = String(getConfig(key, '') || '').trim();
 
-  setConfig(CONFIG_KEYS.SELFTEST_QUARTER_ID, target);
-  appendAuditLog_({
-    action: 'CONFIG_UPGRADE_DEFAULT', sheetName: SHEETS.CONFIG,
-    rowKey: CONFIG_KEYS.SELFTEST_QUARTER_ID, field: CONFIG_KEYS.SELFTEST_QUARTER_ID,
-    oldValue: current, newValue: target,
-    notes: '系統自己種下的沙盒季度預設值已過時（舊值不合用），自動更新。'
-      + '使用者自己改過的值不會被動。'
+    if (!target) {
+      skipped.push({ key: key, current: current, reason: 'DEFAULTS 沒有這一個鍵的預設值。' });
+      return;
+    }
+    if (current === target) return;                       // 已經是新值，不用做什麼
+    if (!current) {
+      skipped.push({
+        key: key, current: current,
+        reason: '現值是空白——空白代表刻意清走或者未種過，不是「過時的舊預設值」，所以不動。'
+      });
+      return;
+    }
+    if (rule.supersededValues.indexOf(current) === -1) {
+      skipped.push({
+        key: key, current: current,
+        reason: '現值「' + current + '」不是系統種下的舊預設值（很可能是你自己改的），所以不動。'
+      });
+      return;
+    }
+
+    setConfig(key, target, '初始化工作表：更新系統種下的過時預設值');
+    appendAuditLog_({
+      action: 'CONFIG_UPGRADE_DEFAULT', sheetName: SHEETS.CONFIG,
+      rowKey: key, field: 'VALUE', oldValue: current, newValue: target,
+      notes: '系統自己種下的預設值已過時（' + rule.reason + '），自動更新。'
+        + '⚠️ 只動白名單上的鍵，而且只在現值仍然等於舊預設值時才動；'
+        + '使用者自己改過的值一律不會被碰。'
+    });
+    upgrades.push({ key: key, from: current, to: target });
   });
+
   return {
-    upgraded: true, from: current, to: target,
-    note: '沙盒季度已由系統種下的舊預設值「' + current + '」更新為「' + target + '」。'
+    upgrades: upgrades,
+    skipped: skipped,
+    lines: upgrades.map(function (u) {
+      return '　' + u.key + '：「' + u.from + '」→「' + u.to + '」';
+    })
   };
 }
+
 
 /**
  * 用途：由 `DEFAULTS` 取一個設定鍵的預設值。**純函式。**

@@ -131,18 +131,30 @@ function parseConfigTextList_(raw) {
 /**
  * 用途：寫入或更新 Config 工作表的其中一個設定值，同步清除快取並寫一筆
  *   稽核記錄。key 不存在時會新增一行（EDITABLE 預設 TRUE）。
+ *
+ *   ⚠️ **稽核記錄在寫值之前先寫**（事故四十三）。舊版是先 `setValue()`
+ *   再 `appendAuditLog_()`：兩者之間執行被硬中斷（六分鐘上限、撳停、
+ *   配額用盡）的話，值改了而稽核沒有——**最敏感的一格，改動無跡可尋**。
+ *   反過來（先稽核後寫值）最壞情況是多一筆「打算改但沒有改成」的紀錄，
+ *   那是看得見、查得到的，比無聲無息好得多。
+ *
+ *   ⚠️ `source` 一定要傳。「邊個改的」與「改成什麼」同樣重要——沒有來源
+ *   的稽核記錄，查起上來只知道有人改過，不知道要去哪一支函式查。
  * Args:
  *   key {string} 設定鍵。
  *   value {string} 新值，一律當文字寫入。
+ *   source {string=} 誰寫的（函式名或情境），會記進 `AuditLog` 的備註。
+ *     不傳時記「（未標明來源）」——**那本身就是要修的東西**，不是預設值。
  * Returns:
  *   {void}
  * Raises:
  *   Error 如果 key 是空字串。
  */
-function setConfig(key, value) {
+function setConfig(key, value, source) {
   if (!key) {
     throw new Error('setConfig：key 不可以是空字串。');
   }
+  var writtenBy = String(source || '').trim() || '（未標明來源）';
 
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ensureSheet_(ss, 'CONFIG');
@@ -160,22 +172,28 @@ function setConfig(key, value) {
     }
   }
 
-  if (targetRow === -1) {
-    writeSheet(SHEETS.CONFIG, [{ KEY: key, VALUE: value, NOTE: '', EDITABLE: true }]);
-  } else {
+  if (targetRow !== -1) {
     oldValue = coerceConfigRawValue_(sheet.getRange(targetRow, 2).getValue());
-    sheet.getRange(targetRow, 2).setValue(value);
   }
 
-  clearConfigCache_();
+  // ⚠️ **先寫稽核，再寫值。** 理由見上面的說明。
   appendAuditLog_({
     action: 'SET_CONFIG',
     sheetName: SHEETS.CONFIG,
     rowKey: key,
     field: 'VALUE',
     oldValue: oldValue,
-    newValue: value
+    newValue: value,
+    notes: '來源：' + writtenBy
   });
+
+  if (targetRow === -1) {
+    writeSheet(SHEETS.CONFIG, [{ KEY: key, VALUE: value, NOTE: '', EDITABLE: true }]);
+  } else {
+    sheet.getRange(targetRow, 2).setValue(value);
+  }
+
+  clearConfigCache_();
 }
 
 /**

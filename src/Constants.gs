@@ -793,7 +793,32 @@ var DEFAULTS = Object.freeze([
  * 因為分不出「使用者刻意選了它」與「系統當年種下它」。這個取捨是刻意的：
  * 寧可少更新一次，也不可以蓋走使用者的決定。
  */
-var SELFTEST_QUARTER_SUPERSEDED_VALUES_ = Object.freeze(['2028T4', '2030T2']);
+/**
+ * **初始化工作表唯一准許自動更新的 Config 鍵**（白名單）。
+ *
+ * ⚠️ 白名單以外的鍵，初始化一格都不會改——不論值是什麼。這個白名單要
+ * 短到一眼數得完；每加一個鍵，就等於多開一道「系統會自己改你設定」的門。
+ * 見 docs/已知bug類型.md 事故四十三。
+ *
+ * ⚠️ 只有現值**仍然等於 supersededValues 其中一個**時才會更新。
+ * 使用者自己揀的值一律不動。
+ */
+var CONFIG_UPGRADABLE_DEFAULTS_ = Object.freeze([
+  Object.freeze({
+    key: CONFIG_KEYS.SELFTEST_QUARTER_ID,
+    supersededValues: Object.freeze(['2028T4', '2030T2']),
+    reason: '2028T4 職事表其實有資料、2030T2 不含夏令時間提示日，兩個都不合用'
+  })
+]);
+
+/** `Config` 工作表：資料由第幾行開始（第 1 行中文標題、第 2 行機器鍵）。 */
+var CONFIG_MANUAL_EDIT_FIRST_DATA_ROW_ = 3;
+
+/** `Config` 工作表：「設定鍵」是第幾欄。 */
+var CONFIG_MANUAL_EDIT_KEY_COL_ = 1;
+
+/** `Config` 工作表：「值」是第幾欄。 */
+var CONFIG_MANUAL_EDIT_VALUE_COL_ = 2;
 
 var ROSTER_STATUS = Object.freeze({
   OK: 'OK',

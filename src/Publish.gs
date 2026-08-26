@@ -75,6 +75,47 @@ var PUBLISH_LOCK_WAIT_MS_ = 20000;
 // =====================================================================
 
 /**
+ * 這一次執行之內的 master 檔案覆寫。`null` ＝ 沒有覆寫，照讀 Config。
+ *
+ * ⚠️ **刻意是一個記憶體變數，不是 Config 的一格。** 這是
+ * docs/已知bug類型.md 事故四十三的修法：自測機與亂行機要驗真實的發佈
+ * 流程，又絕對不可以碰正式那個 master 檔案，舊做法是**暫時把沙盒 ID
+ * 寫入 Config 的 `PUBLISHED_PDF_FILE_ID`，跑完再用 `finally` 還原**。
+ *
+ * 那個做法有一個 `finally` 救不到的洞：Apps Script 執行被**硬中斷**時
+ * （六分鐘上限、使用者撳停、配額用盡），`finally` 根本不會執行，於是
+ * 沙盒 ID 就永遠留在正式那一格——而且因為中斷發生在寫入之後，連
+ * `AuditLog` 都沒有一筆。之後每一次真實發佈都會寫進沙盒檔案。
+ *
+ * 改成記憶體變數之後，執行一死覆寫就跟住死，Config 由頭到尾一格未動。
+ */
+var PUBLISH_MASTER_FILE_ID_OVERRIDE_ = null;
+
+/**
+ * 用途：設定「這一次執行之內」的 master 檔案覆寫。
+ *
+ *   ⚠️ 只有自測機與亂行機用。正式路徑一律讀 Config。
+ * Args:
+ *   fileId {?string} 檔案 ID；傳 `null`／空字串即取消覆寫。
+ * Returns:
+ *   {void}
+ */
+function setPublishMasterFileIdOverride_(fileId) {
+  var id = String(fileId === null || fileId === undefined ? '' : fileId).trim();
+  PUBLISH_MASTER_FILE_ID_OVERRIDE_ = id ? id : null;
+}
+
+/**
+ * 用途：目前生效的 master 檔案 ID（覆寫優先，否則讀 Config）。
+ * Args: （無）
+ * Returns:
+ *   {string}
+ */
+function effectivePublishMasterFileId_() {
+  if (PUBLISH_MASTER_FILE_ID_OVERRIDE_) return PUBLISH_MASTER_FILE_ID_OVERRIDE_;
+  return String(getConfig(CONFIG_KEYS.PUBLISHED_PDF_FILE_ID, '') || '').trim();
+}
+/**
  * 用途：一次過讀齊發佈要用嘅全部 Config。集中一處，方便測試，亦避免
  *   逐個函式各自讀（讀漏一個好難查）。
  * Args: （無）
@@ -88,7 +129,9 @@ function publishConfig_() {
   var maxMb = normalizeInt_(getConfig(CONFIG_KEYS.PUBLISH_MAX_PDF_MB, '10'));
   var dedupSec = normalizeInt_(getConfig(CONFIG_KEYS.PUBLISH_DEDUP_SEC, '30'));
   return {
-    masterFileId: String(getConfig(CONFIG_KEYS.PUBLISHED_PDF_FILE_ID, '') || '').trim(),
+    // ⚠️ 經 effectivePublishMasterFileId_()：自測機／亂行機用記憶體覆寫，
+    //    不會碰 Config 那一格。理由見 PUBLISH_MASTER_FILE_ID_OVERRIDE_。
+    masterFileId: effectivePublishMasterFileId_(),
     masterFolderId: String(getConfig(CONFIG_KEYS.PUBLISHED_PDF_FOLDER_ID, '') || '').trim(),
     masterFileName: getConfig(CONFIG_KEYS.PUBLISHED_PDF_NAME, '粵語堂週報（最新一期）.pdf'),
     archiveFolderId: String(getConfig(CONFIG_KEYS.PUBLISHED_ARCHIVE_FOLDER_ID, '') || '').trim(),
@@ -1606,7 +1649,7 @@ function ensureMasterPublishFile_() {
     pdfFingerprint_(placeholderBlob.getBytes())
   );
 
-  setConfig(CONFIG_KEYS.PUBLISHED_PDF_FILE_ID, created.fileId);
+  setConfig(CONFIG_KEYS.PUBLISHED_PDF_FILE_ID, created.fileId, '選單「建立 master 發佈檔案」');
   appendAuditLog_({
     action: 'CREATE_MASTER_PUBLISH_FILE',
     sheetName: SHEETS.CONFIG, rowKey: CONFIG_KEYS.PUBLISHED_PDF_FILE_ID,
@@ -1688,3 +1731,124 @@ function menuCreateMasterPublishFile_() {
     ui.alert('建立 master 發佈檔案失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
 }
+
+// =====================================================================
+// master 檔案 ID 的兩道守門（事故四十三）
+// =====================================================================
+
+/**
+ * 用途：檢查 Config 的 `PUBLISHED_PDF_FILE_ID` 與 `SELFTEST_MASTER_PDF_FILE_ID`
+ *   是不是同一個檔案。**純判斷，不寫任何東西。**
+ *
+ *   ⚠️ 為什麼這一條要紅、不是黃（docs/已知bug類型.md 事故四十三）：
+ *   兩者相同的話，自測機／亂行機每一次「發佈」都會直接覆寫**教會網站那條
+ *   固定連結指向的 PDF**，而且完全沒有錯誤訊息——發佈成功、`PublishLog`
+ *   綠色、版本 +1。會眾下載到的是一份自測用的假週報。這不是「有機會出事」，
+ *   是「正式輸出已經指向錯的地方」。
+ * Args: （無）
+ * Returns:
+ *   {{ok:(boolean|null), published:string, selftest:string, message:string}}
+ *     `ok` 為 `null` 代表沙盒那一個未設定——那是另一件事（自測機會略過發佈
+ *     情境並講明），不是失敗。
+ */
+function checkMasterFileIdsDistinct_() {
+  var published = String(getConfig(CONFIG_KEYS.PUBLISHED_PDF_FILE_ID, '') || '').trim();
+  var selftest = String(getConfig(CONFIG_KEYS.SELFTEST_MASTER_PDF_FILE_ID, '') || '').trim();
+
+  if (!selftest) {
+    return {
+      ok: null, published: published, selftest: selftest,
+      message: 'Config 的 ' + CONFIG_KEYS.SELFTEST_MASTER_PDF_FILE_ID + ' 是空的，'
+        + '所以比不到。⚠️ 「比不到」不等於「沒問題」——自測機會因此略過發佈相關情境。'
+    };
+  }
+  if (published && published === selftest) {
+    return {
+      ok: false, published: published, selftest: selftest,
+      message: '⚠️ ' + CONFIG_KEYS.PUBLISHED_PDF_FILE_ID + ' 與 '
+        + CONFIG_KEYS.SELFTEST_MASTER_PDF_FILE_ID + ' 是**同一個檔案**（'
+        + maskFileId_(published) + '）。'
+        + '這代表自測機／亂行機每一次發佈都會覆寫教會網站那條連結指向的 PDF，'
+        + '而且完全沒有錯誤訊息。'
+        + '正確做法：用選單「建立 master 發佈檔案」另外造一個沙盒專用的檔案，'
+        + '把它的 ID 填入 ' + CONFIG_KEYS.SELFTEST_MASTER_PDF_FILE_ID + '；'
+        + CONFIG_KEYS.PUBLISHED_PDF_FILE_ID + ' 要填回正式那一個。'
+        + '⚠️ 改之前先看 AuditLog 的 SET_CONFIG／CONFIG_MANUAL_EDIT，確認是幾時、'
+        + '由什麼改成這樣的。'
+    };
+  }
+  return {
+    ok: true, published: published, selftest: selftest,
+    message: '兩個 master 檔案 ID 不同（正式 ' + maskFileId_(published)
+      + '、沙盒 ' + maskFileId_(selftest) + '）。'
+  };
+}
+
+/**
+ * 用途：檢查 Config 的 `PUBLISHED_PDF_FILE_ID`，對不對得上 `PublishLog`
+ *   **最新一行非自測紀錄**的 `MASTER_FILE_ID`。**純判斷，不寫任何東西。**
+ *
+ *   ⚠️ 這一條是整組守門最有用的一條：**系統本來就有足夠資料自己發現
+ *   「Config 那一格被人換走了」，只是從來沒有人比對過。** `PublishLog` 記住
+ *   每一次真實發佈當時用的是哪一個檔案；Config 現值與它對不上，就代表
+ *   兩者之間有人動過手腳（或者程式寫錯了）。
+ *
+ *   ⚠️ 只看**非自測**那些行。自測的行本來就指向沙盒檔案，混進去比就一定
+ *   對不上，那是假警報。
+ * Args: （無）
+ * Returns:
+ *   {{ok:(boolean|null), configValue:string, loggedValue:string,
+ *     isoDate:string, message:string}}
+ *     `ok` 為 `null` 代表從未正式發佈過，或者 Config 未設定——兩者都是
+ *     「驗證不到」，不是失敗。
+ */
+function checkPublishedMasterMatchesLog_() {
+  var configValue = String(getConfig(CONFIG_KEYS.PUBLISHED_PDF_FILE_ID, '') || '').trim();
+  var rows = readSheet(SHEETS.PUBLISH_LOG).filter(function (r) { return r.IS_SELFTEST !== true; });
+  var latest = latestPublishLogRow_(rows);
+
+  if (!latest) {
+    return {
+      ok: null, configValue: configValue, loggedValue: '', isoDate: '',
+      message: 'PublishLog 一行正式發佈紀錄都沒有，沒有東西可以對。'
+        + '⚠️ 「驗證不到」不等於「沒問題」——第一次正式發佈之後這一條才驗得到。'
+    };
+  }
+
+  var loggedValue = String(latest.MASTER_FILE_ID || '').trim();
+  var isoDate = publishRowIsoDate_(latest);
+
+  if (!configValue) {
+    return {
+      ok: null, configValue: configValue, loggedValue: loggedValue, isoDate: isoDate,
+      message: 'Config 的 ' + CONFIG_KEYS.PUBLISHED_PDF_FILE_ID + ' 是空的，'
+        + '但 PublishLog 最新一行（' + isoDate + '）記住用過 ' + maskFileId_(loggedValue) + '。'
+        + '⚠️ 請確認 master 檔案是不是被清走了。'
+    };
+  }
+  if (!loggedValue) {
+    return {
+      ok: null, configValue: configValue, loggedValue: loggedValue, isoDate: isoDate,
+      message: 'PublishLog 最新一行（' + isoDate + '）沒有記 MASTER_FILE_ID（多數是舊資料），'
+        + '所以比不到。⚠️ 「比不到」不等於「沒問題」。'
+    };
+  }
+  if (configValue !== loggedValue) {
+    return {
+      ok: false, configValue: configValue, loggedValue: loggedValue, isoDate: isoDate,
+      message: '⚠️ Config 的 ' + CONFIG_KEYS.PUBLISHED_PDF_FILE_ID + ' 是 '
+        + maskFileId_(configValue) + '，但 PublishLog 最新一行正式發佈（' + isoDate
+        + '）用的是 ' + maskFileId_(loggedValue) + '——**兩者對不上**。'
+        + '這代表 Config 那一格在上一次正式發佈之後被改過。'
+        + '請先看 AuditLog 的 SET_CONFIG／CONFIG_MANUAL_EDIT 確認是幾時、由什麼改成什麼，'
+        + '再決定要改回舊值還是接受新值。'
+        + '⚠️ 在未確認之前不要發佈——發佈會直接覆寫 Config 現在指住那一個檔案。'
+    };
+  }
+  return {
+    ok: true, configValue: configValue, loggedValue: loggedValue, isoDate: isoDate,
+    message: 'Config 與 PublishLog 最新一行正式發佈（' + isoDate + '）指向同一個檔案（'
+      + maskFileId_(configValue) + '）。'
+  };
+}
+

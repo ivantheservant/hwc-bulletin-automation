@@ -131,9 +131,22 @@ function menuInitializeAllSheets_() {
       'MergeGroups 新增 ' + seedRows.MERGE_GROUPS + ' 行。',
       'ProgramTemplates 新增 ' + seedRows.PROGRAM_TEMPLATES + ' 行。',
       'EmailTemplates 新增 ' + seedRows.EMAIL_TEMPLATES + ' 行。',
-      '',
-      '詳情見 Diagnostics 工作表。'
+      ''
     ];
+
+    // ⚠️ 初始化**改寫過既有 Config 值**的話，一定要逐條列出來給人看。
+    //    「系統自己幫你改了設定」如果只寫進 Diagnostics，實際上等於沒有講
+    //    ——見 docs/已知bug類型.md 事故四十三。
+    var upgrades = (summary.configUpgrades && summary.configUpgrades.upgrades) || [];
+    if (upgrades.length > 0) {
+      lines.push('⚠️ 更新了 ' + upgrades.length + ' 個系統種下的過時預設值：');
+      summary.configUpgrades.lines.forEach(function (line) { lines.push(line); });
+      lines.push('（只會動白名單上的鍵，而且只在現值仍然等於舊預設值時才動；'
+        + '你自己改過的值一律不會被碰。已記入 AuditLog。）');
+      lines.push('');
+    }
+
+    lines.push('詳情見 Diagnostics 工作表。');
     ui.alert('初始化完成', lines.join('\n'), ui.ButtonSet.OK);
   } catch (err) {
     logMenuError_('menuInitializeAllSheets_', err);

@@ -510,33 +510,38 @@ test('2030T2 與 2030T4 永遠不含提示日（所以不可以做沙盒季度�
 
 test('初始化：值仍然是系統種下的舊預設值 → 自動更新為 2030T1', function () {
   const env = makeEnv({ config: { SELFTEST_QUARTER_ID: '2030T2' } });
-  const r = env.sandbox.upgradeSelfTestQuarterDefault_();
-  assert.strictEqual(r.upgraded, true, r.note);
-  assert.strictEqual(r.from, '2030T2');
-  assert.strictEqual(r.to, '2030T1');
+  const r = env.sandbox.upgradeSystemSeededDefaults_();
+  assert.strictEqual(r.upgrades.length, 1, JSON.stringify(r.skipped));
+  assert.strictEqual(r.upgrades[0].key, 'SELFTEST_QUARTER_ID');
+  assert.strictEqual(r.upgrades[0].from, '2030T2');
+  assert.strictEqual(r.upgrades[0].to, '2030T1');
   assert.strictEqual(env.sandbox.getConfig('SELFTEST_QUARTER_ID', ''), '2030T1');
+  // 對話框要逐條列出「更新了哪個鍵、由什麼變成什麼」。
+  assert.strictEqual(r.lines.length, 1);
+  assert.ok(r.lines[0].indexOf('2030T2') !== -1 && r.lines[0].indexOf('2030T1') !== -1, r.lines[0]);
 });
 
 test('初始化：更早那一個舊預設值 2028T4 一樣更新得到', function () {
   const env = makeEnv({ config: { SELFTEST_QUARTER_ID: '2028T4' } });
-  const r = env.sandbox.upgradeSelfTestQuarterDefault_();
-  assert.strictEqual(r.upgraded, true, r.note);
+  const r = env.sandbox.upgradeSystemSeededDefaults_();
+  assert.strictEqual(r.upgrades.length, 1, JSON.stringify(r.skipped));
   assert.strictEqual(env.sandbox.getConfig('SELFTEST_QUARTER_ID', ''), '2030T1');
 });
 
 test('初始化：使用者自己揀的值一律不動', function () {
   // ⚠️ 這一條比上面兩條重要：分不清楚就會蓋走使用者的決定。
   const env = makeEnv({ config: { SELFTEST_QUARTER_ID: '2029T3' } });
-  const r = env.sandbox.upgradeSelfTestQuarterDefault_();
-  assert.strictEqual(r.upgraded, false);
+  const r = env.sandbox.upgradeSystemSeededDefaults_();
+  assert.strictEqual(r.upgrades.length, 0);
   assert.strictEqual(env.sandbox.getConfig('SELFTEST_QUARTER_ID', ''), '2029T3');
-  assert.ok(r.note.indexOf('2029T3') !== -1, '要講明為什麼沒有動：' + r.note);
+  assert.strictEqual(r.skipped.length, 1);
+  assert.ok(r.skipped[0].reason.indexOf('2029T3') !== -1, '要講明為什麼沒有動：' + r.skipped[0].reason);
 });
 
 test('初始化：已經是新預設值 → 不會重複寫入', function () {
   const env = makeEnv({ config: { SELFTEST_QUARTER_ID: '2030T1' } });
-  const r = env.sandbox.upgradeSelfTestQuarterDefault_();
-  assert.strictEqual(r.upgraded, false);
+  const r = env.sandbox.upgradeSystemSeededDefaults_();
+  assert.strictEqual(r.upgrades.length, 0);
   const audit = env.sandbox.readSheet(env.sandbox.SHEETS.AUDIT_LOG)
     .filter(function (a) { return String(a.ACTION) === 'CONFIG_UPGRADE_DEFAULT'; });
   assert.strictEqual(audit.length, 0, '沒有改動就不應該寫 AuditLog');

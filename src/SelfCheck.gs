@@ -580,6 +580,33 @@ function selfCheckPublishItems_(quarterResolution) {
     }
   }
 
+  // ---- ⚠️ 正式 master 不可以等於沙盒 master（事故四十三）----
+  //
+  //    這一條刻意報 🔴 不是 🟡：兩者相同的話，自測機每一次發佈都會覆寫
+  //    教會網站那條連結指向的 PDF，而且完全沒有錯誤訊息。那不是「有機會
+  //    出事」，是「正式輸出已經指向錯的地方」。
+  var distinct = checkMasterFileIdsDistinct_();
+  if (distinct.ok === false) {
+    items.push(selfCheckItem_('正式與沙盒 master 檔案', S.RED, distinct.message));
+  } else if (distinct.ok === null) {
+    items.push(selfCheckItem_('正式與沙盒 master 檔案', S.YELLOW, distinct.message));
+  } else {
+    items.push(selfCheckItem_('正式與沙盒 master 檔案', S.GREEN, distinct.message));
+  }
+
+  // ---- ⚠️ Config 的 master 檔案 ID 對得上 PublishLog 最新一行正式紀錄 ----
+  //
+  //    系統本來就有足夠資料自己發現「Config 那一格被換走了」，只是從來
+  //    沒有人比對過。這一項就是那個比對。
+  var matchesLog = checkPublishedMasterMatchesLog_();
+  if (matchesLog.ok === false) {
+    items.push(selfCheckItem_('master 檔案 ID 對得上發佈紀錄', S.RED, matchesLog.message));
+  } else if (matchesLog.ok === null) {
+    items.push(selfCheckItem_('master 檔案 ID 對得上發佈紀錄', S.YELLOW, matchesLog.message));
+  } else {
+    items.push(selfCheckItem_('master 檔案 ID 對得上發佈紀錄', S.GREEN, matchesLog.message));
+  }
+
   // ---- 本季內容表是否已建立、最後匯入時間 ----
   var currentQuarterId = quarterResolution.ok ? quarterResolution.quarterId : null;
   if (!currentQuarterId) {

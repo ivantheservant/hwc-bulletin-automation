@@ -817,12 +817,12 @@ function selfTestS24_(ctx) {
   var offCount = null;
   var onCount = null;
   try {
-    setConfig(CONFIG_KEYS.DST_AUTO_INSERT, 'FALSE');
+    setConfig(CONFIG_KEYS.DST_AUTO_INSERT, 'FALSE', '自測機 S24：暫時關掉夏令時間自動加入');
     var off = selfTestRefreshSandboxContentSheet_(config);
     if (!off.ok) return off.outcome;
     offCount = selfTestReadDstRows_(off.spreadsheet).length;
   } finally {
-    setConfig(CONFIG_KEYS.DST_AUTO_INSERT, original);
+    setConfig(CONFIG_KEYS.DST_AUTO_INSERT, original, '自測機 S24：還原原值');
   }
 
   var on = selfTestRefreshSandboxContentSheet_(config);
@@ -2147,12 +2147,19 @@ function selfTestPublishGuard_(config) {
 /**
  * 用途：把發佈流程指到**沙盒** master 檔案，跑完再還原。
  *
- *   ⚠️ `runPublishFlow_()` 是真實入口，它讀 Config 的
- *   `PUBLISHED_PDF_FILE_ID`。自測機要驗它，又絕對不可以碰正式那個檔案，
- *   所以在呼叫前後暫時把那一格換成沙盒檔案 ID。
+ *   ⚠️ `runPublishFlow_()` 是真實入口，它經 `effectivePublishMasterFileId_()`
+ *   取 master 檔案 ID。自測機要驗它，又絕對不可以碰正式那個檔案，所以在
+ *   呼叫前後設一個**只活在這一次執行之內**的覆寫。
  *
- *   ⚠️ 用 `try/finally` 保證**無論如何都還原**——中途拋錯而沒有還原的話，
- *   之後每一次真實發佈都會寫進沙盒檔案，而且沒有人會發現。
+ *   ⚠️ **2026-08-27 改過，理由一定要記住**（事故四十三）：舊做法是暫時把
+ *   沙盒 ID **寫入 Config** 的 `PUBLISHED_PDF_FILE_ID`，跑完用 `finally`
+ *   還原。但 Apps Script 執行被**硬中斷**時（六分鐘上限、使用者撳停、
+ *   配額用盡）`finally` 根本不會執行，於是沙盒 ID 就永遠留在正式那一格。
+ *   而且中斷發生在寫入之後，連 `AuditLog` 都沒有一筆——查都無從查起。
+ *   之後每一次真實發佈都會寫進沙盒檔案，教會網站那條連結會被洗掉。
+ *
+ *   改成記憶體覆寫之後，執行一死覆寫就跟住死，**Config 由頭到尾一格未動**。
+ *   `finally` 仍然保留（正常結束時即時清走），但它已經不再是唯一防線。
  * Args:
  *   config {Object} `selfTestConfig_()` 的回傳值。
  *   payload {Object} 見 `runPublishFlow_()`。
@@ -2160,12 +2167,11 @@ function selfTestPublishGuard_(config) {
  *   {Object} `runPublishFlow_()` 的回傳值。
  */
 function selfTestRunPublish_(config, payload) {
-  var original = getConfig(CONFIG_KEYS.PUBLISHED_PDF_FILE_ID, '');
-  setConfig(CONFIG_KEYS.PUBLISHED_PDF_FILE_ID, config.masterFileId);
+  setPublishMasterFileIdOverride_(config.masterFileId);
   try {
     return runPublishFlow_(payload);
   } finally {
-    setConfig(CONFIG_KEYS.PUBLISHED_PDF_FILE_ID, original);
+    setPublishMasterFileIdOverride_(null);
   }
 }
 
