@@ -785,6 +785,16 @@ var DEFAULTS = Object.freeze([
  *   `PARTIAL`　　該季有部分主日找得到，這一個找不到。
  * 把後兩者混為一談的話，「補抓」之後就講不出還差幾多。
  */
+/**
+ * 系統**自己種下過**的沙盒季度預設值。只有目前值仍然等於其中一個時，
+ * 「初始化工作表」才會把它更新為現時的預設值。
+ *
+ * ⚠️ 使用者自己揀的值一律不動——就算他刻意改回其中一個也不動不了，
+ * 因為分不出「使用者刻意選了它」與「系統當年種下它」。這個取捨是刻意的：
+ * 寧可少更新一次，也不可以蓋走使用者的決定。
+ */
+var SELFTEST_QUARTER_SUPERSEDED_VALUES_ = Object.freeze(['2028T4', '2030T2']);
+
 var ROSTER_STATUS = Object.freeze({
   OK: 'OK',
   NOT_FOUND: 'NOT_FOUND',

@@ -92,6 +92,46 @@ function selfTestConfig_() {
 }
 
 /**
+ * 用途：開跑前提醒——沙盒季度含不含夏令時間轉換的**提示日**。
+ *
+ *   ⚠️ 提示登在轉換當日的**前一個主日**，所以要落在季度之內的是提示日，
+ *   不是轉換日。4 月那一次的提示日在 3 月底（屬 `YYYYT1`），9 月那一次的
+ *   提示日在 9 月中（屬 `YYYYT3`）——`YYYYT2` 與 `YYYYT4` **永遠**不會含
+ *   提示日。這一點很容易搞錯（挑季度時就錯過一次），所以直接寫在提示裏。
+ *
+ *   ⚠️ 這只是**提醒**，不是守門：沙盒季度不含提示日仍然可以跑，只是
+ *   S22–S24 會報「不適用」。要不要換季度是使用者的決定。
+ * Args:
+ *   config {Object} `selfTestConfig_()` 的回傳值。
+ * Returns:
+ *   {string} 含提示日時回一句「會驗到」，不含時回一段指引。
+ */
+function selfTestDstCoverageWarning_(config) {
+  var dates = [];
+  try {
+    dates = selfTestSandboxDates_(config);
+  } catch (err) {
+    dates = [];
+  }
+
+  var notices = [];
+  try {
+    notices = daylightSavingNoticesForDates_(dates) || [];
+  } catch (err2) {
+    notices = [];
+  }
+
+  if (notices.length > 0) {
+    return '夏令時間：沙盒季度含提示日（' + notices.map(function (n) { return n.noticeIso; }).join('、')
+      + '），S22 至 S24 會真的驗到寫入。';
+  }
+  return '⚠️ 夏令時間：沙盒季度（' + config.quarterId + '）不含轉換提示日，'
+    + 'S22 至 S24 將會報不適用。如要驗夏令時間，請把 Config 的 '
+    + CONFIG_KEYS.SELFTEST_QUARTER_ID + ' 改用 YYYYT1 或 YYYYT3'
+    + '（提示登在轉換當日的前一個主日，所以 YYYYT2 與 YYYYT4 永遠不會含提示日）。';
+}
+
+/**
  * 用途：開跑前的守門。**任何一條不成立就不准開跑。**
  *
  *   ⚠️ 這一支是整套自測機唯一的安全邊界。它回 `ok:false` 的時候，
@@ -290,13 +330,36 @@ function resetSelfTestSandbox_(config) {
 
   // 一個主日多行的那幾張：靠 SERVICE_DATE 判斷。
   [SHEETS.ANNOUNCEMENTS, SHEETS.PRAYERS, SHEETS.FELLOWSHIPS, SHEETS.FINANCE,
-    SHEETS.DUTY_OVERRIDE, SHEETS.PUBLISH_LOG].forEach(function (sheetName) {
+    SHEETS.DUTY_OVERRIDE].forEach(function (sheetName) {
     var removed = selfTestDeleteRowsWhere_(sheetName, function (values, keys) {
       var iso = selfTestRowIsoDate_(values, keys, 'SERVICE_DATE');
       return Boolean(iso) && sandboxDates[iso] === true;
     });
     if (removed > 0) { deletedBySheet[sheetName] = removed; total += removed; }
   });
+
+  // PublishLog：**靠 IS_SELFTEST 這個明確的標記**，不是靠日期。
+  //
+  // ⚠️ 這一條 2026-08-27 改過，理由要記住（見 docs/待確認事項.md W-2）：
+  //    舊版把 PublishLog 混在上面那一批，用「SERVICE_DATE 在沙盒季度之內」
+  //    去圈沙盒的行。沙盒季度一改（2028T4 → 2030T1），舊季度那幾行就再也
+  //    圈不中——它們仍然 IS_SELFTEST=TRUE，於是被 I06 當成「沙盒通道最新
+  //    一行」，而沙盒 master 的內容早已被之後的發佈覆寫過。結果 I06 由
+  //    S01 一路紅到 S12，直到 S13 真的發佈一次寫入新行才「好返」。
+  //
+  //    那些行本身就帶住「我是自測寫的」這個標記，卻要用日期去猜——
+  //    與事故三十九同一類：**有明確的身分標記就不要用間接特徵去圈**。
+  //
+  // ⚠️ 只刪 IS_SELFTEST 為真那些。正式發佈的紀錄一行都不可以碰。
+  var publishRemoved = selfTestDeleteRowsWhere_(SHEETS.PUBLISH_LOG, function (values, keys) {
+    var idx = keys.indexOf('IS_SELFTEST');
+    if (idx === -1) return false;
+    return normalizeBoolean_(values[idx]) === true;
+  });
+  if (publishRemoved > 0) {
+    deletedBySheet[SHEETS.PUBLISH_LOG] = publishRemoved;
+    total += publishRemoved;
+  }
 
   // BulletinWeeks：靠 QUARTER_ID 判斷（比日期更直接，也擋得住「日期在
   // 沙盒範圍但季度標錯」那種行）。
@@ -2425,9 +2488,15 @@ function runSelfTest_(options) {
     if (record.result === SELF_TEST_RESULT_.PASS && invariants.failedCount > 0) {
       record.result = SELF_TEST_RESULT_.INVARIANT_WARNING;
       record.actual += '；不變量 ' + record.invariantFailures.join('、') + ' 不成立';
+      // ⚠️ **一定要連 evidence 一齊寫出來。** 舊版只寫 expected／actual，
+      //    於是自測機連續 25 個情境都報「I03（預期 全部對得上，實際 1 項
+      //    對不上）」——同一項，25 次，而**從來沒有講是哪一項**。證據其實
+      //    早就算好了，只是在這裏被丟掉。這正是本專案那一條「報告要有證據，
+      //    不是只有 ok／fail」。見 docs/待確認事項.md W-1。
       record.evidence += '　⚠️ 情境本身通過，但跑完之後不變量不成立：'
         + invariants.failed.map(function (f) {
-          return f.id + '（預期 ' + f.expected + '，實際 ' + f.actual + '）';
+          return f.id + '（預期 ' + f.expected + '，實際 ' + f.actual + '）'
+            + (f.evidence ? ('　證據：' + f.evidence) : '');
         }).join('；');
     }
 
@@ -2747,7 +2816,10 @@ function selfTestMenuRun_(options, title) {
       var confirm = ui.alert(title,
         '自測機會**清空並重造**沙盒季度（' + config.quarterId + '）的資料，然後由真實入口跑一次完整流程。\n\n'
         + '目前 DRY_RUN＝' + (config.dryRun ? 'TRUE（不會真的寄出）' : 'FALSE（⚠️ 會真的寄出）') + '\n'
-        + '職事表：全程唯讀，跑完會比對版本記錄確認。\n\n'
+        + '職事表：全程唯讀，跑完會比對版本記錄確認。\n'
+        // ⚠️ 開跑前就要講，不是跑完才在報告裏見到「不適用」。跑一次要幾分鐘，
+        //    等到最後才知道有三條情境根本驗不到，等於白等。
+        + selfTestDstCoverageWarning_(config) + '\n'
         + '確定要開始嗎？',
         ui.ButtonSet.YES_NO);
       if (confirm !== ui.Button.YES) return;

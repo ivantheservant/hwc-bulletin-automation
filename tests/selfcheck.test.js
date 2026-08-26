@@ -551,9 +551,18 @@ test('19i. 由真正入口（選單函式 menuShowQuarterMissingFieldsList_）�
   assert.ok(rows.length > 0, '應該真的寫入了報告');
   assert.ok(rows.length <= 380, '應該遵守 DIAGNOSTICS_MAX_ROWS 預設值 380，實際：' + rows.length);
 
+  // ⚠️ 這一條刻意**不寫死**「隱藏幾多項」：標題行數會變（2026-08-27 加了
+  //    一行「主日清單來源」，由 2 行變 3 行），寫死的話每次加一行說明都要
+  //    改一個看不出理由的數字。真正要鎖的是「總行數不超過上限」與
+  //    「顯示 ＋ 隱藏 === 全部」這個守恆關係。
   const last = rows[rows.length - 1].CONTENT;
-  assert.strictEqual(last, '尚有 123 項未列出。', '500 項待填、budget 378（380 － 2 行標題），顯示 377、隱藏 123：' + last);
-  assert.strictEqual(rows.length, 380);
+  const m = /^尚有 (\d+) 項未列出。$/.exec(last);
+  assert.ok(m, '最後一行應該是「尚有 N 項未列出。」，實際：' + last);
+
+  const shownItems = rows.filter(function (r) { return /^\d{4}-\d{2}-\d{2}　/.test(String(r.CONTENT || '')); }).length;
+  const hidden = Number(m[1]);
+  assert.strictEqual(shownItems + hidden, 500, '顯示 ' + shownItems + ' ＋ 隱藏 ' + hidden + ' 應該等於 500 項待填');
+  assert.strictEqual(rows.length, 380, '總行數應該剛好用盡 DIAGNOSTICS_MAX_ROWS');
 });
 
 test('19j. 燈色判定不受這次改動的行數上限設定影響（同一組資料，不同 SELFCHECK_MAX_ROWS，🟢🟡🔴 數目一致）', function () {

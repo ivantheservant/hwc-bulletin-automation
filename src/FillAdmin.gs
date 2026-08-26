@@ -40,12 +40,15 @@ function createOrRefreshFillGrid_(quarterId) {
     return { ok: false, created: false, rowCount: 0, sheetName: '', backupId: '', message: '季度 ID 不可以是空的。' };
   }
 
-  var serviceDates = listQuarterServiceDates_(qid);
+  // 主日清單只准經這一支拿（見 src/ServiceDates.gs 檔頭）。
+  var dateResolution = resolveQuarterServiceDateEntries_(qid);
+  var serviceDates = dateResolution.entries;
+  var sourceNote = serviceDateSourceNote_(dateResolution);
   if (serviceDates.length === 0) {
     return {
       ok: false, created: false, rowCount: 0, sheetName: fillGridSheetName_(qid), backupId: '',
-      message: '職事表找不到季度「' + qid + '」的任何主日。請確認季度 ID 是否正確（例如 2027T4），'
-        + '以及職事表那一季是否已經生成。'
+      message: dateResolution.message
+        || ('取不到季度「' + qid + '」的主日清單。請確認季度 ID 是否正確（例如 2027T4）。')
     };
   }
 
@@ -106,7 +109,10 @@ function createOrRefreshFillGrid_(quarterId) {
 
   return {
     ok: true, created: ensured.created, rowCount: rows.length,
-    sheetName: fillGridSheetName_(qid), sync: sync, backupId: backup.backupId
+    sheetName: fillGridSheetName_(qid), sync: sync, backupId: backup.backupId,
+    // 主日清單不是來自職事表就一定要講明（見 src/ServiceDates.gs）。
+    serviceDateSource: dateResolution.source,
+    serviceDateNote: sourceNote
   };
 }
 

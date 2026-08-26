@@ -256,8 +256,44 @@ function numberRegistryProbes_(ctx) {
       label: '本季主日數（「建立本季空白週報」對話框、季度填寫表標題）',
       sheetName: SHEETS.BULLETIN_WEEKS,
       recountRule: '數 BulletinWeeks 內 QUARTER_ID = 本季 的行數',
-      independence: '完全獨立：reported 走職事表 ServiceDates，recount 走本試算表 BulletinWeeks',
-      reported: function () { return listRosterServiceDatesForQuarter_(quarterId).length; },
+      independence: '完全獨立**但只在職事表有這一季的時候**：reported 走職事表 ServiceDates，'
+        + 'recount 走本試算表 BulletinWeeks。職事表未有這一季時兩路會變成同一個來源，'
+        + '所以那種情況一律報「不適用」，不會假裝驗過。',
+      // ⚠️ 2026-08-27 修正（C 類：兩邊定義不同）。舊版 reported 寫死
+      //    `listRosterServiceDatesForQuarter_()`，即「畫面那個數字一定來自
+      //    職事表」。R-036 之後這個假設不再成立：職事表未有該季時，畫面
+      //    那個數字改由曆法／BulletinWeeks 來。於是沙盒季度（刻意選一個
+      //    職事表沒有的季度）永遠是 reported=0、recount=13，**每一個情境**
+      //    都報 I03 不成立——25 次，全部同一項。
+      //
+      //    現在 reported 改為走**畫面真正用的那一支**
+      //    （`resolveQuarterServiceDateEntries_()`），並加一道 applicable：
+      //    兩路會變成同一個來源時報「不適用」，不假裝驗過（事故二十二）。
+      applicable: function () {
+        var resolution = resolveQuarterServiceDateEntries_(quarterId);
+        if (resolution.source !== SERVICE_DATE_SOURCE.ROSTER) {
+          return {
+            ok: false,
+            reason: '職事表未有季度「' + quarterId + '」的資料，主日清單來源是「'
+              + resolution.sourceLabel + '」。那一份與 recount 要數的 '
+              + SHEETS.BULLETIN_WEEKS + ' 是同一個來源，兩路對數等於自己對自己，'
+              + '驗了等於沒驗，所以報不適用。'
+          };
+        }
+        var rowCount = readSheet(SHEETS.BULLETIN_WEEKS).filter(function (r) {
+          return String(r.QUARTER_ID || '').trim() === quarterId;
+        }).length;
+        if (rowCount === 0) {
+          return {
+            ok: false,
+            reason: SHEETS.BULLETIN_WEEKS + ' 還未有季度「' + quarterId + '」的任何一行。'
+              + '「未建立」與「建立錯數量」是兩件事，未建立不算對不上——'
+              + '請先撳「建立本季空白週報」。'
+          };
+        }
+        return { ok: true, reason: '' };
+      },
+      reported: function () { return resolveQuarterServiceDateEntries_(quarterId).dates.length; },
       recount: function () {
         return readSheet(SHEETS.BULLETIN_WEEKS).filter(function (r) {
           return String(r.QUARTER_ID || '').trim() === quarterId;
@@ -410,13 +446,35 @@ function runInvariantI03_(ctx) {
 
     // ---- 逐條兩路對數 ----
     var mismatches = [];
+    var mismatchIds = [];
     var checked = [];
+    var skipped = [];
     probes.forEach(function (probe) {
+      // ⚠️ 有些數字在某些情況下兩路會變成**同一個來源**（例如職事表未有
+      //    這一季時，N01 的兩路都會落到 BulletinWeeks）。那種情況一律報
+      //    「不適用」並講明理由——自己對自己一定對得上，報綠等於講大話
+      //    （見 docs/已知bug類型.md 事故二十二）。
+      if (typeof probe.applicable === 'function') {
+        var gate;
+        try {
+          gate = probe.applicable();
+        } catch (gateErr) {
+          gate = { ok: false, reason: '判斷適不適用時拋錯——'
+            + ((gateErr && gateErr.message) ? gateErr.message : String(gateErr)) };
+        }
+        if (!gate || gate.ok !== true) {
+          skipped.push(probe.id + '「' + probe.label + '」不適用：'
+            + ((gate && gate.reason) ? gate.reason : '（沒有寫明理由）'));
+          return;
+        }
+      }
+
       var reported;
       var recounted;
       try {
         reported = probe.reported();
       } catch (err) {
+        mismatchIds.push(probe.id);
         mismatches.push(probe.id + '「' + probe.label + '」：產生數字那一路拋錯——'
           + ((err && err.message) ? err.message : String(err)));
         return;
@@ -424,6 +482,7 @@ function runInvariantI03_(ctx) {
       try {
         recounted = probe.recount();
       } catch (err2) {
+        mismatchIds.push(probe.id);
         mismatches.push(probe.id + '「' + probe.label + '」：重新數那一路拋錯——'
           + ((err2 && err2.message) ? err2.message : String(err2)));
         return;
@@ -431,9 +490,15 @@ function runInvariantI03_(ctx) {
 
       checked.push(probe.id + '=' + reported);
       if (Number(reported) !== Number(recounted)) {
+        mismatchIds.push(probe.id);
+        // ⚠️ 一定要連**兩個數字**與**兩路各自的來源**一齊寫出來。只寫
+        //    「1 項對不上」的話，看報告的人仍然不知道要去哪裏查——那正是
+        //    這一條在自測機報了 25 次都沒有人查得到的原因。
         mismatches.push(probe.id + '「' + probe.label + '」：畫面報 ' + reported
           + '，由 ' + probe.sheetName + ' 重新數是 ' + recounted
-          + '（重新數的條件：' + probe.recountRule + '）');
+          + '（相差 ' + (Number(reported) - Number(recounted)) + '）'
+          + '（重新數的條件：' + probe.recountRule + '）'
+          + '（兩路的獨立程度：' + probe.independence + '）');
       }
     });
 
@@ -448,12 +513,22 @@ function runInvariantI03_(ctx) {
     }
 
     var scope = '季度 ' + context.quarterId + '、主日 ' + context.isoDate;
+    // ⚠️ 「不適用」一定要看得見。藏起來的話，一條長期報不適用的檢查會
+    //    看起來與一條真的驗過的檢查一模一樣。
+    var skipText = skipped.length > 0 ? ('；不適用 ' + skipped.length + ' 項：' + skipped.join('｜')) : '';
+
     if (problems.length === 0) {
-      return invariantResult_('I03', label, true, '全部對得上', '全部對得上',
-        scope + '；已對 ' + probes.length + ' 個數字：' + checked.join('　'));
+      return invariantResult_('I03', label, true, '全部對得上',
+        '已對 ' + checked.length + ' 項，全部對得上'
+          + (skipped.length > 0 ? ('（另有 ' + skipped.length + ' 項不適用）') : ''),
+        scope + '；已對 ' + checked.length + ' 個數字：' + checked.join('　') + skipText);
     }
-    return invariantResult_('I03', label, false, '全部對得上', problems.length + ' 項對不上',
-      scope + '；' + problems.join('｜'));
+    // ⚠️ `actual` 一定要講得出**是哪一項**。「1 項對不上」在自測機報了
+    //    25 次，每次看完都仍然不知道要做什麼。
+    var actualText = problems.length + ' 項對不上'
+      + (mismatchIds.length > 0 ? ('：' + mismatchIds.join('、')) : '');
+    return invariantResult_('I03', label, false, '全部對得上', actualText,
+      scope + '；' + problems.join('｜') + skipText);
   });
 }
 
@@ -1149,16 +1224,60 @@ function runInvariantI10_(baselineCount) {
       return invariantResult_('I10', label, true, baselineCount + ' 個版本', current + ' 個版本',
         '職事表版本記錄一個都沒有多——本次執行對職事表零寫入。');
     }
+    // ⚠️ 「多了 N 個」講不出要做什麼。真正決定下一步的是**那幾個版本是誰改的**：
+    //    如果 lastModifyingUser 是別人（職事表本來就有人在維護），那是預期
+    //    之內的；如果是本專案的執行帳號，那才是真的寫了進去，要即刻查。
+    //    只印兩個數字＝把最重要那一格證據留在心裏。見 docs/待確認事項.md W-3。
     return invariantResult_('I10', label, false, baselineCount + ' 個版本', current + ' 個版本',
-      '⚠️ 職事表的版本記錄多了 ' + (Number(current) - Number(baselineCount)) + ' 個。'
+      '⚠️ 職事表的版本記錄多了 ' + (Number(current) - Number(baselineCount)) + ' 個'
+        + '（開始時 ' + baselineCount + ' 個，現在 ' + current + ' 個）。'
         + '本專案對職事表一律唯讀，多一個版本就代表有地方寫了進去。'
-        + '（注意：如果同一時間有人在職事表打字，也會多版本——請先確認再當成 bug。）');
+        + describeRosterRevisionTail_(rosterId, Number(current) - Number(baselineCount))
+        + '　⚠️ 先看最新那幾個版本是誰改的：如果是別人（職事表本來就有人維護），'
+        + '那是預期之內的，不是本專案寫的；如果是本專案的執行帳號，那就是真的寫了進去，'
+        + '請即刻停手並查 tools/lint-readonly-roster.js 為什麼攔不住。');
   });
 }
 
 // =====================================================================
 // 一次過跑全部
 // =====================================================================
+
+/**
+ * 用途：把職事表最新那幾個版本的「誰、幾時」列出來，供 `I10` 的證據用。
+ *   **唯讀**——只叫 `Drive.Revisions.list`。
+ *
+ *   ⚠️ 讀不到版本明細**不可以**靜靜當成沒事：那樣 I10 的證據會退化成
+ *   「多了 N 個」，等於沒有講。讀不到就要講「讀不到」。
+ * Args:
+ *   rosterId {string} 職事表檔案 ID。
+ *   addedCount {number} 多了幾多個版本；決定要列幾多個。
+ * Returns:
+ *   {string} 前面自帶一個全形空格，可以直接接在證據後面。
+ */
+function describeRosterRevisionTail_(rosterId, addedCount) {
+  var wanted = Math.max(Number(addedCount) || 0, 1) + 1;   // 多列一個，看得出「多出來的」由哪裏開始
+  var info;
+  try {
+    info = driveListRevisions_(rosterId, wanted);
+  } catch (err) {
+    return '　（讀不到版本明細：' + ((err && err.message) ? err.message : String(err))
+      + '——請人手開啟職事表 ▸ 檔案 ▸ 版本記錄自己看。）';
+  }
+  if (!info || info.ok !== true) {
+    return '　（讀不到版本明細：' + ((info && info.message) ? info.message : '原因不明')
+      + '——請人手開啟職事表 ▸ 檔案 ▸ 版本記錄自己看。）';
+  }
+  if (!info.revisions || info.revisions.length === 0) {
+    return '　（版本明細是空的——與「多了版本」互相矛盾，請人手確認。）';
+  }
+
+  return '　最新 ' + info.revisions.length + ' 個版本：' + info.revisions.map(function (r) {
+    var who = (r.lastModifyingUser && r.lastModifyingUser.displayName)
+      ? r.lastModifyingUser.displayName : '（不知道是誰）';
+    return (r.modifiedTime || '（沒有時間）') + '　' + who;
+  }).join('｜') + '。';
+}
 
 // =====================================================================
 // I11：事奉資料的來源季度 === 該主日所屬的季度

@@ -137,7 +137,10 @@ function generateQuarterBulletinsBatch_(quarterId, options) {
   var startMs = nowFn();
   var budgetMs = bulletinBatchTimeBudgetMs_();
 
-  var serviceDates = listQuarterServiceDates_(quarterId);
+  // 主日清單只准經這一支拿（見 src/ServiceDates.gs 檔頭）。職事表未有
+  // 該季時會退回 BulletinWeeks／曆法，來源會在報告講明。
+  var dateResolution = resolveQuarterServiceDateEntries_(quarterId);
+  var serviceDates = dateResolution.entries;
   var weekRowsByIso = readBulletinWeekRowsByIso_(quarterId);
 
   var results = [];
@@ -184,6 +187,10 @@ function generateQuarterBulletinsBatch_(quarterId, options) {
 
   var summary = {
     quarterId: quarterId,
+    // ⚠️ 主日清單由哪裏來一定要帶出去。用了退而求其次的來源而不講，
+    //    下一個人看到數字對不上會查錯方向。
+    serviceDateSource: dateResolution.source,
+    serviceDateNote: dateResolution.message,
     total: serviceDates.length,
     succeeded: succeeded,
     failed: failed,
@@ -290,10 +297,14 @@ function menuGenerateQuarterBulletinsBatch_() {
     var lines = [
       '季度：' + summary.quarterId,
       '總共 ' + summary.total + ' 個主日：成功 ' + summary.succeeded
-        + '、失敗 ' + summary.failed + '、跳過（已產生過）' + summary.skipped + '。',
-      '',
-      '完整結果已寫入 Diagnostics 工作表。'
+        + '、失敗 ' + summary.failed + '、跳過（已產生過）' + summary.skipped + '。'
     ];
+    // 主日清單不是來自職事表就一定要講明（見 src/ServiceDates.gs）。
+    var sourceNote = serviceDateSourceNote_({
+      source: summary.serviceDateSource, message: summary.serviceDateNote
+    });
+    if (sourceNote) lines.push('', sourceNote);
+    lines.push('', '完整結果已寫入 Diagnostics 工作表。');
     if (summary.stoppedForTime) {
       lines.splice(2, 0, '', '⚠️ 接近執行時間上限，已安全中止，請再撳一次繼續（已完成的不會重做）。');
     }

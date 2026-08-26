@@ -906,3 +906,264 @@ function menuDiagnoseI04_() {
     ui.alert('診斷 I04 失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
 }
+
+// =====================================================================
+// I03 診斷（唯讀）
+// =====================================================================
+
+/**
+ * 用途：收集 `I03` 的完整診斷資料——逐行列出 `NumberRegistry` 的每一項、
+ *   兩路各自的來源與數值、對得上與否。**全部唯讀。**
+ *
+ *   ⚠️ 為什麼要有這一支（docs/待確認事項.md W-1）：自測機連續 25 個情境
+ *   都報「I03（預期 全部對得上，實際 1 項對不上）」，同一項，25 次，
+ *   而**從來沒有講是哪一項**。看完那句話仍然不知道要做什麼，等於沒有報。
+ * Args:
+ *   options {{quarterId:string=, isoDate:string=}=} 選填；不傳就用
+ *     `invariantDefaultContext_()` 決定範圍。
+ * Returns:
+ *   {{ok:boolean, quarterId:string, isoDate:string, rows:Object[],
+ *     registryOnly:string[], implOnly:string[], mismatchCount:number,
+ *     skippedCount:number, message:string}}
+ *     `rows` 每一項是
+ *     `{id, label, sheetName, recountRule, independence, status,
+ *       reported, recounted, diff, note}`；`status` 是
+ *     `MATCH`／`MISMATCH`／`SKIPPED`／`ERROR`。
+ */
+function collectI03Diagnosis_(options) {
+  var opts = options || {};
+  var context = (opts.quarterId || opts.isoDate)
+    ? { quarterId: String(opts.quarterId || ''), isoDate: String(opts.isoDate || '') }
+    : invariantDefaultContext_();
+
+  var out = {
+    ok: false,
+    quarterId: String(context.quarterId || ''),
+    isoDate: String(context.isoDate || ''),
+    rows: [],
+    registryOnly: [],
+    implOnly: [],
+    mismatchCount: 0,
+    skippedCount: 0,
+    message: ''
+  };
+
+  if (!out.quarterId || !out.isoDate) {
+    out.message = '未能決定要驗哪一個季度／主日（季度：'
+      + (out.quarterId || '（未能決定）') + '、主日：' + (out.isoDate || '（未能決定）')
+      + '）。I03 需要一個具體主日才數得到清單類的數字。';
+    return out;
+  }
+
+  var probes = numberRegistryProbes_(context);
+  var probeById = {};
+  probes.forEach(function (p) { probeById[p.id] = p; });
+
+  var registryRows = readSheet(SHEETS.NUMBER_REGISTRY).filter(function (r) { return r.ACTIVE === true; });
+  var registeredIds = registryRows.map(function (r) { return String(r.REGISTRY_ID || '').trim(); });
+  out.registryOnly = registeredIds.filter(function (id) { return id && !probeById[id]; });
+  out.implOnly = probes.map(function (p) { return p.id; })
+    .filter(function (id) { return registeredIds.indexOf(id) === -1; });
+
+  probes.forEach(function (probe) {
+    var row = {
+      id: probe.id,
+      label: probe.label,
+      sheetName: probe.sheetName,
+      recountRule: probe.recountRule,
+      independence: probe.independence,
+      status: 'MATCH',
+      reported: null,
+      recounted: null,
+      diff: null,
+      note: ''
+    };
+
+    if (typeof probe.applicable === 'function') {
+      var gate;
+      try {
+        gate = probe.applicable();
+      } catch (gateErr) {
+        gate = { ok: false, reason: '判斷適不適用時拋錯——'
+          + ((gateErr && gateErr.message) ? gateErr.message : String(gateErr)) };
+      }
+      if (!gate || gate.ok !== true) {
+        row.status = 'SKIPPED';
+        row.note = (gate && gate.reason) ? gate.reason : '（沒有寫明理由）';
+        out.skippedCount++;
+        out.rows.push(row);
+        return;
+      }
+    }
+
+    try {
+      row.reported = probe.reported();
+    } catch (err) {
+      row.status = 'ERROR';
+      row.note = '產生數字那一路拋錯——' + ((err && err.message) ? err.message : String(err));
+      out.mismatchCount++;
+      out.rows.push(row);
+      return;
+    }
+    try {
+      row.recounted = probe.recount();
+    } catch (err2) {
+      row.status = 'ERROR';
+      row.note = '重新數那一路拋錯——' + ((err2 && err2.message) ? err2.message : String(err2));
+      out.mismatchCount++;
+      out.rows.push(row);
+      return;
+    }
+
+    row.diff = Number(row.reported) - Number(row.recounted);
+    if (row.diff !== 0) {
+      row.status = 'MISMATCH';
+      out.mismatchCount++;
+    }
+    out.rows.push(row);
+  });
+
+  out.ok = out.mismatchCount === 0 && out.registryOnly.length === 0 && out.implOnly.length === 0;
+  out.message = buildI03DiagnosisSummary_(out);
+  return out;
+}
+
+/**
+ * 用途：把 `collectI03Diagnosis_()` 的結果縮成一句給對話框用的話。**純函式。**
+ * Args:
+ *   d {Object} `collectI03Diagnosis_()` 的回傳值。
+ * Returns:
+ *   {string}
+ */
+function buildI03DiagnosisSummary_(d) {
+  if (!d.quarterId || !d.isoDate) return d.message || '未能決定要驗哪一個季度／主日。';
+
+  var parts = ['季度 ' + d.quarterId + '、主日 ' + d.isoDate + '：共 ' + d.rows.length + ' 個登記數字。'];
+  var matched = d.rows.filter(function (r) { return r.status === 'MATCH'; }).length;
+  parts.push('對得上 ' + matched + ' 項、對不上 ' + d.mismatchCount + ' 項、不適用 ' + d.skippedCount + ' 項。');
+
+  var bad = d.rows.filter(function (r) { return r.status === 'MISMATCH' || r.status === 'ERROR'; });
+  if (bad.length > 0) {
+    parts.push('對不上的是：' + bad.map(function (r) {
+      // ⚠️ 先拆成一個本地變數再用。夾在引號之間的「.id」會被
+      //    tools/scan-staged-secrets.js 誤判成網域（id 是真實 gTLD），
+      //    見 docs/已知bug類型.md 事故六。
+      var probeId = r.id;
+      if (r.status === 'ERROR') return probeId + '（拋錯）';
+      return probeId + '「' + r.label + '」畫面報 ' + r.reported + '、重新數是 ' + r.recounted;
+    }).join('；') + '。');
+  }
+  if (d.registryOnly.length > 0) {
+    parts.push('登記了但沒有實作：' + d.registryOnly.join('、') + '。');
+  }
+  if (d.implOnly.length > 0) {
+    parts.push('有實作但沒有登記：' + d.implOnly.join('、') + '（請執行「初始化工作表」補回登記行）。');
+  }
+  return parts.join('　');
+}
+
+/**
+ * 用途：把 `collectI03Diagnosis_()` 的結果排版成 `Diagnostics` 的內容行。
+ *   **純函式。**
+ *
+ *   ⚠️ 逐項都要印**兩個數字與兩路各自的來源**，不論對得上與否。只印對不上
+ *   那幾項的話，看的人分不出「其餘的驗過而且沒事」與「其餘的根本沒有驗」。
+ * Args:
+ *   d {Object} `collectI03Diagnosis_()` 的回傳值。
+ * Returns:
+ *   {string[]}
+ */
+function buildI03DiagnosisLines_(d) {
+  var lines = [];
+  lines.push('I03 診斷（唯讀）——畫面顯示的每一個數字，都可以由工作表重新數出同一個數');
+  lines.push('');
+  lines.push(d.message);
+  lines.push('');
+
+  if (!d.quarterId || !d.isoDate) return lines;
+
+  lines.push('【逐項明細】');
+  d.rows.forEach(function (r) {
+    var mark = r.status === 'MATCH' ? '✅'
+      : (r.status === 'SKIPPED' ? '⚪' : '🔴');
+    // ⚠️ 先拆成本地變數，理由同上（事故六）。
+    var probeId = r.id;
+    lines.push(mark + '　' + probeId + '　' + r.label);
+    lines.push('　　畫面那個數字：' + (r.reported === null ? '（沒有取到）' : r.reported));
+    lines.push('　　重新數出來的：' + (r.recounted === null ? '（沒有取到）' : r.recounted)
+      + '（來源工作表：' + r.sheetName + '）');
+    if (r.diff !== null && r.diff !== 0) lines.push('　　相差：' + r.diff);
+    lines.push('　　重新數的條件：' + r.recountRule);
+    lines.push('　　兩路的獨立程度：' + r.independence);
+    if (r.note) lines.push('　　備註：' + r.note);
+    lines.push('');
+  });
+
+  if (d.registryOnly.length > 0) {
+    lines.push('【⚠️ NumberRegistry 登記了但沒有實作】');
+    d.registryOnly.forEach(function (id) { lines.push('　' + id + '（登記了卻沒有檢查，等於沒有登記）'); });
+    lines.push('');
+  }
+  if (d.implOnly.length > 0) {
+    lines.push('【⚠️ 有實作但沒有在 NumberRegistry 登記】');
+    d.implOnly.forEach(function (id) { lines.push('　' + id); });
+    lines.push('　請執行「初始化工作表」補回登記行。');
+    lines.push('');
+  }
+
+  lines.push('【看完之後怎樣做】');
+  lines.push(i03NextStepText_(d));
+  lines.push('');
+  lines.push('⚠️ 這次診斷全部都是唯讀，一個格都沒有寫。');
+  return lines;
+}
+
+/**
+ * 用途：按診斷結果講出下一步。**純函式。**
+ *
+ *   ⚠️ 三種可能刻意逐個列出來，因為它們的處理方式完全不同：改登記表、
+ *   改函式、統一定義。分不清楚就會改錯地方。
+ * Args:
+ *   d {Object} `collectI03Diagnosis_()` 的回傳值。
+ * Returns:
+ *   {string}
+ */
+function i03NextStepText_(d) {
+  if (d.ok) {
+    return '　全部對得上，不需要做什麼。'
+      + (d.skippedCount > 0
+        ? ('　⚠️ 但有 ' + d.skippedCount + ' 項報「不適用」——那不等於通過，'
+          + '請看上面那幾項的備註，確認「不適用」的理由現在仍然成立。')
+        : '');
+  }
+  return [
+    '　逐項看上面的「畫面那個數字」與「重新數出來的」，落在以下其中一種：',
+    '　A. 登記表寫錯（來源函式或條件填錯）→ 改 NumberRegistry 那一行。',
+    '　B. 產生數字那一支函式真的報錯數 → 改那一支函式。',
+    '　C. 兩邊定義不同（例如一邊計已封存的、一邊不計）→ 統一定義，並在登記表的'
+      + '「重新數的條件」寫明。',
+    '　⚠️ 不要在未看清楚兩個數字之前就改任何一邊——三種的改法完全不同，'
+      + '改錯地方會令這一條由「報得出問題」變成「永遠報綠」。'
+  ].join('\n');
+}
+
+/**
+ * 用途：選單「診斷 I03（唯讀）」。
+ * Returns:
+ *   {void}
+ */
+function menuDiagnoseI03_() {
+  var ui = SpreadsheetApp.getUi();
+  try {
+    var diagnosis = collectI03Diagnosis_({});
+    writeDiagnosticsReport_('I03 診斷', buildI03DiagnosisLines_(diagnosis));
+    ui.alert('I03 診斷',
+      diagnosis.message
+        + '\n\n完整報告已經寫入 Diagnostics 工作表。\n'
+        + '⚠️ 這次診斷全部都是唯讀，一個格都沒有寫。',
+      ui.ButtonSet.OK);
+  } catch (err) {
+    logMenuError_('menuDiagnoseI03_', err);
+    ui.alert('診斷 I03 失敗', enrichAuthError_(err), ui.ButtonSet.OK);
+  }
+}

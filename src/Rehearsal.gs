@@ -67,8 +67,12 @@ function runQuarterRehearsal_(quarterId) {
   var failedSteps = [];
 
   // ---- 1. 讀職事表快照（該季每個主日）----
+  // 主日清單只准經這一支拿（見 src/ServiceDates.gs 檔頭）。職事表未有
+  // 該季時退回 BulletinWeeks／曆法，來源寫在報告第一段。
+  var dateResolution = { entries: [], source: SERVICE_DATE_SOURCE.NONE, message: '', sourceLabel: '' };
   var serviceDatesStep = runRehearsalStep_('1. 讀職事表快照', function () {
-    return listQuarterServiceDates_(quarterId);
+    dateResolution = resolveQuarterServiceDateEntries_(quarterId);
+    return dateResolution.entries;
   }, timings, failedSteps);
   var serviceDates = serviceDatesStep.ok ? serviceDatesStep.value : [];
 
@@ -185,6 +189,9 @@ function runQuarterRehearsal_(quarterId) {
   var summary = {
     quarterId: quarterId,
     totalSundays: serviceDates.length,
+    // 主日清單由哪裏來一定要帶出去（見 src/ServiceDates.gs）。
+    serviceDateSource: dateResolution.source,
+    serviceDateNote: serviceDateSourceNote_(dateResolution),
     perDate: perDate,
     totalMissing: totals.missing,
     totalWarnings: totals.warnings,
@@ -216,6 +223,9 @@ function buildRehearsalReportLines_(summary) {
   var lines = [];
 
   lines.push('季度：' + summary.quarterId + '　共 ' + summary.totalSundays + ' 個主日');
+  // 主日清單不是來自職事表就一定要講明，而且要放在最前面——看報告的人
+  // 先看到「共 N 個主日」，如果那個 N 來自曆法推算而不講，會以為職事表已經有。
+  if (summary.serviceDateNote) lines.push(summary.serviceDateNote);
   lines.push('');
 
   lines.push('【每一步的耗時】');

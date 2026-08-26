@@ -95,58 +95,6 @@ function resolveQuarterServiceDates_(quarterId) {
 }
 
 /**
- * 用途：拿一個季度的主日清單，職事表沒有就退回**同一季**的
- *   `BulletinWeeks`，再沒有就用曆法推算。回傳講明來源。
- *
- *   ⚠️ **退回的只是「用哪一份清單」，不是「用哪一季」。** 三個來源全部
- *   都只看同一個季度 ID，一個都不會跨季。這個分別就是事故四十一那一條
- *   紀律：「決定處理哪一季」可以退回，「拿該季的資料」不可以。
- *
- *   ⚠️ 為什麼要有這一支（2026-08-26 查證，見 docs/待確認事項.md V-2）：
- *   R-036 之後，職事表未有該季資料一樣建立得到週報；但「從內容表匯入」
- *   的主日範圍一直是 `listQuarterServiceDates_()`（**只讀職事表**），
- *   於是那些季度匯入永遠是「新增 0、修改 0、刪除 0、不變 0」——不是
- *   報錯，是靜靜地什麼都不做。自測機 S05／S07 就是這樣掛的。
- * Args:
- *   quarterId {string} `YYYYTn`。
- * Returns:
- *   {{dates:string[], source:string, message:string}}
- *     `source` 是 `ROSTER`／`BULLETIN_WEEKS`／`CALENDAR`。
- */
-function resolveQuarterServiceDatesWithFallback_(quarterId) {
-  var qid = String(quarterId || '').trim();
-  var fromRoster = resolveQuarterServiceDates_(qid);
-  if (fromRoster.source === 'ROSTER') {
-    return { dates: fromRoster.dates.slice(), source: 'ROSTER', message: '' };
-  }
-
-  // ⚠️ 只取**同一個季度**那幾行，一行都不會跨季。
-  var weekDates = [];
-  readSheet(SHEETS.BULLETIN_WEEKS).forEach(function (row) {
-    if (String(row.QUARTER_ID || '').trim() !== qid) return;
-    var iso = (Object.prototype.toString.call(row.SERVICE_DATE) === '[object Date]')
-      ? formatIsoDate_(row.SERVICE_DATE)
-      : String(row.SERVICE_DATE || '').trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(iso) && weekDates.indexOf(iso) === -1) weekDates.push(iso);
-  });
-
-  if (weekDates.length > 0) {
-    weekDates.sort();
-    return {
-      dates: weekDates, source: 'BULLETIN_WEEKS',
-      message: '職事表未有季度「' + qid + '」的資料，主日清單改用 '
-        + SHEETS.BULLETIN_WEEKS + ' 內同一季的 ' + weekDates.length + ' 行。'
-    };
-  }
-
-  var calendar = quarterCalendarSundays_(qid);
-  return {
-    dates: calendar, source: 'CALENDAR',
-    message: '職事表與 ' + SHEETS.BULLETIN_WEEKS + ' 都沒有季度「' + qid
-      + '」的資料，主日清單由曆法推算（該季全部星期日）。'
-  };
-}
-/**
  * 用途：判斷某一個主日的 `ROSTER_STATUS`。**純函式。**
  * Args:
  *   isoDate {string} 主日。

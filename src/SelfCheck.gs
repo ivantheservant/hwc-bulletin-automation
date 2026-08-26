@@ -280,12 +280,17 @@ function selfCheckDataItems_(quarterResolution) {
     }
 
     try {
-      var serviceDates = listQuarterServiceDates_(currentQuarterId);
+      // 主日清單只准經這一支拿（見 src/ServiceDates.gs 檔頭）。
+      var quarterDates = resolveQuarterServiceDateEntries_(currentQuarterId);
+      var serviceDates = quarterDates.entries;
       var missingSummary = selfCheckMissingSummaryByDate_(serviceDates);
       items.push(selfCheckItem_(
         '本季（' + currentQuarterId + '）待填欄位總數',
         missingSummary.totalMissing === 0 ? S.GREEN : S.YELLOW,
-        missingSummary.totalMissing + ' 項（共 ' + serviceDates.length + ' 個主日）。',
+        missingSummary.totalMissing + ' 項（共 ' + serviceDates.length + ' 個主日）。'
+          // 主日清單不是來自職事表就一定要講明，否則「共 N 個主日」看起來
+          // 像職事表已經有這一季。見 src/ServiceDates.gs。
+          + (serviceDateSourceNote_(quarterDates) ? ('　' + serviceDateSourceNote_(quarterDates)) : ''),
         selfCheckCapMissingSummary_(missingSummary.perDate)
       ));
     } catch (err) {
@@ -882,9 +887,16 @@ function buildSelfCheckReportLines_(summary) {
  *     `listQuarterServiceDates_()`）。
  */
 function buildQuarterMissingFieldsReportLines_(quarterId, sourceLabel) {
-  var lines = ['本季待填清單：' + quarterId + '　來源：' + sourceLabel, ''];
+  // 主日清單只准經這一支拿（見 src/ServiceDates.gs 檔頭）。
+  var dateResolution = resolveQuarterServiceDateEntries_(quarterId);
+  var serviceDates = dateResolution.entries;
 
-  var serviceDates = listQuarterServiceDates_(quarterId);
+  var lines = ['本季待填清單：' + quarterId + '　季度來源：' + sourceLabel];
+  // ⚠️ 「季度來源」與「主日清單來源」是兩件事：前者答「為什麼是這一季」，
+  //    後者答「這一季的主日由哪裏來」。兩者都要講，不可以混為一談。
+  lines.push('主日清單來源：' + dateResolution.sourceLabel + '　共 ' + serviceDates.length + ' 個主日');
+  if (dateResolution.message) lines.push(dateResolution.message);
+  lines.push('');
   var itemLines = [];
   serviceDates.forEach(function (sd) {
     try {

@@ -39,6 +39,9 @@ function initializeAllSheets() {
   var publishLogBackfill = backfillPublishLogMasterFileId_();
   var publishLogMd5Backfill = backfillPublishLogContentFingerprint_();
   var configKeysAdded = seedConfigDefaults_();
+  // ⚠️ 一定要排在 seedConfigDefaults_() 之後：那一支只會補**沒有的**鍵，
+  //    已經存在的一律不動，所以舊值要在這裏另外處理。
+  var selfTestQuarterUpgrade = upgradeSelfTestQuarterDefault_();
   var seedRowsAdded = {
     POST_DISPLAY: seedPostDisplay_(),
     MERGE_GROUPS: seedMergeGroups_(),
@@ -55,6 +58,7 @@ function initializeAllSheets() {
     deprecatedConfigWarnings: deprecatedCleanup.warnings,
     publishLogBackfill: publishLogBackfill,
     publishLogMd5Backfill: publishLogMd5Backfill,
+    selfTestQuarterUpgrade: selfTestQuarterUpgrade,
     seedRowsAdded: seedRowsAdded
   };
 
@@ -67,6 +71,64 @@ function initializeAllSheets() {
   return summary;
 }
 
+/**
+ * 用途：把**系統自己種下的**舊沙盒季度預設值更新為現時的預設值。
+ *
+ *   ⚠️ 為什麼可以改一個使用者看得見的設定（一般是絕對不可以的）：
+ *   `SELFTEST_QUARTER_ID` 的舊值 `2030T2`／`2028T4` 是**系統自己種**下去的
+ *   預設值，不是使用者揀的。而那兩個值都不合用：
+ *     - `2030T2` 不含夏令時間**提示日**（提示登在轉換日的前一個主日，
+ *       4 月那一次的提示日在 3 月底，屬 T1），S22–S24 會永遠報「不適用」；
+ *     - `2028T4` 職事表其實有資料（職事表最遠到 2028T4），違反沙盒季度
+ *       「職事表沒有這一季」那個條件。
+ *
+ *   ⚠️ **只更新值仍然等於舊預設值那一種情況。** 使用者自己改成任何其他
+ *   值（包括刻意改回 2030T2）都一律不動——那是使用者的決定。
+ * Args: （無）
+ * Returns:
+ *   {{upgraded:boolean, from:string, to:string, note:string}}
+ */
+function upgradeSelfTestQuarterDefault_() {
+  var current = String(getConfig(CONFIG_KEYS.SELFTEST_QUARTER_ID, '') || '').trim();
+  var target = defaultConfigValueFor_(CONFIG_KEYS.SELFTEST_QUARTER_ID);
+  var supersededValues = SELFTEST_QUARTER_SUPERSEDED_VALUES_;
+
+  if (!target || current === target) {
+    return { upgraded: false, from: current, to: target, note: '' };
+  }
+  if (supersededValues.indexOf(current) === -1) {
+    return {
+      upgraded: false, from: current, to: target,
+      note: 'Config 的 ' + CONFIG_KEYS.SELFTEST_QUARTER_ID + ' 目前是「' + current
+        + '」，不是系統種下的舊預設值，所以沒有動它。'
+    };
+  }
+
+  setConfig(CONFIG_KEYS.SELFTEST_QUARTER_ID, target);
+  appendAuditLog_({
+    action: 'CONFIG_UPGRADE_DEFAULT', sheetName: SHEETS.CONFIG,
+    rowKey: CONFIG_KEYS.SELFTEST_QUARTER_ID, field: CONFIG_KEYS.SELFTEST_QUARTER_ID,
+    oldValue: current, newValue: target,
+    notes: '系統自己種下的沙盒季度預設值已過時（舊值不合用），自動更新。'
+      + '使用者自己改過的值不會被動。'
+  });
+  return {
+    upgraded: true, from: current, to: target,
+    note: '沙盒季度已由系統種下的舊預設值「' + current + '」更新為「' + target + '」。'
+  };
+}
+
+/**
+ * 用途：由 `DEFAULTS` 取一個設定鍵的預設值。**純函式。**
+ * Args:
+ *   key {string} 設定鍵。
+ * Returns:
+ *   {string} 找不到回空字串。
+ */
+function defaultConfigValueFor_(key) {
+  var found = DEFAULTS.filter(function (d) { return d.key === key; })[0];
+  return found ? String(found.value) : '';
+}
 /**
  * 用途：一次性清走已廢棄且沒有值的 Config 設定鍵。本專案第一次刪
  *   Config 鍵——目前只有 `DOC_TEMPLATE_ID_NORMAL`／`DOC_TEMPLATE_ID_COMBINED`
@@ -785,11 +847,17 @@ function seedNumberRegistryRows_() {
     {
       REGISTRY_ID: 'N01',
       DISPLAY_LOCATION: '「建立本季空白週報」對話框、季度填寫表標題',
-      SOURCE_FUNCTION: 'listRosterServiceDatesForQuarter_()',
+      // ⚠️ 2026-08-27 由 listRosterServiceDatesForQuarter_() 改成這一支。
+      //    R-036 之後，畫面那個數字不再一定來自職事表——職事表未有該季時
+      //    改由曆法／BulletinWeeks 來。登記表寫著舊來源，就會令 I03 在沙盒
+      //    季度永遠報「1 項對不上」。見 docs/待確認事項.md W-1。
+      SOURCE_FUNCTION: 'resolveQuarterServiceDateEntries_()',
       SHEET_NAME: SHEETS.BULLETIN_WEEKS,
       RECOUNT_RULE: '數 BulletinWeeks 內 QUARTER_ID = 本季 的行數',
       ACTIVE: true,
-      NOTES: '完全獨立：一邊走職事表 ServiceDates，一邊走本試算表'
+      NOTES: '完全獨立**但只在職事表有這一季的時候**：那時 reported 走職事表 ServiceDates、'
+        + 'recount 走本試算表。職事表未有這一季時兩路會變成同一個來源，一律報「不適用」'
+        + '——自己對自己一定對得上，報綠等於講大話。'
     },
     {
       REGISTRY_ID: 'N02',

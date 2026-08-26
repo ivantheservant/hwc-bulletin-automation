@@ -493,7 +493,7 @@ console.log('\n第 5 組：主日清單的退回');
 
 test('職事表有該季 → 用職事表', function () {
   const env = makeEnv({});
-  const r = env.sandbox.resolveQuarterServiceDatesWithFallback_(ROSTER_QUARTER);
+  const r = env.sandbox.resolveQuarterServiceDateEntries_(ROSTER_QUARTER);
   assert.strictEqual(r.source, 'ROSTER');
   assert.deepStrictEqual(JSON.parse(JSON.stringify(r.dates)), [ROSTER_DATE]);
 });
@@ -509,7 +509,7 @@ test('職事表沒有該季、但 BulletinWeeks 有 → 用 BulletinWeeks 同一
       { SERVICE_DATE: '2027-10-03', QUARTER_ID: ROSTER_QUARTER, WEEK_OF_MONTH: 1, STATUS: 'DRAFT' }
     ]
   });
-  const r = env.sandbox.resolveQuarterServiceDatesWithFallback_(TARGET_QUARTER);
+  const r = env.sandbox.resolveQuarterServiceDateEntries_(TARGET_QUARTER);
   assert.strictEqual(r.source, 'BULLETIN_WEEKS');
   assert.deepStrictEqual(JSON.parse(JSON.stringify(r.dates)), ['2030-04-07', '2030-04-14'],
     '只可以有同一季那兩個主日');
@@ -518,7 +518,7 @@ test('職事表沒有該季、但 BulletinWeeks 有 → 用 BulletinWeeks 同一
 
 test('兩者都沒有 → 曆法推算，而且全部在該季之內', function () {
   const env = makeEnv({});
-  const r = env.sandbox.resolveQuarterServiceDatesWithFallback_(TARGET_QUARTER);
+  const r = env.sandbox.resolveQuarterServiceDateEntries_(TARGET_QUARTER);
   assert.strictEqual(r.source, 'CALENDAR');
   assert.ok(r.dates.length >= 12, r.dates.length + ' 個');
   Array.prototype.slice.call(r.dates).forEach(function (iso) {
@@ -526,7 +526,7 @@ test('兩者都沒有 → 曆法推算，而且全部在該季之內', function 
   });
 });
 
-test('三個來源全部只看同一個季度，一個都不會跨季', function () {
+test('四個來源全部只看同一個季度，一個都不會跨季', function () {
   // 三種情況分別跑一次，逐個日期用曆法回推季度——退回的是「用哪一份清單」，
   // 不是「用哪一季」。
   const env = makeEnv({
@@ -535,7 +535,7 @@ test('三個來源全部只看同一個季度，一個都不會跨季', function
     ]
   });
   [ROSTER_QUARTER, TARGET_QUARTER, '2031T3'].forEach(function (qid) {
-    const r = env.sandbox.resolveQuarterServiceDatesWithFallback_(qid);
+    const r = env.sandbox.resolveQuarterServiceDateEntries_(qid);
     Array.prototype.slice.call(r.dates).forEach(function (iso) {
       assert.strictEqual(env.sandbox.calendarQuarterIdForIsoDate_(iso), qid,
         '季度 ' + qid + '（來源 ' + r.source + '）竟然有 ' + iso);

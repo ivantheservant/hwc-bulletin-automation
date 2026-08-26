@@ -181,8 +181,11 @@ function buildFellowshipGenerationPlan_(input) {
 function generateQuarterFellowships_(quarterId) {
   var backup = createFillBackup_(quarterId, FILL_BACKUP_REASON.BEFORE_GENERATE_FELLOWSHIPS);
 
+  // 主日清單只准經這一支拿（見 src/ServiceDates.gs 檔頭）。
+  var dateResolution = resolveQuarterServiceDateEntries_(quarterId);
+  var sourceNote = serviceDateSourceNote_(dateResolution);
   var plan = buildFellowshipGenerationPlan_({
-    serviceDates: listQuarterServiceDates_(quarterId),
+    serviceDates: dateResolution.entries,
     defaultRows: readSheet(SHEETS.FELLOWSHIP_DEFAULTS),
     existingRows: readSheet(SHEETS.FELLOWSHIPS),
     datePattern: getConfig(CONFIG_KEYS.FELLOWSHIP_DATE_PATTERN, 'd/M')
@@ -213,7 +216,10 @@ function generateQuarterFellowships_(quarterId) {
     added: plan.addedCount,
     skipped: plan.skippedCount,
     warnings: plan.warnings,
-    backupId: backup.backupId
+    backupId: backup.backupId,
+    // 主日清單不是來自職事表就一定要講明（見 src/ServiceDates.gs）。
+    serviceDateSource: dateResolution.source,
+    serviceDateNote: sourceNote
   };
 }
 

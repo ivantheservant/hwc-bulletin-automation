@@ -192,11 +192,12 @@ function buildOrRefreshContentSheet_(quarterId, options) {
     return { ok: false, created: false, quarterId: qid, reason: 'NO_FOLDER_ID', message: folderCheck.message };
   }
 
-  // ⚠️ 沙盒季度（自測機用）喺職事表冇資料，`listQuarterServiceDates_()`
-  // 會回空陣列。呢種情況下改用呼叫方提供嘅主日清單——生產路徑唔會傳，
-  // 所以行為完全唔變。
-  var serviceDates = listQuarterServiceDates_(qid).map(function (d) { return d.isoDate; });
-  if (serviceDates.length === 0 && buildOptions.serviceDates && buildOptions.serviceDates.length > 0) {
+  // 主日清單只准經這一支拿（見 src/ServiceDates.gs 檔頭）：職事表 →
+  // BulletinWeeks（同一季）→ 曆法推算。呼叫方仍然可以自己傳一份蓋過
+  // （自測機就是這樣造沙盒的），傳咗就以呼叫方嗰份為準。
+  var dateResolution = resolveQuarterServiceDateEntries_(qid);
+  var serviceDates = dateResolution.dates.slice();
+  if (buildOptions.serviceDates && buildOptions.serviceDates.length > 0) {
     serviceDates = buildOptions.serviceDates.slice();
   }
   if (serviceDates.length === 0) {
@@ -465,11 +466,12 @@ function sendContentSheetInvite_(quarterId) {
     };
   }
 
+  // 主日清單只係信入面嘅參考資料，取唔到唔應該令封信寄唔出，所以
+  // 呢度唔理 source 係邊個——但一定要經共用嗰支拿。
   var serviceDates = [];
   try {
-    serviceDates = listQuarterServiceDates_(qid).map(function (d) { return d.isoDate; });
+    serviceDates = resolveQuarterServiceDateEntries_(qid).dates.slice();
   } catch (err) {
-    // 主日清單只係信入面嘅參考資料，讀唔到唔應該令封信寄唔出。
     serviceDates = [];
   }
 
@@ -595,7 +597,7 @@ function autoCreateContentSheetsForUpcomingQuarters_() {
 
     var serviceDates;
     try {
-      serviceDates = listQuarterServiceDates_(qid).map(function (d) { return d.isoDate; });
+      serviceDates = resolveQuarterServiceDateEntries_(qid).dates.slice();
     } catch (err) {
       result.skipped.push(qid);
       return;

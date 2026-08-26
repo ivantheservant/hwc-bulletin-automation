@@ -593,7 +593,10 @@ function applyFillGridEdit_(sheet, range, quarterId) {
   var dateColTouched = dateColIndex >= startCol && dateColIndex < startCol + numCols;
   var quarterServiceDatesCache = null;
   var getQuarterServiceDates = function () {
-    if (!quarterServiceDatesCache) quarterServiceDatesCache = listQuarterServiceDates_(quarterId);
+    // 主日清單只准經這一支拿（見 src/ServiceDates.gs 檔頭）。
+    if (!quarterServiceDatesCache) {
+      quarterServiceDatesCache = resolveQuarterServiceDateEntries_(quarterId).entries;
+    }
     return quarterServiceDatesCache;
   };
 

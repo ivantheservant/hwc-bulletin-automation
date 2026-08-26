@@ -641,7 +641,7 @@ function previewContentImport_(quarterId, options) {
   //    是靜靜地什麼都不做**，比報錯難發現得多。
   //    退回的只是「用哪一份主日清單」，三個來源全部只看同一個季度，
   //    一個都不會跨季。見 docs/已知bug類型.md 事故四十一。
-  var dateResolution = resolveQuarterServiceDatesWithFallback_(qid);
+  var dateResolution = resolveQuarterServiceDateEntries_(qid);
   var allServiceDates = dateResolution.dates;
 
   if (allServiceDates.length === 0) {
