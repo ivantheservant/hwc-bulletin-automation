@@ -490,7 +490,7 @@ function selfTestScenarios_() {
     { id: 'S17', name: '未填欄位檢查：清單條數 === 實際空格數', run: selfTestS17_ },
     { id: 'S18', name: '星期一自動寄出：選中的是下一個主日，DRY_RUN 之下沒有真寄', run: selfTestS18_ },
     { id: 'S19', name: '職事表沒有該季資料：照樣建立本季週報，ROSTER_STATUS=NOT_FOUND、事奉格全空', run: selfTestS19_ },
-    { id: 'S20', name: '從職事表補抓（仍然找不到）：明確訊息，一格都沒有寫', run: selfTestS20_ },
+    { id: 'S20', name: '補抓空白的事奉欄位（仍然找不到）：明確訊息，一格都沒有寫', run: selfTestS20_ },
     { id: 'S21', name: '人手填一格之後補抓：那一格沒有被覆寫', run: selfTestS21_ },
     { id: 'S22', name: '含 4 月第一個主日的季度：夏令時間提示自動一行，SOURCE=SYSTEM_DST', run: selfTestS22_ },
     { id: 'S23', name: '夏令時間那一行被人手改過：刷新不覆寫、也不另加一行', run: selfTestS23_ },
@@ -501,7 +501,13 @@ function selfTestScenarios_() {
     { id: 'S28', name: '寄出草稿預覽（DRY_RUN）：SendLog 多 STATUS=PREVIEW，內文含連結', run: selfTestS28_ },
     { id: 'S29', name: 'PREVIEW_ENABLED=FALSE：不寄預覽，SendLog 一筆都沒有多', run: selfTestS29_ },
     { id: 'S30', name: '重複段落偵測：長段重複算數，短句重複不算', run: selfTestS30_ },
-    { id: 'S31', name: '內容份量估算：超過門檻有提示、未超過沒有提示，而且結果穩定', run: selfTestS31_ }
+    { id: 'S31', name: '內容份量估算：超過門檻有提示、未超過沒有提示，而且結果穩定', run: selfTestS31_ },
+    { id: 'S32', name: '三季資料：最舊那一季列入封存，其餘兩季維持可見', run: selfTestS32_ },
+    { id: 'S33', name: '取消封存：那一季重新出現在可見清單', run: selfTestS33_ },
+    { id: 'S34', name: '封存不會碰 Diagnostics／PublishLog／AuditLog／SendLog', run: selfTestS34_ },
+    { id: 'S35', name: '沙盒季度永不被封存、永不出現在使用者的季度下拉', run: selfTestS35_ },
+    { id: 'S36', name: '有未發佈而且有內容的主日：封存前列出並要求確認', run: selfTestS36_ },
+    { id: 'S37', name: '沒有任何可見季度：有提示語而且講得出下一步，不是空白下拉', run: selfTestS37_ }
   ];
 }
 
@@ -586,7 +592,7 @@ function selfTestS19_(ctx) {
 }
 
 /**
- * 用途：S20：S19 之後撳「從職事表補抓」（職事表仍然找不到）→ 斷言回一句
+ * 用途：S20：S19 之後撳「補抓空白的事奉欄位」（職事表仍然找不到）→ 斷言回一句
  *   明確訊息、**事奉格一格未變**、補抓數為 0（R-036）。
  *
  *   ⚠️ 斷言的範圍在 2026-08-26 收窄過一次，理由要寫清楚，免得日後被當成
@@ -1108,6 +1114,237 @@ function selfTestS31_(ctx) {
       + '一支永遠提示的壞實作一樣會綠。'
       + '　⚠️ 這個數字**只是估算**：準確頁數要靠 Word 的排版引擎。');
 }
+
+/**
+ * 用途：S32：三季資料 → 跑封存 → 斷言最舊那一季 `ARCHIVED=TRUE`、
+ *   其餘兩季不變（R-035）。
+ *
+ *   ⚠️ 這一條**刻意只驗純函式層** `planQuarterRetention_()`，不真的去封存：
+ *   自測機只准寫沙盒季度那一季，而封存是**整季**的操作，真跑一次就會動到
+ *   真實季度的 `ARCHIVED`、隱藏真實的 `Fill_*`、改真實內容表的 `ACTIVE`。
+ *   那三樣全部在沙盒範圍以外。
+ *   **這是一個已知的覆蓋缺口**，寫在證據欄與 docs/待確認事項.md。
+ * Args:
+ *   ctx {Object} 自測機的執行脈絡。
+ * Returns:
+ *   {{ok:(boolean|null), expected:string, actual:string, evidence:string}}
+ */
+function selfTestS32_(ctx) {
+  var config = ctx.config;
+  var quarters = ['2029T1', '2029T2', '2029T3'];
+  var plan = planQuarterRetention_(quarters, 2, config.quarterId);
+
+  var ok = plan.visible.length === 2
+    && plan.visible[0] === '2029T3' && plan.visible[1] === '2029T2'
+    && plan.toArchive.length === 1 && plan.toArchive[0] === '2029T1';
+
+  return selfTestOutcome_(ok,
+    '可見 2029T3、2029T2；封存 2029T1',
+    '可見 ' + plan.visible.join('、') + '；封存 ' + plan.toArchive.join('、'),
+    '保留 2 季（Config ' + CONFIG_KEYS.RETENTION_QUARTERS_VISIBLE + '）。'
+      + '　⚠️ 覆蓋缺口：這一條只驗「決定封存哪一季」那一段，**沒有真的封存**'
+      + '——封存是整季操作，會動到沙盒範圍以外的資料。真正的寫入要靠'
+      + '十二月真數據演練，或者人手撳選單「立即整理舊季度」。');
+}
+
+/**
+ * 用途：S33：取消封存 → 斷言全部還原（R-035）。
+ *
+ *   ⚠️ 同 S32，只驗得到「還原之後那一季會不會重新出現在可見清單」。
+ * Args:
+ *   ctx {Object} 自測機的執行脈絡。
+ * Returns:
+ *   {{ok:(boolean|null), expected:string, actual:string, evidence:string}}
+ */
+function selfTestS33_(ctx) {
+  var config = ctx.config;
+  var quarters = ['2029T1', '2029T2', '2029T3'];
+
+  // 封存之後：2029T1 的旗標是 TRUE，預設看不見。
+  var archived = { '2029T1': true, '2029T2': false, '2029T3': false };
+  var hiddenList = visibleQuarterList_(quarters, archived, false, config.quarterId);
+
+  // 取消封存之後：旗標改回 FALSE，三季都應該見得返。
+  var restored = { '2029T1': false, '2029T2': false, '2029T3': false };
+  var restoredList = visibleQuarterList_(quarters, restored, false, config.quarterId);
+
+  var ok = hiddenList.length === 2
+    && restoredList.length === 3
+    && restoredList.map(function (q) { return q.quarterId; }).indexOf('2029T1') !== -1;
+
+  return selfTestOutcome_(ok,
+    '封存後可見 2 季；取消封存後可見 3 季（2029T1 重新出現）',
+    '封存後 ' + hiddenList.length + ' 季；取消封存後 ' + restoredList.length + ' 季',
+    '⚠️ 封存**一格資料都沒有刪**，所以取消封存之後那一季完完整整地回來。'
+      + '　⚠️ 覆蓋缺口：同 S32，這一條沒有真的寫入。');
+}
+
+/**
+ * 用途：S34：封存不會碰 `Diagnostics`／`PublishLog`／`AuditLog`／`SendLog`
+ *   （R-035）。
+ *
+ *   ⚠️ 這一條驗的是**靜態的**：`src/Retention.gs` 整個檔案不可以出現那四張
+ *   表的寫入。用行為去驗要真的封存一季（做不到，見 S32），用靜態掃描反而
+ *   驗得更徹底——它連「將來有人加一行」都攔得住。
+ * Args:
+ *   ctx {Object} 自測機的執行脈絡。
+ * Returns:
+ *   {{ok:(boolean|null), expected:string, actual:string, evidence:string}}
+ */
+function selfTestS34_(ctx) {
+  // 封存只碰三樣：BulletinWeeks 的 ARCHIVED 一欄、Fill_* 的隱藏、
+  // ContentSheets 的 ACTIVE（＋ Drive 搬檔案）。逐樣點名。
+  var before = {
+    diagnostics: readSheet(SHEETS.DIAGNOSTICS).length,
+    publishLog: readSheet(SHEETS.PUBLISH_LOG).length,
+    auditLog: readSheet(SHEETS.AUDIT_LOG).length,
+    sendLog: readSheet(SHEETS.SEND_LOG).length
+  };
+
+  // 跑一次**只讀**的部分：算出封存計畫。這一步絕對不應該寫任何東西。
+  var quarterIds = readSheet(SHEETS.BULLETIN_WEEKS).map(function (r) {
+    return String(r.QUARTER_ID || '').trim();
+  });
+  planQuarterRetention_(quarterIds, retentionConfig_().visibleQuarters, ctx.config.quarterId);
+  findUnpublishedWorkInQuarter_(ctx.config.quarterId);
+
+  var after = {
+    diagnostics: readSheet(SHEETS.DIAGNOSTICS).length,
+    publishLog: readSheet(SHEETS.PUBLISH_LOG).length,
+    auditLog: readSheet(SHEETS.AUDIT_LOG).length,
+    sendLog: readSheet(SHEETS.SEND_LOG).length
+  };
+
+  var changed = Object.keys(before).filter(function (k) { return before[k] !== after[k]; });
+  var ok = changed.length === 0;
+
+  return selfTestOutcome_(ok,
+    '四張紀錄表一行都沒有多',
+    changed.length === 0 ? '四張都沒有變' : ('變咗：' + changed.join('、')),
+    'Diagnostics ' + before.diagnostics + '→' + after.diagnostics
+      + '、PublishLog ' + before.publishLog + '→' + after.publishLog
+      + '、AuditLog ' + before.auditLog + '→' + after.auditLog
+      + '、SendLog ' + before.sendLog + '→' + after.sendLog
+      + '　⚠️ 那四張是**紀錄**，不是「本季的工作」——封存它們等於把稽核軌跡'
+      + '藏起來，而稽核軌跡的用途正正是事後回去查。'
+      + '　⚠️ 覆蓋缺口：這一條只跑得到唯讀那一段（真封存會動到沙盒以外）。'
+      + '真正的防線是 tests/retention.test.js 那條靜態掃描。');
+}
+
+/**
+ * 用途：S35：沙盒季度永不被封存、永不出現在使用者可見清單（R-035）。
+ * Args:
+ *   ctx {Object} 自測機的執行脈絡。
+ * Returns:
+ *   {{ok:(boolean|null), expected:string, actual:string, evidence:string}}
+ */
+function selfTestS35_(ctx) {
+  var sandbox = ctx.config.quarterId;
+  var quarters = ['2029T1', '2029T2', '2029T3', sandbox];
+
+  // 1. 永不被列入要封存的一批（就算它是最舊那一個）。
+  var plan = planQuarterRetention_(quarters, 1, sandbox);
+  var inArchiveList = plan.toArchive.indexOf(sandbox) !== -1;
+  var inVisibleList = plan.visible.indexOf(sandbox) !== -1;
+
+  // 2. 永不出現在使用者的季度下拉——**勾了「顯示已封存」都不會**。
+  var flags = {};
+  quarters.forEach(function (q) { flags[q] = false; });
+  var normalList = visibleQuarterList_(quarters, flags, false, sandbox);
+  var withArchived = visibleQuarterList_(quarters, flags, true, sandbox);
+  var leakedNormal = normalList.filter(function (q) { return q.quarterId === sandbox; }).length;
+  var leakedArchived = withArchived.filter(function (q) { return q.quarterId === sandbox; }).length;
+
+  // 3. 真的叫 archiveQuarter_() 要拋錯——靜靜略過會令呼叫方以為封存成功了。
+  var threw = false;
+  try {
+    archiveQuarter_(sandbox, {});
+  } catch (err) {
+    threw = (err && err.code) === 'SANDBOX_QUARTER';
+  }
+
+  var ok = !inArchiveList && !inVisibleList
+    && leakedNormal === 0 && leakedArchived === 0 && threw;
+
+  return selfTestOutcome_(ok,
+    '不入封存清單、不入可見清單、下拉兩種情況都不出現、直接叫會拋錯',
+    '封存清單 ' + inArchiveList + '、可見清單 ' + inVisibleList
+      + '、下拉（預設）' + leakedNormal + ' 次、下拉（顯示已封存）' + leakedArchived
+      + ' 次、拋錯 ' + threw,
+    '沙盒季度 ' + sandbox + '。⚠️ 它出現在幹事的季度下拉，等於叫人去填一批'
+      + '自測機隨時會清走的假資料——那不是「有機會混亂」，是「一定會做白工」。');
+}
+
+/**
+ * 用途：S36：有未發佈而且有內容的主日 → 封存前列出並要求確認（R-035）。
+ * Args:
+ *   ctx {Object} 自測機的執行脈絡。
+ * Returns:
+ *   {{ok:(boolean|null), expected:string, actual:string, evidence:string}}
+ */
+function selfTestS36_(ctx) {
+  var config = ctx.config;
+  var dates = selfTestSandboxDates_(config);
+  if (dates.length === 0) return selfTestOutcome_(null, '沙盒季度有主日', '0 個', '請先跑 S19。');
+
+  assertSelfTestWritableQuarter_(config.quarterId, config);
+
+  // 在沙盒季度填一格內容，令它變成「未發佈但有內容」。
+  var isoDate = dates[0];
+  var loaded = loadWeekForWebApp_(isoDate);
+  saveWeekFromWebApp_({
+    isoDate: isoDate, lastSavedAt: loaded.lastSavedAt,
+    week: { SERMON_TITLE: 'S36 測試講題 ' + ctx.runId }, dutyEdits: []
+  });
+
+  var blockers = findUnpublishedWorkInQuarter_(config.quarterId);
+  var found = blockers.filter(function (b) { return b.isoDate === isoDate; });
+
+  var ok = found.length === 1 && String(found[0].reason).indexOf('未發佈') !== -1;
+
+  return selfTestOutcome_(ok,
+    isoDate + ' 被列為「未發佈但有內容」',
+    blockers.length + ' 個主日被列出'
+      + (found.length === 1 ? ('，包括 ' + isoDate) : '，但不包括 ' + isoDate),
+    '理由：' + (found.length === 1 ? found[0].reason : '（沒有列出）')
+      + '　⚠️ 那一季還在做的話，收起它等於把幹事正在填的東西藏走，'
+      + '所以封存之前一定要問這一句。');
+}
+
+/**
+ * 用途：S37：沒有任何可見季度 → UI 顯示提示，不是空白下拉（R-035）。
+ *
+ *   ⚠️ 這一條驗的是這條功能**最大的風險**：「十月回來打開系統，見到一片
+ *   空白。」沒有那一句提示的話，看的人分不出「資料不見了」與「資料被封存了」。
+ * Args:
+ *   ctx {Object} 自測機的執行脈絡。
+ * Returns:
+ *   {{ok:(boolean|null), expected:string, actual:string, evidence:string}}
+ */
+function selfTestS37_(ctx) {
+  var sandbox = ctx.config.quarterId;
+  var quarters = ['2029T1', '2029T2'];
+  var allArchived = { '2029T1': true, '2029T2': true };
+
+  var visible = visibleQuarterList_(quarters, allArchived, false, sandbox);
+  var withArchived = visibleQuarterList_(quarters, allArchived, true, sandbox);
+
+  var hintHasAction = String(RETENTION_EMPTY_HINT_).indexOf('顯示已封存') !== -1;
+
+  var ok = visible.length === 0
+    && withArchived.length === 2
+    && Boolean(RETENTION_EMPTY_HINT_)
+    && hintHasAction;
+
+  return selfTestOutcome_(ok,
+    '可見 0 季、勾「顯示已封存」見到 2 季、提示語講得出下一步',
+    '可見 ' + visible.length + ' 季、勾之後 ' + withArchived.length + ' 季、'
+      + '提示語' + (hintHasAction ? '有' : '沒有') + '講下一步',
+    '提示語：「' + RETENTION_EMPTY_HINT_ + '」'
+      + '　⚠️ 提示語一定要**講得出下一步**（撳「顯示已封存」或者建立新一季），'
+      + '只講「沒有季度」等於把人留在原地。');
+}
+
 
 /**
  * 用途：數 `SendLog` 內 `STATUS='PREVIEW'` 有幾多筆，並取最後一筆的內文摘要。

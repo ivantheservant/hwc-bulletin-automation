@@ -147,36 +147,43 @@ test('Fellowships 的 MEETING_DATE／MEETING_TIME 是 TEXT 型別（不是 DATE�
   });
 });
 
-test('BulletinWeeks 剛好 54 欄（53 ＋ R-036 的 ROSTER_STATUS）', function () {
-  assert.strictEqual(COLUMNS.BULLETIN_WEEKS.keys.length, 54);
+test('BulletinWeeks 剛好 55 欄（54 ＋ R-035 的 ARCHIVED）', function () {
+  // 2026-08-27 由 54 變 55：R-035 加了 ARCHIVED（已封存），同樣加在最後面。
+  assert.strictEqual(COLUMNS.BULLETIN_WEEKS.keys.length, 55);
 });
 
 test('BulletinWeeks：新欄位一律加在**最後面**（中間插欄會令既有資料整排錯開）', function () {
   const def = COLUMNS.BULLETIN_WEEKS;
-  // 浸禮副框六欄，之後是 R-036 的 ROSTER_STATUS。次序不可以調轉。
+  // 浸禮副框六欄 → R-036 的 ROSTER_STATUS → R-035 的 ARCHIVED。次序不可以調轉。
   const expected = [
     'BAPTISM_OFFICIANT', 'MEMBERSHIP_OFFICIANT', 'CHILD_DEDICATION_OFFICIANT',
     'BAPTISM_MEMBERS', 'MEMBERSHIP_MEMBERS', 'CHILD_DEDICATION_CHILDREN',
-    'ROSTER_STATUS'
+    'ROSTER_STATUS', 'ARCHIVED'
   ];
-  assert.strictEqual(JSON.stringify(def.keys.slice(-7)), JSON.stringify(expected));
-  // 七欄一律 TEXT（多人欄位是一串用空格分隔的姓名，絕對不可以是 DATE／INT）。
-  def.keys.slice(-7).forEach(function (k) {
+  assert.strictEqual(JSON.stringify(def.keys.slice(-8)), JSON.stringify(expected));
+  // 前七欄一律 TEXT（多人欄位是一串用空格分隔的姓名，絕對不可以是 DATE／INT）。
+  def.keys.slice(-8, -1).forEach(function (k) {
     assert.strictEqual(def.types[def.keys.indexOf(k)], 'TEXT', k + ' 必須是 TEXT 型別');
   });
+  // ⚠️ ARCHIVED 刻意是 BOOLEAN 不是 TEXT：它只有兩個值，而且 UI 與
+  //    planQuarterRetention_() 都靠 `=== true` 判斷。寫成 TEXT 的話，
+  //    'FALSE' 這個字串是 truthy，整季會被當成已封存而消失。
+  assert.strictEqual(def.types[def.keys.indexOf('ARCHIVED')], 'BOOLEAN');
 });
 
 test('BulletinWeeks：浸禮副框六欄的中文標題與機器鍵一一對應，沒有錯位', function () {
   const def = COLUMNS.BULLETIN_WEEKS;
   const expectedHeaders = ['浸禮主禮', '入會禮主禮', '孩童奉獻禮主禮', '受浸肢體', '入會肢體', '奉獻孩童'];
-  assert.strictEqual(JSON.stringify(def.headers.slice(-7, -1)), JSON.stringify(expectedHeaders));
+  assert.strictEqual(JSON.stringify(def.headers.slice(-8, -2)), JSON.stringify(expectedHeaders));
 });
 
-test('CONFIG_KEYS 剛好 105 個（與 DEFAULTS 一一對應）', function () {
+test('CONFIG_KEYS 剛好 107 個（與 DEFAULTS 一一對應）', function () {
   // 92 → 91：SEND_TARGET_OFFSET_DAYS 已廢棄（見 docs/已知bug類型.md 事故三十），
   // 已移出 CONFIG_KEYS／DEFAULTS，並加入 cleanupDeprecatedConfigKeys_() 的清單。
   // 2026-08-27 由 98 變 105：R-033 五個（PREVIEW_*）、R-032 兩個。
-  assert.strictEqual(Object.keys(CONFIG_KEYS).length, 105);
+  // 同日再由 105 變 107：R-035 兩個（RETENTION_QUARTERS_VISIBLE、
+  // CONTENT_SHEET_ARCHIVE_FOLDER_ID）。
+  assert.strictEqual(Object.keys(CONFIG_KEYS).length, 107);
 });
 
 test('這一輪新增的 Config 鍵 FINANCE_PERIOD_LABEL_PATTERN 有定義、有預設值', function () {
@@ -209,13 +216,14 @@ test('CONFIG_KEYS 每一個值都有對應的 DEFAULTS 項目（不會有「有�
   });
 });
 
-test('DEFAULTS 剛好 105 筆（98 ＋ R-033 五個、R-032 兩個）', function () {
-  assert.strictEqual(DEFAULTS.length, 105);
+test('DEFAULTS 剛好 107 筆（105 ＋ R-035 兩個）', function () {
+  assert.strictEqual(DEFAULTS.length, 107);
 });
 
-test('內容表那 9 個 Config 鍵齊備，而且 ID 類 seed 成空字串', function () {
+test('內容表那 10 個 Config 鍵齊備，而且 ID 類 seed 成空字串', function () {
   const contentKeys = Object.keys(CONFIG_KEYS).filter(function (k) { return k.indexOf('CONTENT_SHEET_') === 0; });
-  assert.strictEqual(contentKeys.length, 9, '實際：' + contentKeys.join('、'));
+  // 2026-08-27 由 9 變 10：R-035 加了 CONTENT_SHEET_ARCHIVE_FOLDER_ID（封存資料夾）。
+  assert.strictEqual(contentKeys.length, 10, '實際：' + contentKeys.join('、'));
 
   const byKey = {};
   DEFAULTS.forEach(function (d) { byKey[d.key] = d; });
@@ -225,6 +233,7 @@ test('內容表那 9 個 Config 鍵齊備，而且 ID 類 seed 成空字串', fu
   // ⚠️ 資料夾 ID 一律 seed 成空字串，絕對不可以寫死真實 ID（本 repo 會公開）。
   assert.strictEqual(byKey.CONTENT_SHEET_FOLDER_ID.value, '');
   assert.strictEqual(byKey.CONTENT_SHEET_ADMIN_CONTACT.value, '', '聯絡方法一樣不可以寫死');
+  assert.strictEqual(byKey.CONTENT_SHEET_ARCHIVE_FOLDER_ID.value, '', '封存資料夾 ID 一樣不可以寫死');
 });
 
 test('prompt8b：DOC_TEMPLATE_ID_NORMAL／DOC_TEMPLATE_ID_COMBINED 兩個廢棄鍵已從 CONFIG_KEYS 與 DEFAULTS 移除', function () {

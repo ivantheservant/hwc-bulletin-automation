@@ -469,7 +469,17 @@ function protectedSheetNames_() {
     SHEETS.NUMBER_REGISTRY,
     SHEETS.SELF_TEST_STATE,
     SHEETS.SELF_TEST_REPORT,
-    SHEETS.MONKEY_LOG
+    SHEETS.MONKEY_LOG,
+    // R-037 §2.3：MonkeyState 是亂行機的執行狀態（RUN_ID、種子、走到第幾步），
+    // 全部由系統寫。人手改一格只會令「繼續亂行」由一個不存在的狀態接落去。
+    //
+    // ⚠️ 餘下未受保護那 8 張**刻意不加**，因為它們是**人手要填的**：
+    //    Announcements／Prayers／Fellowships／Finance（內容，堂委執事填或者
+    //    由內容表匯入）、PersonDisplay／HonorificLookup／Recipients／
+    //    FellowshipDefaults（參考資料，幹事維護）。把它們設成受保護會令
+    //    人手改不到自己要填的東西——那不是加強保護，是弄壞流程。
+    //    見 docs/待確認事項.md Z-3。
+    SHEETS.MONKEY_STATE
   ];
 }
 

@@ -256,6 +256,32 @@ function publishRowIsoDate_(row) {
 }
 
 /**
+ * 用途：讀 `PublishLog` 的**正式**紀錄——排除 `IS_SELFTEST=TRUE` 那些行。
+ *
+ *   ⚠️ R-037 §2.2：**凡是給人看的正式報表，一律要經這一支。**
+ *   自測機與亂行機會在沙盒季度真的發佈，寫入 `IS_SELFTEST=TRUE` 的行。
+ *   那些行混進正式報表的話：
+ *     - 頂部狀態列會顯示一個沙盒主日做「目前已發佈」；
+ *     - 「最近一次發佈」會指住一個根本沒有寄給會眾的期數；
+ *     - 發佈前檢查會以為「上一次發佈」是某個 2030 年的主日。
+ *   三者都不會報錯，只會靜靜講錯——正是最難查的一類。
+ *
+ *   ⚠️ 刻意用 `!== true` 而不是 `=== false`：舊資料那一欄可能是空白，
+ *   空白代表「不是自測」（自測那條路一定會明確寫 TRUE）。
+ * Args: （無）
+ * Returns:
+ *   {Object[]} 讀不到時回空陣列（**不拋錯**——狀態列只是一行提示，
+ *     讀不到不應該令整個介面載入不到）。
+ */
+function readOfficialPublishLogRows_() {
+  try {
+    return readSheet(SHEETS.PUBLISH_LOG).filter(function (r) { return r.IS_SELFTEST !== true; });
+  } catch (err) {
+    return [];
+  }
+}
+
+/**
  * 用途：算出某一個主日下一次發佈應該係第幾版。**純函式。**
  *
  *   同一個主日再發佈就加一；同一個主日從來未發佈過就係第 1 版。
@@ -512,7 +538,9 @@ function buildPublishPrecheck_(isoDate) {
   var missing = (model && model.missing) ? model.missing : [];
 
   var todayIso = Utilities.formatDate(new Date(), config.timezone, 'yyyy-MM-dd');
-  var latest = latestPublishLogRow_(readSheet(SHEETS.PUBLISH_LOG));
+  // ⚠️ R-037 §2.2：排除自測嘅行。混咗入去嘅話，發佈前檢查會以為
+  //    「上一次發佈」係某個沙盒季度嘅主日，然後報一個假嘅日期問題。
+  var latest = latestPublishLogRow_(readOfficialPublishLogRows_());
   var dateIssues = detectPublishDateIssues_({
     isoDate: isoDate,
     todayIso: todayIso,
@@ -966,7 +994,10 @@ function executePublish_(isoDate, blob, options) {
     };
   }
 
-  var versionNo = nextPublishVersion_(readSheet(SHEETS.PUBLISH_LOG), isoDate);
+  // ⚠️ R-037 §2.2：排除自測嘅行。實務上沙盒主日同真實主日唔會撞，
+  //    但版本號係印落紙、寄出去嘅數字，唔應該靠「兩批日期啱啱好唔重疊」
+  //    呢個巧合嚟保證正確。
+  var versionNo = nextPublishVersion_(readOfficialPublishLogRows_(), isoDate);
 
   // ---- 1. 覆寫 master（檔案 ID 不變）----
   try {
@@ -1472,13 +1503,10 @@ function buildPublishResultLines_(result) {
 function buildPublishStatusForWebApp_() {
   var config = publishConfig_();
   var links = masterPdfLinks_(config.masterFileId);
-  var rows = [];
-  try {
-    rows = readSheet(SHEETS.PUBLISH_LOG);
-  } catch (err) {
-    // 狀態列只係一行提示，讀唔到唔應該令整個介面載入唔到。
-    rows = [];
-  }
+  // ⚠️ R-037 §2.2：狀態列係**正式報表**，一定要排除自測嘅行——
+  //    否則自測機跑完一次，頂部就會顯示一個沙盒主日做「目前已發佈」。
+  //    readOfficialPublishLogRows_() 自己已經包咗 try/catch。
+  var rows = readOfficialPublishLogRows_();
 
   var latest = latestPublishLogRow_(rows);
   var publishedAt = '';

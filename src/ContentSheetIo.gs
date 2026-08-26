@@ -189,3 +189,37 @@ function writeContentRows_(sheet, keys, rows, startRow) {
   sheet.getRange(startRow, 1, values.length, keys.length).setValues(values);
   return values.length;
 }
+
+/**
+ * 用途：把一個內容表檔案搬去指定資料夾（R-035 封存用）。
+ *
+ *   ⚠️ **搬，不是刪。** 封存的整條規則就是「一格資料都不刪」——檔案仍然
+ *   在 Drive，只是換了一個資料夾，隨時搬得返。
+ *
+ *   ⚠️ 搬不到**不可以靜靜當成成功**：回 `ok:false` 加一句原因，由呼叫方
+ *   寫進報告。搬不到而報告話搬咗，下一次找不到檔案會查半日。
+ * Args:
+ *   fileId {string} 內容表檔案 ID。
+ *   folderId {string} 目標資料夾 ID。
+ * Returns:
+ *   {{ok:boolean, message:string}}
+ */
+function moveContentSheetFileToFolder_(fileId, folderId) {
+  var id = String(fileId || '').trim();
+  var target = String(folderId || '').trim();
+  if (!id) return { ok: false, message: '（內容表登記行沒有檔案 ID，所以沒有搬動檔案。）' };
+  if (!target) return { ok: false, message: '（未設定封存資料夾，所以沒有搬動檔案。）' };
+
+  try {
+    var file = DriveApp.getFileById(id);
+    file.moveTo(DriveApp.getFolderById(target));
+    return { ok: true, message: '檔案已搬去封存資料夾（' + maskContentFileId_(id) + '）。' };
+  } catch (err) {
+    return {
+      ok: false,
+      message: '⚠️ 搬動檔案失敗（' + maskContentFileId_(id) + '）：'
+        + ((err && err.message) ? err.message : String(err))
+        + '　檔案仍然在原本的資料夾，登記行的「有效」已經改咗。'
+    };
+  }
+}

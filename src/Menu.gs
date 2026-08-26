@@ -41,7 +41,15 @@ function onOpen() {
     .addItem('測試讀取職事表', 'menuTestReadRoster_')
     .addItem('測試讀取職事表（全季）', 'menuTestReadRosterQuarter_')
     .addItem('建立本季空白週報', 'menuCreateBlankBulletinWeeks_')
-    .addItem('從職事表補抓', 'menuBackfillRoster_')
+    // ⚠️ 名稱要答到幹事最怕那條問題：「會不會覆寫我填的東西？」
+    //    見 docs/待確認事項.md Z-1。
+    .addItem('補抓空白的事奉欄位（整季，不覆寫已填的）', 'menuBackfillRoster_')
+    // R-035：封存只是「預設不顯示」，一格資料都不會刪。名稱要講到。
+    .addItem('立即整理舊季度（封存，不刪資料）', 'menuRunQuarterRetention_')
+    .addItem('取消封存季度（完全還原）', 'menuUnarchiveQuarter_')
+    // R-037：上線前檢查——答的是「今日可不可以真的上線」，
+    // 與「完成度自我檢測」（設定齊不齊）是兩條不同的問題。
+    .addItem('上線前檢查（唯讀）', 'menuRunGoLiveCheck_')
     .addItem('由職事表建立 PersonDisplay 骨架', 'menuBuildPersonDisplaySkeleton_')
     .addItem('套用尊稱對照表', 'menuApplyHonorificLookup_')
     .addItem('尊稱未設定報告', 'menuHonorificMissingReport_')

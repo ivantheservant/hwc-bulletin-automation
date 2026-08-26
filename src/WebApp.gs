@@ -356,8 +356,9 @@ function withApiResult_(fn, context) {
  * Returns:
  *   {{ok:boolean, data:{weeks:Object[], defaultIsoDate:(string|null)}, error?:Object}}
  */
-function apiListWeeks() {
-  return withApiResult_(function () { return listWeeksForWebApp_(); }, { functionName: 'apiListWeeks' });
+function apiListWeeks(includeArchived) {
+  return withApiResult_(function () { return listWeeksForWebApp_(includeArchived === true); },
+    { functionName: 'apiListWeeks', argsSummary: 'includeArchived=' + (includeArchived === true) });
 }
 
 /**
@@ -754,7 +755,7 @@ function bulletinDocxForDownload_(isoDate) {
  *   {{weeks:Object[], defaultIsoDate:(string|null),
  *     quarters:Object[], defaultQuarterId:(string|null)}}
  */
-function listWeeksForWebApp_() {
+function listWeeksForWebApp_(includeArchived) {
   var rows = readSheet(SHEETS.BULLETIN_WEEKS);
   var todayIso = formatIsoDate_(new Date());
 
@@ -771,16 +772,71 @@ function listWeeksForWebApp_() {
     missingIndex: missingIndex
   });
 
-  var groups = buildQuarterWeekGroups_(entries, getConfig(CONFIG_KEYS.SELFTEST_QUARTER_ID, ''));
+  var allGroups = buildQuarterWeekGroups_(entries, getConfig(CONFIG_KEYS.SELFTEST_QUARTER_ID, ''));
+
+  // R-035：已封存的季度預設不顯示，勾了「顯示已封存」才全部列出。
+  // ⚠️ 沙盒季度由 buildQuarterWeekGroups_() 擋走，兩邊都不會出現。
+  var archivedByQuarter = quarterArchivedFlags_(rows);
+  var wantArchived = includeArchived === true;
+  var groups = allGroups.filter(function (g) {
+    return wantArchived || archivedByQuarter[g.quarterId] !== true;
+  }).map(function (g) {
+    return {
+      quarterId: g.quarterId,
+      // 已封存的要在下拉裏面睇得出，否則勾了「顯示已封存」之後分不清。
+      label: g.label + (archivedByQuarter[g.quarterId] === true ? '（已封存）' : ''),
+      archived: archivedByQuarter[g.quarterId] === true,
+      weeks: g.weeks
+    };
+  });
+
   var defaultIsoDate = pickDefaultSelectorIsoDate_(groups, todayIso);
   if (defaultIsoDate === null) defaultIsoDate = pickDefaultWeekIsoDate_(entries, todayIso);
+
+  var archivedCount = allGroups.filter(function (g) {
+    return archivedByQuarter[g.quarterId] === true;
+  }).length;
 
   return {
     weeks: entries,
     defaultIsoDate: defaultIsoDate,
     quarters: groups,
-    defaultQuarterId: quarterIdOfIsoDateInGroups_(groups, defaultIsoDate)
+    defaultQuarterId: quarterIdOfIsoDateInGroups_(groups, defaultIsoDate),
+    // R-035：前端要知道「有沒有已封存的季度」才決定要不要提示。
+    archivedQuarterCount: archivedCount,
+    includeArchived: wantArchived,
+    // ⚠️ 一個可見季度都沒有時**一定要有一句說明**，不可以只顯示一個空下拉。
+    //    「十月回來打開系統見到一片空白」是這一條功能最大的風險。
+    emptyHint: groups.length === 0 ? RETENTION_EMPTY_HINT_ : ''
   };
+}
+
+/**
+ * 用途：由 `BulletinWeeks` 算出每一季是不是已封存。**純函式。**
+ *
+ *   ⚠️ 一季之內只要**有任何一行**未封存，那一季就當成未封存。封存是
+ *   整季一齊做的，出現「一半封存一半沒有」代表中途出過事——那種情況
+ *   應該讓那一季照樣顯示（睇得到才修得到），不是靜靜收起。
+ * Args:
+ *   rows {Object[]} `readSheet(SHEETS.BULLETIN_WEEKS)` 的輸出。
+ * Returns:
+ *   {Object<string,boolean>}
+ */
+function quarterArchivedFlags_(rows) {
+  var anyUnarchived = {};
+  var seen = {};
+  (rows || []).forEach(function (row) {
+    var qid = String(row.QUARTER_ID || '').trim();
+    if (!qid) return;
+    seen[qid] = true;
+    if (row.ARCHIVED !== true) anyUnarchived[qid] = true;
+  });
+
+  var out = {};
+  Object.keys(seen).forEach(function (qid) {
+    out[qid] = anyUnarchived[qid] !== true;
+  });
+  return out;
 }
 
 /**
@@ -1186,7 +1242,7 @@ function loadWeekForWebApp_(isoDate) {
     // 由伺服器算好文案，前端只負責顯示——ROSTER_STATUS 的三個值代表什麼
     // 只應該有一處知道。
     rosterGapBanner: rosterGapBannerForQuarter_(model.quarterId),
-    // R-036：「從職事表補抓」要知道補哪一季。前端不自己由日期推算季度——
+    // R-036：「補抓空白的事奉欄位」要知道補哪一季。前端不自己由日期推算季度——
     // 季度的定義只應該有一處知道。
     quarterId: model.quarterId
   };

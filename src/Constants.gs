@@ -150,7 +150,7 @@ var COLUMNS = Object.freeze({
       '受浸肢體', '入會肢體', '奉獻孩童',
       // R-036：職事表未有該季資料時仍然建立得到週報，用這一欄記住那一行的
       // 事奉資料是不是齊全。同樣加在**最尾**，理由見上面第六輪那一段。
-      '職事表狀態'
+      '職事表狀態', '已封存'
     ],
     keys: [
       'SERVICE_DATE', 'QUARTER_ID', 'WEEK_OF_MONTH', 'SPECIAL_TYPE', 'PAGE_TITLE',
@@ -167,7 +167,7 @@ var COLUMNS = Object.freeze({
       'FINANCE_NOTE', 'FINANCE_BALANCE',
       'BAPTISM_OFFICIANT', 'MEMBERSHIP_OFFICIANT', 'CHILD_DEDICATION_OFFICIANT',
       'BAPTISM_MEMBERS', 'MEMBERSHIP_MEMBERS', 'CHILD_DEDICATION_CHILDREN',
-      'ROSTER_STATUS'
+      'ROSTER_STATUS', 'ARCHIVED'
     ],
     types: [
       'DATE', 'TEXT', 'INT', 'TEXT', 'TEXT',
@@ -185,7 +185,9 @@ var COLUMNS = Object.freeze({
       'TEXT', 'TEXT',
       'TEXT', 'TEXT', 'TEXT',
       'TEXT', 'TEXT', 'TEXT',
-      'TEXT'
+      'TEXT',
+      // R-035：已封存（TRUE／FALSE）。⚠️ 封存只是「預設不顯示」，一格資料都不會刪。
+      'BOOLEAN'
     ],
     textFormatColumns: [
       'ATT_ENG_WORSHIP', 'ATT_CANE_WORSHIP', 'ATT_CANN_WORSHIP', 'ATT_MAN_WORSHIP',
@@ -632,7 +634,10 @@ var CONFIG_KEYS = Object.freeze({
   PREVIEW_WEBAPP_URL: 'PREVIEW_WEBAPP_URL',
   // R-032：內容過多的提示
   BULLETIN_CONTENT_WARN_CHARS: 'BULLETIN_CONTENT_WARN_CHARS',
-  DUPLICATE_PARAGRAPH_MIN_CHARS: 'DUPLICATE_PARAGRAPH_MIN_CHARS'
+  DUPLICATE_PARAGRAPH_MIN_CHARS: 'DUPLICATE_PARAGRAPH_MIN_CHARS',
+  // R-035：舊季度自動封存
+  RETENTION_QUARTERS_VISIBLE: 'RETENTION_QUARTERS_VISIBLE',
+  CONTENT_SHEET_ARCHIVE_FOLDER_ID: 'CONTENT_SHEET_ARCHIVE_FOLDER_ID'
 });
 
 // =====================================================================
@@ -784,6 +789,10 @@ var DEFAULTS = Object.freeze([
 
   // ---- R-032：內容過多的提示 ----
   { key: CONFIG_KEYS.BULLETIN_CONTENT_WARN_CHARS, value: '5600', note: 'R-032：內容份量估算的提示門檻（字元數）。門檻的來歷：88 期真實週報之中，4 頁的中位數約 4,500 字元、5 頁的約 6,000 至 6,500 字元，取中間偏保守。⚠️ 這**只是估算**——Apps Script 算不到準確頁數，頁數要靠 Word 的排版引擎，所以超過門檻只會提示「請用 Word 開啟確認」，一定不會擋住產生' },
+  // ---- R-035：舊季度自動封存 ----
+  { key: CONFIG_KEYS.RETENTION_QUARTERS_VISIBLE, value: '2', note: 'R-035：季度下拉預設顯示最近幾多季（2 ＝ 本季 ＋ 前一季）。更早的季度會被標記 ARCHIVED=TRUE、Fill_* 隱藏、內容表登記行 ACTIVE=FALSE。⚠️ **一格資料都不會刪**——封存只是「預設不顯示」，撳「顯示已封存」就見得返，亦可以用選單「取消封存」完全還原' },
+  { key: CONFIG_KEYS.CONTENT_SHEET_ARCHIVE_FOLDER_ID, value: '', note: 'R-035：封存時把內容表檔案搬去哪一個資料夾（Shared Drive 內的子資料夾 ID）。⚠️ 留空就**只改 ContentSheets 那一行的 ACTIVE，不搬檔案**，並在報告講明——搬檔案是 Drive 操作，設定未填就靜靜不搬而不講，下次找不到檔案會查半日' },
+
   { key: CONFIG_KEYS.DUPLICATE_PARAGRAPH_MIN_CHARS, value: '25', note: 'R-032：重複段落偵測的最短長度（字元）。短過這個數的段落（例如「本週」「阿們」）重複是正常的，不當成問題' }
 ]);
 

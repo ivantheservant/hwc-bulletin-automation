@@ -2,7 +2,7 @@
  * RosterBackfill.gs
  *
  * R-036：職事表未有該季資料時，仍然建立得到週報；之後職事表準備好，
- * 再撳「從職事表補抓」把空格補回去。
+ * 再撳「補抓空白的事奉欄位」把空格補回去。
  *
  * ⚠️ 為什麼要這樣做（docs/已知bug類型.md 事故四十）：
  *   舊版「建立本季週報」在職事表找不到該季就整個中止。但週報有大量與
@@ -224,7 +224,7 @@ function isBlankWeekCell_(value) {
 }
 
 /**
- * 用途：「從職事表補抓」的**真正入口**：把該季 `BulletinWeeks` 內由職事表
+ * 用途：「補抓空白的事奉欄位」的**真正入口**：把該季 `BulletinWeeks` 內由職事表
  *   來的空格補回去，並更新 `ROSTER_STATUS`。
  *
  *   ⚠️ **只填空格**。人手已經填過的值一格都不會動——所以這一支可以隨時
@@ -331,7 +331,7 @@ function backfillRosterForQuarter_(quarterId) {
       rowKey: qid, field: 'ROSTER_STATUS',
       oldValue: describeRosterStatusCounts_(statusBefore),
       newValue: describeRosterStatusCounts_(statusAfter),
-      notes: '從職事表補抓：補了 ' + filled + ' 格，動了 ' + rowsTouched + ' 行。'
+      notes: '補抓空白的事奉欄位：補了 ' + filled + ' 格，動了 ' + rowsTouched + ' 行。'
         + '⚠️ 只填空白格，人手填過的一格都沒有改。' + auditNotes.slice(0, 12).join('、')
     });
   }
@@ -416,7 +416,7 @@ function buildRosterBackfillMessage_(input) {
   if (!input.rosterFound) {
     lines.push('職事表仍然未有季度「' + input.quarterId + '」的資料。');
     lines.push('已經補了 ' + input.filled + ' 格，仍有 ' + input.stillBlank + ' 格空白。');
-    lines.push('職事表準備好之後，再撳一次「從職事表補抓」就可以。'
+    lines.push('職事表準備好之後，再撳一次「補抓空白的事奉欄位」就可以。'
       + '（隨時可以重試，不限次數；人手填過的一格都不會被覆寫。）');
   } else {
     lines.push('已經由職事表補了 ' + input.filled + ' 格。');
@@ -486,25 +486,25 @@ function rosterGapBannerForQuarter_(quarterId) {
   if (notFound > 0 && partial === 0 && unknown === 0) {
     return {
       show: true, notFound: notFound, partial: partial, unknown: unknown,
-      text: '本季職事表未有資料，事奉欄位全部留空。職事表建立好之後，撳「從職事表補抓」。'
+      text: '本季職事表未有資料，事奉欄位全部留空。職事表建立好之後，撳「補抓空白的事奉欄位」。'
     };
   }
   if (unknown > 0 && notFound === 0 && partial === 0) {
     return {
       show: true, notFound: notFound, partial: partial, unknown: unknown,
       text: '本季有 ' + unknown + ' 個主日**未查證過**職事表狀態（多數是舊資料）。'
-        + '撳「從職事表補抓」就會逐個查證並更新。'
+        + '撳「補抓空白的事奉欄位」就會逐個查證並更新。'
     };
   }
   return {
     show: true, notFound: notFound, partial: partial, unknown: unknown,
     text: '本季有 ' + (notFound + partial + unknown) + ' 個主日在職事表找不到資料或未查證過，'
-      + '那幾期的事奉欄位留空。職事表補齊之後，撳「從職事表補抓」。'
+      + '那幾期的事奉欄位留空。職事表補齊之後，撳「補抓空白的事奉欄位」。'
   };
 }
 
 /**
- * 用途：選單「從職事表補抓」。
+ * 用途：選單「補抓空白的事奉欄位（整季，不覆寫已填的）」。
  * Returns:
  *   {void}
  */
@@ -513,26 +513,29 @@ function menuBackfillRoster_() {
   try {
     var resolution = resolveWorkingQuarter_();
     var defaultQuarter = resolution.ok ? resolution.quarterId : '';
-    var resp = ui.prompt('從職事表補抓',
-      '把該季 BulletinWeeks 內由職事表來的**空白格**補回去。\n\n'
-        + '⚠️ 只填空白格——人手填過的值一格都不會被覆寫，所以隨時可以重試。\n'
+    var resp = ui.prompt('補抓空白的事奉欄位',
+      '⚠️ **不會覆寫你填過的任何一格。** 這一支只把「現在是空白」的事奉欄位，\n'
+        + '用職事表的資料補回去；有值的一律不動，所以隨時可以重試，撳幾多次都一樣。\n\n'
+        + '範圍：整個季度（不是單一主日）。\n'
         + '⚠️ 職事表全程唯讀，一格都不會寫進去。\n\n'
+        + '（想看某一個主日最新的職事表內容而不寫入，請用填寫介面的\n'
+        + '　「重讀職事表（本主日，不覆寫）」。）\n\n'
         + '要補哪一個季度？（直接按確定＝' + (defaultQuarter || '（未能決定）') + '）',
       ui.ButtonSet.OK_CANCEL);
     if (resp.getSelectedButton() !== ui.Button.OK) return;
 
     var quarterId = resp.getResponseText().trim() || defaultQuarter;
     if (!quarterId) {
-      ui.alert('從職事表補抓', '未能決定季度，請直接輸入季度 ID（例如 2027T4）。', ui.ButtonSet.OK);
+      ui.alert('補抓空白的事奉欄位', '未能決定季度，請直接輸入季度 ID（例如 2027T4）。', ui.ButtonSet.OK);
       return;
     }
 
     var result = backfillRosterForQuarter_(quarterId);
-    writeDiagnosticsReport_('從職事表補抓', buildRosterBackfillReportLines_(result));
-    ui.alert(result.ok ? '從職事表補抓完成' : '從職事表補抓失敗', result.message, ui.ButtonSet.OK);
+    writeDiagnosticsReport_('補抓空白的事奉欄位', buildRosterBackfillReportLines_(result));
+    ui.alert(result.ok ? '補抓完成' : '補抓失敗', result.message, ui.ButtonSet.OK);
   } catch (err) {
     logMenuError_('menuBackfillRoster_', err);
-    ui.alert('從職事表補抓失敗', enrichAuthError_(err), ui.ButtonSet.OK);
+    ui.alert('補抓空白的事奉欄位失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
 }
 
@@ -563,7 +566,7 @@ function buildRosterBackfillReportLines_(result) {
   lines.push('職事表全程唯讀，一格都不會寫進去。');
   if (!result.rosterFound) {
     lines.push('');
-    lines.push('職事表建立好那一季之後，再撳一次「從職事表補抓」就可以。');
+    lines.push('職事表建立好那一季之後，再撳一次「補抓空白的事奉欄位」就可以。');
   }
   return lines;
 }

@@ -20,6 +20,9 @@
   // 小小的「更新中」提示。
   var state = {
     isoDate: null,
+    // R-035：有沒有勾「顯示已封存」。⚠️ 刻意不記進 localStorage——
+    // 重新整理頁面就應該回到預設（只看未封存那幾季），見 state 的說明。
+    showArchived: false,
     // R-034：兩層下拉的資料（季度 → 主日）與目前這一期屬於哪一季。
     quarters: [],
     quarterId: null,
@@ -180,6 +183,7 @@
 
     document.getElementById('weekSelect').disabled = busy;
     document.getElementById('quarterSelect').disabled = busy;
+    document.getElementById('showArchivedCheck').disabled = busy;
     document.getElementById('prevWeekBtn').disabled = busy;
     document.getElementById('nextWeekBtn').disabled = busy;
     document.getElementById('backfillRosterBtn').disabled = busy;
@@ -1611,6 +1615,39 @@
   // =====================================================================
 
   /**
+   * 用途：勾選／取消勾選「顯示已封存」之後重新載入季度清單（R-035）。
+   * Returns:
+   *   {void}
+   */
+  function onShowArchivedChanged() {
+    state.showArchived = document.getElementById('showArchivedCheck').checked === true;
+    callServer('apiListWeeks', [state.showArchived], onWeeksLoaded, { busyText: '載入中…' });
+  }
+
+  /**
+   * 用途：畫出（或者收起）「目前沒有未封存的季度」那一句提示（R-035）。
+   *
+   *   ⚠️ 這一句是這一條功能最重要的防線。沒有它的話，十月回來打開系統
+   *   會見到一個**空白的季度下拉**，完全看不出「資料仍然在，只是被封存了」
+   *   ——那會令人以為系統把整年的資料弄丟了。
+   * Args:
+   *   data {Object} `apiListWeeks()` 的 `data`。
+   * Returns:
+   *   {void}
+   */
+  function renderQuarterEmptyHint(data) {
+    var hint = document.getElementById('quarterEmptyHint');
+    var text = (data && data.emptyHint) ? data.emptyHint : '';
+    if (!text) {
+      hint.classList.add('hidden');
+      hint.textContent = '';
+      return;
+    }
+    hint.textContent = text;
+    hint.classList.remove('hidden');
+  }
+
+  /**
    * 用途：把伺服器送過來的兩層清單存起來，並把兩個下拉都畫好。
    *
    *   ⚠️ 伺服器拿不到 `quarters`（例如季度全部被排除）時要退回舊的一層
@@ -1769,7 +1806,7 @@
   }
 
   // =====================================================================
-  // R-036：職事表未有資料的黃色橫幅與「從職事表補抓」
+  // R-036：職事表未有資料的黃色橫幅與「補抓空白的事奉欄位」
   // =====================================================================
 
   /**
@@ -1809,7 +1846,7 @@
       showMessage(data.rosterFound === true ? 'success' : 'info', data.message);
       // 補抓之後事奉欄位與橫幅都可能變了，重新載入這一期。
       if (state.isoDate) loadWeek(state.isoDate, { keepMessage: true });
-    }, { busyText: '從職事表補抓中…' });
+    }, { busyText: '補抓空白欄位中…' });
   }
 
   // =====================================================================
@@ -1819,6 +1856,7 @@
   function wireStaticEvents() {
     document.getElementById('weekSelect').addEventListener('change', function (e) { loadWeek(e.target.value); });
     document.getElementById('quarterSelect').addEventListener('change', onQuarterChanged);
+    document.getElementById('showArchivedCheck').addEventListener('change', onShowArchivedChanged);
     document.getElementById('prevWeekBtn').addEventListener('click', function () { stepWeek(-1); });
     document.getElementById('nextWeekBtn').addEventListener('click', function () { stepWeek(1); });
     document.getElementById('backfillRosterBtn').addEventListener('click', backfillRoster);
@@ -1908,14 +1946,19 @@
     document.getElementById('conflictPanel').classList.add('hidden');
     applyBusyState();
     loadPublishPanel();
-    callServer('apiListWeeks', [], onWeeksLoaded, { busyText: '載入中…' });
+    callServer('apiListWeeks', [state.showArchived], onWeeksLoaded, { busyText: '載入中…' });
   }
 
   function onWeeksLoaded(resp) {
     if (!resp.ok) { showMessage('error', resp.error.message); return; }
+    renderQuarterEmptyHint(resp.data);
     populateWeekSelectors(resp.data, resp.data.defaultIsoDate);
     if (resp.data.defaultIsoDate) {
       loadWeek(resp.data.defaultIsoDate);
+    } else if (resp.data.emptyHint) {
+      // ⚠️ 「全部季度都封存咗」與「一條資料都沒有」是兩件事，
+      //    訊息要分得出——前者撳一下勾選格就見得返。
+      showMessage('info', resp.data.emptyHint);
     } else {
       showMessage('error', '目前沒有任何主日資料。請先在試算表用選單「建立本季空白週報」建立骨架。');
     }

@@ -56,7 +56,7 @@ Auckland 粵語堂自動產生每個主日的週報（崇拜程序、封面、�
 
 ```
 src/     Apps Script 原始碼（clasp push 的來源）
-docs/    規格與操作說明
+docs/    規格與操作說明（含 示範腳本.md：可以照住做的流程，同時是簡報用）
 tests/   Node.js 回歸測試（不依賴 SpreadsheetApp，可直接 node 執行）
 tools/   commit 前敏感資料掃描與靜態檢查
 ```

@@ -442,6 +442,17 @@
   }
   .publish-status-bar .hint { margin: 0; }
 
+  /* R-035：一個可見季度都沒有時的提示。刻意用黃色而不是紅色——
+     「全部季度都封存咗」不是錯誤，只是要撳一下才見得返。 */
+  .quarter-empty-hint {
+    font-size: 13px;
+    color: #7a5b00;
+    background: #fff6d8;
+    border: 1px solid #f0d98a;
+    border-radius: 4px;
+    padding: 0.25em 0.6em;
+  }
+
   /* R-036：職事表未有資料的黃色橫幅。用黃色而不是紅色——職事表未出
      不是錯誤，是「未到時候」，用紅色會令幹事以為系統壞了。 */
   .roster-gap-bar {

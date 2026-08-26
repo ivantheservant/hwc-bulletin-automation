@@ -36,6 +36,16 @@
         季度：
         <select id="quarterSelect"></select>
       </label>
+      <!--
+        R-035：已封存的季度預設不顯示，勾了才全部列出。
+        ⚠️ 「封存」在本系統**不等於刪除**：資料一格未動，取消勾選就見得返，
+        亦可以用選單「取消封存季度」完全還原。
+      -->
+      <label class="topbar-field" id="showArchivedField" title="已封存的季度預設不顯示。封存不等於刪除——資料一格未動，隨時見得返。">
+        <input type="checkbox" id="showArchivedCheck"> 顯示已封存
+      </label>
+      <!-- ⚠️ 一個可見季度都沒有時一定要有一句說明，不可以只顯示一個空下拉。 -->
+      <span id="quarterEmptyHint" class="quarter-empty-hint hidden"></span>
       <label class="topbar-field">
         主日：
         <select id="weekSelect"></select>
@@ -51,9 +61,11 @@
       <!-- R-033：草稿預覽。新分頁開啟，唯讀，不會影響目前正在填的東西。 -->
       <a id="previewLink" class="btn btn-secondary hidden" target="_blank" rel="noopener"
          title="用新分頁開啟這一個主日的草稿預覽（唯讀，版面與正式印刷版不同）">開啟預覽</a>
-      <button id="reloadRosterBtn" type="button" class="btn btn-secondary">重新讀取職事表</button>
+      <button id="reloadRosterBtn" type="button" class="btn btn-secondary"
+              title="只重新讀取這一個主日的職事表，更新畫面上的唯讀區塊（事奉框、下週事奉、程序）。不會動你正在填的欄位，也不會覆寫任何已填的值。">重讀職事表（本主日，不覆寫）</button>
       <!-- R-036：職事表整季未有資料時用的補抓鈕。隨時可以撳，只填空白格。 -->
-      <button id="backfillRosterBtn" type="button" class="btn btn-secondary" title="把職事表已經有、而週報仍然空白的事奉格補抓回來（只填空白格）">從職事表補抓</button>
+      <button id="backfillRosterBtn" type="button" class="btn btn-secondary"
+              title="把職事表已經有、而週報仍然空白的事奉格補回去（整季）。⚠️ 只填空白格，不會覆寫你填過的任何一格，所以隨時可以重試。">補抓空白欄位（不覆寫）</button>
       <button id="saveBtn" type="button" class="btn btn-primary">儲存</button>
     </div>
     <!-- R-008：常駐一行，不隨主日下拉改變。 -->

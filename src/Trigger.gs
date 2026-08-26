@@ -109,6 +109,37 @@ function weeklyBulletinSendTrigger_() {
       });
     }
 
+    // R-035：順手整理舊季度（封存超出保留範圍那幾季）。包一層 try/catch
+    //    ——整理失敗不應該連累寄週報，那是兩件獨立的事。
+    //
+    // ⚠️ 這裏**刻意不 force**：有「未發佈但有內容」的季度就略過並記
+    //    ErrorLog，等人手撳選單確認。自動流程不應該替使用者決定
+    //    「那一季可以收起了」——那是判斷，不是規則。
+    try {
+      var retentionResult = runQuarterRetention_({});
+      var blockedQuarters = retentionResult.skipped.filter(function (s) {
+        return s.reason === 'HAS_UNPUBLISHED_WORK';
+      });
+      if (blockedQuarters.length > 0) {
+        appendErrorLog_({
+          source: ERROR_LOG_SOURCE.TRIGGER,
+          functionName: 'weeklyBulletinSendTrigger_/runQuarterRetention_',
+          errorCode: 'RETENTION_NEEDS_CONFIRMATION',
+          message: '有 ' + blockedQuarters.length + ' 季未封存，因為仍然有未發佈而且有內容的主日：'
+            + blockedQuarters.map(function (s) { return s.quarterId; }).join('、')
+            + '　請撳選單「立即整理舊季度（封存，不刪資料）」人手確認。'
+        });
+      }
+    } catch (retentionErr) {
+      appendErrorLog_({
+        source: ERROR_LOG_SOURCE.TRIGGER,
+        functionName: 'weeklyBulletinSendTrigger_/runQuarterRetention_',
+        errorCode: (retentionErr && retentionErr.code) || 'ERROR',
+        message: (retentionErr && retentionErr.message) ? retentionErr.message : String(retentionErr),
+        detail: buildErrorDetail_(retentionErr)
+      });
+    }
+
     // R-033：草稿預覽連結。包一層 try/catch——預覽寄不到不應該連累週報，
     //    那是兩件獨立的事；失敗記一筆 ErrorLog 就好。
     try {

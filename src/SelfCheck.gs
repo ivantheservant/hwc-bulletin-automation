@@ -404,7 +404,7 @@ function selfCheckRosterGapItem_() {
   });
   return selfCheckItem_('職事表缺口', S.YELLOW,
     '有 ' + gaps.length + ' 個季度的事奉資料未齊（那幾期的事奉欄位留空）。'
-      + '職事表補齊之後，撳選單「從職事表補抓」。',
+      + '職事表補齊之後，撳選單「補抓空白的事奉欄位」。',
     detail);
 }
 
@@ -680,12 +680,9 @@ function selfCheckPublishItems_(quarterResolution) {
   }
 
   // ---- 最近一次發佈的主日與版本 ----
-  var publishRows = [];
-  try {
-    publishRows = readSheet(SHEETS.PUBLISH_LOG);
-  } catch (err) {
-    publishRows = [];
-  }
+  // ⚠️ R-037 §2.2：排除自測嘅行——自測機跑完一次之後，「最近一次發佈」
+  //    會指住一個根本沒有寄給會眾的沙盒期數。
+  var publishRows = readOfficialPublishLogRows_();
   var latestPublish = latestPublishLogRow_(publishRows);
   items.push(selfCheckItem_(
     '最近一次發佈',

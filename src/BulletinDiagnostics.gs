@@ -77,7 +77,7 @@ function menuCreateBlankBulletinWeeks_() {
 function createBlankBulletinWeeks_(quarterId) {
   // ⚠️ R-036：職事表未有該季資料**不再令這一步中止**。改為用曆法推算該季
   //    全部星期日，照樣建立骨架，事奉相關欄位留空、`ROSTER_STATUS` 寫
-  //    `NOT_FOUND`，之後撳「從職事表補抓」補回去。
+  //    `NOT_FOUND`，之後撳「補抓空白的事奉欄位」補回去。
   //
   //    週報有大量與事奉無關的欄位（講題、詩歌、家事報告、人數）本來就
   //    填得——因為一部分資料未到而令全部工作開始不到，是不對的。
@@ -162,6 +162,21 @@ function createBlankBulletinWeeks_(quarterId) {
     return String(r.QUARTER_ID || '').trim() === String(quarterId || '').trim();
   });
   var statusCounts = countRosterStatuses_(quarterRows);
+
+  // R-035：順手整理舊季度。包一層 try/catch——整理失敗不應該令
+  //    「建立本季週報」整個失敗，那是兩件獨立的事。
+  // ⚠️ 刻意不 force：有未發佈而且有內容的季度就略過，等人手確認。
+  var retention = null;
+  try {
+    retention = runQuarterRetention_({});
+  } catch (retentionErr) {
+    retention = {
+      archived: [], skipped: [], visible: [],
+      message: '整理舊季度時出錯（不影響剛才建立的週報）：'
+        + ((retentionErr && retentionErr.message) ? retentionErr.message : String(retentionErr))
+    };
+  }
+
   return {
     totalDates: dates.length,
     quarterRowCount: quarterRows.length,
@@ -171,6 +186,7 @@ function createBlankBulletinWeeks_(quarterId) {
     dateSource: resolution.source,
     rosterFound: resolution.source === 'ROSTER',
     rosterStatusCounts: statusCounts,
+    retention: retention,
     message: buildCreateWeeksMessage_({
       quarterId: quarterId, added: newRows.length, skipped: skipped,
       rosterFound: resolution.source === 'ROSTER', statusCounts: statusCounts
@@ -205,7 +221,7 @@ function buildCreateWeeksMessage_(input) {
         + '，事奉欄位全部留空。');
     }
     lines.push('本季職事表未有資料，主日清單由曆法推算（該季全部星期日）。');
-    lines.push('職事表建立好之後，撳「從職事表補抓」就會把空格補回去。');
+    lines.push('職事表建立好之後，撳「補抓空白的事奉欄位」就會把空格補回去。');
     lines.push('目前職事表狀態：' + describeRosterStatusCounts_(input.statusCounts));
   } else {
     lines.push('季度 ' + input.quarterId + '：新增 ' + input.added + ' 行，略過 '
@@ -213,7 +229,7 @@ function buildCreateWeeksMessage_(input) {
     var gaps = (input.statusCounts.PARTIAL || 0) + (input.statusCounts.NOT_FOUND || 0);
     if (gaps > 0) {
       lines.push('⚠️ 其中 ' + gaps + ' 個主日在職事表找不到資料，那幾期的事奉欄位留空。');
-      lines.push('職事表補齊之後，撳「從職事表補抓」。');
+      lines.push('職事表補齊之後，撳「補抓空白的事奉欄位」。');
     }
   }
   return lines.join('\n');
