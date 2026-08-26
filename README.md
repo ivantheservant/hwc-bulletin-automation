@@ -48,6 +48,8 @@ Auckland 粵語堂自動產生每個主日的週報（崇拜程序、封面、�
   - `node tools/scan-staged-secrets.js`　（掃描即將 commit 的內容有沒有真實個資）
   - `node tools/lint-load-order.js`　（`.gs` 檔案的頂層初始化式不可以依賴載入次序）
   - `node tools/lint-readonly-roster.js`　（對職事表試算表一律唯讀，一個格都不可以寫）
+  - `node tools/lint-drive-shared.js`　（每一個 Drive 進階服務呼叫都要帶 `supportsAllDrives`）
+  - `node tools/lint-roster-quarter.js`　（「決定哪一季」的退回鏈，不可以用來決定「去職事表拿哪一季的資料」）
 
 ## 目錄
 

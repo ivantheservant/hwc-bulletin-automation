@@ -754,7 +754,7 @@ var DEFAULTS = Object.freeze([
   { key: CONFIG_KEYS.PUBLISH_DEDUP_SEC, value: '30', note: '同一個主日在幾多秒內重複發佈會被視為「撳多了一次」，直接回報上一次的版本號，不再產生新版本' },
   { key: CONFIG_KEYS.WEBAPP_CALL_TIMEOUT_SEC, value: '120', note: '填寫介面等候伺服器回應的上限（秒）；超過就顯示逾時訊息，不會一直轉圈' },
   { key: CONFIG_KEYS.TEST_MODE_BANNER, value: '', note: '填寫介面頂部要顯示的藍色提示文字（例如「這是測試系統，資料可以隨便改」）；留空就不顯示這一條橫幅' },
-  { key: CONFIG_KEYS.SELFTEST_QUARTER_ID, value: '2028T4', note: '⚠️ 自測機的沙盒季度：自測機**只准寫這一季**。刻意選一個職事表沒有資料的季度，順便測「職事表無資料」那條路。改成一個有真實資料的季度＝自測機會寫壞真資料' },
+  { key: CONFIG_KEYS.SELFTEST_QUARTER_ID, value: '2030T1', note: '⚠️ 自測機的沙盒季度：自測機**只准寫這一季**。要同時滿足兩個條件：(1) 職事表沒有這一季的資料（順便測「職事表無資料」那條路）；(2) 含夏令時間轉換提示日，S22–S24 才驗得到寫入。提示登在改動當日的**前一個主日**，所以實際上要用 YYYYT1（4 月那一次，提示日在 3 月底）或者 YYYYT3（9 月那一次）——YYYYT2 與 YYYYT4 永遠不會含提示日。改成一個有真實資料的季度＝自測機會寫壞真資料' },
   { key: CONFIG_KEYS.SELFTEST_ROSTER_QUARTER_ID, value: '2027T4', note: '自測機需要真實職事表資料時讀哪一季。**只讀不寫**' },
   { key: CONFIG_KEYS.SELFTEST_MASTER_PDF_FILE_ID, value: '', note: '自測機專用的沙盒 master 發佈檔案 ID（自測機不會碰正式那一個）。留空時自測機會略過發佈相關情境並講明原因' },
   { key: CONFIG_KEYS.SELFTEST_TIME_BUDGET_SEC, value: '240', note: '自測機／亂行機每一次執行的時間預算（秒）。接近上限就乾淨停低並寫明「跑到哪一步、還有幾多個未跑」，Apps Script 本身的上限是 360 秒' },

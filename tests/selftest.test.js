@@ -263,10 +263,16 @@ test('selfTestConfig_ 讀得到正式那個 master 檔案 ID（只為對數，�
   assert.strictEqual(config.publishedFileId, 'PRODUCTION_FILE_ID');
 });
 
-test('守門：預設沙盒季度是 2028T4、只讀季度是 2027T4（兩者必須不同）', function () {
+test('守門：預設沙盒季度是 2030T1、只讀季度是 2027T4（兩者必須不同）', function () {
   const env = makeEnv({});
   const config = env.sandbox.selfTestConfig_();
-  assert.strictEqual(config.quarterId, '2028T4');
+  // 2026-08-26 由 2028T4 改成 2030T1。沙盒季度要同時滿足兩個條件：
+  //   (1) 職事表沒有這一季（職事表最遠只到 2028T4，所以 2028T4 本身
+  //       其實**有**資料，一直是個錯的選擇）；
+  //   (2) 含夏令時間轉換提示日，S22–S24 才驗得到真的寫入。
+  // 提示登在改動當日的**前一個主日**，所以要用 YYYYT1 或 YYYYT3——
+  // YYYYT2 與 YYYYT4 永遠不會含提示日。見 docs/待確認事項.md V-3。
+  assert.strictEqual(config.quarterId, '2030T1');
   assert.strictEqual(config.rosterQuarterId, '2027T4');
   assert.notStrictEqual(config.quarterId, config.rosterQuarterId);
 });
@@ -276,7 +282,7 @@ test('寫入守門：assertSelfTestWritableQuarter_ 擋得住非沙盒季度', f
   const config = env.sandbox.selfTestConfig_();
 
   assert.doesNotThrow(function () {
-    env.sandbox.assertSelfTestWritableQuarter_('2028T4', config);
+    env.sandbox.assertSelfTestWritableQuarter_('2030T1', config);
   });
   assert.throws(function () {
     env.sandbox.assertSelfTestWritableQuarter_('2027T4', config);
@@ -300,13 +306,13 @@ test('寫入守門：assertSelfTestWritableDate_ 擋得住非沙盒主日', func
 // 沙盒主日清單
 // =====================================================================
 
-test('selfTestCalendarSundays_：2028T4 是 10–12 月全部星期日', function () {
+test('selfTestCalendarSundays_：2030T1 是 1–3 月全部星期日', function () {
   const env = makeEnv({});
-  const dates = env.sandbox.selfTestCalendarSundays_('2028T4');
+  const dates = env.sandbox.selfTestCalendarSundays_('2030T1');
 
   assert.ok(dates.length >= 12 && dates.length <= 14, '一季應該有 12–14 個星期日，實際 ' + dates.length);
-  assert.ok(dates[0].indexOf('2028-10-') === 0, dates[0]);
-  assert.ok(dates[dates.length - 1].indexOf('2028-12-') === 0, dates[dates.length - 1]);
+  assert.ok(dates[0].indexOf('2030-01-') === 0, dates[0]);
+  assert.ok(dates[dates.length - 1].indexOf('2030-03-') === 0, dates[dates.length - 1]);
 
   // 每一個都要真的是星期日，而且相隔剛好 7 天。
   dates.forEach(function (iso) {
@@ -326,7 +332,7 @@ test('selfTestSandboxDates_：職事表沒有這一季 → 退回曆法推算（
   const env = makeEnv({});
   const dates = env.sandbox.selfTestSandboxDates_(env.sandbox.selfTestConfig_());
   assert.ok(dates.length > 0, '職事表沒有資料時要退回曆法推算，否則後面全部情境都跑不到');
-  assert.ok(dates[0].indexOf('2028-') === 0, dates[0]);
+  assert.ok(dates[0].indexOf('2030-') === 0, dates[0]);
 });
 
 // =====================================================================
@@ -582,9 +588,9 @@ test('清空沙盒：只刪沙盒季度那幾行，其餘一行都不動', funct
   // ⚠️ 這是整個自測機最危險的一支函式——刪錯了就是刪真資料。
   const env = makeEnv({
     weekRows: [
-      { SERVICE_DATE: '2028-10-01', QUARTER_ID: '2028T4', WEEK_OF_MONTH: 1, STATUS: 'DRAFT' },
+      { SERVICE_DATE: '2030-01-06', QUARTER_ID: '2030T1', WEEK_OF_MONTH: 1, STATUS: 'DRAFT' },
       { SERVICE_DATE: '2027-11-07', QUARTER_ID: '2027T4', WEEK_OF_MONTH: 1, STATUS: 'DRAFT' },
-      { SERVICE_DATE: '2028-10-08', QUARTER_ID: '2028T4', WEEK_OF_MONTH: 2, STATUS: 'DRAFT' }
+      { SERVICE_DATE: '2030-01-13', QUARTER_ID: '2030T1', WEEK_OF_MONTH: 2, STATUS: 'DRAFT' }
     ]
   });
 
@@ -600,7 +606,7 @@ test('清空沙盒：一個主日多行的表，只刪主日屬於沙盒季度�
   const env = makeEnv({});
   const boot = env.boot;
   const def = boot.COLUMNS.ANNOUNCEMENTS;
-  const sandboxDate = env.sandbox.selfTestCalendarSundays_('2028T4')[0];
+  const sandboxDate = env.sandbox.selfTestCalendarSundays_('2030T1')[0];
 
   env.sheets.Announcements = makeFakeSheet(def.headers, def.keys, [
     { SERVICE_DATE: sandboxDate, SEQ_NO: 10, TEXT: '沙盒的', ACTIVE: true },

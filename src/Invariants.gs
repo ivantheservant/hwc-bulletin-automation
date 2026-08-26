@@ -1160,6 +1160,131 @@ function runInvariantI10_(baselineCount) {
 // 一次過跑全部
 // =====================================================================
 
+// =====================================================================
+// I11：事奉資料的來源季度 === 該主日所屬的季度
+// =====================================================================
+
+/**
+ * 用途：I11——`BulletinWeeks` 每一行的事奉資料，都必須來自**這一行自己
+ *   那一季**的職事表，不可以是別一季的。
+ *
+ *   ⚠️ 為什麼要有這一條（docs/已知bug類型.md 事故四十一）：
+ *   「決定處理哪一季」有一條四層退回鏈（`resolveWorkingQuarter_()`），
+ *   那是方便；但「去職事表拿哪一季的資料」**一退回就是拿錯資料**。
+ *   拿錯的後果不是「少了東西」，是**錯的人名印在週報上，而系統報一切
+ *   正常**——比缺失嚴重得多。
+ *
+ *   逐行驗三件事，全部只用**與被驗邏輯無關**的來源對答案：
+ *     1. `QUARTER_ID` 必須等於由**日期本身**用曆法算出來的季度
+ *        （`calendarQuarterIdForIsoDate_()`）——不是問職事表，也不是問
+ *        `BulletinWeeks` 自己。
+ *     2. 職事表**有**這一個主日時，職事表講的季度必須等於 `QUARTER_ID`。
+ *     3. 職事表**沒有**這一個主日時，這一行不可以帶任何「只可能來自
+ *        職事表」的值（`rosterOnlyWeekFieldKeys_()`），而且
+ *        `ROSTER_STATUS` 不可以是 `OK`。
+ *
+ *   ⚠️ 第 3 條是核心：職事表沒有這一天，卻有特別主日標題、或者狀態寫著
+ *   `OK`，那個值只可能是從別處來的。
+ * Args:
+ *   ctx {{quarterId:string=}} 檢查範圍；`quarterId` 空白就掃全表。
+ * Returns:
+ *   {Object} `invariantResult_()` 的輸出。`ok` 為 `null` 代表驗證不到
+ *     （職事表未設定或讀不到）——**不是通過**。
+ */
+function runInvariantI11_(ctx) {
+  var label = 'I11　每一個主日的事奉資料，其來源季度 === 該主日所屬的季度';
+  return runInvariantSafely_('I11', label, function () {
+    var scopeQuarter = String((ctx && ctx.quarterId) || '').trim();
+
+    if (!getConfig(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, '')) {
+      return invariantResult_('I11', label, null, '每一行的來源季度都對得上', '職事表未設定',
+        'Config 的 ROSTER_SPREADSHEET_ID 是空的，無法核對職事表講的季度。');
+    }
+
+    var rows = readSheet(SHEETS.BULLETIN_WEEKS).filter(function (r) {
+      if (!scopeQuarter) return true;
+      return String(r.QUARTER_ID || '').trim() === scopeQuarter;
+    });
+
+    if (rows.length === 0) {
+      return invariantResult_('I11', label, null, '每一行的來源季度都對得上', '沒有資料列',
+        (scopeQuarter ? ('季度「' + scopeQuarter + '」') : 'BulletinWeeks')
+          + ' 一行都沒有，沒有東西可以核對。');
+    }
+
+    var onlyKeys = rosterOnlyWeekFieldKeys_();
+    var problems = [];
+    var checked = 0;
+    var rosterHit = 0;
+
+    rows.forEach(function (row) {
+      var iso = (Object.prototype.toString.call(row.SERVICE_DATE) === '[object Date]')
+        ? formatIsoDate_(row.SERVICE_DATE)
+        : String(row.SERVICE_DATE || '').trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return;
+      checked++;
+
+      var rowQuarter = String(row.QUARTER_ID || '').trim();
+      var calendarQuarter = calendarQuarterIdForIsoDate_(iso);
+
+      // ---- 第 1 條：QUARTER_ID 對不對得上日期本身 ----
+      if (rowQuarter && calendarQuarter && rowQuarter !== calendarQuarter) {
+        problems.push(iso + ' 的 QUARTER_ID 是「' + rowQuarter
+          + '」，但由日期算出來應該是「' + calendarQuarter + '」');
+      }
+
+      var snapshot = readRosterSnapshot_(iso);
+      var found = snapshot && snapshot.found === true;
+
+      if (found) {
+        rosterHit++;
+        // ---- 第 2 條：職事表講的季度 vs 這一行的季度 ----
+        var rosterQuarter = String(snapshot.quarterId || '').trim();
+        if (rowQuarter && rosterQuarter && rosterQuarter !== rowQuarter) {
+          problems.push(iso + ' 的 QUARTER_ID 是「' + rowQuarter
+            + '」，但職事表說這個主日屬於「' + rosterQuarter + '」');
+        }
+        return;
+      }
+
+      // ---- 第 3 條：職事表沒有這一天，那就不可以有職事表才有的東西 ----
+      onlyKeys.forEach(function (key) {
+        if (isBlankWeekCell_(row[key])) return;
+        problems.push(iso + ' 的「' + invariantWeekFieldLabel_(key) + '」有值（'
+          + String(row[key]) + '），但職事表根本沒有這一個主日——這個值只可能來自別處');
+      });
+      if (String(row.ROSTER_STATUS || '').trim() === ROSTER_STATUS.OK) {
+        problems.push(iso + ' 的職事表狀態寫著 OK，但職事表根本沒有這一個主日');
+      }
+    });
+
+    var evidence = '核對了 ' + checked + ' 行'
+      + (scopeQuarter ? ('（季度 ' + scopeQuarter + '）') : '（全表）')
+      + '；其中 ' + rosterHit + ' 行在職事表找得到、' + (checked - rosterHit) + ' 行找不到。';
+
+    if (problems.length === 0) {
+      return invariantResult_('I11', label, true, '每一行的來源季度都對得上',
+        checked + ' 行全部對得上', evidence);
+    }
+    return invariantResult_('I11', label, false, '每一行的來源季度都對得上',
+      problems.length + ' 行對不上',
+      evidence + '　' + problems.slice(0, 8).join('；')
+        + (problems.length > 8 ? ('　（另有 ' + (problems.length - 8) + ' 項未列出）') : ''));
+  });
+}
+
+/**
+ * 用途：把 `BulletinWeeks` 的機器鍵翻成中文標題，供 I11 的訊息用。
+ * Args:
+ *   key {string} 機器鍵。
+ * Returns:
+ *   {string} 找不到就原樣回機器鍵。
+ */
+function invariantWeekFieldLabel_(key) {
+  var idx = COLUMNS.BULLETIN_WEEKS.keys.indexOf(key);
+  return idx === -1 ? key : COLUMNS.BULLETIN_WEEKS.headers[idx];
+}
+
 /**
  * 用途：全部檢查的登記表——**每一條都明確標明有沒有副作用**。
  *
@@ -1253,6 +1378,12 @@ function invariantDefinitions_(ctx, opts) {
       run: function () {
         return runInvariantI10_(o.rosterRevisionBaseline === undefined ? null : o.rosterRevisionBaseline);
       }
+    },
+    {
+      id: 'I11', sideEffect: false, environment: E.ANY,
+      environmentNote: '「事奉資料不可以來自別一季」在任何環境都必須成立。'
+        + '對哪一季由 ctx 決定；ctx 沒有季度時掃全表。',
+      run: function () { return runInvariantI11_(ctx); }
     }
   ];
 }

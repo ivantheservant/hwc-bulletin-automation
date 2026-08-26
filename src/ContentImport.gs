@@ -635,7 +635,22 @@ function previewContentImport_(quarterId, options) {
     };
   }
 
-  var allServiceDates = listQuarterServiceDates_(qid).map(function (d) { return d.isoDate; });
+  // ⚠️ 不可以只讀職事表。R-036 之後，職事表未有該季資料一樣建立得到週報，
+  //    而舊版這一行是 `listQuarterServiceDates_()`（只讀職事表），於是那些
+  //    季度的匯入永遠是「新增 0、修改 0、刪除 0、不變 0」——**不是報錯，
+  //    是靜靜地什麼都不做**，比報錯難發現得多。
+  //    退回的只是「用哪一份主日清單」，三個來源全部只看同一個季度，
+  //    一個都不會跨季。見 docs/已知bug類型.md 事故四十一。
+  var dateResolution = resolveQuarterServiceDatesWithFallback_(qid);
+  var allServiceDates = dateResolution.dates;
+
+  if (allServiceDates.length === 0) {
+    return {
+      ok: false, quarterId: qid, scope: 'QUARTER', reason: 'NO_SERVICE_DATES',
+      message: '季度「' + qid + '」找不到任何主日：' + dateResolution.message
+        + '　請先按選單「建立本季空白週報」。'
+    };
+  }
   var scope = opts.isoDate ? 'ONE_WEEK' : 'QUARTER';
   var serviceDates = allServiceDates;
 
@@ -670,7 +685,14 @@ function previewContentImport_(quarterId, options) {
     serviceDates: serviceDates
   });
 
-  return { ok: true, quarterId: qid, scope: scope, plan: plan, fileUrl: String(row.FILE_URL || '') };
+  // ⚠️ 主日清單由哪裏來一定要講出來。用了退而求其次的來源而不講，
+  //    下一個人看到數字對不上會查錯方向。
+  return {
+    ok: true, quarterId: qid, scope: scope, plan: plan,
+    fileUrl: String(row.FILE_URL || ''),
+    serviceDateSource: dateResolution.source,
+    serviceDateNote: dateResolution.message
+  };
 }
 
 /**

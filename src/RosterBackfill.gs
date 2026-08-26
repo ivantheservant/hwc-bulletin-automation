@@ -95,6 +95,58 @@ function resolveQuarterServiceDates_(quarterId) {
 }
 
 /**
+ * 用途：拿一個季度的主日清單，職事表沒有就退回**同一季**的
+ *   `BulletinWeeks`，再沒有就用曆法推算。回傳講明來源。
+ *
+ *   ⚠️ **退回的只是「用哪一份清單」，不是「用哪一季」。** 三個來源全部
+ *   都只看同一個季度 ID，一個都不會跨季。這個分別就是事故四十一那一條
+ *   紀律：「決定處理哪一季」可以退回，「拿該季的資料」不可以。
+ *
+ *   ⚠️ 為什麼要有這一支（2026-08-26 查證，見 docs/待確認事項.md V-2）：
+ *   R-036 之後，職事表未有該季資料一樣建立得到週報；但「從內容表匯入」
+ *   的主日範圍一直是 `listQuarterServiceDates_()`（**只讀職事表**），
+ *   於是那些季度匯入永遠是「新增 0、修改 0、刪除 0、不變 0」——不是
+ *   報錯，是靜靜地什麼都不做。自測機 S05／S07 就是這樣掛的。
+ * Args:
+ *   quarterId {string} `YYYYTn`。
+ * Returns:
+ *   {{dates:string[], source:string, message:string}}
+ *     `source` 是 `ROSTER`／`BULLETIN_WEEKS`／`CALENDAR`。
+ */
+function resolveQuarterServiceDatesWithFallback_(quarterId) {
+  var qid = String(quarterId || '').trim();
+  var fromRoster = resolveQuarterServiceDates_(qid);
+  if (fromRoster.source === 'ROSTER') {
+    return { dates: fromRoster.dates.slice(), source: 'ROSTER', message: '' };
+  }
+
+  // ⚠️ 只取**同一個季度**那幾行，一行都不會跨季。
+  var weekDates = [];
+  readSheet(SHEETS.BULLETIN_WEEKS).forEach(function (row) {
+    if (String(row.QUARTER_ID || '').trim() !== qid) return;
+    var iso = (Object.prototype.toString.call(row.SERVICE_DATE) === '[object Date]')
+      ? formatIsoDate_(row.SERVICE_DATE)
+      : String(row.SERVICE_DATE || '').trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(iso) && weekDates.indexOf(iso) === -1) weekDates.push(iso);
+  });
+
+  if (weekDates.length > 0) {
+    weekDates.sort();
+    return {
+      dates: weekDates, source: 'BULLETIN_WEEKS',
+      message: '職事表未有季度「' + qid + '」的資料，主日清單改用 '
+        + SHEETS.BULLETIN_WEEKS + ' 內同一季的 ' + weekDates.length + ' 行。'
+    };
+  }
+
+  var calendar = quarterCalendarSundays_(qid);
+  return {
+    dates: calendar, source: 'CALENDAR',
+    message: '職事表與 ' + SHEETS.BULLETIN_WEEKS + ' 都沒有季度「' + qid
+      + '」的資料，主日清單由曆法推算（該季全部星期日）。'
+  };
+}
+/**
  * 用途：判斷某一個主日的 `ROSTER_STATUS`。**純函式。**
  * Args:
  *   isoDate {string} 主日。
@@ -110,17 +162,65 @@ function rosterStatusForDate_(isoDate, resolution) {
 }
 
 /**
- * 用途：`BulletinWeeks` 內由職事表填的欄位。**單一真相來源。**
+ * 用途：「補抓」會去填的欄位。**單一真相來源。**
  *
  *   ⚠️ 「補抓」只會碰這幾個欄位。講題、詩歌、人數這些是人手填的，
  *   補抓一格都不可以動——所以清單要寫得出來，不可以靠「除了那幾個以外
  *   全部都補」這種反向定義（日後加欄位就會靜靜補錯東西）。
+ *
+ *   ⚠️ **這不是「有值就代表讀過職事表」的清單。** 其中兩欄就算職事表
+ *   完全沒有這一季都一定有值（`WEEK_OF_MONTH` 由日期算、
+ *   `PROGRAM_TEMPLATE_ID` 退回 Config 預設值）。要證明「有沒有真的讀過
+ *   職事表」，用 `rosterOnlyWeekFieldKeys_()`。
  * Args: （無）
  * Returns:
  *   {string[]}
  */
 function rosterDerivedWeekFieldKeys_() {
   return ['WEEK_OF_MONTH', 'SPECIAL_TYPE', 'PROGRAM_TEMPLATE_ID'];
+}
+
+/**
+ * 用途：`BulletinWeeks` 之中**只可能來自職事表**的欄位。
+ *
+ *   ⚠️ 為什麼要跟 `rosterDerivedWeekFieldKeys_()` 分開，是查證過才知道的
+ *   （2026-08-26，見 docs/待確認事項.md V-1）：
+ *
+ *   `rosterDerivedWeekFieldKeys_()` 那三欄是「補抓會去填的欄位」，不等於
+ *   「有值就代表讀過職事表」。實際上：
+ *     - `WEEK_OF_MONTH` 由**日期本身**算出來（`Math.floor((日-1)/7)+1`），
+ *       職事表有沒有這一季都一定有值；
+ *     - `PROGRAM_TEMPLATE_ID` 找不到特別主日時退回 Config `TEMPLATE_DEFAULT`，
+ *       所以也一定有值。
+ *
+ *   把那兩欄當成「事奉資料」，會得出「職事表沒有這一季，卻有 26 格事奉
+ *   資料」這種**假警報**——真相是 13 行 × 那兩欄。要證明「有沒有讀過
+ *   職事表」，只可以看這裏這一份。
+ * Args: （無）
+ * Returns:
+ *   {string[]}
+ */
+function rosterOnlyWeekFieldKeys_() {
+  return ['SPECIAL_TYPE'];
+}
+
+/**
+ * 用途：由主日日期用**曆法**推算它屬於哪一個季度。**純函式。**
+ *
+ *   ⚠️ 這一支刻意不讀職事表、也不讀 `BulletinWeeks`：I11 要拿它去對
+ *   `QUARTER_ID` 有沒有寫錯，驗證方與被驗方用同一個來源就會一齊錯、
+ *   一齊報沒事（見 docs/已知bug類型.md 事故二十二）。
+ * Args:
+ *   isoDate {string} 主日日期，yyyy-MM-dd。
+ * Returns:
+ *   {?string} `YYYYTn`；日期格式不對回 `null`。
+ */
+function calendarQuarterIdForIsoDate_(isoDate) {
+  var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(isoDate || '').trim());
+  if (!m) return null;
+  var month = Number(m[2]);
+  if (month < 1 || month > 12) return null;
+  return m[1] + 'T' + (Math.floor((month - 1) / 3) + 1);
 }
 
 /**
@@ -317,9 +417,17 @@ function backfillRosterForQuarter_(quarterId) {
  *   {{OK:number, NOT_FOUND:number, PARTIAL:number}}
  */
 function countRosterStatuses_(rows) {
-  var counts = { OK: 0, NOT_FOUND: 0, PARTIAL: 0 };
+  var counts = { OK: 0, NOT_FOUND: 0, PARTIAL: 0, UNKNOWN: 0 };
   (rows || []).forEach(function (row) {
-    var value = String(row.ROSTER_STATUS || '').trim() || ROSTER_STATUS.OK;
+    // ⚠️ 空白**不可以**當成 OK。空白的意思是「從來沒有算過」，不是
+    //    「算過而且沒事」——把它當成 OK，就等於一行從未查證過的資料
+    //    在報告上看起來與一行查證過沒事的資料一模一樣。
+    //
+    //    真的發生過：舊版這一行寫 `... || ROSTER_STATUS.OK`，於是自測機
+    //    S19 對一批 ROSTER_STATUS 從未寫入的資料列報「OK 13」，看起來
+    //    像職事表讀到了；補抓之後變成「NOT_FOUND 13」，又看起來像補抓
+    //    弄壞了東西。兩個結論都是錯的。見 docs/已知bug類型.md 事故四十一。
+    var value = String(row.ROSTER_STATUS || '').trim() || 'UNKNOWN';
     if (counts[value] === undefined) counts[value] = 0;
     counts[value]++;
   });
@@ -335,8 +443,12 @@ function countRosterStatuses_(rows) {
  */
 function describeRosterStatusCounts_(counts) {
   var c = counts || {};
-  return 'OK ' + (c.OK || 0) + '、PARTIAL ' + (c.PARTIAL || 0)
+  var text = 'OK ' + (c.OK || 0) + '、PARTIAL ' + (c.PARTIAL || 0)
     + '、NOT_FOUND ' + (c.NOT_FOUND || 0);
+  // ⚠️ 「未算過」有 0 個時就不出——但只要有一個，一定要看得見。
+  //    把它藏起來等於重蹈「空白當成 OK」那個覆轍。
+  if ((c.UNKNOWN || 0) > 0) text += '、未算過 ' + c.UNKNOWN;
+  return text;
 }
 
 /**
@@ -373,23 +485,31 @@ function buildRosterBackfillMessage_(input) {
  * 用途：列出仍然不是 `OK` 的季度，供「完成度自我檢測」用。
  * Args: （無）
  * Returns:
- *   {{quarterId:string, notFound:number, partial:number, total:number}[]}
- *     由季度 ID 排序；全部都是 `OK` 時回空陣列。
+ *   {{quarterId:string, notFound:number, partial:number, unknown:number,
+ *     total:number}[]} 由季度 ID 排序；全部都是 `OK` 時回空陣列。
+ *
+ *   ⚠️ `ROSTER_STATUS` 空白的行算**缺口**，不算 OK：空白代表從來沒有
+ *   算過，而「沒有算過」正正是要提出來叫人去補的情況。
  */
 function listQuartersWithRosterGaps_() {
   var byQuarter = {};
   readSheet(SHEETS.BULLETIN_WEEKS).forEach(function (row) {
     var qid = String(row.QUARTER_ID || '').trim();
     if (!qid) return;
-    if (!byQuarter[qid]) byQuarter[qid] = { quarterId: qid, notFound: 0, partial: 0, total: 0 };
+    if (!byQuarter[qid]) {
+      byQuarter[qid] = { quarterId: qid, notFound: 0, partial: 0, unknown: 0, total: 0 };
+    }
     byQuarter[qid].total++;
-    var status = String(row.ROSTER_STATUS || '').trim() || ROSTER_STATUS.OK;
+    var status = String(row.ROSTER_STATUS || '').trim();
     if (status === ROSTER_STATUS.NOT_FOUND) byQuarter[qid].notFound++;
     else if (status === ROSTER_STATUS.PARTIAL) byQuarter[qid].partial++;
+    else if (status !== ROSTER_STATUS.OK) byQuarter[qid].unknown++;
   });
 
   return Object.keys(byQuarter).sort().map(function (qid) { return byQuarter[qid]; })
-    .filter(function (entry) { return entry.notFound > 0 || entry.partial > 0; });
+    .filter(function (entry) {
+      return entry.notFound > 0 || entry.partial > 0 || entry.unknown > 0;
+    });
 }
 
 /**
@@ -397,7 +517,11 @@ function listQuartersWithRosterGaps_() {
  * Args:
  *   quarterId {string}
  * Returns:
- *   {{show:boolean, text:string, notFound:number, partial:number}}
+ *   {{show:boolean, text:string, notFound:number, partial:number,
+ *     unknown:number}}
+ *
+ *   ⚠️ `ROSTER_STATUS` 空白（從來沒有算過）一樣要出橫幅。舊版把空白
+ *   當成 OK，於是一批從未查證過的資料列在畫面上看起來完全正常。
  */
 function rosterGapBannerForQuarter_(quarterId) {
   var qid = String(quarterId || '').trim();
@@ -406,20 +530,28 @@ function rosterGapBannerForQuarter_(quarterId) {
   }));
   var notFound = counts.NOT_FOUND || 0;
   var partial = counts.PARTIAL || 0;
+  var unknown = counts.UNKNOWN || 0;
 
-  if (notFound === 0 && partial === 0) {
-    return { show: false, text: '', notFound: 0, partial: 0 };
+  if (notFound === 0 && partial === 0 && unknown === 0) {
+    return { show: false, text: '', notFound: 0, partial: 0, unknown: 0 };
   }
-  if (notFound > 0 && partial === 0) {
+  if (notFound > 0 && partial === 0 && unknown === 0) {
     return {
-      show: true, notFound: notFound, partial: partial,
+      show: true, notFound: notFound, partial: partial, unknown: unknown,
       text: '本季職事表未有資料，事奉欄位全部留空。職事表建立好之後，撳「從職事表補抓」。'
     };
   }
+  if (unknown > 0 && notFound === 0 && partial === 0) {
+    return {
+      show: true, notFound: notFound, partial: partial, unknown: unknown,
+      text: '本季有 ' + unknown + ' 個主日**未查證過**職事表狀態（多數是舊資料）。'
+        + '撳「從職事表補抓」就會逐個查證並更新。'
+    };
+  }
   return {
-    show: true, notFound: notFound, partial: partial,
-    text: '本季有 ' + (notFound + partial) + ' 個主日在職事表找不到資料，那幾期的事奉欄位留空。'
-      + '職事表補齊之後，撳「從職事表補抓」。'
+    show: true, notFound: notFound, partial: partial, unknown: unknown,
+    text: '本季有 ' + (notFound + partial + unknown) + ' 個主日在職事表找不到資料或未查證過，'
+      + '那幾期的事奉欄位留空。職事表補齊之後，撳「從職事表補抓」。'
   };
 }
 

@@ -121,7 +121,12 @@ function createBlankBulletinWeeks_(quarterId) {
 
     newRows.push({
       SERVICE_DATE: targetDate,
-      QUARTER_ID: snapshot.quarterId || quarterId,
+      // ⚠️ **一定要用呼叫方指定的季度，不可以用 `snapshot.quarterId`。**
+      //    快照那個值是職事表自己講這個日期屬於哪一季；兩者不一致時，
+      //    用快照那個＝把一行寫進另一個季度，而畫面上完全看不出來。
+      //    「決定處理哪一季」是呼叫方的事，職事表只負責答「這一天有沒有
+      //    資料」。見 docs/已知bug類型.md 事故四十一。
+      QUARTER_ID: quarterId,
       WEEK_OF_MONTH: snapshot.weekOfMonth,
       SPECIAL_TYPE: special ? special.title : '',
       PAGE_TITLE: defaults.pageTitle,
@@ -150,9 +155,16 @@ function createBlankBulletinWeeks_(quarterId) {
     });
   }
 
-  var statusCounts = countRosterStatuses_(newRows);
+  // ⚠️ 要數的是「這一季現在在表上的全部行」，不是「這一次新增的那幾行」。
+  //    只數新增的話，全部主日都已經存在時 newRows 是空陣列，狀態分佈
+  //    會全部是 0——看起來像「一切正常」，其實是「什麼都沒有數過」。
+  var quarterRows = readSheet(SHEETS.BULLETIN_WEEKS).filter(function (r) {
+    return String(r.QUARTER_ID || '').trim() === String(quarterId || '').trim();
+  });
+  var statusCounts = countRosterStatuses_(quarterRows);
   return {
     totalDates: dates.length,
+    quarterRowCount: quarterRows.length,
     added: newRows.length,
     skipped: skipped,
     addedDates: addedDates,
@@ -179,10 +191,22 @@ function createBlankBulletinWeeks_(quarterId) {
  */
 function buildCreateWeeksMessage_(input) {
   var lines = [];
+  var skipped = input.skipped || 0;
   if (!input.rosterFound) {
-    lines.push('本季職事表未有資料，已建立 ' + input.added + ' 個主日，事奉欄位全部留空。');
-    lines.push('主日清單由曆法推算（該季全部星期日）。');
+    // ⚠️ 一定要同時講「新增幾多」與「略過幾多」。舊版只講 `added`，
+    //    於是全部主日都已經存在時印出「已建立 0 個主日」——工作表上
+    //    明明有 13 行，訊息卻好像什麼都沒有做過。**「0」與「本來就有」
+    //    是兩件事，不可以用同一句話講。**
+    if (input.added === 0 && skipped > 0) {
+      lines.push('本季 ' + skipped + ' 個主日本來就已經建立好，這一次沒有新增任何一行。');
+    } else {
+      lines.push('本季職事表未有資料，已建立 ' + input.added + ' 個主日'
+        + (skipped > 0 ? ('（另有 ' + skipped + ' 個本來就已經存在）') : '')
+        + '，事奉欄位全部留空。');
+    }
+    lines.push('本季職事表未有資料，主日清單由曆法推算（該季全部星期日）。');
     lines.push('職事表建立好之後，撳「從職事表補抓」就會把空格補回去。');
+    lines.push('目前職事表狀態：' + describeRosterStatusCounts_(input.statusCounts));
   } else {
     lines.push('季度 ' + input.quarterId + '：新增 ' + input.added + ' 行，略過 '
       + input.skipped + ' 行（已經存在）。');

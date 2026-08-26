@@ -493,7 +493,7 @@ test('上一輪已經走滿目標步數 → resume 明確拒絕', function () {
 function makeResumableEnv(extra) {
   const env = makeEnv(Object.assign({
     config: { MONKEY_NO_PROGRESS_LIMIT: '99' },
-    weekRows: [{ SERVICE_DATE: '2028-10-01', QUARTER_ID: '2028T4', WEEK_OF_MONTH: 1, STATUS: 'DRAFT' }]
+    weekRows: [{ SERVICE_DATE: '2030-01-06', QUARTER_ID: '2030T1', WEEK_OF_MONTH: 1, STATUS: 'DRAFT' }]
   }, extra || {}));
 
   // 不變量不是這一組要驗的東西（見防打轉閘那兩條的說明）。
@@ -888,7 +888,7 @@ test('PUBLISH 每次用內容不同的 PDF（帶 RUN_ID 與步數，而且是 AS
 test('防打轉閘：連續 N 步狀態完全沒有變 → 停手並報「偵測到原地打轉」', function () {
   const env = makeEnv({
     config: { MONKEY_NO_PROGRESS_LIMIT: '3' },
-    weekRows: [{ SERVICE_DATE: '2028-10-01', QUARTER_ID: '2028T4', WEEK_OF_MONTH: 1, STATUS: 'DRAFT' }]
+    weekRows: [{ SERVICE_DATE: '2030-01-06', QUARTER_ID: '2030T1', WEEK_OF_MONTH: 1, STATUS: 'DRAFT' }]
   });
 
 
@@ -922,7 +922,7 @@ test('防打轉閘：連續 N 步狀態完全沒有變 → 停手並報「偵測
 test('防打轉閘：狀態每一步都有變 → 不會響', function () {
   const env = makeEnv({
     config: { MONKEY_NO_PROGRESS_LIMIT: '3' },
-    weekRows: [{ SERVICE_DATE: '2028-10-01', QUARTER_ID: '2028T4', WEEK_OF_MONTH: 1, STATUS: 'DRAFT' }]
+    weekRows: [{ SERVICE_DATE: '2030-01-06', QUARTER_ID: '2030T1', WEEK_OF_MONTH: 1, STATUS: 'DRAFT' }]
   });
 
 
@@ -960,7 +960,7 @@ test('防打轉閘：狀態每一步都有變 → 不會響', function () {
 test('動作拋錯 → 記入紀錄並繼續，覆蓋統計照樣算它被揀中過', function () {
   const env = makeEnv({
     config: { MONKEY_NO_PROGRESS_LIMIT: '99' },
-    weekRows: [{ SERVICE_DATE: '2028-10-01', QUARTER_ID: '2028T4', WEEK_OF_MONTH: 1, STATUS: 'DRAFT' }]
+    weekRows: [{ SERVICE_DATE: '2030-01-06', QUARTER_ID: '2030T1', WEEK_OF_MONTH: 1, STATUS: 'DRAFT' }]
   });
 
 
@@ -1079,13 +1079,13 @@ test('報告與摘要的文字是書面語繁體中文', function () {
 test('monkeyCurrentState_：只數沙盒季度那幾行，不會把真實季度算進去', function () {
   const env = makeEnv({
     weekRows: [
-      { SERVICE_DATE: '2028-10-01', QUARTER_ID: '2028T4', WEEK_OF_MONTH: 1, STATUS: 'DRAFT' },
+      { SERVICE_DATE: '2030-01-06', QUARTER_ID: '2030T1', WEEK_OF_MONTH: 1, STATUS: 'DRAFT' },
       { SERVICE_DATE: '2027-11-07', QUARTER_ID: '2027T4', WEEK_OF_MONTH: 1, STATUS: 'DRAFT' },
-      { SERVICE_DATE: '2028-10-08', QUARTER_ID: '2028T4', WEEK_OF_MONTH: 2, STATUS: 'DRAFT' }
+      { SERVICE_DATE: '2030-01-13', QUARTER_ID: '2030T1', WEEK_OF_MONTH: 2, STATUS: 'DRAFT' }
     ]
   });
   const state = env.sandbox.monkeyCurrentState_(env.sandbox.selfTestConfig_());
-  assert.strictEqual(state.weekCount, 2, '只應該數 2028T4 那兩行');
+  assert.strictEqual(state.weekCount, 2, '只應該數 2030T1 那兩行');
 });
 
 test('monkeyCurrentState_：沒有設定沙盒 master／內容表資料夾時，對應旗標是 false', function () {

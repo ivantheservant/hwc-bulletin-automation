@@ -748,7 +748,9 @@ test('每一條不變量都有明確的環境聲明，而且是合法的值', fu
   const allowed = Object.keys(env.sandbox.INVARIANT_ENVIRONMENT_)
     .map(function (k) { return env.sandbox.INVARIANT_ENVIRONMENT_[k]; });
 
-  assert.strictEqual(defs.length, 10);
+  // 2026-08-26 由 10 變 11：新增 I11（事奉資料的來源季度 === 該主日所屬的
+  // 季度），見 docs/已知bug類型.md 事故四十一。
+  assert.strictEqual(defs.length, 11);
   const bad = [];
   defs.forEach(function (d) {
     const checkId = d.id;
@@ -772,7 +774,7 @@ test('每一條不變量的環境聲明都有一句理由（只寫一個值等�
   assert.strictEqual(bad.length, 0, bad.join('\n  '));
 });
 
-test('I06 是唯一一條要分通道的；其餘九條都是 ANY', function () {
+test('I06 是唯一一條要分通道的；其餘十條都是 ANY', function () {
   const env = makeEnv({});
   const defs = env.sandbox.invariantDefinitions_({ quarterId: '2027T4' }, {});
   const perChannel = defs
@@ -783,7 +785,9 @@ test('I06 是唯一一條要分通道的；其餘九條都是 ANY', function () 
   const anyCount = defs.filter(function (d) {
     return d.environment === env.sandbox.INVARIANT_ENVIRONMENT_.ANY;
   }).length;
-  assert.strictEqual(anyCount, 9,
+  // 2026-08-26 由 9 變 10：新增 I11。它驗的是「事奉資料不可以來自別一季」，
+  // 在正式與沙盒兩個環境都必須成立，所以是 ANY。
+  assert.strictEqual(anyCount, 10,
     '逐條檢視的結果見 docs/待確認事項.md Q-2；改動之後兩邊都要更新');
 });
 
@@ -892,12 +896,13 @@ test('I10 ⚪：沒有提供基準 → 只回報目前數目，不當成綠', fu
 // runAllInvariants_ 與報告
 // =====================================================================
 
-test('runAllInvariants_：九條無副作用的全部跑到，一條爆了不會令其餘跑不到', function () {
+test('runAllInvariants_：十條無副作用的全部跑到，一條爆了不會令其餘跑不到', function () {
   const env = makeEnv({});
   const summary = env.sandbox.runAllInvariants_();
-  assert.strictEqual(summary.results.length, 9);
+  // 2026-08-26 由 9 變 10：新增 I11（無副作用），見事故四十一。
+  assert.strictEqual(summary.results.length, 10);
   deepEq(summary.results.map(function (r) { return r.id; }),
-    ['I01', 'I02', 'I03', 'I04', 'I05', 'I06', 'I07', 'I09', 'I10']);
+    ['I01', 'I02', 'I03', 'I04', 'I05', 'I06', 'I07', 'I09', 'I10', 'I11']);
 });
 
 // ⚠️ 這一條是第一輪自測的教訓：I08「匯入之後再匯入一次改動必為 0」不是
@@ -921,7 +926,8 @@ test('runAllInvariants_ 裡面一條 sideEffect:true 的檢查都沒有', functi
 test('每一條檢查都要明明白白寫出 sideEffect 是 true 定 false', function () {
   const env = makeEnv({});
   const defs = env.sandbox.invariantDefinitions_({ quarterId: '2027T4' }, {});
-  assert.strictEqual(defs.length, 10);
+  // 2026-08-26 由 10 變 11：新增 I11。
+  assert.strictEqual(defs.length, 11);
   defs.forEach(function (d) {
     const checkId = d.id;
     assert.strictEqual(typeof d.sideEffect, 'boolean',
