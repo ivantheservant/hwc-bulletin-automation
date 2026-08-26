@@ -382,6 +382,40 @@ function numberRegistryProbes_(ctx) {
         });
         return max;
       }
+    },
+    {
+      id: 'N07',
+      label: '重複段落數（「產生本週週報（Word）」對話框、Diagnostics）',
+      sheetName: '（產出的 .docx，不是工作表）',
+      recountRule: '重新解壓成品，挖走文字方塊之後逐段數，長度 >= '
+        + 'DUPLICATE_PARAGRAPH_MIN_CHARS 而且出現 >= 2 次的段落數目',
+      independence: '⚠️ 部分獨立，而且程度比其餘幾個低：兩路都要讀同一份 .docx（'
+        + '這個數字的來源本來就是產出檔案，不是工作表）。分別在於**走兩條不同的'
+        + '管線**：reported 走 assertDocxOutput_()（對話框那一條），recount 走 '
+        + 'scanDocxContentSize_()（Diagnostics 那一條）。兩者對不上就代表'
+        + '同一份成品在兩個地方會顯示不同的數字——那本身就是要修的 bug。',
+      // ⚠️ 沒有產生過 .docx 就報「不適用」，不是報 0：「未產生過」與
+      //    「產生過而且沒有重複」是兩件事，報 0 等於把前者講成後者。
+      applicable: function () {
+        var fileId = invariantLastDocxFileId_(isoDate);
+        if (!fileId) {
+          return {
+            ok: false,
+            reason: '主日 ' + isoDate + ' 的 BulletinWeeks 那一行未有 DOC_ID——'
+              + '即是未產生過 Word。「未產生過」與「產生過而且沒有重複」是兩件事。'
+          };
+        }
+        return { ok: true, reason: '' };
+      },
+      reported: function () {
+        var result = assertDocxOutput_(invariantLastDocxFileId_(isoDate));
+        return (result.duplicateParagraphs || []).length;
+      },
+      recount: function () {
+        var read = readOutputDocxById_(invariantLastDocxFileId_(isoDate));
+        if (!read.ok) throw new Error('讀不到產出檔案：' + read.message);
+        return (scanDocxContentSize_(read.blob).duplicateParagraphs || []).length;
+      }
     }
   ];
 }
@@ -1390,6 +1424,18 @@ function runInvariantI11_(ctx) {
       evidence + '　' + problems.slice(0, 8).join('；')
         + (problems.length > 8 ? ('　（另有 ' + (problems.length - 8) + ' 項未列出）') : ''));
   });
+}
+
+/**
+ * 用途：拿某一個主日**最後一次產生**的 `.docx` 檔案 ID。
+ * Args:
+ *   isoDate {string} 主日日期。
+ * Returns:
+ *   {string} 未產生過時回空字串。
+ */
+function invariantLastDocxFileId_(isoDate) {
+  var row = findBulletinWeekRow_(readSheet(SHEETS.BULLETIN_WEEKS), isoDate);
+  return row ? String(row.DOC_ID || '').trim() : '';
 }
 
 /**

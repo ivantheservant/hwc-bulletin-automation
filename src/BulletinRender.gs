@@ -627,6 +627,12 @@ function generateBulletinDocx_(isoDate) {
     writeDiagnosticsReport_('異體字正規化', buildVariantCharsReportLines_(isoDate, fileName, renderStats.variantCharsBreakdown));
   }
 
+  // ---- R-032：內容份量估算與重複段落偵測 ----
+  // ⚠️ 兩者都**只是提示，一定不會阻止產生**。重複段落那一項的價值
+  //    高於頁數提示：88 期真實週報之中有三期是複製漏刪多了兩頁，而且
+  //    從來沒有人發現。見 docs/需求登記_第二批.md R-032。
+  var contentScan = scanDocxContentSize_(rendered.blob);
+
   return {
     ok: true,
     blob: rendered.blob,
@@ -634,6 +640,8 @@ function generateBulletinDocx_(isoDate) {
     templateLabel: template.label,
     stats: renderStats,
     residual: residual,
+    contentSize: contentScan.size,
+    duplicateParagraphs: contentScan.duplicateParagraphs,
     warnings: renderWarnings.concat(model.warnings || []),
     modelMissingCount: (model.missing || []).length
   };
@@ -917,7 +925,12 @@ function menuGenerateBulletinDocx_() {
     var residual = result.residual || { count: 0 };
     // 產出真的有殘留時，連對話框標題都要講明——標題是唯一一定看得到的
     // 部分，內文有機會被使用者一眼掃過去。
-    var title = residual.count === 0 ? '已產生週報（Word）' : '⚠️ 已產生週報，但產出有問題';
+    // ⚠️ 重複段落一樣要反映在標題：那是「印出來多咗兩頁」級數的問題，
+    //    而歷史上三次全部沒有人發現，所以不可以只藏在內文。
+    var dupCount = (result.duplicateParagraphs || []).length;
+    var title = (residual.count === 0 && dupCount === 0)
+      ? '已產生週報（Word）'
+      : '⚠️ 已產生週報，但產出有問題';
     ui.alert(title, lines.join('\n'), ui.ButtonSet.OK);
   } catch (err) {
     logMenuError_('menuGenerateBulletinDocx_', err);
@@ -975,6 +988,17 @@ function buildGenerateResultDialogLines_(isoDate, result) {
   lines.push('疑似被切斷的佔位符：' + ((stats.broken || []).length) + ' 個'
     + ((stats.broken || []).length > 0 ? '　⚠️ 這些會原樣印出來，請檢查範本' : ''));
   lines.push('待填欄位：' + (result.modelMissingCount || 0) + ' 個');
+  lines.push('');
+
+  // ---- R-032：內容份量估算 ----
+  buildContentSizeLines_(result.contentSize).forEach(function (line) { lines.push(line); });
+
+  // ---- R-032：重複段落 ----
+  var dupLines = buildDuplicateParagraphLines_(result.duplicateParagraphs);
+  if (dupLines.length > 0) {
+    lines.push('');
+    dupLines.forEach(function (line) { lines.push(line); });
+  }
   lines.push('');
   lines.push('檔案：' + result.file.fileName);
   lines.push(result.file.url);

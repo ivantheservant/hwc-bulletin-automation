@@ -109,6 +109,28 @@ function weeklyBulletinSendTrigger_() {
       });
     }
 
+    // R-033：草稿預覽連結。包一層 try/catch——預覽寄不到不應該連累週報，
+    //    那是兩件獨立的事；失敗記一筆 ErrorLog 就好。
+    try {
+      var previewResult = sendPreviewNotice_(targetIso);
+      if (!previewResult.sent && previewResult.reason !== 'DISABLED') {
+        appendErrorLog_({
+          source: ERROR_LOG_SOURCE.TRIGGER,
+          functionName: 'weeklyBulletinSendTrigger_/sendPreviewNotice_',
+          errorCode: previewResult.reason,
+          message: previewResult.message
+        });
+      }
+    } catch (previewErr) {
+      appendErrorLog_({
+        source: ERROR_LOG_SOURCE.TRIGGER,
+        functionName: 'weeklyBulletinSendTrigger_/sendPreviewNotice_',
+        errorCode: (previewErr && previewErr.code) || 'ERROR',
+        message: (previewErr && previewErr.message) ? previewErr.message : String(previewErr),
+        detail: buildErrorDetail_(previewErr, { argsSummary: 'isoDate=' + targetIso })
+      });
+    }
+
     sendBulletinForDate_(targetIso, {});
   } catch (err) {
     appendErrorLog_({

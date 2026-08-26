@@ -975,6 +975,7 @@
     renderStats(data.missing, data.warnings, data.lastSavedAt);
     renderConflictStat(data.rosterDiff);
     renderFillGridLink(data.fillGridUrl);
+    renderPreviewLink(data.previewUrl);
     renderProgramPreview(data.readOnly.program);
     // R-011：一定要排在 applyWeekFieldsToForm() 之後——先填值，再把那幾個
     // 欄位設成唯讀，否則設定 readOnly 之後再寫值會看起來像可以編輯。
@@ -993,6 +994,28 @@
    * Returns:
    *   {void}
    */
+  /**
+   * 用途：畫出（或者收起）「開啟預覽」那條連結（R-033）。
+   *
+   *   ⚠️ 取不到網址就**不顯示**，與填寫表那一條同一個道理：一條開不到
+   *   的連結比不顯示更差，使用者會以為系統壞了。取不到的常見原因是
+   *   Config 的 PREVIEW_WEBAPP_URL 未填而且 ScriptApp 那一支拿不到。
+   * Args:
+   *   url {string} 預覽網址；空字串代表取不到。
+   * Returns:
+   *   {void}
+   */
+  function renderPreviewLink(url) {
+    var link = document.getElementById('previewLink');
+    if (!url) {
+      link.classList.add('hidden');
+      link.removeAttribute('href');
+      return;
+    }
+    link.href = url;
+    link.classList.remove('hidden');
+  }
+
   function renderFillGridLink(url) {
     var link = document.getElementById('fillGridLink');
     if (!url) {

@@ -821,6 +821,34 @@ function seedEmailTemplatesRows_() {
   return [
     seedPublishNoticeRow_(),
     {
+      TEMPLATE_ID: 'PREVIEW_NOTICE',
+      SUBJECT: '{{ChurchName}}粵語堂週報草稿預覽 — {{ServiceDate}}',
+      BODY: [
+        '各位主內肢體：',
+        '',
+        '平安！',
+        '',
+        '下一個主日（{{ServiceDate}}）的週報草稿預覽已經可以查看：',
+        '',
+        '{{PreviewUrl}}',
+        '',
+        '⚠️ 這是草稿預覽，版面與正式印刷版不同，只供核對內容。'
+          + '如發現資料有錯漏，請回覆此郵件。',
+        '',
+        '這條連結固定不變，之後每星期打開都是最新一期，可以直接收藏。',
+        '',
+        '{{RosterPendingNote}}',
+        '',
+        '謝謝！',
+        '',
+        '粵語堂週報系統　敬上'
+      ].join('\n'),
+      ACTIVE: true,
+      NOTES: 'R-033：星期一自動寄出的草稿預覽連結。'
+        + '⚠️ {{PreviewUrl}} 是那條**固定不變**的連結（不帶日期＝永遠顯示下一個主日）；'
+        + '{{RosterPendingNote}} 只在職事表未有該季資料時才有內容，其餘時候是空字串。'
+    },
+    {
       TEMPLATE_ID: 'TPL_WEEKLY_BULLETIN',
       SUBJECT: '{{ChurchName}}粵語堂週報 — {{ServiceDate}}',
       BODY: [
@@ -933,6 +961,20 @@ function seedNumberRegistryRows_() {
       RECOUNT_RULE: '取 PublishLog 內該主日的最大 VERSION_NO',
       ACTIVE: true,
       NOTES: '完全獨立：一邊按 PUBLISHED_AT 排序取最新，一邊取該主日最大版本號'
+    },
+    {
+      REGISTRY_ID: 'N07',
+      DISPLAY_LOCATION: '「產生本週週報（Word）」對話框「偵測到 N 段文字出現兩次或以上」',
+      SOURCE_FUNCTION: 'assertDocxBlob_().duplicateParagraphs.length',
+      SHEET_NAME: '（產出的 .docx，不是工作表）',
+      RECOUNT_RULE: '重新解壓成品，挖走文字方塊（mc:AlternateContent）之後逐段數，'
+        + '長度 >= DUPLICATE_PARAGRAPH_MIN_CHARS 而且出現 >= 2 次的段落數目',
+      ACTIVE: true,
+      NOTES: 'R-032。⚠️ 這個數字的來源不是工作表，是**產出檔案本身**——'
+        + '所以 I03 那一條兩路對數只能兩邊都掃同一份 blob，獨立性比其餘幾個低。'
+        + '真正的獨立性來自「一路是渲染時算的、一路是回頭實掃成品」，'
+        + '而這一項本來就只有實掃那一路，沒有渲染時的對應數字。'
+        + '登記在這裏是為了讓它出現在報告與登記表上，不是為了兩路對數。'
     }
   ];
 }

@@ -43,6 +43,14 @@
  *   {HtmlOutput}
  */
 function doGet(e) {
+  // ⚠️ 預覽頁要**排在總開關與填寫介面權限之前**判斷（R-033）：
+  //    它是另一個功能、另一套授權（完全唯讀，預設網域內任何人都開得到）。
+  //    排在後面的話，`WEBAPP_ENABLED=FALSE` 或者不在名單內的人就連唯讀的
+  //    預覽都看不到——而那正是它要服務的那一批人。
+  if (webAppRequestedPage_(e) === 'preview') {
+    return renderPreviewResponse_(e);
+  }
+
   if (!isWebAppEnabled_()) {
     return HtmlService.createHtmlOutput(renderWebAppMessagePage_(
       '填寫介面目前已關閉',
@@ -51,9 +59,7 @@ function doGet(e) {
   }
   if (!isCallerAuthorized_()) {
     return HtmlService.createHtmlOutput(renderWebAppMessagePage_(
-      '沒有使用權限',
-      ['您目前沒有權限使用本填寫介面。', '請聯絡管理者，在 Config 的 WEBAPP_ALLOWED_EMAILS 加入您的電郵（逗號分隔）。']
-    ));
+      '沒有使用權限', buildNoAccessLines_()));
   }
 
   var schema = checkSheetSchema_();
@@ -69,6 +75,44 @@ function doGet(e) {
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
+/**
+ * 用途：讀出請求想要哪一版（`?page=`）。
+ * Args:
+ *   e {Object} `doGet` 的事件物件。
+ * Returns:
+ *   {string} 一律小寫；沒有帶就回空字串。
+ */
+function webAppRequestedPage_(e) {
+  var params = (e && e.parameter) ? e.parameter : {};
+  return String(params.page || '').trim().toLowerCase();
+}
+
+/**
+ * 用途：`?page=preview` 的回應。
+ *
+ *   ⚠️ 這一條路徑**完全唯讀**：只讀資料、只砌 HTML，不會寫任何一格。
+ *   所以它不受 `WEBAPP_ENABLED` 影響（那個開關是關填寫介面的），
+ *   授權亦另有一條（`PREVIEW_REQUIRE_ALLOWLIST`，預設 FALSE）。
+ * Args:
+ *   e {Object} `doGet` 的事件物件。
+ * Returns:
+ *   {HtmlOutput}
+ */
+function renderPreviewResponse_(e) {
+  if (!isPreviewCallerAuthorized_()) {
+    return HtmlService.createHtmlOutput(renderWebAppMessagePage_(
+      '沒有權限查看草稿預覽', buildNoAccessLines_().concat([
+        '（草稿預覽目前設定為只限名單內的人查看：Config 的 '
+          + CONFIG_KEYS.PREVIEW_REQUIRE_ALLOWLIST + ' 是 TRUE。）'
+      ])));
+  }
+
+  var params = (e && e.parameter) ? e.parameter : {};
+  var page = buildPreviewPage_(params.date);
+  return HtmlService.createHtmlOutput(page.html)
+    .setTitle(APP_NAME + '－草稿預覽')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
 /**
  * 用途：讀出 Config `WEBAPP_CALL_TIMEOUT_SEC`（填寫介面等候伺服器回應的
  *   上限，秒）。設定不合法或者非正數一律回 120。
@@ -136,6 +180,26 @@ function escapeHtml_(text) {
 // =====================================================================
 
 /**
+ * 用途：「沒有使用權限」那一頁的內容行。
+ *
+ *   ⚠️ **一定要印出「你目前登入的是哪一個帳戶」。** 沒有這一行的話，
+ *   看見「沒有使用權限」的人完全沒有辦法自助排解——最常見的原因根本
+ *   不是權限，而是瀏覽器登入了另一個 Google 帳戶（個人 Gmail 而不是
+ *   教會帳戶）。把登入的電郵印出來，多數情況一眼就看得出。
+ * Args: （無）
+ * Returns:
+ *   {string[]}
+ */
+function buildNoAccessLines_() {
+  var caller = getCallerEmail_();
+  return [
+    '您目前沒有權限使用本填寫介面。',
+    '你目前登入的是：' + (caller || '（查不到——可能未登入，或者瀏覽器擋住了帳戶資訊）'),
+    '如果那不是你的教會帳戶，請先在瀏覽器切換帳戶再開一次。',
+    '如果帳戶正確，請聯絡管理者，在 Config 的 WEBAPP_ALLOWED_EMAILS 加入您的電郵（逗號分隔）。'
+  ];
+}
+/**
  * 用途：讀 Config 的 `WEBAPP_ENABLED` 總開關。
  * Args: （無）
  * Returns:
@@ -179,28 +243,38 @@ function getEffectiveEmail_() {
 
 /**
  * 用途：判斷一個電郵是否有權限使用填寫介面。純函式，方便獨立測試。
+ *
+ *   ⚠️ **部署者一律放行，不論名單有沒有他。** 授權範圍是
+ *   「`WEBAPP_ALLOWED_EMAILS` 的清單 **∪** 部署者本人」。
+ *
+ *   舊版是「名單非空就只看名單」，於是實際發生過這件事：名單只有兩個
+ *   同工的電郵，**部署者本人不在裏面**，結果自己開不到自己部署的 Web App，
+ *   畫面只有一句「沒有使用權限」。而唯一改得到那個名單的地方是試算表的
+ *   `Config`——幸好那一邊還開得到，否則就是把自己鎖死在系統外面。
+ *
+ *   **一個權限系統不可以把唯一有能力修好它的人擋在門外。**
  * Args:
  *   callerEmail {string} 呼叫者的電郵。
  *   allowedEmailsList {string[]} `WEBAPP_ALLOWED_EMAILS` 解析後的清單。
  *   effectiveEmail {string} 部署者（`Session.getEffectiveUser()`）的電郵。
  * Returns:
- *   {boolean} 名單非空時，呼叫者要在名單內（不分大小寫）；名單空白時，
- *     只有呼叫者等於 `effectiveEmail` 才通過。`callerEmail` 空白一律回 false。
+ *   {boolean} 呼叫者在名單內、或者呼叫者就是部署者，兩者其一即通過。
+ *     名單空白時只有部署者通過。`callerEmail` 空白一律回 false。
  */
 function isEmailAuthorized_(callerEmail, allowedEmailsList, effectiveEmail) {
   var caller = String(callerEmail || '').trim().toLowerCase();
   if (!caller) return false;
 
+  // ⚠️ 部署者永遠放行，而且要**排在名單判斷之前**——放在之後的話，
+  //    名單非空那條路仍然會先 return，等於沒有加。
+  var effective = String(effectiveEmail || '').trim().toLowerCase();
+  if (effective && caller === effective) return true;
+
   var allowed = (allowedEmailsList || [])
     .map(function (e) { return String(e || '').trim().toLowerCase(); })
     .filter(function (e) { return e.length > 0; });
 
-  if (allowed.length > 0) {
-    return allowed.indexOf(caller) !== -1;
-  }
-
-  var effective = String(effectiveEmail || '').trim().toLowerCase();
-  return Boolean(effective) && caller === effective;
+  return allowed.indexOf(caller) !== -1;
 }
 
 /**
@@ -1105,6 +1179,9 @@ function loadWeekForWebApp_(isoDate) {
     // 「重新讀取職事表」按鈕成功之後要顯示的文案；一律算好給前端，
     // 前端只在那個按鈕的情境下使用，一般切換主日時不理會這個欄位。
     rosterReloadMessage: buildRosterReloadMessage_(model.rosterVersionUsed, model.rosterIsOfficial),
+    // R-033：這一個主日的草稿預覽連結。取不到網址時是空字串，前端就不顯示
+    // 那顆按鈕——一條開不到的連結比不顯示更差。
+    previewUrl: buildPreviewUrl_(isoDate),
     // R-036：職事表整季未有資料時頂部要出的黃色橫幅。是空字串就不顯示。
     // 由伺服器算好文案，前端只負責顯示——ROSTER_STATUS 的三個值代表什麼
     // 只應該有一處知道。

@@ -495,7 +495,13 @@ function selfTestScenarios_() {
     { id: 'S22', name: '含 4 月第一個主日的季度：夏令時間提示自動一行，SOURCE=SYSTEM_DST', run: selfTestS22_ },
     { id: 'S23', name: '夏令時間那一行被人手改過：刷新不覆寫、也不另加一行', run: selfTestS23_ },
     { id: 'S24', name: 'DST_AUTO_INSERT=FALSE：不自動加（開啟時要加得到）', run: selfTestS24_ },
-    { id: 'S25', name: '該季沒有夏令時間轉換：一行都不加', run: selfTestS25_ }
+    { id: 'S25', name: '該季沒有夏令時間轉換：一行都不加', run: selfTestS25_ },
+    { id: 'S26', name: '草稿預覽（下一個主日）：頁面組得出、含提示語、未填欄位顯示「（未填）」', run: selfTestS26_ },
+    { id: 'S27', name: '草稿預覽帶指定日期：顯示的就是那一個主日', run: selfTestS27_ },
+    { id: 'S28', name: '寄出草稿預覽（DRY_RUN）：SendLog 多 STATUS=PREVIEW，內文含連結', run: selfTestS28_ },
+    { id: 'S29', name: 'PREVIEW_ENABLED=FALSE：不寄預覽，SendLog 一筆都沒有多', run: selfTestS29_ },
+    { id: 'S30', name: '重複段落偵測：長段重複算數，短句重複不算', run: selfTestS30_ },
+    { id: 'S31', name: '內容份量估算：超過門檻有提示、未超過沒有提示，而且結果穩定', run: selfTestS31_ }
   ];
 }
 
@@ -868,6 +874,257 @@ function selfTestS25_(ctx) {
     '季度 ' + config.quarterId + '；主日 ' + dates.length + ' 個；'
       + (ok ? '' : '加了：' + rows.map(function (r) { return r.SERVICE_DATE; }).join('、')));
 }
+
+/**
+ * 用途：S26：開啟預覽頁（下一個主日）→ 斷言頁面組得出、含提示語、
+ *   含主日日期、未填欄位顯示「（未填）」（R-033）。
+ *
+ *   ⚠️ 刻意走**真實入口** `buildPreviewPage_()`，不是自己砌一個假的 model
+ *   再叫 `renderPreviewHtml_()`——後者驗不到「由日期到 HTML」整條路，而那
+ *   條路才是使用者真正會走的。
+ * Args:
+ *   ctx {Object} 自測機的執行脈絡。
+ * Returns:
+ *   {{ok:(boolean|null), expected:string, actual:string, evidence:string}}
+ */
+function selfTestS26_(ctx) {
+  var config = ctx.config;
+  var dates = selfTestSandboxDates_(config);
+  if (dates.length === 0) return selfTestOutcome_(null, '沙盒季度有主日', '0 個', '請先跑 S19。');
+
+  // ⚠️ 不傳日期＝走「下一個主日」那條路，但那個主日是**真實**季度的，
+  //    自測機不可以碰。所以這一條驗的是「不帶日期時算得出一個主日、
+  //    而且頁面組得出來」，用的是唯讀路徑（預覽全程不寫任何一格）。
+  var page = buildPreviewPage_('');
+  var html = String(page.html || '');
+  var notice = previewConfig_().notice;
+
+  var hasNotice = html.indexOf(escapeHtml_(notice)) !== -1;
+  var hasDate = Boolean(page.isoDate) && html.indexOf(escapeHtml_(page.isoDate)) !== -1;
+  var hasBlank = html.indexOf('（未填）') !== -1;
+  // 唯讀：整版不可以有表單或者 google.script.run。
+  var readOnly = html.indexOf('<form') === -1 && html.indexOf('google.script.run') === -1;
+
+  var ok = page.ok === true && hasNotice && hasDate && hasBlank && readOnly;
+  return selfTestOutcome_(ok,
+    '頁面組得出、含提示語、含主日日期、有「（未填）」、完全唯讀',
+    '組得出 ' + (page.ok === true) + '、提示語 ' + hasNotice + '、日期 ' + hasDate
+      + '、（未填）' + hasBlank + '、唯讀 ' + readOnly,
+    '主日 ' + (page.isoDate || '（算不到）') + '；HTML 長度 ' + html.length + ' 字元。'
+      + '　⚠️ 「（未填）」一定要出現：預覽的用途就是讓人看到有什麼未填，'
+      + '留空白等於把「未填」偽裝成「沒有這一項」。');
+}
+
+/**
+ * 用途：S27：預覽頁帶指定日期 → 斷言顯示的就是那一個主日（R-033）。
+ * Args:
+ *   ctx {Object} 自測機的執行脈絡。
+ * Returns:
+ *   {{ok:(boolean|null), expected:string, actual:string, evidence:string}}
+ */
+function selfTestS27_(ctx) {
+  var config = ctx.config;
+  var dates = selfTestSandboxDates_(config);
+  if (dates.length === 0) return selfTestOutcome_(null, '沙盒季度有主日', '0 個', '請先跑 S19。');
+
+  // 刻意揀第二個主日：揀第一個的話，「下一個主日」剛好等於它時就分不出
+  // 「真的用了指定日期」還是「其實走了預設那條路」。
+  var target = dates.length > 1 ? dates[1] : dates[0];
+  var page = buildPreviewPage_(target);
+  var html = String(page.html || '');
+
+  var ok = page.ok === true
+    && page.isoDate === target
+    && html.indexOf(escapeHtml_(target)) !== -1;
+
+  return selfTestOutcome_(ok, '顯示 ' + target,
+    '顯示 ' + (page.isoDate || '（算不到）'),
+    '指定日期 ' + target + '；沙盒季度共 ' + dates.length + ' 個主日。'
+      + '　⚠️ 刻意揀第二個主日——揀第一個的話，分不出「用了指定日期」與'
+      + '「其實走了下一個主日那條路」。');
+}
+
+/**
+ * 用途：S28：星期一觸發器（`DRY_RUN`）→ 斷言 `SendLog` 多一筆
+ *   `STATUS='PREVIEW'`，而且內文含預覽連結（R-033）。
+ *
+ *   ⚠️ 與 S18 同一個理由，**刻意不直接呼叫 `weeklyBulletinSendTrigger_()`**：
+ *   那一支會順手建立季度填寫表與內容表，直接違反「只准碰沙盒季度」。
+ *   這一條驗的是它會呼叫的那一段（`sendPreviewNotice_()`）。
+ *   **這是一個已知的覆蓋缺口**，寫在證據欄。
+ * Args:
+ *   ctx {Object} 自測機的執行脈絡。
+ * Returns:
+ *   {{ok:(boolean|null), expected:string, actual:string, evidence:string}}
+ */
+function selfTestS28_(ctx) {
+  var config = ctx.config;
+  if (!config.dryRun) {
+    return selfTestOutcome_(null, 'DRY_RUN=TRUE', 'DRY_RUN=FALSE',
+      '自測機只在 DRY_RUN 之下驗寄送，這一條略過。⚠️ 「略過」不等於「通過」。');
+  }
+
+  var dates = selfTestSandboxDates_(config);
+  if (dates.length === 0) return selfTestOutcome_(null, '沙盒季度有主日', '0 個', '請先跑 S19。');
+
+  var before = selfTestCountPreviewSendLogRows_();
+  var result = sendPreviewNotice_(dates[0]);
+  var after = selfTestCountPreviewSendLogRows_();
+
+  if (!result.sent) {
+    return selfTestOutcome_(null, '寄得出草稿預覽', '沒有寄：' + result.reason,
+      result.message + '　⚠️ 「沒有寄」不等於「通過」——多數是未設定 '
+        + CONFIG_KEYS.PREVIEW_WEBAPP_URL + ' 或者 Recipients 沒有對應的組別。');
+  }
+
+  var added = after.count - before.count;
+  var hasUrl = after.lastBodyPreview.indexOf('page=preview') !== -1
+    || (result.previewUrl && after.lastBodyPreview.indexOf(result.previewUrl.slice(0, 30)) !== -1);
+
+  var ok = added === result.recipientCount && added > 0 && hasUrl && result.dryRun === true;
+  return selfTestOutcome_(ok,
+    result.recipientCount + ' 筆 STATUS=PREVIEW、內文含預覽連結、DRY_RUN=TRUE',
+    added + ' 筆、內文' + (hasUrl ? '有' : '沒有') + '連結、DRY_RUN=' + result.dryRun,
+    '主日 ' + dates[0] + '；連結 ' + (result.previewUrl || '（取不到）')
+      + '　⚠️ 覆蓋缺口：這一條**沒有**真的呼叫 weeklyBulletinSendTrigger_()，'
+      + '因為那一支會替真實季度建立填寫表與內容表。見 docs/待確認事項.md。');
+}
+
+/**
+ * 用途：S29：`PREVIEW_ENABLED=FALSE` → 斷言不寄預覽（R-033）。
+ *
+ *   ⚠️ 改完 Config 一定要在 `finally` 還原，否則這一條一失敗就會把整個
+ *   草稿預覽永久關掉。
+ * Args:
+ *   ctx {Object} 自測機的執行脈絡。
+ * Returns:
+ *   {{ok:(boolean|null), expected:string, actual:string, evidence:string}}
+ */
+function selfTestS29_(ctx) {
+  var config = ctx.config;
+  var dates = selfTestSandboxDates_(config);
+  if (dates.length === 0) return selfTestOutcome_(null, '沙盒季度有主日', '0 個', '請先跑 S19。');
+
+  var original = getConfig(CONFIG_KEYS.PREVIEW_ENABLED, 'TRUE');
+  var before = selfTestCountPreviewSendLogRows_();
+  var offResult;
+  try {
+    setConfig(CONFIG_KEYS.PREVIEW_ENABLED, 'FALSE', '自測機 S29：暫時關掉草稿預覽');
+    offResult = sendPreviewNotice_(dates[0]);
+  } finally {
+    setConfig(CONFIG_KEYS.PREVIEW_ENABLED, original, '自測機 S29：還原原值');
+  }
+  var after = selfTestCountPreviewSendLogRows_();
+
+  var ok = offResult.sent === false
+    && offResult.reason === 'DISABLED'
+    && after.count === before.count;
+
+  return selfTestOutcome_(ok,
+    '不寄、reason=DISABLED、SendLog 一筆都沒有多',
+    '寄了 ' + offResult.sent + '、reason=' + offResult.reason
+      + '、SendLog 多了 ' + (after.count - before.count) + ' 筆',
+    'Config ' + CONFIG_KEYS.PREVIEW_ENABLED + ' 已還原成「' + original + '」。');
+}
+
+/**
+ * 用途：S30：產生一份含重複段落的 Word → 斷言 `duplicateParagraphs`
+ *   列出正確條數（R-032）。
+ *
+ *   ⚠️ 刻意用**人手砌的 OOXML**，不是真的去產生一份週報：真週報有沒有
+ *   重複段落不受我們控制，驗不到「數得準」這件事。這裏要驗的是掃描本身。
+ * Args:
+ *   ctx {Object} 自測機的執行脈絡。
+ * Returns:
+ *   {{ok:(boolean|null), expected:string, actual:string, evidence:string}}
+ */
+function selfTestS30_(ctx) {
+  var longText = '為斯里蘭卡短宣隊代禱，求主保守隊員身心靈健壯，行程順利平安。';
+  var otherText = '請為本週三晚上的祈禱會代禱，求主感動更多弟兄姊妹一同參與。';
+  var shortText = '請代禱。';
+
+  function para(text) { return '<w:p><w:r><w:t>' + text + '</w:t></w:r></w:p>'; }
+
+  // 兩段長文各出現兩次、一段短文出現三次（短文不應該被計算）。
+  var xml = '<w:body>'
+    + para(longText) + para(otherText) + para(longText)
+    + para(shortText) + para(shortText) + para(shortText)
+    + para(otherText)
+    + '</w:body>';
+
+  var found = docxScanDuplicateParagraphs_(xml, 25);
+  var texts = found.map(function (d) { return d.text; });
+
+  var ok = found.length === 2
+    && texts.indexOf(longText) !== -1
+    && texts.indexOf(otherText) !== -1
+    && found.every(function (d) { return d.count === 2; });
+
+  return selfTestOutcome_(ok, '2 段（各出現 2 次），短句不計',
+    found.length + ' 段：' + found.map(function (d) {
+      return d.text.slice(0, 12) + '⋯（' + d.count + ' 次）';
+    }).join('、'),
+    '短句「' + shortText + '」出現 3 次但長度不足 25 字元，刻意不計——'
+      + '短句重複是排版的正常現象，報出來只會令人不再看這一項。');
+}
+
+/**
+ * 用途：S31：內容份量超過門檻 → 斷言有提示；未超過 → 斷言沒有提示（R-032）。
+ *
+ *   ⚠️ **兩邊都要驗。** 只驗「超過會提示」的話，一支永遠提示的壞實作
+ *   一樣會綠。
+ * Args:
+ *   ctx {Object} 自測機的執行脈絡。
+ * Returns:
+ *   {{ok:(boolean|null), expected:string, actual:string, evidence:string}}
+ */
+function selfTestS31_(ctx) {
+  function paraXml(text) { return '<w:p><w:r><w:t>' + text + '</w:t></w:r></w:p>'; }
+
+  var unit = '';
+  for (var i = 0; i < 100; i++) unit += '週';
+
+  var small = estimateDocxContentSize_([paraXml(unit)], 500);           // 100 字元
+  var big = estimateDocxContentSize_([paraXml(unit + unit + unit + unit + unit + unit)], 500);  // 600
+
+  var smallLines = buildContentSizeLines_(small);
+  var bigLines = buildContentSizeLines_(big);
+  var smallWarns = smallLines.join('').indexOf('可能會排到第 5 頁') !== -1;
+  var bigWarns = bigLines.join('').indexOf('可能會排到第 5 頁') !== -1;
+
+  // 同一份輸入跑兩次要得出同一個數字（穩定性）。
+  var again = estimateDocxContentSize_([paraXml(unit)], 500);
+  var stable = again.chars === small.chars;
+
+  var ok = small.chars === 100 && big.chars === 600
+    && small.overThreshold === false && big.overThreshold === true
+    && !smallWarns && bigWarns && stable;
+
+  return selfTestOutcome_(ok,
+    '未超過 → 沒有提示；超過 → 有提示；同一份輸入兩次結果相同',
+    '未超過 ' + small.chars + ' 字元（提示 ' + smallWarns + '）、'
+      + '超過 ' + big.chars + ' 字元（提示 ' + bigWarns + '）、穩定 ' + stable,
+    '門檻 500（測試用）。⚠️ 兩邊都要驗——只驗「超過會提示」的話，'
+      + '一支永遠提示的壞實作一樣會綠。'
+      + '　⚠️ 這個數字**只是估算**：準確頁數要靠 Word 的排版引擎。');
+}
+
+/**
+ * 用途：數 `SendLog` 內 `STATUS='PREVIEW'` 有幾多筆，並取最後一筆的內文摘要。
+ * Args: （無）
+ * Returns:
+ *   {{count:number, lastBodyPreview:string}}
+ */
+function selfTestCountPreviewSendLogRows_() {
+  var rows = readSheet(SHEETS.SEND_LOG).filter(function (r) {
+    return String(r.STATUS || '') === 'PREVIEW';
+  });
+  return {
+    count: rows.length,
+    lastBodyPreview: rows.length > 0 ? String(rows[rows.length - 1].BODY_PREVIEW || '') : ''
+  };
+}
+
 
 /**
  * 用途：S22–S24 共用的守門：沙盒季度到底有沒有夏令時間轉換提示日。

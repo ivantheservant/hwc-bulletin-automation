@@ -35,6 +35,45 @@ function selfCheckItem_(label, status, message, detail) {
 }
 
 /**
+ * 用途：「WEBAPP_ALLOWED_EMAILS 有沒有包含部署者」那一項的判斷。**純函式。**
+ *
+ *   ⚠️ 報 🟡 不是 🔴：部署者**一律放行**，所以現況是可以用的，不是壞了。
+ *   但清單建議加入，以免將來換人時有人以為「名單就是全部有權限的人」。
+ * Args:
+ *   allowedEmails {string[]} `WEBAPP_ALLOWED_EMAILS` 解析後的清單。
+ *   deployerEmail {string} 部署者的電郵。
+ *   statuses {Object} `SELF_CHECK_STATUS_`。
+ * Returns:
+ *   {[string, string, string]} `selfCheckItem_()` 的三個參數。
+ */
+function buildDeployerInAllowlistItem_(allowedEmails, deployerEmail, statuses) {
+  var label = '填寫介面授權名單';
+  var deployer = String(deployerEmail || '').trim().toLowerCase();
+  var list = (allowedEmails || [])
+    .map(function (e) { return String(e || '').trim().toLowerCase(); })
+    .filter(function (e) { return e.length > 0; });
+
+  if (!deployer) {
+    return [label, statuses.YELLOW,
+      '查不到部署者的電郵，所以比不到。⚠️ 「比不到」不等於「沒問題」。'];
+  }
+  if (list.length === 0) {
+    return [label, statuses.YELLOW,
+      'WEBAPP_ALLOWED_EMAILS 是空的——目前只有部署者（' + deployer + '）用得到填寫介面。'
+        + '要讓同工使用，請把他們的電郵加進去（逗號分隔）。'];
+  }
+  if (list.indexOf(deployer) === -1) {
+    return [label, statuses.YELLOW,
+      'WEBAPP_ALLOWED_EMAILS 目前有 ' + list.length + ' 個電郵，但**不包含部署者**（'
+        + deployer + '）。'
+        + '部署者仍然可以使用（系統一律放行），但清單建議加入，以免將來換人時混亂'
+        + '——看名單的人會以為那就是全部有權限的人。'];
+  }
+  return [label, statuses.GREEN,
+    'WEBAPP_ALLOWED_EMAILS 有 ' + list.length + ' 個電郵，包含部署者（' + deployer + '）。'];
+}
+
+/**
  * 用途：「檢測季度」這一項的中文說明短語，依 `resolveWorkingQuarter_()`
  *   實際用了哪一層而不同。
  * Args:
@@ -147,6 +186,18 @@ function selfCheckConfigItems_() {
 
   var dryRun = getConfig(CONFIG_KEYS.DRY_RUN, 'TRUE');
   items.push(selfCheckItem_('DRY_RUN 目前值', S.GREEN, dryRun));
+
+  // ---- WEBAPP_ALLOWED_EMAILS 有沒有包含部署者 ----
+  //
+  //    ⚠️ 這一項報 🟡 不是 🔴：部署者**一律放行**（見 isEmailAuthorized_()），
+  //    所以現況是可以用的，不是壞了。但清單建議加入，以免將來換人時
+  //    有人以為「名單就是全部有權限的人」而查半日。
+  //
+  //    這一項的來由：實際發生過名單只有兩個同工、部署者本人不在裏面，
+  //    於是自己開不到自己部署的 Web App。
+  var allowedEmails = getConfigTextList_(CONFIG_KEYS.WEBAPP_ALLOWED_EMAILS, '');
+  var deployerEmail = getEffectiveEmail_();
+  items.push(selfCheckItem_.apply(null, buildDeployerInAllowlistItem_(allowedEmails, deployerEmail, S)));
 
   // ---- 工作表結構 ----
   var schema = checkSheetSchema_();

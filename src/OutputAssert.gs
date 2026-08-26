@@ -99,6 +99,8 @@ function assertDocxBlob_(blob) {
 
   var residualSeen = {};
   var variantSeen = {};
+  var duplicateSeen = {};
+  var duplicateMinChars = docxDuplicateMinChars_();
   var fontsSeen = {};
   var sectPrCount = 0;
   var pageBreakCount = 0;
@@ -148,6 +150,19 @@ function assertDocxBlob_(blob) {
       result.orphanLabels.push(labelText);
     });
 
+    // ---- 重複段落（R-032）----
+    // ⚠️ 一定要**先挖走文字方塊**：那裏的重複是 OOXML 的正常結構
+    //    （AlternateContent 的 Choice／Fallback 兩份一模一樣），不挖就滿屏假警報。
+    docxScanDuplicateParagraphs_(xml, duplicateMinChars).forEach(function (d) {
+      var key = d.text;
+      if (duplicateSeen[key]) {
+        duplicateSeen[key].count += d.count;
+        return;
+      }
+      duplicateSeen[key] = { text: d.text, count: d.count };
+      result.duplicateParagraphs.push(duplicateSeen[key]);
+    });
+
     // ---- 頁數線索與字型 ----
     sectPrCount += docxCountOccurrences_(xml, '<w:sectPr');
     pageBreakCount += docxCountOccurrences_(xml, 'w:type="page"');
@@ -155,6 +170,7 @@ function assertDocxBlob_(blob) {
   });
 
   result.fontsUsed = Object.keys(fontsSeen).sort();
+  result.duplicateParagraphs.sort(function (a, b) { return b.count - a.count; });
   result.pageCountHint = docxPageCountHint_(sectPrCount, pageBreakCount);
   result.ok = result.scannedParts > 0;
   result.message = result.ok
@@ -187,7 +203,9 @@ function assertDocxOutputEmptyResult_(fileId) {
     emptyTables: [],
     orphanLabels: [],
     pageCountHint: null,
-    fontsUsed: []
+    fontsUsed: [],
+    // R-032：在成品內出現兩次或以上的段落（已排除文字方塊）。
+    duplicateParagraphs: []
   };
 }
 
@@ -297,6 +315,225 @@ function docxScanOrphanLabels_(xml) {
 
 /** 孤兒標籤最多幾多個字元。超過就當成正文，不報。 */
 var DOCX_ORPHAN_LABEL_MAX_CHARS_ = 12;
+
+/**
+ * 用途：估算一份成品的「內容份量」（字元數），並判斷有沒有超過提示門檻。
+ *   **純函式。**
+ *
+ *   ⚠️ **這是估算，不是頁數。** Apps Script 算不到準確頁數——頁數要靠
+ *   Word 的排版引擎（字型、行距、圖片、表格全部有影響）。所以這一項的
+ *   輸出一定要標明「估算」，而且**永遠不會阻止產生週報**，只會叫人開
+ *   Word 確認。裝成算得準，比不報更差。
+ *
+ *   ⚠️ 門檻的來歷（R-032）：88 期真實週報之中，4 頁的中位數約 4,500
+ *   字元、5 頁的約 6,000 至 6,500 字元。預設 5,600 是中間偏保守。
+ *
+ *   ⚠️ 同樣要先挖走文字方塊：不挖的話文字方塊的內容會被數兩次，
+ *   同一份輸入每次都得出偏高而且不穩定的數字。
+ * Args:
+ *   xmlParts {string[]} 各個文字部件的 OOXML。
+ *   warnChars {number} 提示門檻（字元數）。
+ * Returns:
+ *   {{chars:number, warnChars:number, overThreshold:boolean}}
+ */
+function estimateDocxContentSize_(xmlParts, warnChars) {
+  var threshold = Number(warnChars);
+  if (!isFinite(threshold) || threshold < 1) threshold = 5600;
+
+  var chars = 0;
+  (xmlParts || []).forEach(function (xml) {
+    var body = docxStripAlternateContent_(xml);
+    chars += docxExtractPlainText_(body).replace(/\s+/g, '').length;
+  });
+
+  return { chars: chars, warnChars: threshold, overThreshold: chars > threshold };
+}
+
+/**
+ * 用途：把內容份量估算講成給人看的一行（或者兩行）。**純函式。**
+ * Args:
+ *   size {Object} `estimateDocxContentSize_()` 的輸出。
+ * Returns:
+ *   {string[]}
+ */
+function buildContentSizeLines_(size) {
+  var s = size || { chars: 0, warnChars: 0, overThreshold: false };
+  if (!s.overThreshold) {
+    return ['內容份量：約 ' + formatThousands_(s.chars) + ' 字元（估算，未超過 '
+      + formatThousands_(s.warnChars) + ' 的提示門檻）'];
+  }
+  return [
+    '內容份量：約 ' + formatThousands_(s.chars) + ' 字元（超過 4 頁的估算門檻 '
+      + formatThousands_(s.warnChars) + '，可能會排到第 5 頁）',
+    '　⚠️ 這只是**估算**，準確頁數要用 Word 開啟確認頁數與分頁位置。'
+  ];
+}
+
+/**
+ * 用途：把數字加上千位逗號。**純函式。**
+ * Args:
+ *   n {*} 數字。
+ * Returns:
+ *   {string}
+ */
+function formatThousands_(n) {
+  var v = Number(n);
+  if (!isFinite(v)) return String(n === null || n === undefined ? '' : n);
+  return String(Math.round(v)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+/**
+ * 用途：讀 Config 的 `DUPLICATE_PARAGRAPH_MIN_CHARS`（重複段落偵測的最短
+ *   長度）。設定不合法或者非正數一律回 25。
+ * Args: （無）
+ * Returns:
+ *   {number}
+ */
+function docxDuplicateMinChars_() {
+  var n = normalizeInt_(getConfig(CONFIG_KEYS.DUPLICATE_PARAGRAPH_MIN_CHARS, '25'));
+  return (n === null || n < 1) ? 25 : n;
+}
+
+/**
+ * 用途：把一段 OOXML 之中**文字方塊**（`<mc:AlternateContent>`）整段挖走。
+ *   **純函式。**
+ *
+ *   ⚠️ 為什麼一定要挖（R-032）：Word 為了向下相容，同一個文字方塊會用
+ *   `<mc:AlternateContent>` 包住 `<mc:Choice>` 與 `<mc:Fallback>` 兩份
+ *   **內容一模一樣**的副本。不挖走的話，每一個文字方塊裏面的每一段都會
+ *   「出現兩次」——重複段落偵測會滿屏假警報，而真正的複製漏刪反而被淹沒。
+ *
+ *   ⚠️ 用逐個 tag 數深度，不是用非貪婪的正規式：`AlternateContent` 可以
+ *   巢狀（文字方塊裏面再有文字方塊），非貪婪式會在第一個結束標籤就收手，
+ *   剩下半截 XML。
+ * Args:
+ *   xml {string} 一段 OOXML。
+ * Returns:
+ *   {string} 挖走文字方塊之後的 OOXML。
+ */
+function docxStripAlternateContent_(xml) {
+  var text = String(xml || '');
+  var out = '';
+  var cursor = 0;
+
+  while (true) {
+    var start = text.indexOf('<mc:AlternateContent', cursor);
+    if (start === -1) {
+      out += text.slice(cursor);
+      break;
+    }
+    out += text.slice(cursor, start);
+
+    // 由 start 開始逐個 <mc:AlternateContent 與 </mc:AlternateContent> 數深度。
+    var depth = 0;
+    var scan = start;
+    var end = -1;
+    while (scan < text.length) {
+      var nextOpen = text.indexOf('<mc:AlternateContent', scan);
+      var nextClose = text.indexOf('</mc:AlternateContent>', scan);
+      if (nextClose === -1) break;                       // XML 不完整，當作到此為止
+
+      if (nextOpen !== -1 && nextOpen < nextClose) {
+        depth++;
+        scan = nextOpen + '<mc:AlternateContent'.length;
+        continue;
+      }
+      depth--;
+      scan = nextClose + '</mc:AlternateContent>'.length;
+      if (depth === 0) { end = scan; break; }
+    }
+
+    if (end === -1) {                                    // 收不到尾：其餘全部丟掉
+      break;
+    }
+    cursor = end;
+  }
+
+  return out;
+}
+
+/**
+ * 用途：掃出**在成品內出現兩次或以上**的段落，供「複製漏刪」的提示用。
+ *   **純函式。**
+ *
+ *   ⚠️ 這一項的價值比頁數提示高得多（R-032）：88 期真實週報之中，有三期
+ *   （`2025-11-02`、`2025-12-14`、`2026-02-22`）的第 5、6 頁其實是編輯時
+ *   複製漏刪，**從來沒有人發現**，一直以為那幾期真的有 6 頁。
+ *
+ *   ⚠️ 三個刻意的取捨：
+ *     1. **先挖走文字方塊**（見 `docxStripAlternateContent_()`）——那裏的
+ *        重複是 OOXML 的正常結構，不是問題。
+ *     2. 比對前把空白全部壓掉：Word 會把同一句話拆成幾個 `<w:t>`，
+ *        中間夾著空白與格式標籤，不壓掉就對不上。
+ *     3. **只報長過門檻的段落**：短句（「本週」「阿們」「代禱事項」）重複
+ *        是排版的正常現象，報出來只會令人不再看這一項。
+ * Args:
+ *   xml {string} 一段 OOXML（一個部件的內容）。
+ *   minChars {number} 段落最短要幾多個字元才算數。
+ * Returns:
+ *   {{text:string, count:number}[]} 依出現次數由多到少、再依首次出現次序；
+ *     沒有重複時回空陣列。
+ */
+function docxScanDuplicateParagraphs_(xml, minChars) {
+  var min = Number(minChars);
+  if (!isFinite(min) || min < 1) min = 25;
+
+  var body = docxStripAlternateContent_(xml);
+  var counts = {};
+  var order = [];
+  var samples = {};
+
+  var paragraphRegex = /<w:p[ >][\s\S]*?<\/w:p>/g;
+  var match;
+  while ((match = paragraphRegex.exec(body)) !== null) {
+    var raw = docxExtractPlainText_(match[0]);
+    var key = raw.replace(/\s+/g, '');
+    if (key.length < min) continue;
+
+    if (counts[key] === undefined) {
+      counts[key] = 0;
+      order.push(key);
+      samples[key] = raw.replace(/\s+/g, ' ').trim();
+    }
+    counts[key]++;
+  }
+
+  return order
+    .filter(function (key) { return counts[key] >= 2; })
+    .map(function (key) { return { text: samples[key], count: counts[key] }; })
+    .sort(function (a, b) { return b.count - a.count; });
+}
+
+/**
+ * 用途：把重複段落清單講成給人看的幾行。**純函式。**
+ *
+ *   ⚠️ 一定要印**那一段的內容**（截短），不是只印「有 3 段重複」。
+ *   只有數目的話，幹事仍然要自己在 Word 裏面逐段找。
+ * Args:
+ *   duplicates {{text:string, count:number}[]} `docxScanDuplicateParagraphs_()` 的輸出。
+ *   maxItems {number=} 最多列幾多段，預設 5。
+ * Returns:
+ *   {string[]} 沒有重複時回空陣列。
+ */
+function buildDuplicateParagraphLines_(duplicates, maxItems) {
+  var list = duplicates || [];
+  if (list.length === 0) return [];
+
+  var limit = (maxItems === undefined || maxItems === null) ? 5 : Number(maxItems);
+  var lines = ['⚠️ 偵測到 ' + list.length + ' 段文字在成品內出現兩次或以上，可能是複製漏刪：'];
+
+  list.slice(0, limit).forEach(function (d, i) {
+    var text = String(d.text || '');
+    var shown = text.length > 40 ? (text.slice(0, 40) + '⋯⋯') : text;
+    lines.push('   ' + (i + 1) + '. ' + shown + '（出現 ' + d.count + ' 次）');
+  });
+
+  if (list.length > limit) {
+    lines.push('   （另有 ' + (list.length - limit) + ' 段未列出，完整清單見 Diagnostics。）');
+  }
+  lines.push('   請用 Word 開啟核對；這只是提示，不會阻止產生週報。');
+  return lines;
+}
 
 /**
  * 用途：把一段 OOXML 內的 `<w:t>` 文字抽出來串成純文字。**純函式。**
@@ -461,4 +698,76 @@ function buildDocxAssertionLines_(assertion) {
   lines.push('　頁數線索：' + (a.pageCountHint === null ? '取不到' : (a.pageCountHint + ' 頁（下限估算）')));
   lines.push('　用到的字型：' + (a.fontsUsed.length > 0 ? a.fontsUsed.join('、') : '（沒有偵測到）'));
   return lines;
+}
+
+/**
+ * 用途：由一份 `.docx` blob 掃出「內容份量估算」與「重複段落」。
+ *   **唯讀，不會寫任何東西。**
+ *
+ *   ⚠️ 刻意重新解壓一次 blob，不沿用渲染中途的任何字串——與
+ *   `scanDocxResidualPlaceholders_()` 同一個理由：要驗的是**成品**，
+ *   不是「我們以為自己產生了什麼」。
+ * Args:
+ *   blob {Blob} `.docx` 的內容。
+ * Returns:
+ *   {{ok:boolean, size:Object, duplicateParagraphs:Object[], message:string}}
+ *     解壓失敗時 `ok:false`，兩項都回空的骨架——**不拋錯**，因為這只是
+ *     提示，不應該令「產生週報」整個失敗。
+ */
+function scanDocxContentSize_(blob) {
+  var empty = {
+    ok: false,
+    size: { chars: 0, warnChars: docxContentWarnChars_(), overThreshold: false },
+    duplicateParagraphs: [],
+    message: ''
+  };
+
+  var entries;
+  try {
+    entries = unzipDocx_(blob);
+  } catch (err) {
+    empty.message = '內容份量估算：解壓失敗（' + ((err && err.message) ? err.message : String(err)) + '）。';
+    return empty;
+  }
+
+  var xmlParts = [];
+  entries.forEach(function (entry) {
+    if (!isDocxTextPartName_(entry.name)) return;
+    try {
+      xmlParts.push(entry.blob.getDataAsString('UTF-8'));
+    } catch (readErr) {
+      // 個別部件讀不到不應該令整個提示失敗；少數幾個字元的誤差不影響用途。
+    }
+  });
+
+  var minChars = docxDuplicateMinChars_();
+  var seen = {};
+  var duplicates = [];
+  xmlParts.forEach(function (xml) {
+    docxScanDuplicateParagraphs_(xml, minChars).forEach(function (d) {
+      if (seen[d.text]) { seen[d.text].count += d.count; return; }
+      seen[d.text] = { text: d.text, count: d.count };
+      duplicates.push(seen[d.text]);
+    });
+  });
+  duplicates.sort(function (a, b) { return b.count - a.count; });
+
+  return {
+    ok: xmlParts.length > 0,
+    size: estimateDocxContentSize_(xmlParts, docxContentWarnChars_()),
+    duplicateParagraphs: duplicates,
+    message: xmlParts.length > 0 ? '' : '解壓成功但找不到任何文字部件。'
+  };
+}
+
+/**
+ * 用途：讀 Config 的 `BULLETIN_CONTENT_WARN_CHARS`（內容份量提示門檻）。
+ *   設定不合法或者非正數一律回 5600。
+ * Args: （無）
+ * Returns:
+ *   {number}
+ */
+function docxContentWarnChars_() {
+  var n = normalizeInt_(getConfig(CONFIG_KEYS.BULLETIN_CONTENT_WARN_CHARS, '5600'));
+  return (n === null || n < 1) ? 5600 : n;
 }
