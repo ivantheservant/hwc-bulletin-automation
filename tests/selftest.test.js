@@ -333,17 +333,20 @@ test('selfTestSandboxDates_：職事表沒有這一季 → 退回曆法推算（
 // 情境清單
 // =====================================================================
 
-test('情境清單：二十個，編號不重複、每個都有實作', function () {
+test('情境清單：二十七個，編號不重複、每個都有實作', function () {
   const env = makeEnv({});
   const scenarios = env.sandbox.selfTestScenarios_();
 
   // 第三輪自測新增 S14b／S14c：S14 只驗「連續撳兩次不會出兩個版本」這個
   // **結果**；防重複那一道本身由 S14b（視窗之內要擋）與 S14c（視窗之外
   // 不可以擋）專門驗。見 docs/已知bug類型.md 事故三十二。
-  assert.strictEqual(scenarios.length, 20);
+  // R-036／R-030 加了 S19–S25 共七條（職事表未有資料仍可建立、補抓不覆寫、
+  // 夏令時間提示自動加），所以由 20 變 27。
+  assert.strictEqual(scenarios.length, 27);
   const ids = scenarios.map(function (s) { return s.id; });
   deepEq(ids, ['S01', 'S02', 'S03', 'S04', 'S05', 'S06', 'S07', 'S08', 'S09',
-    'S10', 'S11', 'S12', 'S13', 'S14', 'S14b', 'S14c', 'S15', 'S16', 'S17', 'S18']);
+    'S10', 'S11', 'S12', 'S13', 'S14', 'S14b', 'S14c', 'S15', 'S16', 'S17', 'S18',
+    'S19', 'S20', 'S21', 'S22', 'S23', 'S24', 'S25']);
 
   scenarios.forEach(function (s) {
     var scenarioId = s.id;

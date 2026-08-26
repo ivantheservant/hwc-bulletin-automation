@@ -276,6 +276,9 @@ function buildOrRefreshContentSheet_(quarterId, options) {
     seededSample: seededSample
   }));
 
+  // ---- R-030：夏令時間轉換提示 ----
+  var dstResult = applyDaylightSavingRows_(spreadsheet, serviceDates);
+
   arrangeContentTabs_(spreadsheet, contentSheetTabNames_());
 
   if (created) {
@@ -295,11 +298,118 @@ function buildOrRefreshContentSheet_(quarterId, options) {
     fileId: fileId,
     fileUrl: fileUrl,
     tabsCreated: tabsCreated,
+    daylightSaving: dstResult,
     serviceDateCount: serviceDates.length,
     seededSample: seededSample,
     sharingApplied: sharingApplied,
     sharingError: sharingError
   };
+}
+
+/**
+ * 用途：把夏令時間轉換提示寫入內容表的「家事報告」（R-030）。
+ *
+ *   ⚠️ **只覆寫系統自己加而且未被人手改過的行。** 三條規則見
+ *   `planDaylightSavingRows_()`。人手改過內容、或者把「有效」設成
+ *   `FALSE`，之後永遠不會再被覆寫——那是幹事說「我不要這一則」。
+ * Args:
+ *   spreadsheet {Spreadsheet} 內容表。
+ *   serviceDates {string[]} 該季主日。
+ * Returns:
+ *   {{enabled:boolean, added:number, updated:number, untouched:number,
+ *     notices:string[], message:string}}
+ */
+function applyDaylightSavingRows_(spreadsheet, serviceDates) {
+  var config = daylightSavingConfig_();
+  var out = { enabled: config.autoInsert, added: 0, updated: 0, untouched: 0, notices: [], message: '' };
+
+  if (!config.autoInsert) {
+    out.message = 'Config 的 ' + CONFIG_KEYS.DST_AUTO_INSERT + ' 是 FALSE，沒有自動加。';
+    return out;
+  }
+
+  var wanted = buildDaylightSavingRows_(serviceDates, config);
+  out.notices = wanted.map(function (row) { return row.SERVICE_DATE; });
+  if (wanted.length === 0) {
+    out.message = '這一季沒有夏令時間轉換的前一個主日，沒有加任何一行。';
+    return out;
+  }
+
+  var tabDef = null;
+  contentSheetTabDefs_().forEach(function (def) {
+    if (def.tabName === '家事報告') tabDef = def;
+  });
+  if (!tabDef) {
+    out.message = '找不到「家事報告」分頁的定義，沒有加任何一行。';
+    return out;
+  }
+
+  var sheet = spreadsheet.getSheetByName(tabDef.tabName);
+  if (!sheet) {
+    out.message = '內容表沒有「家事報告」分頁，沒有加任何一行。';
+    return out;
+  }
+
+  var existing = readContentTabRowsWithRowNo_(sheet, tabDef.keys);
+  var plan = planDaylightSavingRows_(existing, wanted);
+
+  plan.updates.forEach(function (update) {
+    tabDef.keys.forEach(function (key, index) {
+      if (update.row[key] === undefined) return;
+      var cell = sheet.getRange(update.rowNo, index + 1, 1, 1);
+      cell.setNumberFormat('@');
+      cell.setValue(sanitizeCellText_(update.row[key]));
+    });
+    out.updated++;
+  });
+
+  if (plan.appends.length > 0) {
+    var startRow = Math.max(sheet.getLastRow() + 1, CONTENT_SHEET_FIRST_DATA_ROW_);
+    writeContentRows_(sheet, tabDef.keys, plan.appends, startRow);
+    out.added = plan.appends.length;
+  }
+  out.untouched = plan.untouched.length;
+
+  out.message = '夏令時間提示：新增 ' + out.added + ' 行、更新 ' + out.updated
+    + ' 行、' + out.untouched + ' 行因為已經被人手改過而不動。';
+  return out;
+}
+
+/**
+ * 用途：讀出內容表某一張分頁由第 3 行開始的資料列，**帶實際行號**。
+ *
+ *   ⚠️ 帶行號是為了「只改那一行那幾格」——整批重寫會蓋走人手在其他行
+ *   輸入的東西。
+ * Args:
+ *   sheet {Sheet} 內容表的一張分頁。
+ *   keys {string[]} 該分頁的機器鍵。
+ * Returns:
+ *   {Object[]} 每個元素以機器鍵為 key，另加 `__rowNo`。整行空白的略過。
+ */
+function readContentTabRowsWithRowNo_(sheet, keys) {
+  var lastRow = sheet.getLastRow();
+  if (lastRow < CONTENT_SHEET_FIRST_DATA_ROW_) return [];
+
+  var numRows = lastRow - CONTENT_SHEET_FIRST_DATA_ROW_ + 1;
+
+  // ⚠️ 欄數要夾住分頁實際有幾多欄。R-030 在最尾加了兩欄，而 getRange()
+  //    一旦超出實際欄數就直接拋例外——舊的內容表如果因為任何理由未套到
+  //    新版面，整個「建立本季內容表」會爆掉，而不是少讀兩欄。
+  var numCols = Math.min(keys.length, sheet.getMaxColumns());
+  var values = sheet.getRange(CONTENT_SHEET_FIRST_DATA_ROW_, 1, numRows, numCols).getValues();
+
+  var out = [];
+  values.forEach(function (rowValues, index) {
+    var allBlank = rowValues.every(function (v) {
+      return v === '' || v === null || v === undefined;
+    });
+    if (allBlank) return;
+
+    var row = { __rowNo: CONTENT_SHEET_FIRST_DATA_ROW_ + index };
+    keys.forEach(function (key, i) { row[key] = (i < rowValues.length) ? rowValues[i] : ''; });
+    out.push(row);
+  });
+  return out;
 }
 
 /**

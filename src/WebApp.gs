@@ -287,6 +287,26 @@ function apiListWeeks() {
 }
 
 /**
+ * 用途：前端呼叫，把某一季在職事表已經有、而週報仍然空白的事奉格補抓
+ *   回來（R-036）。
+ *
+ *   ⚠️ 只填**空白格**，不覆寫人手已經填好的值；隨時可以重試，重複按不會
+ *   改壞任何東西。職事表仍然是唯讀的，這裏一格都不會寫回職事表。
+ * Args:
+ *   quarterId {string} 季度 ID，`YYYYTn`。
+ * Returns:
+ *   {{ok:boolean, data:Object, error?:Object}} `data` 形狀見
+ *     `backfillRosterForQuarter_()`：`{ok, quarterId, filled, stillBlank,
+ *     rowsTouched, statusBefore, statusAfter, rosterFound, message}`。
+ *     ⚠️ 職事表仍然找不到**不是**錯誤：`ok` 會是 `true`（呼叫成功），
+ *     `data.rosterFound` 是 `false`，`data.message` 有明確說明。
+ */
+function apiBackfillRoster(quarterId) {
+  return withApiResult_(function () { return backfillRosterForQuarter_(quarterId); },
+    { functionName: 'apiBackfillRoster', argsSummary: 'quarterId=' + quarterId });
+}
+
+/**
  * 用途：前端呼叫，取得指定主日的完整可編輯欄位、唯讀區塊、待填清單、
  *   警告與樂觀鎖時間戳記。
  * Args:
@@ -648,20 +668,156 @@ function bulletinDocxForDownload_(isoDate) {
 }
 
 /**
- * 用途：`apiListWeeks()` 的 IO 層——讀 `BulletinWeeks`，交給純函式層組出
- *   下拉選項與預設選中的日期。
+ * 用途：`apiListWeeks()` 的 IO 層——讀 `BulletinWeeks`、`PublishLog` 與
+ *   內容三張表，交給純函式層組出**兩層**下拉（季度 → 主日）與預設選中
+ *   的日期。
+ *
+ *   ⚠️ 舊的 `weeks`／`defaultIsoDate` 兩個欄位照樣回傳，不可以拿走——
+ *   網址帶主日參數直接跳轉那條路徑仍然靠它，前端亦要在拿不到 `quarters`
+ *   時退回舊行為（R-034）。
  * Args: （無）
  * Returns:
- *   {{weeks:Object[], defaultIsoDate:(string|null)}}
+ *   {{weeks:Object[], defaultIsoDate:(string|null),
+ *     quarters:Object[], defaultQuarterId:(string|null)}}
  */
 function listWeeksForWebApp_() {
   var rows = readSheet(SHEETS.BULLETIN_WEEKS);
   var todayIso = formatIsoDate_(new Date());
-  var entries = buildWeekListEntries_(rows, todayIso);
+
+  var publishIndex = weekSelectorPublishIndex_(readSheet(SHEETS.PUBLISH_LOG));
+  var missingIndex = weekSelectorMissingIndex_(
+    rows,
+    readSheet(SHEETS.ANNOUNCEMENTS),
+    readSheet(SHEETS.PRAYERS),
+    readSheet(SHEETS.FELLOWSHIPS)
+  );
+
+  var entries = buildWeekListEntries_(rows, todayIso, {
+    publishIndex: publishIndex,
+    missingIndex: missingIndex
+  });
+
+  var groups = buildQuarterWeekGroups_(entries, getConfig(CONFIG_KEYS.SELFTEST_QUARTER_ID, ''));
+  var defaultIsoDate = pickDefaultSelectorIsoDate_(groups, todayIso);
+  if (defaultIsoDate === null) defaultIsoDate = pickDefaultWeekIsoDate_(entries, todayIso);
+
   return {
     weeks: entries,
-    defaultIsoDate: pickDefaultWeekIsoDate_(entries, todayIso)
+    defaultIsoDate: defaultIsoDate,
+    quarters: groups,
+    defaultQuarterId: quarterIdOfIsoDateInGroups_(groups, defaultIsoDate)
   };
+}
+
+/**
+ * 用途：由 `PublishLog` 整理出「每一個主日最新是第幾版」。
+ *
+ *   ⚠️ 自測（`IS_SELFTEST` 為真）那些行不可以算進去，否則沙盒跑過一次
+ *   之後，正式的主日會變成「已發佈」。
+ * Args:
+ *   publishRows {Object[]} `readSheet(SHEETS.PUBLISH_LOG)` 的輸出。
+ * Returns:
+ *   {Object<string,number>} 以 yyyy-MM-dd 為鍵，值是最大的版本號。
+ *     沒有任何發佈紀錄的主日不會出現在裏面。
+ */
+function weekSelectorPublishIndex_(publishRows) {
+  var index = {};
+  (publishRows || []).forEach(function (row) {
+    if (row.IS_SELFTEST === true) return;
+    var iso = weekSelectorIsoOf_(row.SERVICE_DATE);
+    if (!iso) return;
+    var version = Number(row.VERSION_NO);
+    if (!isFinite(version)) version = 0;
+    if (!Object.prototype.hasOwnProperty.call(index, iso) || version > index[iso]) {
+      index[iso] = version;
+    }
+  });
+  return index;
+}
+
+/**
+ * 用途：把一個可能是 Date、可能是字串的日期值轉成 yyyy-MM-dd。
+ * Args:
+ *   value {*} 日期值。
+ * Returns:
+ *   {?string} 轉不到回 `null`。
+ */
+function weekSelectorIsoOf_(value) {
+  if (value instanceof Date) return formatIsoDate_(value);
+  var text = String(value === null || value === undefined ? '' : value).trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null;
+}
+
+/**
+ * 用途：算出每一個主日「未填欄位」有多少項，供下拉的狀態標記用。
+ *
+ *   ⚠️ 這裏**故意只數本試算表拿得到的東西**（`BulletinWeeks` 的欄位、
+ *   家事報告／代禱／團契有沒有行），不去讀職事表。下拉選單一開就要出來，
+ *   逐個主日跑一次 `buildBulletinModel_()` 會連帶讀職事表幾十次，慢到不能
+ *   用。因此這個數字是「未填欄位」的**下限**：職事表未排人手那幾格不計。
+ *   要看完整清單請用選單「本季待填清單」。
+ * Args:
+ *   weekRows {Object[]} `readSheet(SHEETS.BULLETIN_WEEKS)` 的輸出。
+ *   announcementRows {Object[]} `readSheet(SHEETS.ANNOUNCEMENTS)` 的輸出。
+ *   prayerRows {Object[]} `readSheet(SHEETS.PRAYERS)` 的輸出。
+ *   fellowshipRows {Object[]} `readSheet(SHEETS.FELLOWSHIPS)` 的輸出。
+ * Returns:
+ *   {Object<string,number>} 以 yyyy-MM-dd 為鍵，值是未填項數。
+ */
+function weekSelectorMissingIndex_(weekRows, announcementRows, prayerRows, fellowshipRows) {
+  var announcements = weekSelectorActiveCountByIso_(announcementRows);
+  var prayers = weekSelectorActiveCountByIso_(prayerRows);
+  var fellowships = weekSelectorActiveCountByIso_(fellowshipRows);
+
+  var index = {};
+  (weekRows || []).forEach(function (row) {
+    var iso = weekSelectorIsoOf_(row.SERVICE_DATE);
+    if (!iso) return;
+    index[iso] = buildMissingList_({
+      week: row,
+      dutyBoxPage1: [],                                  // 見上面的說明：不讀職事表
+      announcementCount: announcements[iso] || 0,
+      prayerCount: prayers[iso] || 0,
+      fellowshipCount: fellowships[iso] || 0
+    }).length;
+  });
+  return index;
+}
+
+/**
+ * 用途：數一數某張內容表每一個主日有幾多行**有效**資料。
+ * Args:
+ *   rows {Object[]} 內容表的資料列，需有 `SERVICE_DATE` 與 `ACTIVE`。
+ * Returns:
+ *   {Object<string,number>} 以 yyyy-MM-dd 為鍵。
+ */
+function weekSelectorActiveCountByIso_(rows) {
+  var counts = {};
+  (rows || []).forEach(function (row) {
+    if (row.ACTIVE !== true) return;
+    var iso = weekSelectorIsoOf_(row.SERVICE_DATE);
+    if (!iso) return;
+    counts[iso] = (counts[iso] || 0) + 1;
+  });
+  return counts;
+}
+
+/**
+ * 用途：組出主日下拉那一句狀態標記。幹事最常問「邊幾期未搞掂」，答案就
+ *   放在這裏。
+ * Args:
+ *   publishedVersion {?number} 最新版本號；未發佈傳 `null`／`undefined`。
+ *   missingCount {number} 未填項數。
+ * Returns:
+ *   {string} `已發佈 第 N 版`／`待填 N 項`／`已齊`。
+ */
+function weekSelectorStatusLabel_(publishedVersion, missingCount) {
+  if (publishedVersion !== null && publishedVersion !== undefined) {
+    return '已發佈 第 ' + publishedVersion + ' 版';
+  }
+  var count = Number(missingCount);
+  if (isFinite(count) && count > 0) return '待填 ' + count + ' 項';
+  return '已齊';
 }
 
 /**
@@ -671,22 +827,45 @@ function listWeeksForWebApp_() {
  *   rows {Object[]} `readSheet(SHEETS.BULLETIN_WEEKS)` 的輸出。
  *   todayIso {string} 今天的日期，yyyy-MM-dd（只用來讓呼叫方之後挑預設值，
  *     這個函式本身不使用）。
+ *   decorations {Object=} 可選，形狀
+ *     `{publishIndex:Object<string,number>, missingIndex:Object<string,number>}`。
+ *     不傳就當兩個都是空的：`publishedVersion` 一律 `null`、`missingCount`
+ *     一律 `0`（狀態標記會是「已齊」）。
  * Returns:
- *   {{isoDate:string, weekOfMonth:(number|null), status:string, label:string}[]}
+ *   {{isoDate:string, quarterId:string, weekOfMonth:(number|null),
+ *     status:string, rosterStatus:string, publishedVersion:(number|null),
+ *     missingCount:number, statusLabel:string, label:string,
+ *     selectorLabel:string}[]}
  *     `SERVICE_DATE` 不是合法 Date 的行會被略過（代表資料本身有問題，
  *     不應該讓整個下拉清單壞掉）。
  */
-function buildWeekListEntries_(rows, todayIso) {
+function buildWeekListEntries_(rows, todayIso, decorations) {
+  var publishIndex = (decorations && decorations.publishIndex) || {};
+  var missingIndex = (decorations && decorations.missingIndex) || {};
+
   return (rows || [])
     .filter(function (r) { return r.SERVICE_DATE instanceof Date; })
     .map(function (r) {
       var isoDate = formatIsoDate_(r.SERVICE_DATE);
       var weekOfMonth = (r.WEEK_OF_MONTH === null || r.WEEK_OF_MONTH === undefined) ? null : r.WEEK_OF_MONTH;
+      var publishedVersion = Object.prototype.hasOwnProperty.call(publishIndex, isoDate)
+        ? publishIndex[isoDate]
+        : null;
+      var missingCount = Object.prototype.hasOwnProperty.call(missingIndex, isoDate)
+        ? missingIndex[isoDate]
+        : 0;
+      var statusLabel = weekSelectorStatusLabel_(publishedVersion, missingCount);
       return {
         isoDate: isoDate,
+        quarterId: String(r.QUARTER_ID || ''),
         weekOfMonth: weekOfMonth,
         status: r.STATUS || '',
-        label: isoDate + '（週次 ' + (weekOfMonth === null ? '?' : weekOfMonth) + '）'
+        rosterStatus: String(r.ROSTER_STATUS || ''),
+        publishedVersion: publishedVersion,
+        missingCount: missingCount,
+        statusLabel: statusLabel,
+        label: isoDate + '（週次 ' + (weekOfMonth === null ? '?' : weekOfMonth) + '）',
+        selectorLabel: isoDate + '　' + statusLabel
       };
     })
     .sort(function (a, b) {
@@ -700,8 +879,117 @@ function buildWeekListEntries_(rows, todayIso) {
 }
 
 /**
+ * 用途：把主日清單按季度分組，組成兩層下拉的資料（R-034）。
+ *
+ *   ⚠️ 沙盒季度（Config `SELFTEST_QUARTER_ID`）**永遠不可以出現**。自測機
+ *   會在那一季寫入大量假資料，幹事在正式介面看見會以為是真的要填的期數。
+ * Args:
+ *   entries {Object[]} `buildWeekListEntries_()` 的輸出。
+ *   selftestQuarterId {*} 沙盒季度 ID；空值代表沒有要排除的季度。
+ * Returns:
+ *   {{quarterId:string, label:string, weeks:Object[]}[]}
+ *     季度由新到舊；每季內的主日由早到遲。`QUARTER_ID` 是空的那些行會
+ *     歸到一個 `quarterId` 為空字串、標題「未分季」的組，排在最後。
+ */
+function buildQuarterWeekGroups_(entries, selftestQuarterId) {
+  var sandbox = String(selftestQuarterId === null || selftestQuarterId === undefined ? '' : selftestQuarterId).trim();
+  var byQuarter = {};
+  var order = [];
+
+  (entries || []).forEach(function (entry) {
+    var quarterId = String(entry.quarterId || '');
+    if (sandbox && quarterId === sandbox) return;
+    if (!Object.prototype.hasOwnProperty.call(byQuarter, quarterId)) {
+      byQuarter[quarterId] = [];
+      order.push(quarterId);
+    }
+    byQuarter[quarterId].push(entry);
+  });
+
+  order.sort(function (a, b) {
+    if (a === b) return 0;
+    if (a === '') return 1;                              // 未分季永遠排最後
+    if (b === '') return -1;
+    return a < b ? 1 : -1;                               // 由新到舊
+  });
+
+  return order.map(function (quarterId) {
+    var weeks = byQuarter[quarterId].slice().sort(function (a, b) {
+      if (a.isoDate < b.isoDate) return -1;
+      if (a.isoDate > b.isoDate) return 1;
+      return 0;
+    });
+    return {
+      quarterId: quarterId,
+      label: quarterId === '' ? '未分季' : quarterId,
+      weeks: weeks
+    };
+  });
+}
+
+/**
+ * 用途：兩層下拉開啟時預設落在「下一個未發佈的主日」（R-034）。
+ *
+ *   ⚠️ 不是清單第一項。幹事開介面十之八九是要填**下一期**，落在第一項
+ *   （通常是最新季度最早那個主日，可能已經發佈完）等於每次都要自己再揀。
+ * Args:
+ *   groups {Object[]} `buildQuarterWeekGroups_()` 的輸出。
+ *   todayIso {string} 今天的日期，yyyy-MM-dd。
+ * Returns:
+ *   {?string} 順序：今天或之後最早的未發佈主日 → 今天或之後最早的主日 →
+ *     全部之中最遲的主日。完全沒有主日時回 `null`。
+ */
+function pickDefaultSelectorIsoDate_(groups, todayIso) {
+  var all = [];
+  (groups || []).forEach(function (group) {
+    (group.weeks || []).forEach(function (week) { all.push(week); });
+  });
+  if (all.length === 0) return null;
+
+  all.sort(function (a, b) {
+    if (a.isoDate < b.isoDate) return -1;
+    if (a.isoDate > b.isoDate) return 1;
+    return 0;
+  });
+
+  var upcoming = all.filter(function (w) { return w.isoDate >= todayIso; });
+
+  for (var i = 0; i < upcoming.length; i++) {
+    if (upcoming[i].publishedVersion === null || upcoming[i].publishedVersion === undefined) {
+      return upcoming[i].isoDate;
+    }
+  }
+  if (upcoming.length > 0) return upcoming[0].isoDate;
+  return all[all.length - 1].isoDate;
+}
+
+/**
+ * 用途：查一個主日在兩層下拉裏屬於哪一個季度，讓前端由網址參數直接跳轉
+ *   之後可以把季度下拉一併對準。
+ * Args:
+ *   groups {Object[]} `buildQuarterWeekGroups_()` 的輸出。
+ *   isoDate {*} 主日日期。
+ * Returns:
+ *   {?string} 找不到回 `null`。
+ */
+function quarterIdOfIsoDateInGroups_(groups, isoDate) {
+  var target = String(isoDate === null || isoDate === undefined ? '' : isoDate);
+  if (!target) return null;
+  for (var i = 0; i < (groups || []).length; i++) {
+    var weeks = groups[i].weeks || [];
+    for (var j = 0; j < weeks.length; j++) {
+      if (weeks[j].isoDate === target) return groups[i].quarterId;
+    }
+  }
+  return null;
+}
+
+/**
  * 用途：從下拉清單挑出預設選中的日期：今天之後最近的一個主日；沒有
  *   （全部都是過去）就選清單第一個。純函式。
+ *
+ *   ⚠️ 這是 R-034 之前的舊行為，保留下來當後備：兩層下拉如果因為季度
+ *   全部被排除而空無一物，仍然要挑得出一個日期。
  * Args:
  *   entries {Object[]} `buildWeekListEntries_()` 的輸出。
  *   todayIso {string} 今天的日期，yyyy-MM-dd。
@@ -816,7 +1104,14 @@ function loadWeekForWebApp_(isoDate) {
     contentSheet: buildContentSheetStatusForWebApp_(model.quarterId),
     // 「重新讀取職事表」按鈕成功之後要顯示的文案；一律算好給前端，
     // 前端只在那個按鈕的情境下使用，一般切換主日時不理會這個欄位。
-    rosterReloadMessage: buildRosterReloadMessage_(model.rosterVersionUsed, model.rosterIsOfficial)
+    rosterReloadMessage: buildRosterReloadMessage_(model.rosterVersionUsed, model.rosterIsOfficial),
+    // R-036：職事表整季未有資料時頂部要出的黃色橫幅。是空字串就不顯示。
+    // 由伺服器算好文案，前端只負責顯示——ROSTER_STATUS 的三個值代表什麼
+    // 只應該有一處知道。
+    rosterGapBanner: rosterGapBannerForQuarter_(model.quarterId),
+    // R-036：「從職事表補抓」要知道補哪一季。前端不自己由日期推算季度——
+    // 季度的定義只應該有一處知道。
+    quarterId: model.quarterId
   };
 }
 

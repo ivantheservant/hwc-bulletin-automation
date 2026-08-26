@@ -353,11 +353,41 @@ test('Recipients 全部 ACTIVE=FALSE：sendBulletinForDate_() 拋錯（code=NO_R
 });
 
 // =====================================================================
-// 額外：職事表找不到該主日 → 明確拋錯
+// 職事表找不到該主日（R-036）
 // =====================================================================
 
-test('職事表找不到該主日：sendBulletinForDate_() 拋錯（code=ROSTER_NOT_FOUND）', function () {
+// ⚠️ 這一條在 R-036 **改變了預期**，理由要寫清楚：
+//    舊版一律拋 ROSTER_NOT_FOUND 然後停手——ErrorLog 有一筆 2026-08-24 的
+//    實際紀錄，那一期完全沒有寄出。但週報的其餘部分（講題、詩歌、家事
+//    報告、人數）本來就齊，只是事奉欄位空著。寄一份「事奉待定」的週報，
+//    比完全不寄有用。見 docs/已知bug類型.md 事故四十。
+test('職事表找不到該主日 → 照樣寄出，並在信中加一句「事奉資料尚未確定」', function () {
   const env = makeEnv({ isoDate: '2027-10-03', serviceDates: [] });
+  const result = env.sandbox.sendBulletinForDate_('2027-10-03', {});
+
+  assert.strictEqual(result.ok, true, result.message);
+  assert.strictEqual(result.rosterPending, true, '要回報事奉資料未定');
+  assert.ok(result.totalRecipients > 0, '應該有收件人');
+});
+
+// ⚠️ SendLog 要留低痕跡，但**不是**寫 ErrorLog——ErrorLog 是「要人去查」
+//    的地方，事奉未到不需要查。
+test('職事表找不到該主日 → SendLog 的錯誤欄註明「不是錯誤」', function () {
+  const env = makeEnv({ isoDate: '2027-10-03', serviceDates: [] });
+  env.sandbox.sendBulletinForDate_('2027-10-03', {});
+
+  const rows = env.sandbox.readSheet(env.sandbox.SHEETS.SEND_LOG);
+  assert.ok(rows.length > 0, 'SendLog 要有紀錄');
+  assert.ok(String(rows[0].ERROR).indexOf('不是錯誤') !== -1, String(rows[0].ERROR));
+  assert.ok(String(rows[0].ERROR).indexOf('事奉資料尚未確定') !== -1, String(rows[0].ERROR));
+});
+
+// ⚠️ 舊行為要留一條路回去：SEND_WHEN_ROSTER_MISSING=FALSE。
+test('SEND_WHEN_ROSTER_MISSING=FALSE → 回復舊行為，照樣拋 ROSTER_NOT_FOUND', function () {
+  const env = makeEnv({
+    isoDate: '2027-10-03', serviceDates: [],
+    config: { SEND_WHEN_ROSTER_MISSING: 'FALSE' }
+  });
   assert.throws(function () {
     env.sandbox.sendBulletinForDate_('2027-10-03', {});
   }, function (err) { return err.code === 'ROSTER_NOT_FOUND'; });

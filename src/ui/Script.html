@@ -20,6 +20,9 @@
   // 小小的「更新中」提示。
   var state = {
     isoDate: null,
+    // R-034：兩層下拉的資料（季度 → 主日）與目前這一期屬於哪一季。
+    quarters: [],
+    quarterId: null,
     lastSavedAt: null,
     loaded: false,
     inFlight: 0,
@@ -176,6 +179,10 @@
     if (busy) mainContent.classList.add('is-busy'); else mainContent.classList.remove('is-busy');
 
     document.getElementById('weekSelect').disabled = busy;
+    document.getElementById('quarterSelect').disabled = busy;
+    document.getElementById('prevWeekBtn').disabled = busy;
+    document.getElementById('nextWeekBtn').disabled = busy;
+    document.getElementById('backfillRosterBtn').disabled = busy;
     document.getElementById('reloadRosterBtn').disabled = busy;
     document.getElementById('fetchFromRosterBtn').disabled = busy || !state.loaded;
     document.getElementById('saveBtn').disabled = busy || !state.loaded;
@@ -949,6 +956,12 @@
     state.week = data.week;
     state.lists = data.lists;
     state.options = data.options;
+    state.quarterId = data.quarterId || null;
+
+    // R-034：不論由下拉、箭嘴，還是直接跳轉載入，兩個下拉都要對準這一期。
+    syncSelectorsTo(isoDate);
+    // R-036：本季職事表狀態的黃色橫幅。
+    renderRosterGapBanner(data.rosterGapBanner);
 
     populateSelectOptions(document.getElementById('programTemplateSelect'), data.options.programTemplateIds);
     populateSelectOptions(document.getElementById('recitationSelect'), data.options.recitationOptions,
@@ -1571,11 +1584,221 @@
   }
 
   // =====================================================================
+  // R-034：兩層主日選單（季度 → 主日）
+  // =====================================================================
+
+  /**
+   * 用途：把伺服器送過來的兩層清單存起來，並把兩個下拉都畫好。
+   *
+   *   ⚠️ 伺服器拿不到 `quarters`（例如季度全部被排除）時要退回舊的一層
+   *   清單，不可以令整個下拉變空——切不到主日等於整個介面用不了。
+   * Args:
+   *   data {Object} `apiListWeeks()` 的 `data`。
+   *   defaultIsoDate {?string} 預設落點。
+   * Returns:
+   *   {void}
+   */
+  function populateWeekSelectors(data, defaultIsoDate) {
+    var quarters = (data && data.quarters) || [];
+    state.quarters = quarters;
+
+    if (quarters.length === 0) {
+      document.getElementById('quarterSelect').innerHTML = '';
+      populateWeekSelect((data && data.weeks) || [], defaultIsoDate);
+      return;
+    }
+
+    var qSel = document.getElementById('quarterSelect');
+    qSel.innerHTML = '';
+    quarters.forEach(function (q) {
+      var o = el('option');
+      o.value = q.quarterId;
+      o.textContent = q.label + '（' + q.weeks.length + ' 個主日）';
+      qSel.appendChild(o);
+    });
+
+    syncSelectorsTo(defaultIsoDate);
+  }
+
+  /**
+   * 用途：在兩層清單裏找一個主日屬於哪一季。
+   * Args:
+   *   isoDate {?string} 主日日期。
+   * Returns:
+   *   {?string} 找不到回 null。
+   */
+  function quarterIdOfIsoDate(isoDate) {
+    if (!isoDate) return null;
+    var quarters = state.quarters || [];
+    for (var i = 0; i < quarters.length; i++) {
+      for (var j = 0; j < quarters[i].weeks.length; j++) {
+        if (quarters[i].weeks[j].isoDate === isoDate) return quarters[i].quarterId;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * 用途：把兩個下拉對準某一個主日。直接跳轉（例如由網址帶主日參數、或者
+   *   程式碼直接呼叫 `loadWeek()`）之後就是靠這一個把季度下拉一併校正。
+   *
+   *   ⚠️ 這個函式**只改下拉的顯示**，不會觸發載入。切換主日一律走
+   *   `loadWeek()`，兩件事分開才不會互相引發無限迴圈。
+   * Args:
+   *   isoDate {?string} 要對準的主日。
+   * Returns:
+   *   {void}
+   */
+  function syncSelectorsTo(isoDate) {
+    var quarters = state.quarters || [];
+    if (quarters.length === 0) return;
+
+    var quarterId = quarterIdOfIsoDate(isoDate);
+    if (quarterId === null) quarterId = quarters[0].quarterId;
+
+    var qSel = document.getElementById('quarterSelect');
+    if (qSel.value !== quarterId) qSel.value = quarterId;
+
+    renderWeekOptionsForQuarter(quarterId, isoDate);
+  }
+
+  /**
+   * 用途：畫出某一季的主日下拉選項，每一項帶狀態標記。
+   * Args:
+   *   quarterId {string} 季度 ID。
+   *   selectedIsoDate {?string} 要選中的主日；不屬於這一季就選第一項。
+   * Returns:
+   *   {void}
+   */
+  function renderWeekOptionsForQuarter(quarterId, selectedIsoDate) {
+    var group = null;
+    (state.quarters || []).forEach(function (q) { if (q.quarterId === quarterId) group = q; });
+
+    var sel = document.getElementById('weekSelect');
+    sel.innerHTML = '';
+    if (group === null) return;
+
+    var hasSelected = false;
+    group.weeks.forEach(function (w) {
+      var o = el('option');
+      o.value = w.isoDate;
+      o.textContent = w.selectorLabel || w.label;
+      if (w.isoDate === selectedIsoDate) { o.selected = true; hasSelected = true; }
+      sel.appendChild(o);
+    });
+    if (!hasSelected && group.weeks.length > 0) sel.selectedIndex = 0;
+  }
+
+  /**
+   * 用途：把兩層清單攤平成一條由早到遲的主日陣列，供上一個／下一個箭嘴
+   *   跨季移動用。
+   * Returns:
+   *   {Object[]}
+   */
+  function flatWeeksInOrder() {
+    var all = [];
+    (state.quarters || []).forEach(function (q) {
+      q.weeks.forEach(function (w) { all.push(w); });
+    });
+    all.sort(function (a, b) {
+      if (a.isoDate < b.isoDate) return -1;
+      if (a.isoDate > b.isoDate) return 1;
+      return 0;
+    });
+    return all;
+  }
+
+  /**
+   * 用途：上一個／下一個主日。到季度邊界時自動跨到上／下一季。
+   * Args:
+   *   step {number} `-1` 上一個、`+1` 下一個。
+   * Returns:
+   *   {void}
+   */
+  function stepWeek(step) {
+    var all = flatWeeksInOrder();
+    if (all.length === 0) return;
+
+    var index = -1;
+    for (var i = 0; i < all.length; i++) {
+      if (all[i].isoDate === state.isoDate) { index = i; break; }
+    }
+    if (index === -1) return;
+
+    var next = index + step;
+    if (next < 0 || next >= all.length) {
+      showMessage('info', step < 0 ? '已經是最早的一個主日。' : '已經是最後一個主日。');
+      return;
+    }
+    loadWeek(all[next].isoDate);
+  }
+
+  /**
+   * 用途：季度下拉一改，就把主日下拉換成該季，並載入該季第一個主日。
+   * Returns:
+   *   {void}
+   */
+  function onQuarterChanged() {
+    var quarterId = document.getElementById('quarterSelect').value;
+    renderWeekOptionsForQuarter(quarterId, null);
+    var sel = document.getElementById('weekSelect');
+    if (sel.options.length > 0) loadWeek(sel.options[0].value);
+  }
+
+  // =====================================================================
+  // R-036：職事表未有資料的黃色橫幅與「從職事表補抓」
+  // =====================================================================
+
+  /**
+   * 用途：畫出（或收起）職事表未有資料的黃色橫幅。
+   * Args:
+   *   banner {?Object} `{show:boolean, text:string}`；沒有就當不顯示。
+   * Returns:
+   *   {void}
+   */
+  function renderRosterGapBanner(banner) {
+    var bar = document.getElementById('rosterGapBar');
+    if (!banner || banner.show !== true) {
+      bar.classList.add('hidden');
+      bar.textContent = '';
+      return;
+    }
+    bar.textContent = banner.text || '';
+    bar.classList.remove('hidden');
+  }
+
+  /**
+   * 用途：把本季在職事表已經有、而週報仍然空白的事奉格補抓回來。
+   *
+   *   ⚠️ 職事表仍然找不到**不是**錯誤——伺服器會回 `ok`、`rosterFound`
+   *   為 false 加一句說明，這裏用一般提示（不是紅色）顯示。
+   * Returns:
+   *   {void}
+   */
+  function backfillRoster() {
+    if (!state.quarterId) {
+      showMessage('error', '未知道目前是哪一季，請先揀一個主日。');
+      return;
+    }
+    callServer('apiBackfillRoster', [state.quarterId], function (resp) {
+      if (!resp.ok) { showMessage('error', resp.error.message); return; }
+      var data = resp.data;
+      showMessage(data.rosterFound === true ? 'success' : 'info', data.message);
+      // 補抓之後事奉欄位與橫幅都可能變了，重新載入這一期。
+      if (state.isoDate) loadWeek(state.isoDate, { keepMessage: true });
+    }, { busyText: '從職事表補抓中…' });
+  }
+
+  // =====================================================================
   // 初始化
   // =====================================================================
 
   function wireStaticEvents() {
     document.getElementById('weekSelect').addEventListener('change', function (e) { loadWeek(e.target.value); });
+    document.getElementById('quarterSelect').addEventListener('change', onQuarterChanged);
+    document.getElementById('prevWeekBtn').addEventListener('click', function () { stepWeek(-1); });
+    document.getElementById('nextWeekBtn').addEventListener('click', function () { stepWeek(1); });
+    document.getElementById('backfillRosterBtn').addEventListener('click', backfillRoster);
     document.getElementById('saveBtn').addEventListener('click', saveWeek);
     document.getElementById('reloadRosterBtn').addEventListener('click', reloadRosterOnly);
     document.getElementById('statMissing').addEventListener('click', function () {
@@ -1667,7 +1890,7 @@
 
   function onWeeksLoaded(resp) {
     if (!resp.ok) { showMessage('error', resp.error.message); return; }
-    populateWeekSelect(resp.data.weeks, resp.data.defaultIsoDate);
+    populateWeekSelectors(resp.data, resp.data.defaultIsoDate);
     if (resp.data.defaultIsoDate) {
       loadWeek(resp.data.defaultIsoDate);
     } else {

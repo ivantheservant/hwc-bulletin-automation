@@ -442,6 +442,16 @@
   }
   .publish-status-bar .hint { margin: 0; }
 
+  /* R-036：職事表未有資料的黃色橫幅。用黃色而不是紅色——職事表未出
+     不是錯誤，是「未到時候」，用紅色會令幹事以為系統壞了。 */
+  .roster-gap-bar {
+    font-size: 13px;
+    color: #7a5b00;
+    background: #fff6d8;
+    border-top: 1px solid #f0d98a;
+    padding: 0.5em 1em;
+  }
+
   /* 三步驟。刻意用編號清單而不是一段提示文字——「先下載 Word、核對、
      另存 PDF」是有次序的動作，寫成一段話讀的人會跳著看。 */
   .publish-steps {

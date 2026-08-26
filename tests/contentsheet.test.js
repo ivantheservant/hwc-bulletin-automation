@@ -881,7 +881,7 @@ test('20b. 五張舊表嘅欄位定義完全冇改（結構層面）', function 
   assert.strictEqual(cols.PRAYERS.keys.length, 4);
   assert.strictEqual(cols.FELLOWSHIPS.keys.length, 7);
   assert.strictEqual(cols.FINANCE.keys.length, 9);
-  assert.strictEqual(cols.BULLETIN_WEEKS.keys.length, 53, 'BulletinWeeks 仍然係浸禮嗰輪之後嘅 53 欄');
+  assert.strictEqual(cols.BULLETIN_WEEKS.keys.length, 54, 'BulletinWeeks 欄數（浸禮六欄 ＋ R-036 的 ROSTER_STATUS）');
 });
 
 // =====================================================================

@@ -43,9 +43,12 @@ function menuCreateBlankBulletinWeeks_() {
       '建立本季空白週報',
       [
         '季度：' + quarterId,
-        '職事表主日數：' + result.totalDates,
+        '主日數：' + result.totalDates
+          + '（來源：' + (result.rosterFound ? '職事表' : '曆法推算') + '）',
         '新增行數：' + result.added,
-        '略過（已存在）：' + result.skipped
+        '略過（已存在）：' + result.skipped,
+        '',
+        result.message
       ].join('\n'),
       ui.ButtonSet.OK
     );
@@ -72,7 +75,15 @@ function menuCreateBlankBulletinWeeks_() {
  *   Error 如果 `ROSTER_SPREADSHEET_ID` 未設定，或職事表讀取失敗。
  */
 function createBlankBulletinWeeks_(quarterId) {
-  var dates = listRosterServiceDatesForQuarter_(quarterId);
+  // ⚠️ R-036：職事表未有該季資料**不再令這一步中止**。改為用曆法推算該季
+  //    全部星期日，照樣建立骨架，事奉相關欄位留空、`ROSTER_STATUS` 寫
+  //    `NOT_FOUND`，之後撳「從職事表補抓」補回去。
+  //
+  //    週報有大量與事奉無關的欄位（講題、詩歌、家事報告、人數）本來就
+  //    填得——因為一部分資料未到而令全部工作開始不到，是不對的。
+  //    見 docs/已知bug類型.md 事故四十。
+  var resolution = resolveQuarterServiceDates_(quarterId);
+  var dates = resolution.dates;
   var existingRows = readSheet(SHEETS.BULLETIN_WEEKS);
 
   var templateConfig = {
@@ -98,10 +109,15 @@ function createBlankBulletinWeeks_(quarterId) {
       return;
     }
 
+    // ⚠️ 職事表讀不到的時候 readRosterSnapshot_() 回一個空快照（不拋錯），
+    //    所以下面那幾格自然會是空的——正是我們想要的「留空」。
     var snapshot = readRosterSnapshot_(isoDate);
     var special = snapshot.special;
     var resolved = resolveProgramTemplateId_({}, snapshot, templateConfig);
     var targetDate = normalizeDate_(isoDate);
+    var rowRosterStatus = (snapshot && snapshot.found === true)
+      ? ROSTER_STATUS.OK
+      : rosterStatusForDate_(isoDate, resolution);
 
     newRows.push({
       SERVICE_DATE: targetDate,
@@ -115,7 +131,8 @@ function createBlankBulletinWeeks_(quarterId) {
       ATTENDANCE_DATE: addDays_(targetDate, -7),
       NEXT_WEEK_HEADING: defaults.nextWeekHeading,
       PRAYER_BLOCK_HEADING: defaults.prayerBlockHeading,
-      STATUS: BULLETIN_WEEK_STATUS.DRAFT
+      STATUS: BULLETIN_WEEK_STATUS.DRAFT,
+      ROSTER_STATUS: rowRosterStatus
     });
     addedDates.push(isoDate);
   });
@@ -133,7 +150,49 @@ function createBlankBulletinWeeks_(quarterId) {
     });
   }
 
-  return { totalDates: dates.length, added: newRows.length, skipped: skipped, addedDates: addedDates };
+  var statusCounts = countRosterStatuses_(newRows);
+  return {
+    totalDates: dates.length,
+    added: newRows.length,
+    skipped: skipped,
+    addedDates: addedDates,
+    dateSource: resolution.source,
+    rosterFound: resolution.source === 'ROSTER',
+    rosterStatusCounts: statusCounts,
+    message: buildCreateWeeksMessage_({
+      quarterId: quarterId, added: newRows.length, skipped: skipped,
+      rosterFound: resolution.source === 'ROSTER', statusCounts: statusCounts
+    })
+  };
+}
+
+/**
+ * 用途：「建立本季空白週報」完成之後給人看的一段話。**純函式。**
+ *
+ *   ⚠️ 職事表未有資料的時候一定要**明確講出來**：建立成功了，但事奉欄位
+ *   全部留空。不講的話，幹事會以為那幾格是系統漏了填。
+ * Args:
+ *   input {{quarterId:string, added:number, skipped:number,
+ *           rosterFound:boolean, statusCounts:Object}}
+ * Returns:
+ *   {string}
+ */
+function buildCreateWeeksMessage_(input) {
+  var lines = [];
+  if (!input.rosterFound) {
+    lines.push('本季職事表未有資料，已建立 ' + input.added + ' 個主日，事奉欄位全部留空。');
+    lines.push('主日清單由曆法推算（該季全部星期日）。');
+    lines.push('職事表建立好之後，撳「從職事表補抓」就會把空格補回去。');
+  } else {
+    lines.push('季度 ' + input.quarterId + '：新增 ' + input.added + ' 行，略過 '
+      + input.skipped + ' 行（已經存在）。');
+    var gaps = (input.statusCounts.PARTIAL || 0) + (input.statusCounts.NOT_FOUND || 0);
+    if (gaps > 0) {
+      lines.push('⚠️ 其中 ' + gaps + ' 個主日在職事表找不到資料，那幾期的事奉欄位留空。');
+      lines.push('職事表補齊之後，撳「從職事表補抓」。');
+    }
+  }
+  return lines.join('\n');
 }
 
 /**

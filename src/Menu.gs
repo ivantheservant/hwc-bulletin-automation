@@ -41,6 +41,7 @@ function onOpen() {
     .addItem('測試讀取職事表', 'menuTestReadRoster_')
     .addItem('測試讀取職事表（全季）', 'menuTestReadRosterQuarter_')
     .addItem('建立本季空白週報', 'menuCreateBlankBulletinWeeks_')
+    .addItem('從職事表補抓', 'menuBackfillRoster_')
     .addItem('由職事表建立 PersonDisplay 骨架', 'menuBuildPersonDisplaySkeleton_')
     .addItem('套用尊稱對照表', 'menuApplyHonorificLookup_')
     .addItem('尊稱未設定報告', 'menuHonorificMissingReport_')

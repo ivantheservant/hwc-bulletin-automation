@@ -26,10 +26,22 @@
 
   <header id="topbar">
     <div class="topbar-row">
+      <!--
+        R-034：兩層選單。季度下拉只列 BulletinWeeks 內有資料的季度（由新
+        到舊，沙盒季度永不出現），主日下拉只列該季主日並帶狀態標記。
+        weekSelect 的 id 與 change 事件保持不變——直接跳到某個主日那條
+        路徑仍然靠它，揀中之後由 syncSelectorsTo() 把季度下拉一併對準。
+      -->
+      <label class="topbar-field">
+        季度：
+        <select id="quarterSelect"></select>
+      </label>
       <label class="topbar-field">
         主日：
         <select id="weekSelect"></select>
       </label>
+      <button id="prevWeekBtn" type="button" class="btn btn-secondary" title="上一個主日（可跨季）">← 上一個</button>
+      <button id="nextWeekBtn" type="button" class="btn btn-secondary" title="下一個主日（可跨季）">下一個 →</button>
       <span id="statMissing" class="stat stat-clickable" title="撳一下展開待填清單">待填 0 項</span>
       <span id="statWarnings" class="stat">警告 0 項</span>
       <span id="statConflicts" class="stat stat-clickable" title="撳一下展開職事表分歧清單">衝突 0 項</span>
@@ -37,6 +49,8 @@
       <span class="topbar-spacer"></span>
       <a id="fillGridLink" class="btn btn-secondary hidden" target="_blank" rel="noopener">開啟本季填寫表</a>
       <button id="reloadRosterBtn" type="button" class="btn btn-secondary">重新讀取職事表</button>
+      <!-- R-036：職事表整季未有資料時用的補抓鈕。隨時可以撳，只填空白格。 -->
+      <button id="backfillRosterBtn" type="button" class="btn btn-secondary" title="把職事表已經有、而週報仍然空白的事奉格補抓回來（只填空白格）">從職事表補抓</button>
       <button id="saveBtn" type="button" class="btn btn-primary">儲存</button>
     </div>
     <!-- R-008：常駐一行，不隨主日下拉改變。 -->
@@ -54,6 +68,12 @@
       <a id="publishStatusLink" class="btn btn-small hidden" target="_blank" rel="noopener">開啟 PDF</a>
       <span id="publishStatusHint" class="hint hidden"></span>
     </div>
+    <!--
+      R-036：職事表整季（或部分主日）未有資料時的黃色橫幅。
+      刻意跟 #messageBar 分開：messageBar 是「剛才那個動作的結果」，看完
+      就會消失；這一條是「本季目前的狀態」，未補齊之前一直都要在。
+    -->
+    <div id="rosterGapBar" class="roster-gap-bar hidden"></div>
     <div id="messageBar" class="message-bar hidden"></div>
     <div id="missingPanel" class="missing-panel hidden"></div>
     <div id="conflictPanel" class="conflict-panel hidden"></div>

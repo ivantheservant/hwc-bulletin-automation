@@ -425,8 +425,365 @@ function selfTestScenarios_() {
     { id: 'S15', name: '發佈上載 master 目前那一份：被拒，訊息正確', run: selfTestS15_ },
     { id: 'S16', name: '寄出（DRY_RUN）：預覽人數 === SendLog 封數，且有記內文', run: selfTestS16_ },
     { id: 'S17', name: '未填欄位檢查：清單條數 === 實際空格數', run: selfTestS17_ },
-    { id: 'S18', name: '星期一自動寄出：選中的是下一個主日，DRY_RUN 之下沒有真寄', run: selfTestS18_ }
+    { id: 'S18', name: '星期一自動寄出：選中的是下一個主日，DRY_RUN 之下沒有真寄', run: selfTestS18_ },
+    { id: 'S19', name: '職事表沒有該季資料：照樣建立本季週報，ROSTER_STATUS=NOT_FOUND、事奉格全空', run: selfTestS19_ },
+    { id: 'S20', name: '從職事表補抓（仍然找不到）：明確訊息，一格都沒有寫', run: selfTestS20_ },
+    { id: 'S21', name: '人手填一格之後補抓：那一格沒有被覆寫', run: selfTestS21_ },
+    { id: 'S22', name: '含 4 月第一個主日的季度：夏令時間提示自動一行，SOURCE=SYSTEM_DST', run: selfTestS22_ },
+    { id: 'S23', name: '夏令時間那一行被人手改過：刷新不覆寫、也不另加一行', run: selfTestS23_ },
+    { id: 'S24', name: 'DST_AUTO_INSERT=FALSE：不自動加（開啟時要加得到）', run: selfTestS24_ },
+    { id: 'S25', name: '該季沒有夏令時間轉換：一行都不加', run: selfTestS25_ }
   ];
+}
+
+/**
+ * 用途：S19：職事表沒有該季資料 → 建立本季週報 → 斷言建立成功、
+ *   `ROSTER_STATUS` 是 `NOT_FOUND`、事奉格全空、對話框有講明（R-036）。
+ *
+ *   ⚠️ 沙盒季度本來就是刻意選一個職事表沒有資料的季度，所以這一條驗的
+ *   正是生產路徑本身，不需要另造假資料。這一條紅代表「職事表未出就完全
+ *   建立不到週報」那個舊行為回來了。
+ * Args:
+ *   ctx {Object} 自測機的執行脈絡，見 `runSelfTest_()`。
+ * Returns:
+ *   {{ok:(boolean|null), expected:string, actual:string, evidence:string}}
+ * Raises:
+ *   Error 如果沙盒季度不是可寫的季度（`assertSelfTestWritableQuarter_()`）。
+ */
+function selfTestS19_(ctx) {
+  var config = ctx.config;
+  assertSelfTestWritableQuarter_(config.quarterId, config);
+
+  var rosterDates = [];
+  try {
+    rosterDates = listRosterServiceDatesForQuarter_(config.quarterId);
+  } catch (err) {
+    rosterDates = [];
+  }
+  if (rosterDates.length > 0) {
+    return selfTestOutcome_(null, '沙盒季度在職事表沒有資料',
+      '職事表有 ' + rosterDates.length + ' 個主日',
+      '沙盒季度 ' + config.quarterId + ' 在職事表竟然有資料，這一條驗不到「找不到」那條路。'
+        + '請把 Config 的 ' + CONFIG_KEYS.SELFTEST_QUARTER_ID + ' 改成一個職事表沒有資料的季度。');
+  }
+
+  var result = createBlankBulletinWeeks_(config.quarterId);
+
+  var rows = readSheet(SHEETS.BULLETIN_WEEKS).filter(function (r) {
+    return String(r.QUARTER_ID || '').trim() === config.quarterId;
+  });
+
+  // ⚠️ 「事奉格全空」逐格數出來，不是信 createBlankBulletinWeeks_() 回的數字。
+  var dutyKeys = rosterDerivedWeekFieldKeys_();
+  var nonBlankDuty = 0;
+  var notFoundCount = 0;
+  rows.forEach(function (row) {
+    if (String(row.ROSTER_STATUS || '') === ROSTER_STATUS.NOT_FOUND) notFoundCount++;
+    dutyKeys.forEach(function (key) {
+      if (!isBlankWeekCell_(row[key])) nonBlankDuty++;
+    });
+  });
+
+  var messageMentions = String(result.message || '').indexOf('職事表') !== -1;
+  var ok = rows.length > 0
+    && notFoundCount === rows.length
+    && result.rosterFound === false
+    && messageMentions;
+
+  return selfTestOutcome_(ok,
+    '建立到主日、全部 ROSTER_STATUS=NOT_FOUND、對話框有講明',
+    rows.length + ' 個主日、其中 ' + notFoundCount + ' 個 NOT_FOUND、事奉格有值的 '
+      + nonBlankDuty + ' 格、對話框' + (messageMentions ? '有' : '沒有') + '提職事表',
+    '季度 ' + config.quarterId + '；對話框訊息：' + String(result.message || '（空）'));
+}
+
+/**
+ * 用途：S20：S19 之後撳「從職事表補抓」（職事表仍然找不到）→ 斷言回一句
+ *   明確訊息、沒有任何寫入（R-036）。
+ *
+ *   ⚠️ 「沒有任何寫入」用**內容比對**證明：補抓前後把整季的資料列字串化
+ *   對一次。信 `filled === 0` 那個數字等於信被驗的那一支自己講自己沒事。
+ * Args:
+ *   ctx {Object} 自測機的執行脈絡。
+ * Returns:
+ *   {{ok:(boolean|null), expected:string, actual:string, evidence:string}}
+ * Raises:
+ *   Error 如果沙盒季度不是可寫的季度。
+ */
+function selfTestS20_(ctx) {
+  var config = ctx.config;
+  assertSelfTestWritableQuarter_(config.quarterId, config);
+
+  var before = selfTestQuarterSnapshot_(config.quarterId);
+  if (before.rowCount === 0) {
+    return selfTestOutcome_(null, '沙盒季度有主日', '0 個', '請先跑 S19。');
+  }
+
+  var result = backfillRosterForQuarter_(config.quarterId);
+  var after = selfTestQuarterSnapshot_(config.quarterId);
+
+  var unchanged = before.digest === after.digest;
+  var saidSo = String(result.message || '').indexOf('職事表') !== -1;
+  var ok = result.rosterFound === false && result.filled === 0 && unchanged && saidSo;
+
+  return selfTestOutcome_(ok,
+    '補了 0 格、資料一格未變、訊息有講明職事表仍然找不到',
+    '補了 ' + result.filled + ' 格、資料' + (unchanged ? '一格未變' : '**變了**')
+      + '、訊息' + (saidSo ? '有' : '沒有') + '講明',
+    '季度 ' + config.quarterId + '；訊息：' + String(result.message || '（空）'));
+}
+
+/**
+ * 用途：S21：人手填一格事奉 → 補抓 → 斷言該格**沒有被覆寫**（R-036）。
+ *
+ *   ⚠️ 這一條是整個 R-036 最要緊的一條。補抓可以隨時重試，前提是它永遠
+ *   不會蓋走人手已經填好的東西；一旦蓋得走，幹事補完的資料會在下一次撳
+ *   按鈕時無聲無息不見。
+ *
+ *   職事表仍然找不到，所以「其他空格照補」在這個沙盒裏補得到的是 0 格
+ *   ——這一點在證據欄講明，不當成已經驗過（覆蓋缺口）。
+ * Args:
+ *   ctx {Object} 自測機的執行脈絡。
+ * Returns:
+ *   {{ok:(boolean|null), expected:string, actual:string, evidence:string}}
+ * Raises:
+ *   Error 如果沙盒季度不是可寫的季度。
+ */
+function selfTestS21_(ctx) {
+  var config = ctx.config;
+  assertSelfTestWritableQuarter_(config.quarterId, config);
+
+  var dates = selfTestSandboxDates_(config);
+  if (dates.length === 0) return selfTestOutcome_(null, '沙盒季度有主日', '0 個', '請先跑 S19。');
+
+  var isoDate = dates[0];
+  var sentinel = 'S21 人手填的值';
+  var fieldKey = 'SERMON_TITLE';
+
+  // 用**真正的**儲存入口寫這一格，不是自己直接改試算表——幹事實際上就是
+  // 經填寫介面填的，走同一條路才驗得到真實情況。
+  var loaded = loadWeekForWebApp_(isoDate);
+  var patch = {};
+  patch[fieldKey] = sentinel;
+  saveWeekFromWebApp_({ isoDate: isoDate, lastSavedAt: loaded.lastSavedAt, week: patch, dutyEdits: [] });
+
+  var result = backfillRosterForQuarter_(config.quarterId);
+
+  var row = findBulletinWeekRow_(readSheet(SHEETS.BULLETIN_WEEKS), isoDate) || {};
+  var kept = String(row[fieldKey] || '') === sentinel;
+
+  return selfTestOutcome_(kept,
+    '人手填的「' + sentinel + '」原封不動',
+    '現在是「' + String(row[fieldKey] || '（空）') + '」',
+    '主日 ' + isoDate + '；補抓補了 ' + result.filled + ' 格。'
+      + '　⚠️ 覆蓋缺口：沙盒季度在職事表沒有資料，所以「其他空格照補」這一半'
+      + '在這裏補得到的是 0 格，沒有真正驗到。見 docs/待確認事項.md。');
+}
+
+/**
+ * 用途：S22：含 4 月第一個主日的季度 → 斷言夏令時間提示自動多一行、
+ *   `SOURCE=SYSTEM_DST`、內容含正確的日期（R-030）。
+ *
+ *   ⚠️ 這一條**刻意不真的去建立內容表**：含 4 月第一個主日的季度是
+ *   `YYYYT2`，那不是沙盒季度，替它建立內容表等於在沙盒以外寫東西。
+ *   驗的是決定「加不加、加什麼」的那一段（`buildDaylightSavingRows_()`
+ *   ——`applyDaylightSavingRows_()` 真正寫入之前叫的就是它）。
+ *   **這是一個已知的覆蓋缺口**，寫在 docs/待確認事項.md。
+ * Args:
+ *   ctx {Object} 自測機的執行脈絡。
+ * Returns:
+ *   {{ok:(boolean|null), expected:string, actual:string, evidence:string}}
+ */
+function selfTestS22_(ctx) {
+  var config = ctx.config;
+  var year = selfTestSandboxYear_(config) + 1;                 // 沙盒是 T4，下一年的 T2 才有 4 月
+  var quarterId = year + 'T2';
+  var dates = quarterCalendarSundays_(quarterId);
+
+  var dstConfig = daylightSavingConfig_();
+  var rows = buildDaylightSavingRows_(dates, dstConfig);
+
+  // ⚠️ 期望值用一支與被驗邏輯無關的算法：直接數星期幾找 4 月第一個主日。
+  var expectedChangeIso = selfTestFirstSundayOfMonth_(year, 4);
+  var expectedNoticeIso = formatIsoDate_(addDays_(normalizeDate_(expectedChangeIso), -7));
+
+  var one = rows.length === 1 ? rows[0] : null;
+  var dateInText = one ? (String(one.TEXT).indexOf(
+    formatDaylightSavingDate_(expectedChangeIso, dstConfig.datePattern, dstConfig.timezone)) !== -1) : false;
+
+  var ok = one !== null
+    && one.SERVICE_DATE === expectedNoticeIso
+    && one.SOURCE === CONTENT_ROW_SOURCE.SYSTEM_DST
+    && dateInText;
+
+  return selfTestOutcome_(ok,
+    '1 行、登在 ' + expectedNoticeIso + '、SOURCE=SYSTEM_DST、內容含 ' + expectedChangeIso,
+    rows.length + ' 行' + (one ? ('、登在 ' + one.SERVICE_DATE + '、SOURCE=' + one.SOURCE
+      + '、內容' + (dateInText ? '有' : '沒有') + '正確日期') : ''),
+    '季度 ' + quarterId + '；轉換日 ' + expectedChangeIso + '（4 月第一個主日）；'
+      + '內容：' + (one ? one.TEXT : '（沒有）')
+      + '　⚠️ 覆蓋缺口：沒有真的建立內容表（那不是沙盒季度），只驗到「加什麼」那一段。');
+}
+
+/**
+ * 用途：S23：把 S22 那一行內容改掉 → 重新刷新 → 斷言**沒有被覆寫**（R-030）。
+ * Args:
+ *   ctx {Object} 自測機的執行脈絡。
+ * Returns:
+ *   {{ok:(boolean|null), expected:string, actual:string, evidence:string}}
+ */
+function selfTestS23_(ctx) {
+  var config = ctx.config;
+  var year = selfTestSandboxYear_(config) + 1;
+  var quarterId = year + 'T2';
+  var dstConfig = daylightSavingConfig_();
+  var wanted = buildDaylightSavingRows_(quarterCalendarSundays_(quarterId), dstConfig);
+
+  if (wanted.length !== 1) {
+    return selfTestOutcome_(null, '1 行夏令時間提示', wanted.length + ' 行', '請先看 S22。');
+  }
+
+  var edited = '幹事自己改過的夏令時間提示（S23）';
+  var existing = [{
+    __rowNo: CONTENT_SHEET_FIRST_DATA_ROW_,
+    SERVICE_DATE: wanted[0].SERVICE_DATE,
+    SEQ_NO: wanted[0].SEQ_NO,
+    TEXT: edited,
+    REPEAT_UNTIL: '',
+    ACTIVE: 'TRUE',
+    SOURCE: CONTENT_ROW_SOURCE.SYSTEM_DST,
+    SOURCE_SNAPSHOT: wanted[0].SOURCE_SNAPSHOT       // 快照仍然是系統原文＝有人改過
+  }];
+
+  var plan = planDaylightSavingRows_(existing, wanted);
+  var ok = plan.updates.length === 0 && plan.appends.length === 0 && plan.untouched.length === 1;
+
+  return selfTestOutcome_(ok,
+    '更新 0 行、新增 0 行、1 行不動',
+    '更新 ' + plan.updates.length + ' 行、新增 ' + plan.appends.length
+      + ' 行、' + plan.untouched.length + ' 行不動',
+    '被改過的內容：「' + edited + '」；系統原文：「' + wanted[0].TEXT + '」。'
+      + '　⚠️ 新增也一定要是 0——多加一行等於人手那一行被另一行蓋住，跟覆寫一樣壞。');
+}
+
+/**
+ * 用途：S24：`DST_AUTO_INSERT=FALSE` → 斷言不會自動加（R-030）。
+ *
+ *   ⚠️ 改完 Config 一定要在 `finally` 裏改回原值，否則這一條一失敗就會
+ *   把整個系統的夏令時間提示永久關掉。
+ * Args:
+ *   ctx {Object} 自測機的執行脈絡。
+ * Returns:
+ *   {{ok:(boolean|null), expected:string, actual:string, evidence:string}}
+ */
+function selfTestS24_(ctx) {
+  var config = ctx.config;
+  var year = selfTestSandboxYear_(config) + 1;
+  var dates = quarterCalendarSundays_(year + 'T2');
+
+  var original = getConfig(CONFIG_KEYS.DST_AUTO_INSERT, 'TRUE');
+  var rowsOff;
+  var rowsOn;
+  try {
+    setConfig(CONFIG_KEYS.DST_AUTO_INSERT, 'FALSE');
+    rowsOff = buildDaylightSavingRows_(dates, daylightSavingConfig_());
+  } finally {
+    setConfig(CONFIG_KEYS.DST_AUTO_INSERT, original);
+  }
+  rowsOn = buildDaylightSavingRows_(dates, daylightSavingConfig_());
+
+  // ⚠️ 一定要同時證明開的時候有得加：只驗「關了是 0」的話，一支永遠回
+  //    空陣列的壞函式一樣會綠。
+  var ok = rowsOff.length === 0 && rowsOn.length > 0;
+
+  return selfTestOutcome_(ok,
+    '關掉時 0 行、開啟時 > 0 行',
+    '關掉時 ' + rowsOff.length + ' 行、開啟時 ' + rowsOn.length + ' 行',
+    'Config ' + CONFIG_KEYS.DST_AUTO_INSERT + ' 已還原成「' + original + '」。');
+}
+
+/**
+ * 用途：S25：該季沒有夏令時間轉換 → 斷言不會加任何行（R-030）。
+ *
+ *   沙盒季度是 `YYYYT4`（10–12 月）：紐西蘭兩次轉換分別在 4 月與 9 月，
+ *   提示日分別在 3 月與 9 月，所以這一季不應該有任何一行。
+ * Args:
+ *   ctx {Object} 自測機的執行脈絡。
+ * Returns:
+ *   {{ok:(boolean|null), expected:string, actual:string, evidence:string}}
+ */
+function selfTestS25_(ctx) {
+  var config = ctx.config;
+  var dates = selfTestSandboxDates_(config);
+  if (dates.length === 0) return selfTestOutcome_(null, '沙盒季度有主日', '0 個', '請先跑 S19。');
+
+  var rows = buildDaylightSavingRows_(dates, daylightSavingConfig_());
+  var ok = rows.length === 0;
+
+  return selfTestOutcome_(ok, '0 行', rows.length + ' 行',
+    '季度 ' + config.quarterId + '（10–12 月）；主日 ' + dates.length + ' 個；'
+      + (ok ? '' : '加了：' + rows.map(function (r) { return r.SERVICE_DATE; }).join('、')));
+}
+
+/**
+ * 用途：把一個季度在 `BulletinWeeks` 的全部資料列摘成一條字串，用來證明
+ *   「前後一格未變」。
+ *
+ *   ⚠️ 用內容比對、不用「被驗那一支自己回報的數字」——後者等於問犯人自己
+ *   有沒有犯事（見 docs/已知bug類型.md 事故二十二）。
+ * Args:
+ *   quarterId {string} 季度 ID。
+ * Returns:
+ *   {{rowCount:number, digest:string}}
+ */
+function selfTestQuarterSnapshot_(quarterId) {
+  var qid = String(quarterId || '').trim();
+  var rows = readSheet(SHEETS.BULLETIN_WEEKS).filter(function (r) {
+    return String(r.QUARTER_ID || '').trim() === qid;
+  });
+
+  var parts = rows.map(function (row) {
+    return COLUMNS.BULLETIN_WEEKS.keys.map(function (key) {
+      var v = row[key];
+      if (Object.prototype.toString.call(v) === '[object Date]') return formatIsoDate_(v);
+      return String(v === null || v === undefined ? '' : v);
+    }).join('');
+  });
+  parts.sort();
+
+  return { rowCount: rows.length, digest: parts.join('') };
+}
+
+/**
+ * 用途：由沙盒季度 ID 取出年份。
+ * Args:
+ *   config {Object} `selfTestConfig_()` 的回傳值。
+ * Returns:
+ *   {number} 取不到時回今年。
+ */
+function selfTestSandboxYear_(config) {
+  var m = /^(\d{4})T\d$/.exec(String(config.quarterId || '').trim());
+  return m ? Number(m[1]) : new Date().getFullYear();
+}
+
+/**
+ * 用途：某年某月（1 起算）第一個星期日，yyyy-MM-dd。
+ *
+ *   ⚠️ 刻意用一支**與被驗邏輯無關**的算法（直接數 getDay()），不是叫
+ *   `nthSundayOfMonth_()`——兩邊用同一支的話會一齊錯、一齊報沒事，
+ *   見 docs/已知bug類型.md 事故二十二。
+ * Args:
+ *   year {number} 年。
+ *   month1 {number} 月，1 起算。
+ * Returns:
+ *   {string} yyyy-MM-dd。
+ */
+function selfTestFirstSundayOfMonth_(year, month1) {
+  for (var d = 1; d <= 7; d++) {
+    var dt = new Date(year, month1 - 1, d);
+    if (dt.getDay() === 0) return formatIsoDate_(dt);
+  }
+  return '';
 }
 
 /**

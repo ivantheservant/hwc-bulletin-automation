@@ -319,6 +319,40 @@ function selfCheckDataItems_(quarterResolution) {
  *   {{label:string, status:string, message:string}[]}
  */
 /**
+ * 用途：列出仍然有職事表缺口的季度（R-036）。
+ *
+ *   ⚠️ 一律是 🟡，不是 🔴：職事表未到是**正常狀態**，不是錯誤。但它也
+ *   絕對不是「沒事」——那幾期的事奉欄位是空的，印出來會少一塊。
+ * Args: （無）
+ * Returns:
+ *   {Object} `selfCheckItem_()` 的結果。
+ */
+function selfCheckRosterGapItem_() {
+  var S = SELF_CHECK_STATUS_;
+  var gaps;
+  try {
+    gaps = listQuartersWithRosterGaps_();
+  } catch (err) {
+    return selfCheckItem_('職事表缺口', S.YELLOW,
+      '算不到：' + ((err && err.message) ? err.message : String(err)));
+  }
+
+  if (gaps.length === 0) {
+    return selfCheckItem_('職事表缺口', S.GREEN, '每一季的事奉資料都齊備。');
+  }
+
+  var detail = gaps.map(function (entry) {
+    var quarterId = entry.quarterId;
+    return quarterId + '：共 ' + entry.total + ' 個主日，其中 '
+      + entry.notFound + ' 個整季找不到、' + entry.partial + ' 個部分找不到';
+  });
+  return selfCheckItem_('職事表缺口', S.YELLOW,
+    '有 ' + gaps.length + ' 個季度的事奉資料未齊（那幾期的事奉欄位留空）。'
+      + '職事表補齊之後，撳選單「從職事表補抓」。',
+    detail);
+}
+
+/**
  * 用途：判斷 `Recipients` 的組別覆蓋率夠不夠成為 🟢。
  *
  *   ⚠️ 只有 ADMIN 一組**不是**綠燈。「發佈與寄出」的收件對象勾選
@@ -707,6 +741,7 @@ function runSelfCheck_() {
     .concat(selfCheckInvariantItems_())
     // 第一輪自測之後：未完成的需求排在最後——看報告的人最後見到的
     // 應該是「還有什麼未做」，不是一堆綠燈。
+    .concat([selfCheckRosterGapItem_()])
     .concat([selfCheckUnfinishedRequirementsItem_()]);
 
   var S = SELF_CHECK_STATUS_;

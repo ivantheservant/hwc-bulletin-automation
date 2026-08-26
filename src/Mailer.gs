@@ -67,10 +67,26 @@ function sendBulletinForDate_(isoDate, options) {
     notConfiguredErr.code = 'NOT_CONFIGURED';
     throw notConfiguredErr;
   }
+  // ⚠️ R-036：職事表未有該主日資料**不再一律當成錯誤**。
+  //
+  //    舊版一律拋 `ROSTER_NOT_FOUND` 然後停手——`ErrorLog` 有一筆
+  //    2026-08-24 的實際紀錄，那一期完全沒有寄出。但週報的其餘部分
+  //    （講題、詩歌、家事報告、人數）本來就齊，只是事奉欄位空著。
+  //    寄一份「事奉待定」的週報，比完全不寄有用。
+  //
+  //    Config `SEND_WHEN_ROSTER_MISSING` 改成 FALSE 就回復舊行為。
+  //    見 docs/已知bug類型.md 事故四十。
+  var rosterPending = false;
   if (!model.found) {
-    var notFoundErr = new Error('sendBulletinForDate_：' + isoDate + ' 這個主日在職事表找不到資料，無法寄送。');
-    notFoundErr.code = 'ROSTER_NOT_FOUND';
-    throw notFoundErr;
+    var sendAnyway = normalizeBoolean_(getConfig(CONFIG_KEYS.SEND_WHEN_ROSTER_MISSING, 'TRUE')) === true;
+    if (!sendAnyway) {
+      var notFoundErr = new Error('sendBulletinForDate_：' + isoDate
+        + ' 這個主日在職事表找不到資料，而 Config 的 '
+        + CONFIG_KEYS.SEND_WHEN_ROSTER_MISSING + ' 是 FALSE，所以不寄送。');
+      notFoundErr.code = 'ROSTER_NOT_FOUND';
+      throw notFoundErr;
+    }
+    rosterPending = true;
   }
 
   var recipientsResult = resolveRecipients_(isoDate);
@@ -122,6 +138,15 @@ function sendBulletinForDate_(isoDate, options) {
 
   var subject = renderEmailTemplate_(template.SUBJECT, vars, templateWarnings);
   var introText = renderEmailTemplate_(template.BODY, vars, templateWarnings);
+
+  // ⚠️ 事奉資料未定的話，一定要在信中講明——收信的人見到事奉框空白，
+  //    唯一的合理反應是「系統壞了」。講一句就變成「未到，稍後通知」。
+  var rosterPendingNote = '';
+  if (rosterPending) {
+    rosterPendingNote = String(getConfig(CONFIG_KEYS.BULLETIN_ROSTER_PENDING_NOTE,
+      '本期事奉資料尚未確定，稍後另行通知。') || '').trim();
+    if (rosterPendingNote) introText = rosterPendingNote + '\n\n' + introText;
+  }
   var introHtml = introText.split('\n').map(function (line) { return escapeHtmlEmail_(line); }).join('<br>');
 
   var htmlBody = buildBulletinEmailHtml_(model, {
@@ -165,7 +190,10 @@ function sendBulletinForDate_(isoDate, options) {
       STATUS: status,
       DRY_RUN: dryRun,
       ROSTER_VERSION_USED: sanitizeCellText_(vars.RosterVersion),
-      ERROR: sanitizeCellText_(errorMessage),
+      // ⚠️ R-036：事奉待定**不是錯誤**，但要留低痕跡。寫在這一欄（而不是
+      //    ErrorLog）——ErrorLog 是「要人去查」的地方，這一件事不需要查。
+      ERROR: sanitizeCellText_(errorMessage
+        || (rosterPending ? ('（不是錯誤）' + (rosterPendingNote || '本期事奉資料尚未確定。')) : '')),
       BODY_PREVIEW: buildSendLogBodyPreview_(plainBody)
     });
   });
@@ -178,6 +206,7 @@ function sendBulletinForDate_(isoDate, options) {
 
   return {
     ok: true,
+    rosterPending: rosterPending,
     dryRun: dryRun,
     totalRecipients: recipientsResult.recipients.length,
     sentCount: sentCount,

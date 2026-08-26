@@ -147,7 +147,10 @@ var COLUMNS = Object.freeze({
       // （空格分隔、原樣輸出，不加尊稱、不排序）——分別見
       // src/BaptismBox.gs 的 baptismBoxFieldDefs_()。
       '浸禮主禮', '入會禮主禮', '孩童奉獻禮主禮',
-      '受浸肢體', '入會肢體', '奉獻孩童'
+      '受浸肢體', '入會肢體', '奉獻孩童',
+      // R-036：職事表未有該季資料時仍然建立得到週報，用這一欄記住那一行的
+      // 事奉資料是不是齊全。同樣加在**最尾**，理由見上面第六輪那一段。
+      '職事表狀態'
     ],
     keys: [
       'SERVICE_DATE', 'QUARTER_ID', 'WEEK_OF_MONTH', 'SPECIAL_TYPE', 'PAGE_TITLE',
@@ -163,7 +166,8 @@ var COLUMNS = Object.freeze({
       'ROSTER_SNAPSHOT_VERSION', 'ROSTER_SNAPSHOT_AT',
       'FINANCE_NOTE', 'FINANCE_BALANCE',
       'BAPTISM_OFFICIANT', 'MEMBERSHIP_OFFICIANT', 'CHILD_DEDICATION_OFFICIANT',
-      'BAPTISM_MEMBERS', 'MEMBERSHIP_MEMBERS', 'CHILD_DEDICATION_CHILDREN'
+      'BAPTISM_MEMBERS', 'MEMBERSHIP_MEMBERS', 'CHILD_DEDICATION_CHILDREN',
+      'ROSTER_STATUS'
     ],
     types: [
       'DATE', 'TEXT', 'INT', 'TEXT', 'TEXT',
@@ -180,7 +184,8 @@ var COLUMNS = Object.freeze({
       'INT', 'DATE',
       'TEXT', 'TEXT',
       'TEXT', 'TEXT', 'TEXT',
-      'TEXT', 'TEXT', 'TEXT'
+      'TEXT', 'TEXT', 'TEXT',
+      'TEXT'
     ],
     textFormatColumns: [
       'ATT_ENG_WORSHIP', 'ATT_CANE_WORSHIP', 'ATT_CANN_WORSHIP', 'ATT_MAN_WORSHIP',
@@ -610,7 +615,15 @@ var CONFIG_KEYS = Object.freeze({
   SELFTEST_ROSTER_QUARTER_ID: 'SELFTEST_ROSTER_QUARTER_ID',
   SELFTEST_MASTER_PDF_FILE_ID: 'SELFTEST_MASTER_PDF_FILE_ID',
   SELFTEST_TIME_BUDGET_SEC: 'SELFTEST_TIME_BUDGET_SEC',
-  MONKEY_NO_PROGRESS_LIMIT: 'MONKEY_NO_PROGRESS_LIMIT'
+  MONKEY_NO_PROGRESS_LIMIT: 'MONKEY_NO_PROGRESS_LIMIT',
+  // R-036
+  SEND_WHEN_ROSTER_MISSING: 'SEND_WHEN_ROSTER_MISSING',
+  BULLETIN_ROSTER_PENDING_NOTE: 'BULLETIN_ROSTER_PENDING_NOTE',
+  // R-030
+  DST_AUTO_INSERT: 'DST_AUTO_INSERT',
+  DST_ANNOUNCEMENT_SEQ: 'DST_ANNOUNCEMENT_SEQ',
+  DST_START_ANNOUNCEMENT: 'DST_START_ANNOUNCEMENT',
+  DST_END_ANNOUNCEMENT: 'DST_END_ANNOUNCEMENT'
 });
 
 // =====================================================================
@@ -745,7 +758,13 @@ var DEFAULTS = Object.freeze([
   { key: CONFIG_KEYS.SELFTEST_ROSTER_QUARTER_ID, value: '2027T4', note: '自測機需要真實職事表資料時讀哪一季。**只讀不寫**' },
   { key: CONFIG_KEYS.SELFTEST_MASTER_PDF_FILE_ID, value: '', note: '自測機專用的沙盒 master 發佈檔案 ID（自測機不會碰正式那一個）。留空時自測機會略過發佈相關情境並講明原因' },
   { key: CONFIG_KEYS.SELFTEST_TIME_BUDGET_SEC, value: '240', note: '自測機／亂行機每一次執行的時間預算（秒）。接近上限就乾淨停低並寫明「跑到哪一步、還有幾多個未跑」，Apps Script 本身的上限是 360 秒' },
-  { key: CONFIG_KEYS.MONKEY_NO_PROGRESS_LIMIT, value: '5', note: '亂行機連續幾多步狀態完全沒有變就當成原地打轉、停手（防打轉閘）' }
+  { key: CONFIG_KEYS.MONKEY_NO_PROGRESS_LIMIT, value: '5', note: '亂行機連續幾多步狀態完全沒有變就當成原地打轉、停手（防打轉閘）' },
+  { key: CONFIG_KEYS.SEND_WHEN_ROSTER_MISSING, value: 'TRUE', note: 'R-036：職事表未有該主日資料時，仍然照樣寄出（信中會加一句「事奉資料尚未確定」）。改成 FALSE 就回復舊行為：不寄，並記一筆 ErrorLog' },
+  { key: CONFIG_KEYS.BULLETIN_ROSTER_PENDING_NOTE, value: '本期事奉資料尚未確定，稍後另行通知。', note: 'R-036：職事表未有資料而仍然寄出時，加在信中的一句' },
+  { key: CONFIG_KEYS.DST_AUTO_INSERT, value: 'TRUE', note: 'R-030：建立／刷新內容表時，自動加入夏令時間轉換提示（登在轉換當日的前一個主日那一期）' },
+  { key: CONFIG_KEYS.DST_ANNOUNCEMENT_SEQ, value: '5', note: 'R-030：夏令時間提示在家事報告的次序（數字細者排前）' },
+  { key: CONFIG_KEYS.DST_START_ANNOUNCEMENT, value: 'Daylight Saving將開始：今年Daylight Saving於下主日({{CHANGE_DATE}})開始，請於{{SATURDAY}}星期六晚上將時鐘撥前一小時。', note: 'R-030：夏令時間**開始**的提示範本。{{CHANGE_DATE}}＝轉換當日，{{SATURDAY}}＝之前那個星期六' },
+  { key: CONFIG_KEYS.DST_END_ANNOUNCEMENT, value: '今年Daylight Saving於下主日({{CHANGE_DATE}}) 完結，請大家於本週六晚將時間回撥一小時。', note: 'R-030：夏令時間**完結**的提示範本。同樣支援 {{CHANGE_DATE}} 與 {{SATURDAY}}' }
 ]);
 
 // =====================================================================
@@ -753,6 +772,37 @@ var DEFAULTS = Object.freeze([
 // =====================================================================
 
 /** BulletinWeeks.STATUS 允許的取值。 */
+/**
+ * `BulletinWeeks.ROSTER_STATUS` 的取值（R-036）。
+ *
+ * ⚠️ 「職事表未有該季資料」**不是錯誤**，只是「未到」。舊版會令
+ * 「建立本季週報」整個中止，於是幹事在職事表準備好之前完全開始不到——
+ * 而週報有大量與事奉無關的欄位（講題、詩歌、家事報告）本來就填得。
+ *
+ * ⚠️ 三個值要分得清：
+ *   `OK`　　　　該主日的事奉資料在職事表找得到；
+ *   `NOT_FOUND`　整季在職事表都找不到（連主日清單都是曆法推算出來的）；
+ *   `PARTIAL`　　該季有部分主日找得到，這一個找不到。
+ * 把後兩者混為一談的話，「補抓」之後就講不出還差幾多。
+ */
+var ROSTER_STATUS = Object.freeze({
+  OK: 'OK',
+  NOT_FOUND: 'NOT_FOUND',
+  PARTIAL: 'PARTIAL'
+});
+
+/**
+ * 內容表資料列的**來源**（R-030）。
+ *
+ * ⚠️ 有了它，系統才分得出「這一行是我自己加的」與「這一行是人手加的」。
+ * 分不出的話，刷新內容表就只有兩種做法：全部覆寫（蓋走人手輸入）或者
+ * 全部不覆寫（範本改了也更新不到）——兩種都不對。
+ */
+var CONTENT_ROW_SOURCE = Object.freeze({
+  MANUAL: 'MANUAL',
+  SYSTEM_DST: 'SYSTEM_DST'
+});
+
 var BULLETIN_WEEK_STATUS = Object.freeze({
   DRAFT: 'DRAFT',
   READY: 'READY',

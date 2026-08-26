@@ -64,15 +64,28 @@ function contentSheetTabDefs_() {
   return [
     {
       tabName: '家事報告',
-      headers: ['主日日期', '次序', '內容', '連續到', '有效'],
-      keys: ['SERVICE_DATE', 'SEQ_NO', 'TEXT', 'REPEAT_UNTIL', 'ACTIVE'],
+      // ⚠️ R-030 在**最尾**加了兩欄。系統會自動加夏令時間轉換提示，而
+      //    「這一行是系統加的還是人手加的」一定要分得出——分不出的話，
+      //    刷新內容表就只有兩種做法：全部覆寫（蓋走人手輸入）或者全部
+      //    不覆寫（範本改了也更新不到），兩種都不對。
+      //
+      //    ⚠️ `原文備份` 是系統寫入時的內容快照，用來判斷「有沒有被人手
+      //    改過」——不是靠時間戳（人手改一個字不會動時間戳，而重新整理
+      //    會）。請不要改這一欄。
+      headers: ['主日日期', '次序', '內容', '連續到', '有效', '來源', '原文備份'],
+      keys: ['SERVICE_DATE', 'SEQ_NO', 'TEXT', 'REPEAT_UNTIL', 'ACTIVE', 'SOURCE', 'SOURCE_SNAPSHOT'],
       // ⚠️ REPEAT_UNTIL 一樣要下拉選主日：連登到邊一個主日為止。
       dateColumns: ['SERVICE_DATE', 'REPEAT_UNTIL'],
       attendanceDates: false,
-      plainTextColumns: [],
+      // SOURCE／SOURCE_SNAPSHOT 一定要純文字：兩者都是拿來逐字比對的，
+      // 一被試算表自動轉換（例如把純數字的內容轉成數字）就對不上，
+      // 系統會以為那一行被人手改過而從此不再更新。
+      plainTextColumns: ['SOURCE', 'SOURCE_SNAPSHOT'],
       wrapColumns: [{ key: 'TEXT', width: 600 }],
       activeKey: 'ACTIVE',
       note: '一個主日可以有多行，用「次序」排先後（10、20、30 這樣跳號，方便日後在中間插入）。'
+        + '「來源」與「原文備份」兩欄由系統維護：夏令時間轉換提示會自動加一行（來源＝SYSTEM_DST）。'
+        + '你改動那一行的內容、或者把「有效」設成 FALSE 之後，系統就不會再覆寫它。請不要改「原文備份」。'
         + '「連續到」：需要連續刊登多個星期的報告只需輸入一次——在「主日日期」填第一次出現的主日，'
         + '在「連續到」選最後一次出現的主日。留空即表示只在「主日日期」那一週出現。'
     },
