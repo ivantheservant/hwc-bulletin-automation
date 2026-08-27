@@ -2202,7 +2202,7 @@ function selfTestS13_(ctx) {
 
   var beforeBytes = readMasterPdfBytes_(config.masterFileId);
   var beforeFingerprint = pdfFingerprint_(beforeBytes || []);
-  var beforeVersion = nextPublishVersion_(readSheet(SHEETS.PUBLISH_LOG), isoDate) - 1;
+  var beforeVersion = selfTestPublishVersion_(isoDate);
 
   var pdf = selfTestMakePdfBlob_('自測發佈 ' + ctx.runId);
   var pdfAssertion = assertPdfOutput_(pdf);
@@ -2281,7 +2281,7 @@ function selfTestS14_(ctx) {
   var isoDate = dates[1];
   assertSelfTestWritableDate_(isoDate, config);
 
-  var versionBefore = nextPublishVersion_(readSheet(SHEETS.PUBLISH_LOG), isoDate) - 1;
+  var versionBefore = selfTestPublishVersion_(isoDate);
   var pdfBase64 = Utilities.base64Encode(
     selfTestMakePdfBlob_('selftest dedup A ' + ctx.runId).getBytes());
 
@@ -2294,14 +2294,14 @@ function selfTestS14_(ctx) {
       first.ok ? '第一次就被擋住' : ('失敗：' + first.reason),
       '主日 ' + isoDate + '；' + (first.message || (first.lines || []).join(' ')) + '　' + gapText);
   }
-  var versionAfterFirst = nextPublishVersion_(readSheet(SHEETS.PUBLISH_LOG), isoDate) - 1;
+  var versionAfterFirst = selfTestPublishVersion_(isoDate);
 
   // ---- 第二次：立即再發佈**同一份**，兩次之間不做任何其他事 ----
   var second = selfTestRunPublish_(config, {
     isoDate: isoDate, doPublish: true, doSend: false,
     pdfBase64: pdfBase64, pdfName: 'selftest-dedup-a.pdf', confirmed: true
   });
-  var versionAfter = nextPublishVersion_(readSheet(SHEETS.PUBLISH_LOG), isoDate) - 1;
+  var versionAfter = selfTestPublishVersion_(isoDate);
 
   var block = describePublishBlock_(second);
   var versionHeld = versionAfter === versionAfterFirst;
@@ -2357,7 +2357,7 @@ function selfTestS14b_(ctx) {
       first.ok ? '第一次就被擋住' : ('失敗：' + first.reason),
       '主日 ' + isoDate + '；' + (first.message || (first.lines || []).join(' ')));
   }
-  var versionAfterFirst = nextPublishVersion_(readSheet(SHEETS.PUBLISH_LOG), isoDate) - 1;
+  var versionAfterFirst = selfTestPublishVersion_(isoDate);
 
   // ⚠️ 內容真的不同：用 ASCII 分辨得出的文字（見 selfTestMakePdfBlob_ 的
   //    非 ASCII 換成 `?` 那件事）。
@@ -2367,7 +2367,7 @@ function selfTestS14b_(ctx) {
     pdfBase64: Utilities.base64Encode(secondPdf.getBytes()),
     pdfName: 'selftest-dedup-b2.pdf', confirmed: true
   });
-  var versionAfter = nextPublishVersion_(readSheet(SHEETS.PUBLISH_LOG), isoDate) - 1;
+  var versionAfter = selfTestPublishVersion_(isoDate);
 
   var block = describePublishBlock_(second);
   var byDedup = block.gate === 'DEDUP';
@@ -2422,7 +2422,7 @@ function selfTestS14c_(ctx) {
       first.ok ? '第一次就被擋住' : ('失敗：' + first.reason),
       '主日 ' + isoDate + '；' + (first.message || (first.lines || []).join(' ')));
   }
-  var versionAfterFirst = nextPublishVersion_(readSheet(SHEETS.PUBLISH_LOG), isoDate) - 1;
+  var versionAfterFirst = selfTestPublishVersion_(isoDate);
 
   var rewind = selfTestRewindPublishStamp_(isoDate, config, (dedupSec + 60) * 1000);
   if (!rewind.ok) {
@@ -2436,7 +2436,7 @@ function selfTestS14c_(ctx) {
       selfTestMakePdfBlob_('selftest dedup C2 different ' + ctx.runId).getBytes()),
     pdfName: 'selftest-dedup-c2.pdf', confirmed: true
   });
-  var versionAfter = nextPublishVersion_(readSheet(SHEETS.PUBLISH_LOG), isoDate) - 1;
+  var versionAfter = selfTestPublishVersion_(isoDate);
 
   var block = describePublishBlock_(second);
   var ok = second.ok === true && !block.blocked && versionAfter === versionAfterFirst + 1;
@@ -2636,6 +2636,24 @@ function selfTestPublishGuard_(config) {
     return selfTestOutcome_(null, '沙盒季度有主日', '0 個', '請先跑 S01。');
   }
   return null;
+}
+
+/**
+ * 用途：自測機專用——某一個沙盒主日**目前**最新的版本號。
+ *
+ *   ⚠️ 刻意只在**自測那一類**的 `PublishLog` 行裏面數，跟
+ *   `executePublish_()` 寫版本號時用的那一堆完全一樣。
+ *   本來寫成「整張表照數」也答得對，因為沙盒主日跟真實主日不會撞——
+ *   但那是靠巧合答對。靠巧合答對的斷言，撞的那一日不會報錯，只會靜靜
+ *   給一個錯的數字。見 docs/已知bug類型.md 事故四十六。
+ * Args:
+ *   isoDate {string} 沙盒主日。
+ * Returns:
+ *   {number} 從未發佈過就是 0。
+ */
+function selfTestPublishVersion_(isoDate) {
+  return nextPublishVersion_(
+    publishLogRowsOfKind_(readSheet(SHEETS.PUBLISH_LOG), true), isoDate) - 1;
 }
 
 /**

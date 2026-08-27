@@ -282,6 +282,29 @@ function readOfficialPublishLogRows_() {
 }
 
 /**
+ * 用途：由 `PublishLog` 揀出**同一類**的行——正式的跟正式的比，自測的跟
+ *   自測的比。**純函式。**
+ *
+ *   ⚠️ 這一支是版本號專用，不是報表用。版本號問的問題跟報表不同：
+ *   報表問「這是不是正式紀錄」，版本號問「**這一行的版本號會不會跟我撞**」。
+ *   兩個問題答案不同，用同一支函式就會出事——把自測的行濾走之後，
+ *   自測發佈每一次都算成第 1 版，寫出兩行同樣是 v1 的紀錄。
+ *   見 docs/已知bug類型.md 事故四十六。
+ *
+ *   空白／取不到的 `IS_SELFTEST`（欄位加入之前寫的舊行）當成**正式**，
+ *   與 `readOfficialPublishLogRows_()` 一致。
+ * Args:
+ *   rows {Object[]} `readSheet(SHEETS.PUBLISH_LOG)` 的輸出。
+ *   isSelfTest {boolean} 要哪一類。
+ * Returns:
+ *   {Object[]}
+ */
+function publishLogRowsOfKind_(rows, isSelfTest) {
+  var want = isSelfTest === true;
+  return (rows || []).filter(function (r) { return (r.IS_SELFTEST === true) === want; });
+}
+
+/**
  * 用途：算出某一個主日下一次發佈應該係第幾版。**純函式。**
  *
  *   同一個主日再發佈就加一；同一個主日從來未發佈過就係第 1 版。
@@ -994,10 +1017,18 @@ function executePublish_(isoDate, blob, options) {
     };
   }
 
-  // ⚠️ R-037 §2.2：排除自測嘅行。實務上沙盒主日同真實主日唔會撞，
-  //    但版本號係印落紙、寄出去嘅數字，唔應該靠「兩批日期啱啱好唔重疊」
-  //    呢個巧合嚟保證正確。
-  var versionNo = nextPublishVersion_(readOfficialPublishLogRows_(), isoDate);
+  // ⚠️ 版本號要喺**同一類**嘅行入面數：正式嘅同正式嘅比，自測嘅同自測
+  //    嘅比。R-037 §2.2 要求正式報表排除自測，呢度**唔可以照搬**——
+  //    照搬嘅話自測發佈每次都算成第 1 版，寫出兩行同樣係 v1 嘅紀錄，
+  //    而外表睇落「冇被擋、版本號 1」，似防重複又唔係防重複。
+  //    見 docs/已知bug類型.md 事故四十六。
+  //
+  // ⚠️ `isSelfTestRun` 只算一次，下面寫 `IS_SELFTEST` 嗰欄用返同一個值：
+  //    數版本號同貼標籤如果各自判斷一次，就有機會對唔上——一行標住
+  //    「正式」但版本號係喺自測堆入面數出嚟，事後冇人查得出。
+  var isSelfTestRun = isSelfTestMasterFileId_(config.masterFileId);
+  var versionNo = nextPublishVersion_(
+    publishLogRowsOfKind_(readSheet(SHEETS.PUBLISH_LOG), isSelfTestRun), isoDate);
 
   // ---- 1. 覆寫 master（檔案 ID 不變）----
   try {
@@ -1056,7 +1087,7 @@ function executePublish_(isoDate, blob, options) {
     FORCED_REASON: sanitizeCellText_(o.forcedReason || ''),
     // ⚠️ 記低「這一次實際覆寫了哪一個檔案」，令 I06 不需要靠 Config 猜。
     MASTER_FILE_ID: sanitizeCellText_(config.masterFileId),
-    IS_SELFTEST: isSelfTestMasterFileId_(config.masterFileId),
+    IS_SELFTEST: isSelfTestRun,
     CONTENT_BYTES: fingerprintParts.bytes,
     CONTENT_MD5: sanitizeCellText_(fingerprintParts.md5)
   }]);

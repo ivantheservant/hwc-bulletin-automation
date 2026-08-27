@@ -629,6 +629,10 @@ test('自我檢測「最近一次發佈」不會指住沙盒那一期', function
 test('⚠️ 靜態檢查：正式報表那三處都經 readOfficialPublishLogRows_', function () {
   // ⚠️ 逐處點名。將來有人加一個「直接 readSheet(PUBLISH_LOG)」的正式報表，
   //    這一條攔不到，但至少釘住現有那三處不會被改回去。
+  //
+  // ⚠️ 本來這一條連**版本號**都一併釘住，那是錯的——版本號問的是另一條
+  //    問題（「這一行會不會跟我撞」），不是「這是不是正式紀錄」。
+  //    照搬的後果見 docs/已知bug類型.md 事故四十六，下一條就是釘住它。
   const pub = fsNode.readFileSync(path.join(__dirname, '..', 'src', 'Publish.gs'), 'utf8');
   const check = fsNode.readFileSync(path.join(__dirname, '..', 'src', 'SelfCheck.gs'), 'utf8');
 
@@ -636,10 +640,17 @@ test('⚠️ 靜態檢查：正式報表那三處都經 readOfficialPublishLogRo
     '頂部狀態列要經共用那一支');
   assert.ok(pub.indexOf('latestPublishLogRow_(readOfficialPublishLogRows_())') !== -1,
     '發佈前檢查要經共用那一支');
-  assert.ok(pub.indexOf('nextPublishVersion_(readOfficialPublishLogRows_(), isoDate)') !== -1,
-    '版本號要經共用那一支');
   assert.ok(check.indexOf('var publishRows = readOfficialPublishLogRows_();') !== -1,
     '自我檢測「最近一次發佈」要經共用那一支');
+});
+
+test('⚠️ 靜態檢查：版本號**不可以**用正式報表那一支（事故四十六）', function () {
+  const pub = fsNode.readFileSync(path.join(__dirname, '..', 'src', 'Publish.gs'), 'utf8');
+
+  assert.ok(pub.indexOf('nextPublishVersion_(readOfficialPublishLogRows_()') === -1,
+    '版本號用正式濾網的話，自測發佈每次都算第 1 版，寫出兩行同樣的版本號');
+  assert.ok(pub.indexOf('publishLogRowsOfKind_(readSheet(SHEETS.PUBLISH_LOG), isSelfTestRun)') !== -1,
+    '版本號要在同一類的行裏面數：正式的跟正式的比，自測的跟自測的比');
 });
 
 // =====================================================================

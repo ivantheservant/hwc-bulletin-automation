@@ -857,6 +857,102 @@ test('10b. findRecentPublishStamp_：時鐘倒退（負數）不算重複，寧�
   assert.strictEqual(env.sandbox.findRecentPublishStamp_('', 1000000, 30), null);
 });
 
+// =====================================================================
+// 10c-10f. 版本號要喺**同一類**嘅行入面數
+//
+// ⚠️ 呢四條係一個實測失敗打返轉頭嘅：自測機 S14c 報「沒有被擋、版本號 1」。
+//    表面症狀似防重複——「發咗兩次、版本冇加」——但其實完全唔關防重複事：
+//    R-037 §2.2 加咗「正式報表排除自測」之後，`executePublish_()` 順手
+//    都用埋嗰支濾走自測行嘅函式嚟數版本號，於是自測發佈永遠數到 0 行，
+//    每一次都算第 1 版。見 docs/已知bug類型.md 事故四十六。
+// =====================================================================
+
+test('10c. 自測發佈連續兩次（已過防重複視窗）→ 版本號要由 1 變 2，不是永遠 1', function () {
+  const env = makeEnv({
+    config: { PUBLISH_DEDUP_SEC: '30', SELFTEST_MASTER_PDF_FILE_ID: MASTER_FILE_ID }
+  });
+  const first = publishOnce(env, PDF_A);
+  assert.strictEqual(first.ok, true, first.message);
+  assert.strictEqual(first.published.versionNo, 1);
+
+  // 明確把防重複的判斷基準撥出視窗之外，不靠真實時間流逝。
+  const key = 'PUBLISH_LAST|' + TARGET_DATE;
+  const stamp = JSON.parse(env.scriptProps[key]);
+  env.scriptProps[key] = JSON.stringify({ at: stamp.at - 600000, versionNo: stamp.versionNo });
+
+  const second = publishOnce(env, PDF_B);
+  assert.strictEqual(second.duplicate, undefined, '已經出咗視窗，唔應該當成重複撳');
+  assert.strictEqual(second.ok, true, second.message);
+  assert.strictEqual(second.published.versionNo, 2, '自測發佈嘅版本號一樣要加');
+
+  const rows = readPublishLog(env).filter(function (r) {
+    return env.sandbox.publishRowIsoDate_(r) === TARGET_DATE;
+  });
+  // ⚠️ 用 JSON.stringify 比對：`rows` 來自 vm sandbox，陣列的原型跟這一邊
+  //    的 Array 不同，deepStrictEqual 會因為原型不符而失敗。
+  const versions = JSON.stringify(rows.map(function (r) { return Number(r.VERSION_NO); }));
+  assert.strictEqual(versions, '[1,2]',
+    '同一個主日唔可以有兩行相同版本號，實際：' + versions);
+});
+
+test('10d. 正式發佈的版本號不受自測那些行影響（R-037 §2.2 的原意保住）', function () {
+  const env = makeEnv({
+    config: { PUBLISH_DEDUP_SEC: '0' },
+    publishLog: [{
+      SERVICE_DATE: TARGET_DATE, VERSION_NO: 7, PUBLISHED_AT: '2027-11-06',
+      PUBLISHED_BY: 'selftest@example.com', ARCHIVE_FILE_ID: 'SELFTEST',
+      SENT: false, SENT_GROUPS: '', MISSING_COUNT: 0, FORCED: false,
+      FORCED_REASON: '', IS_SELFTEST: true
+    }]
+  });
+  const result = publishOnce(env, PDF_A);
+  assert.strictEqual(result.ok, true, result.message);
+  assert.strictEqual(result.published.versionNo, 1,
+    '自測跑咗七版，唔應該令正式發佈由第 8 版開始');
+
+  const row = readPublishLog(env).filter(function (r) {
+    return env.sandbox.publishRowIsoDate_(r) === TARGET_DATE && r.IS_SELFTEST !== true;
+  })[0];
+  assert.strictEqual(Number(row.VERSION_NO), 1);
+});
+
+test('10e. publishLogRowsOfKind_：空白／取不到的 IS_SELFTEST 當成正式', function () {
+  const env = makeEnv({});
+  const rows = [
+    { VERSION_NO: 1, IS_SELFTEST: true },
+    { VERSION_NO: 2, IS_SELFTEST: false },
+    { VERSION_NO: 3, IS_SELFTEST: '' },
+    { VERSION_NO: 4, IS_SELFTEST: null },
+    { VERSION_NO: 5 }
+  ];
+  const selfTest = env.sandbox.publishLogRowsOfKind_(rows, true)
+    .map(function (r) { return r.VERSION_NO; });
+  const official = env.sandbox.publishLogRowsOfKind_(rows, false)
+    .map(function (r) { return r.VERSION_NO; });
+
+  assert.deepStrictEqual(Array.prototype.slice.call(selfTest), [1]);
+  // ⚠️ 空白／null／冇欄位全部歸「正式」，同 readOfficialPublishLogRows_() 一致。
+  //    兩支分類唔一致嘅話，同一行會一時算正式一時算自測。
+  assert.deepStrictEqual(Array.prototype.slice.call(official), [2, 3, 4, 5]);
+  assert.deepStrictEqual(Array.prototype.slice.call(env.sandbox.publishLogRowsOfKind_(null, true)), []);
+});
+
+test('10f. 版本號與 IS_SELFTEST 由同一個判斷得出，不是各自判斷一次', function () {
+  const text = fs.readFileSync(path.join(__dirname, '..', 'src', 'Publish.gs'), 'utf8');
+  const body = text.slice(text.indexOf('function executePublish_('));
+  const end = body.indexOf('\nfunction ', 10);
+  const fn = end === -1 ? body : body.slice(0, end);
+
+  const decl = (fn.match(/var isSelfTestRun = isSelfTestMasterFileId_\(/g) || []).length;
+  assert.strictEqual(decl, 1, 'executePublish_ 應該只判斷一次「這一次是不是自測」');
+  assert.ok(fn.indexOf('IS_SELFTEST: isSelfTestRun,') !== -1,
+    '寫入 PublishLog 那一欄要用同一個變數，否則標籤與版本號可以對不上');
+  assert.ok(fn.indexOf('publishLogRowsOfKind_(readSheet(SHEETS.PUBLISH_LOG), isSelfTestRun)') !== -1,
+    '版本號要在同一類的行裏面數');
+  assert.ok(fn.indexOf('nextPublishVersion_(readOfficialPublishLogRows_()') === -1,
+    '版本號不可以用「正式報表」那一支——那正是事故四十六的成因');
+});
+
 test('11. LockService 被佔用 → 明確訊息，而且一格都沒有寫', function () {
   const env = makeEnv({ lockBusy: true });
   const before = readPublishLog(env).length;

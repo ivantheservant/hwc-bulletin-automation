@@ -864,6 +864,39 @@ test('S14c 驗「不該擋的時候不擋」：版本要 +1', function () {
   assert.ok(body.indexOf('versionAfterFirst + 1') !== -1, 'S14c 要斷言版本 +1');
 });
 
+// ⚠️ 這一條釘住的是「S14c 不可以靠真實時間流逝」這件事本身。
+//    靠等 30 秒的話，測試跑得比它快就會走了防重複那條路，然後報一個
+//    看起來像別的問題的失敗。見 docs/已知bug類型.md 事故四十六。
+test('S14c 一定要自己把防重複的判斷基準撥出視窗，不可以靠真實時間流逝', function () {
+  const src = require('fs').readFileSync(
+    require('path').join(__dirname, '..', 'src', 'SelfTest.gs'), 'utf8');
+  const body = src.slice(src.indexOf('function selfTestS14c_'), src.indexOf('function describePublishBlock_'));
+
+  assert.ok(body.indexOf('selfTestRewindPublishStamp_(') !== -1,
+    'S14c 一定要主動撥時間戳');
+  assert.ok(/dedupSec \+ \d+\) \* 1000/.test(body),
+    '撥的幅度要由 PUBLISH_DEDUP_SEC 算出來，不可以寫死一個數字'
+      + '——Config 改大過那個數字之後，寫死的幅度就撥不出視窗了');
+  assert.ok(body.indexOf('Utilities.sleep') === -1,
+    'S14c 不可以用等待來製造「視窗之外」');
+  assert.ok(body.indexOf('if (!rewind.ok)') !== -1,
+    '撥不到一定要報「驗證不到」，不可以照發佈然後當成通過');
+});
+
+// ⚠️ 版本號是自測機好幾條情境的斷言對象，數錯了整批情境一齊講錯話。
+test('selfTestPublishVersion_：只在自測那一類的行裏面數，不受正式紀錄影響', function () {
+  const env = makeEnv({});
+  const src = require('fs').readFileSync(
+    require('path').join(__dirname, '..', 'src', 'SelfTest.gs'), 'utf8');
+
+  assert.ok(src.indexOf('publishLogRowsOfKind_(readSheet(SHEETS.PUBLISH_LOG), true)') !== -1,
+    'selfTestPublishVersion_ 要跟 executePublish_ 數同一堆行');
+  assert.strictEqual(
+    (src.match(/nextPublishVersion_\(readSheet\(SHEETS\.PUBLISH_LOG\), isoDate\)/g) || []).length, 0,
+    '情境不可以再自己照數整張表——那是靠「沙盒主日跟真實主日不會撞」這個巧合答對');
+  assert.strictEqual(typeof env.sandbox.selfTestPublishVersion_, 'function');
+});
+
 // ⚠️ 撥時間戳是一個可以亂改狀態的動作，所以一定要先經沙盒守門。
 test('selfTestRewindPublishStamp_：只准撥沙盒季度的主日', function () {
   const env = makeEnv({});
