@@ -639,23 +639,13 @@ function buildPublishRevisionLines_(info) {
 function menuShowPublishRevisions_() {
   var ui = SpreadsheetApp.getUi();
   try {
-    var fileId = String(getConfig(CONFIG_KEYS.PUBLISHED_PDF_FILE_ID, '') || '').trim();
-    var facts = fileId ? readDriveFileFacts_(fileId) : { ok: false, fileName: '', message: '' };
-    var revisions = fileId
-      ? driveListRevisions_(fileId, 20)
-      : { ok: false, revisions: [], total: 0, message: '尚未設定 master 發佈檔案。' };
+    // ⚠️ 收集事實那一段抽咗去 collectPublishRevisionFacts_()
+    //    （src/QuarterOps.gs）：填寫介面要看同一份事實。
+    var facts = collectPublishRevisionFacts_();
+    var revisions = facts.revisions;
 
-    var publishRows = readSheet(SHEETS.PUBLISH_LOG)
-      .filter(function (r) { return r.IS_SELFTEST !== true; })
-      .slice(-10);
-
-    var lines = buildPublishRevisionLines_({
-      fileId: fileId,
-      fileName: facts.ok ? facts.fileName : '',
-      revisions: revisions,
-      publishRows: publishRows
-    });
-    writeDiagnosticsReport_('發佈版本記錄', lines);
+    // ⚠️ 寫 Diagnostics 只有選單這一邊做，理由見 src/QuarterOps.gs 檔頭第 3 條。
+    writeDiagnosticsReport_('發佈版本記錄', buildPublishRevisionLines_(facts));
 
     var headline = revisions.ok
       ? ('共 ' + revisions.total + ' 個版本。')

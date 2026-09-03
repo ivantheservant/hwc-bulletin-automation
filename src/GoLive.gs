@@ -303,16 +303,12 @@ function menuRunGoLiveCheck_() {
     var red = items.filter(function (i) { return i.status === S.RED; });
     var yellow = items.filter(function (i) { return i.status === S.YELLOW; });
 
-    var lines = ['上線前檢查（唯讀）', ''];
-    items.forEach(function (i) {
-      lines.push(i.status + '　' + i.label);
-      lines.push('　　' + i.message);
-    });
-    lines.push('');
-    lines.push('🔴 ' + red.length + ' 項、🟡 ' + yellow.length + ' 項、🟢 '
-      + (items.length - red.length - yellow.length) + ' 項。');
-    lines.push('⚠️ 這一次檢查全部都是唯讀，一格都沒有寫。');
-    writeDiagnosticsReport_('上線前檢查', lines);
+    // ⚠️ 排行那一段抽咗去 buildGoLiveReportLines_()（src/QuarterOps.gs）：
+    //    填寫介面要回傳同一批行。兩邊各排一次的話，兩份報告會慢慢長成
+    //    不同樣子，而看的人以為自己看的是同一份。
+    //    ⚠️ 寫 Diagnostics 只有選單這一邊做——Diagnostics 每次清空重寫，
+    //    填寫介面撳一下就會把 IT 剛跑完的診斷報告清走。
+    writeDiagnosticsReport_('上線前檢查', buildGoLiveReportLines_(items));
 
     ui.alert('上線前檢查',
       '🔴 ' + red.length + ' 項、🟡 ' + yellow.length + ' 項、🟢 '

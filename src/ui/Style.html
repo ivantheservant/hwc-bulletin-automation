@@ -516,4 +516,71 @@
     border: 1px solid #ffe082;
     border-radius: 4px;
   }
+  /* ---- R-038：季度作業 ---- */
+  .quarter-ops-panel h2 { margin: 0; }
+  .quarter-ops-toggle {
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+    text-align: left;
+  }
+  .quarter-ops-caret { display: inline-block; width: 1em; }
+  .quarter-ops-body { margin-top: 0.8em; }
+  .quarter-ops-group { font-size: 14px; margin: 1em 0 0.5em; }
+  .quarter-ops-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6em; }
+  .quarter-ops-link-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6em; margin-top: 0.6em; }
+
+  /*
+    ⚠️ DRY_RUN=TRUE 用黃色（要留意，但不是錯），FALSE 用紅色（會真的寄出去）。
+    兩個都不是綠色——「會真的寄」跟「不會真的寄」都不是「一切正常」，
+    兩者都是幹事撳之前必須看清楚的一件事。
+  */
+  .quarter-ops-dryrun { font-size: 12px; padding: 0.15em 0.5em; border-radius: 3px; }
+  .quarter-ops-dryrun.is-dryrun { background: #fff8e1; border: 1px solid #ffe082; color: #7a5b00; }
+  .quarter-ops-dryrun.is-live { background: #fdecea; border: 1px solid #f5c6c2; color: #86251c; }
+
+  .quarter-ops-report {
+    margin-top: 0.9em;
+    border: 1px solid #e2e6ea;
+    border-radius: 4px;
+    background: #f6f8fa;
+  }
+  .quarter-ops-report-head {
+    display: flex;
+    align-items: center;
+    gap: 0.7em;
+    padding: 0.5em 0.8em;
+    border-bottom: 1px solid #e2e6ea;
+  }
+  .quarter-ops-report-head .btn { margin-left: auto; }
+  /*
+    ⚠️ 一定要可以捲動而且有上限：報告動輒過百行，不設上限的話整頁會被
+    推長到捲極都捲唔完，下面的「發佈及匯出」被推到看不見。
+  */
+  .quarter-ops-report-body {
+    margin: 0;
+    padding: 0.7em 0.9em;
+    max-height: 22em;
+    overflow: auto;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .quarter-ops-message {
+    margin-top: 0.7em;
+    padding: 0.55em 0.8em;
+    border-radius: 4px;
+    font-size: 13px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .quarter-ops-message.is-error { background: #fdecea; border: 1px solid #f5c6c2; color: #86251c; }
+  .quarter-ops-message.is-info { background: #eef4fb; border: 1px solid #cbdcf0; color: #24486e; }
+  .quarter-ops-message.is-success { background: #eaf6ec; border: 1px solid #c3e3ca; color: #1e5b2a; }
 </style>

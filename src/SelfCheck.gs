@@ -472,7 +472,11 @@ function unfinishedRequirements_() {
     { id: 'R-020', state: '未開始', title: '內容過多自動加頁、過少處理留白' },
     { id: 'R-027', state: '進行中', title: '自測機四層——第 2、3 層尚未在真環境跑過' },
     { id: 'R-028', state: '未開始', title: '星期一觸發器真環境驗證' },
-    { id: 'R-029', state: '未開始', title: 'Recipients 填齊 CC、DB、IT 三組收件人' }
+    { id: 'R-029', state: '未開始', title: 'Recipients 填齊 CC、DB、IT 三組收件人' },
+    // ⚠️ 功能已經做完，但狀態仍然是「進行中」——要等示範前的人手測試
+    //    （docs/示範前測試清單.md 第二之二節）跑過一次才可以改成已完成。
+    //    UI 驗不到，所以「測試全綠」不等於「這一項做完了」。
+    { id: 'R-038', state: '進行中', title: '幹事的整條例行流程要能在填寫介面完成' }
   ];
 }
 

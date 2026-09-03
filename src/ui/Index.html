@@ -277,6 +277,67 @@
       <div id="financeList" class="repeatable-list repeatable-list-finance"></div>
     </section>
 
+    <!--
+      R-038：季度作業。
+      ⚠️ 預設**摺疊**：這一組是一季做一次的事，不是每週做的事。
+        每次開介面都攤開在眼前，反而會令每週真正要做的事被推落下面。
+      ⚠️ 每一粒有副作用的按鈕都是「先預覽、後確認」，跟「重新匯入」同一個模式。
+    -->
+    <section class="panel quarter-ops-panel">
+      <h2>
+        <button id="quarterOpsToggle" type="button" class="quarter-ops-toggle" aria-expanded="false">
+          <span id="quarterOpsCaret" class="quarter-ops-caret">▸</span>
+          季度作業<span id="quarterOpsQuarter"></span>
+        </button>
+      </h2>
+      <div id="quarterOpsBody" class="quarter-ops-body hidden">
+        <p class="hint">
+          這一組是<strong>一季做一次</strong>的事。每一粒都會先講明將會發生什麼，你確認之後才會真的執行。
+        </p>
+
+        <h3 class="quarter-ops-group">一、建立與收集</h3>
+        <div class="quarter-ops-row">
+          <button id="opCreateWeeksBtn" type="button" class="btn btn-secondary"
+                  title="為本季每一個主日建立一行空白週報。已經存在的一格都不會改。">建立本季週報</button>
+          <button id="opContentSheetBtn" type="button" class="btn btn-secondary"
+                  title="建立本季內容表；已經有就只刷新版面與下拉，同工填落去的資料一格都不會改。">建立／刷新本季內容表</button>
+          <button id="opInviteBtn" type="button" class="btn btn-secondary"
+                  title="把內容表連結寄給堂委、執事、幹事。">寄出內容表連結</button>
+          <span id="opInviteDryRun" class="quarter-ops-dryrun"></span>
+          <button id="opImportQuarterBtn" type="button" class="btn btn-secondary"
+                  title="把內容表整季的家事報告、代禱、團契、財政匯入週報。">從內容表匯入（整季）</button>
+        </div>
+        <div id="opContentSheetLinkRow" class="quarter-ops-link-row hidden">
+          <a id="opContentSheetLink" class="btn btn-small" target="_blank" rel="noopener">開啟本季內容表</a>
+          <span id="opContentSheetMeta" class="hint"></span>
+        </div>
+
+        <h3 class="quarter-ops-group">二、檢查（全部唯讀，一格都不會寫）</h3>
+        <div class="quarter-ops-row">
+          <button id="opMissingBtn" type="button" class="btn btn-secondary">本季待填清單</button>
+          <button id="opRosterDiffBtn" type="button" class="btn btn-secondary"
+                  title="比對週報與職事表。本系統不會改動職事表。">檢查職事表分歧</button>
+          <button id="opGoLiveBtn" type="button" class="btn btn-secondary">上線前檢查</button>
+          <button id="opRevisionsBtn" type="button" class="btn btn-secondary">發佈版本記錄</button>
+        </div>
+
+        <!--
+          ⚠️ 四個唯讀報告共用這一個面板，而且是**可捲動**的。
+            不可以用 alert()：內容動輒過百行，alert 會爆，而且爆的時候
+            只見到頭幾行，看的人以為報告只有那麼多。
+        -->
+        <div id="quarterOpsReport" class="quarter-ops-report hidden">
+          <div class="quarter-ops-report-head">
+            <strong id="quarterOpsReportTitle"></strong>
+            <span id="quarterOpsReportCount" class="hint"></span>
+            <button id="quarterOpsReportClose" type="button" class="btn btn-small">收起</button>
+          </div>
+          <pre id="quarterOpsReportBody" class="quarter-ops-report-body"></pre>
+        </div>
+        <div id="quarterOpsMessage" class="quarter-ops-message hidden"></div>
+      </div>
+    </section>
+
     <!-- R-002 至 R-005：發佈及匯出 -->
     <section class="panel publish-panel">
       <h2>發佈及匯出</h2>

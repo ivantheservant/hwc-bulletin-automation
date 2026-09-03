@@ -38,6 +38,10 @@
     dutyEdits: {},
     // 「由職事表重新取數」對話框目前列出的候選項目。
     fetchCandidates: [],
+    // R-038：「季度作業」區塊的現況（季度、DRY_RUN、內容表）。
+    // ⚠️ 第一次展開才拿——每次開介面都拿一次，是為一個一季用一次的
+    // 區塊付每日的代價。`null` 代表「未拿過」，不是「拿不到」。
+    quarterOps: null,
     // R-002 至 R-008：發佈及匯出。`pdfBase64` 是使用者剛選的 PDF，
     // **刻意只放在記憶體、不寫任何本地儲存**——重新整理頁面就要重新選
     // 一次檔案，比起「以為上次選的還在、其實發佈了一個舊 PDF」安全得多。
@@ -482,7 +486,9 @@
       warn.textContent = '本區內容來自內容表　｜　本季尚未建立內容表';
       bar.appendChild(warn);
       var hint = el('span', 'hint');
-      hint.textContent = '　請幹事在試算表選單「週報系統 ▸ 內容表 ▸ 建立本季內容表」建立。';
+      // ⚠️ R-038：整條例行流程都做得到，所以指返落面那一個區塊，
+      //    不再叫幹事轉去試算表選單。
+      hint.textContent = '　請在下面「季度作業」區塊撳「建立／刷新本季內容表」。';
       bar.appendChild(hint);
       return;
     }
@@ -499,7 +505,13 @@
     openLink.textContent = '開啟內容表';
     bar.appendChild(openLink);
 
-    bar.appendChild(makeSmallButton('重新匯入', function () { startContentImport(); }));
+    // ⚠️ 這一粒的範圍是**這一個主日**，不是整季。整季匯入在「季度作業」
+    //    區塊。兩者範圍不同是刻意的，不是重複——所以名稱與提示都要講明
+    //    範圍，否則幹事分不出撳邊一粒（見 docs/已知bug類型.md 事故四十五）。
+    var oneWeekBtn = makeSmallButton('重新匯入（只限這一個主日）', function () { startContentImport(); });
+    oneWeekBtn.title = '只匯入目前選住的這一個主日。'
+      + '要整季一次過匯入，請用下面「季度作業」區塊的「從內容表匯入（整季）」。';
+    bar.appendChild(oneWeekBtn);
   }
 
   /**
@@ -1885,6 +1897,7 @@
       savePublishPrefs();
     });
     document.getElementById('publishPdfInput').addEventListener('change', onPublishPdfChosen);
+    wireQuarterOpsEvents();
     document.getElementById('publishRunBtn').addEventListener('click', function () { runPublish(false); });
     document.getElementById('downloadWordBtn').addEventListener('click', downloadWord);
     document.getElementById('publishConfirmCancelBtn').addEventListener('click', closePublishConfirm);
@@ -1904,6 +1917,265 @@
         state.week[target.getAttribute('data-field')] = target.value;
         schedulePreviewRefresh();
       }
+    });
+  }
+
+  // =====================================================================
+  // R-038：季度作業
+  //
+  // ⚠️ 每一個伺服器呼叫都經 callServer()，一個都不可以自己叫
+  //    google.script.run——不寫失敗處理的後果是後端拋的錯全部人間蒸發
+  //    （見 docs/已知bug類型.md 事故二十五）。callServer() 順帶處理忙碌
+  //    鎖定：回應未返回之前重複撳，第二下不會發出去。
+  //
+  // ⚠️ 四個唯讀報告共用同一個可捲動面板，不用 alert()：內容動輒過百行，
+  //    alert 會爆，而且爆的時候只見到頭幾行，看的人以為報告只有那麼多。
+  // =====================================================================
+
+  /**
+   * 用途：摺疊／展開「季度作業」區塊。第一次展開才去拿面板資料——
+   *   每次開介面都拿一次，是為一個一季用一次的區塊付每日的代價。
+   * Returns:
+   *   {void}
+   */
+  function toggleQuarterOps() {
+    var body = document.getElementById('quarterOpsBody');
+    var toggle = document.getElementById('quarterOpsToggle');
+    var open = body.classList.contains('hidden');
+
+    body.classList.toggle('hidden', !open);
+    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    document.getElementById('quarterOpsCaret').textContent = open ? '▾' : '▸';
+
+    if (open) refreshQuarterOpsPanel();
+  }
+
+  /**
+   * 用途：拿「季度作業」區塊的現況（季度、DRY_RUN、內容表有沒有建立）。
+   * Returns:
+   *   {void}
+   */
+  function refreshQuarterOpsPanel() {
+    callServer('apiGetQuarterOpsPanel', [state.quarterId || ''], function (resp) {
+      if (!resp.ok) { showQuarterOpsMessage('error', resp.error.message); return; }
+      renderQuarterOpsPanel(resp.data);
+    }, { busy: 'preview' });
+  }
+
+  /**
+   * 用途：畫出季度、DRY_RUN 標記與內容表連結。
+   * Args:
+   *   data {Object} apiGetQuarterOpsPanel 的 data。
+   * Returns:
+   *   {void}
+   */
+  function renderQuarterOpsPanel(data) {
+    state.quarterOps = data;
+
+    document.getElementById('quarterOpsQuarter').textContent =
+      data.quarterId ? ('（' + data.quarterId + '）') : '（未能決定季度）';
+
+    // ⚠️ DRY_RUN 一定要顯示喺「寄出內容表連結」旁邊。撳完見到「已寄 12 封」
+    //    而其實一封都冇寄出，是這個系統最容易踩的一種誤會。
+    var dryRunEl = document.getElementById('opInviteDryRun');
+    dryRunEl.textContent = data.dryRun
+      ? 'DRY_RUN=TRUE（不會真的寄出）'
+      : 'DRY_RUN=FALSE（會真的寄出）';
+    dryRunEl.className = 'quarter-ops-dryrun ' + (data.dryRun ? 'is-dryrun' : 'is-live');
+
+    var linkRow = document.getElementById('opContentSheetLinkRow');
+    if (data.contentSheet && data.contentSheet.exists && data.contentSheet.fileUrl) {
+      linkRow.classList.remove('hidden');
+      document.getElementById('opContentSheetLink').href = data.contentSheet.fileUrl;
+      var meta = [];
+      if (data.contentSheet.inviteSentAt) meta.push('連結已寄出：' + data.contentSheet.inviteSentAt);
+      if (data.contentSheet.lastImportedAt) meta.push('最後匯入：' + data.contentSheet.lastImportedAt);
+      document.getElementById('opContentSheetMeta').textContent = meta.join('　｜　');
+    } else {
+      linkRow.classList.add('hidden');
+    }
+  }
+
+  /**
+   * 用途：「季度作業」區塊自己的訊息列。
+   *
+   *   ⚠️ 刻意不用頁頂那一條：這個區塊在頁面很下面，訊息寫在頁頂等於
+   *   沒有寫——使用者撳完只會見到甚麼都沒有發生，然後再撳一次。
+   * Args:
+   *   kind {string} `'error'`／`'info'`／`'success'`。
+   *   text {string}
+   * Returns:
+   *   {void}
+   */
+  function showQuarterOpsMessage(kind, text) {
+    var box = document.getElementById('quarterOpsMessage');
+    box.className = 'quarter-ops-message is-' + kind;
+    box.textContent = text;
+    box.classList.remove('hidden');
+  }
+
+  function hideQuarterOpsMessage() {
+    document.getElementById('quarterOpsMessage').classList.add('hidden');
+  }
+
+  /**
+   * 用途：把一份唯讀報告顯示在可捲動的結果面板。
+   * Args:
+   *   title {string} 報告名稱。
+   *   lines {string[]} 報告內容，一行一個元素。
+   * Returns:
+   *   {void}
+   */
+  function showQuarterOpsReport(title, lines) {
+    var rows = lines || [];
+    document.getElementById('quarterOpsReportTitle').textContent = title;
+    document.getElementById('quarterOpsReportCount').textContent = '共 ' + rows.length + ' 行';
+    document.getElementById('quarterOpsReportBody').textContent = rows.join('\n');
+    document.getElementById('quarterOpsReport').classList.remove('hidden');
+  }
+
+  function hideQuarterOpsReport() {
+    document.getElementById('quarterOpsReport').classList.add('hidden');
+  }
+
+  /**
+   * 用途：目前「季度作業」要處理哪一季。
+   *
+   *   ⚠️ 以伺服器算出來的那一個為準（`quarterOpsPanelData_()`），
+   *   前端不自己猜——兩處各猜一次，介面顯示的季度就會跟實際做的那一季
+   *   不同，而那是最不可能有人發現的一種錯。
+   * Returns:
+   *   {string} 拿不到就回空字串。
+   */
+  function currentOpsQuarterId() {
+    if (state.quarterOps && state.quarterOps.quarterId) return state.quarterOps.quarterId;
+    return state.quarterId || '';
+  }
+
+  /**
+   * 用途：有副作用那四粒的共用流程——先叫預覽 API，把「將會發生什麼」
+   *   顯示出來，使用者確認之後才叫執行 API。
+   *
+   *   ⚠️ 預覽與執行走伺服器端同一組底層函式，所以預覽講的跟實際做的
+   *   一定是同一件事。
+   * Args:
+   *   opts {{previewApi:string, runApi:string, args:Array, busyText:string,
+   *          confirmSuffix:string, onDone:(function(Object):void|undefined)}}
+   * Returns:
+   *   {void}
+   */
+  function runQuarterOp(opts) {
+    if (state.inFlight > 0) return;
+    hideQuarterOpsMessage();
+    hideQuarterOpsReport();
+
+    callServer(opts.previewApi, opts.args, function (resp) {
+      if (!resp.ok) { showQuarterOpsMessage('error', resp.error.message); return; }
+      var data = resp.data;
+      if (!data.ok) {
+        // ⚠️ 「做不到」與「做了但沒有效果」要分得出。底層回的 message
+        //    已經講明下一步要撳哪一粒，原句顯示，不要自己再包裝。
+        showQuarterOpsMessage('error', data.message);
+        if (data.lines && data.lines.length > 0) showQuarterOpsReport(data.title, data.lines);
+        return;
+      }
+
+      var body = (data.lines || []).join('\n') + '\n\n' + opts.confirmSuffix;
+      if (!window.confirm(body)) {
+        showQuarterOpsMessage('info', '已取消，一格都沒有寫。');
+        return;
+      }
+
+      callServer(opts.runApi, opts.args, function (runResp) {
+        if (!runResp.ok) { showQuarterOpsMessage('error', runResp.error.message); return; }
+        if (!runResp.data.ok) { showQuarterOpsMessage('error', runResp.data.message); return; }
+        showQuarterOpsReport(runResp.data.title, runResp.data.lines);
+        showQuarterOpsMessage('success', runResp.data.title + '：完成。');
+        refreshQuarterOpsPanel();
+        if (opts.onDone) opts.onDone(runResp.data);
+      }, { busyText: opts.busyText });
+    }, { busyText: '計算中…' });
+  }
+
+  /**
+   * 用途：唯讀那四粒的共用流程——叫一次 API，把回傳的行顯示在面板。
+   *   **不寫任何東西。**
+   * Args:
+   *   api {string} api* 函式名稱。
+   *   args {Array}
+   *   busyText {string}
+   * Returns:
+   *   {void}
+   */
+  function runQuarterReport(api, args, busyText) {
+    if (state.inFlight > 0) return;
+    hideQuarterOpsMessage();
+
+    callServer(api, args, function (resp) {
+      if (!resp.ok) { showQuarterOpsMessage('error', resp.error.message); return; }
+      if (!resp.data.ok) {
+        showQuarterOpsMessage('error', resp.data.message);
+        hideQuarterOpsReport();
+        return;
+      }
+      showQuarterOpsReport(resp.data.title, resp.data.lines);
+    }, { busyText: busyText });
+  }
+
+  function wireQuarterOpsEvents() {
+    document.getElementById('quarterOpsToggle').addEventListener('click', toggleQuarterOps);
+    document.getElementById('quarterOpsReportClose').addEventListener('click', hideQuarterOpsReport);
+
+    document.getElementById('opCreateWeeksBtn').addEventListener('click', function () {
+      runQuarterOp({
+        previewApi: 'apiPreviewCreateWeeks', runApi: 'apiRunCreateWeeks',
+        args: [currentOpsQuarterId()], busyText: '建立中…',
+        confirmSuffix: '確定要建立嗎？（已經存在的主日一格都不會改）'
+      });
+    });
+
+    document.getElementById('opContentSheetBtn').addEventListener('click', function () {
+      runQuarterOp({
+        previewApi: 'apiPreviewContentSheetBuild', runApi: 'apiRunContentSheetBuild',
+        args: [currentOpsQuarterId()], busyText: '處理中…',
+        confirmSuffix: '確定要繼續嗎？'
+      });
+    });
+
+    document.getElementById('opInviteBtn').addEventListener('click', function () {
+      var dryRun = state.quarterOps ? state.quarterOps.dryRun : true;
+      runQuarterOp({
+        previewApi: 'apiPreviewContentSheetInvite', runApi: 'apiRunContentSheetInvite',
+        args: [currentOpsQuarterId()], busyText: '寄出中…',
+        // ⚠️ 確認那一句要**再講一次** DRY_RUN，因為這是唯一一粒會真的
+        //    寄信出街的按鈕。旁邊那個標記看漏了，這一句還攔得住。
+        confirmSuffix: dryRun
+          ? '目前 DRY_RUN=TRUE，撳「確定」不會真的寄出任何郵件，只會寫 SendLog。確定要繼續嗎？'
+          : '⚠️ 目前 DRY_RUN=FALSE，撳「確定」會真的把郵件寄出去。確定要寄嗎？'
+      });
+    });
+
+    document.getElementById('opImportQuarterBtn').addEventListener('click', function () {
+      runQuarterOp({
+        previewApi: 'apiPreviewQuarterContentImport', runApi: 'apiRunQuarterContentImport',
+        args: [currentOpsQuarterId()], busyText: '匯入中…',
+        confirmSuffix: '確定要把整季匯入嗎？',
+        // 匯入會改到目前這一個主日的內容，所以重新載入一次。
+        onDone: function () { if (state.isoDate) loadWeek(state.isoDate); }
+      });
+    });
+
+    document.getElementById('opMissingBtn').addEventListener('click', function () {
+      runQuarterReport('apiQuarterMissingReport', [currentOpsQuarterId()], '整理中…');
+    });
+    document.getElementById('opRosterDiffBtn').addEventListener('click', function () {
+      runQuarterReport('apiRosterDiffReport', [state.isoDate || ''], '比對中…');
+    });
+    document.getElementById('opGoLiveBtn').addEventListener('click', function () {
+      runQuarterReport('apiGoLiveReport', [], '檢查中…');
+    });
+    document.getElementById('opRevisionsBtn').addEventListener('click', function () {
+      runQuarterReport('apiPublishRevisionsReport', [], '讀取中…');
     });
   }
 

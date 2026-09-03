@@ -462,6 +462,181 @@ function contentImportForWebApp_(isoDate, apply) {
   };
 }
 
+// =====================================================================
+// R-038：季度作業（八個功能）
+//
+// ⚠️ 每一支都只是叫 src/QuarterOps.gs 那一份共用核心，一行邏輯都沒有
+//    自己寫。試算表選單叫的是同一批函式——同一個狀態不可以有兩個真相
+//    來源（見 docs/已知bug類型.md 事故三）。
+//
+// ⚠️ 四個唯讀報告（E-H）一律**回傳行**，不寫 `Diagnostics`。
+//    `Diagnostics` 每次執行清空重寫，只保留最新一份；幹事在介面撳一下，
+//    就會把 IT 剛跑完的診斷報告清走，而且沒有任何提示。
+// =====================================================================
+
+/**
+ * 用途：前端呼叫，取得「季度作業」區塊開啟時要知道的東西。**唯讀。**
+ * Args:
+ *   quarterId {string} 目前選住的季度；空白就由 `resolveWorkingQuarter_()` 決定。
+ * Returns:
+ *   {{ok:boolean, data:Object, error?:Object}}
+ */
+function apiGetQuarterOpsPanel(quarterId) {
+  return withApiResult_(function () { return quarterOpsPanelData_(quarterId); },
+    { functionName: 'apiGetQuarterOpsPanel', argsSummary: 'quarterId=' + quarterId });
+}
+
+/**
+ * 用途：前端呼叫，預覽「建立本季週報」會新增幾多行。**唯讀。**
+ * Args:
+ *   quarterId {string}
+ * Returns:
+ *   {{ok:boolean, data:Object, error?:Object}}
+ */
+function apiPreviewCreateWeeks(quarterId) {
+  return withApiResult_(function () { return previewCreateBlankWeeks_(quarterId); },
+    { functionName: 'apiPreviewCreateWeeks', argsSummary: 'quarterId=' + quarterId });
+}
+
+/**
+ * 用途：前端呼叫，真的建立本季週報。**冪等**：已經存在的日期一格都不會改。
+ * Args:
+ *   quarterId {string}
+ * Returns:
+ *   {{ok:boolean, data:Object, error?:Object}}
+ */
+function apiRunCreateWeeks(quarterId) {
+  return withApiResult_(function () { return runCreateBlankWeeks_(quarterId); },
+    { functionName: 'apiRunCreateWeeks', argsSummary: 'quarterId=' + quarterId });
+}
+
+/**
+ * 用途：前端呼叫，預覽「建立／刷新本季內容表」會建立還是刷新。**唯讀。**
+ * Args:
+ *   quarterId {string}
+ * Returns:
+ *   {{ok:boolean, data:Object, error?:Object}}
+ */
+function apiPreviewContentSheetBuild(quarterId) {
+  return withApiResult_(function () { return previewContentSheetBuild_(quarterId); },
+    { functionName: 'apiPreviewContentSheetBuild', argsSummary: 'quarterId=' + quarterId });
+}
+
+/**
+ * 用途：前端呼叫，真的建立或刷新本季內容表。
+ *   刷新時同工已經填落去的資料**一格都不會改**。
+ * Args:
+ *   quarterId {string}
+ * Returns:
+ *   {{ok:boolean, data:Object, error?:Object}} `data.summary.fileUrl` 可以直接開。
+ */
+function apiRunContentSheetBuild(quarterId) {
+  return withApiResult_(function () { return runContentSheetBuild_(quarterId); },
+    { functionName: 'apiRunContentSheetBuild', argsSummary: 'quarterId=' + quarterId });
+}
+
+/**
+ * 用途：前端呼叫，預覽「寄出內容表連結」會寄給幾多人。**唯讀，一封信都不寄。**
+ *
+ *   ⚠️ 收件人 0 個會回 `ok:false`＋`reason='NO_RECIPIENTS'`，訊息明確
+ *   講「就算撳落去也不會寄到任何人」——不可以等寄完才回「已寄 0 封」。
+ * Args:
+ *   quarterId {string}
+ * Returns:
+ *   {{ok:boolean, data:Object, error?:Object}}
+ */
+function apiPreviewContentSheetInvite(quarterId) {
+  return withApiResult_(function () { return previewContentSheetInvite_(quarterId); },
+    { functionName: 'apiPreviewContentSheetInvite', argsSummary: 'quarterId=' + quarterId });
+}
+
+/**
+ * 用途：前端呼叫，真的寄出內容表連結。**受 `DRY_RUN` 管**——
+ *   `DRY_RUN=TRUE` 時只寫 `SendLog`，一封都不會真的寄出。
+ * Args:
+ *   quarterId {string}
+ * Returns:
+ *   {{ok:boolean, data:Object, error?:Object}}
+ */
+function apiRunContentSheetInvite(quarterId) {
+  return withApiResult_(function () { return runContentSheetInvite_(quarterId); },
+    { functionName: 'apiRunContentSheetInvite', argsSummary: 'quarterId=' + quarterId });
+}
+
+/**
+ * 用途：前端呼叫，預覽「從內容表匯入（整季）」會改動什麼。**唯讀。**
+ *
+ *   ⚠️ 與唯讀區塊上方那粒「重新匯入」走同一組函式，分別只在範圍：
+ *   那一粒是**這一個主日**，這一支是**整季**。
+ * Args:
+ *   quarterId {string}
+ * Returns:
+ *   {{ok:boolean, data:Object, error?:Object}}
+ */
+function apiPreviewQuarterContentImport(quarterId) {
+  return withApiResult_(function () { return quarterContentImport_(quarterId, false); },
+    { functionName: 'apiPreviewQuarterContentImport', argsSummary: 'quarterId=' + quarterId });
+}
+
+/**
+ * 用途：前端呼叫，真的把整季由內容表匯入。
+ * Args:
+ *   quarterId {string}
+ * Returns:
+ *   {{ok:boolean, data:Object, error?:Object}}
+ */
+function apiRunQuarterContentImport(quarterId) {
+  return withApiResult_(function () { return quarterContentImport_(quarterId, true); },
+    { functionName: 'apiRunQuarterContentImport', argsSummary: 'quarterId=' + quarterId });
+}
+
+/**
+ * 用途：前端呼叫，本季待填清單。**唯讀，不寫 `Diagnostics`。**
+ * Args:
+ *   quarterId {string}
+ * Returns:
+ *   {{ok:boolean, data:Object, error?:Object}}
+ */
+function apiQuarterMissingReport(quarterId) {
+  return withApiResult_(function () { return quarterMissingFieldsReport_(quarterId); },
+    { functionName: 'apiQuarterMissingReport', argsSummary: 'quarterId=' + quarterId });
+}
+
+/**
+ * 用途：前端呼叫，檢查職事表分歧。**唯讀**——本系統一格都不會寫職事表。
+ * Args:
+ *   isoDate {string} 主日日期，yyyy-MM-dd。
+ * Returns:
+ *   {{ok:boolean, data:Object, error?:Object}}
+ */
+function apiRosterDiffReport(isoDate) {
+  return withApiResult_(function () { return rosterDiffReport_(isoDate); },
+    { functionName: 'apiRosterDiffReport', argsSummary: 'isoDate=' + isoDate });
+}
+
+/**
+ * 用途：前端呼叫，上線前檢查。**唯讀，不寫 `Diagnostics`。**
+ * Args: （無）
+ * Returns:
+ *   {{ok:boolean, data:Object, error?:Object}}
+ */
+function apiGoLiveReport() {
+  return withApiResult_(function () { return goLiveReport_(); },
+    { functionName: 'apiGoLiveReport', argsSummary: '' });
+}
+
+/**
+ * 用途：前端呼叫，發佈版本記錄。**唯讀**——master 檔案的內容一個位元
+ *   都不會碰，也不會寫 `Diagnostics`。
+ * Args: （無）
+ * Returns:
+ *   {{ok:boolean, data:Object, error?:Object}}
+ */
+function apiPublishRevisionsReport() {
+  return withApiResult_(function () { return publishRevisionsReport_(); },
+    { functionName: 'apiPublishRevisionsReport', argsSummary: '' });
+}
+
 /**
  * 用途：前端呼叫，用**未儲存**的草稿欄位值即時重算一次程序表，不寫入
  *   任何工作表。
