@@ -150,6 +150,79 @@ test('1c. 唯讀清單名稱與 contentImportTargets_() 推算出來的完全一
   assert.strictEqual(JSON.stringify(declared), JSON.stringify(derived));
 });
 
+// =====================================================================
+// 1b-2 至 1b-4：**三態一致性**（prompt §5.1）
+//
+// 三份清單：純介面填 / 內容表接管唯讀 / 內容表來源可覆寫。
+// 三者互不重疊，合起來覆蓋所有 BulletinWeeks 可寫欄位。
+// =====================================================================
+
+test('1b-2. 三態互不重疊：同一個欄位不可以同時屬於兩種模式', function () {
+  const env = makeEnv({});
+  const readonly = env.sandbox.CONTENT_SHEET_READONLY_FIELDS.WEEK.slice();
+  const overridable = env.sandbox.CONTENT_SHEET_OVERRIDABLE_FIELDS.slice();
+
+  const both = overridable.filter(function (k) { return readonly.indexOf(k) !== -1; });
+  // ⚠️ 一個欄位同時「唯讀」又「可覆寫」，兩句話互相矛盾——介面會照住其中
+  //    一份畫，儲存會照住另一份擋，而兩者誰贏取決於程式碼次序。
+  assert.strictEqual(JSON.stringify(both), '[]',
+    '同時出現在兩份清單：' + JSON.stringify(both));
+});
+
+test('1b-3. 三態合起來覆蓋所有可寫欄位（沒有一個欄位無人認領）', function () {
+  const env = makeEnv({});
+  const all = env.sandbox.webAppWeekFieldKeys_().slice();
+  const readonly = env.sandbox.CONTENT_SHEET_READONLY_FIELDS.WEEK.slice();
+  const overridable = env.sandbox.CONTENT_SHEET_OVERRIDABLE_FIELDS.slice();
+  const editable = env.sandbox.webAppEditableWeekFieldKeys_().slice();
+
+  // 可覆寫的欄位屬於「介面改得到」那一堆，所以一定在 editable 之內。
+  const missingFromEditable = overridable.filter(function (k) { return editable.indexOf(k) === -1; });
+  assert.strictEqual(JSON.stringify(missingFromEditable), '[]',
+    '可覆寫的欄位一定要介面改得到：' + JSON.stringify(missingFromEditable));
+
+  // 每一個欄位都一定屬於「唯讀」或者「介面改得到」其中一邊。
+  const orphans = all.filter(function (k) {
+    return readonly.indexOf(k) === -1 && editable.indexOf(k) === -1;
+  });
+  assert.strictEqual(JSON.stringify(orphans), '[]',
+    '無人認領的欄位：' + JSON.stringify(orphans));
+
+  // 反向：editable 與 readonly 加起來不可以多過全部欄位。
+  assert.strictEqual(readonly.length + editable.length, all.length,
+    '兩份清單加起來要剛好等於全部可寫欄位');
+});
+
+test('1b-4. 可覆寫清單與內容表分頁（overridable）推算出來的完全一致', function () {
+  const env = makeEnv({});
+  const declared = env.sandbox.CONTENT_SHEET_OVERRIDABLE_FIELDS.slice().sort();
+
+  const derived = [];
+  env.sandbox.contentImportTargets_().forEach(function (def) {
+    if (def.overridable !== true) return;
+    Object.keys(def.fieldMap).forEach(function (k) {
+      const target = def.fieldMap[k];
+      if (derived.indexOf(target) === -1) derived.push(target);
+    });
+  });
+  derived.sort();
+
+  // ⚠️ 同 1b 一樣的道理：日後有人加一張第三種模式的分頁卻忘記更新清單，
+  //    那幾欄就會變成「匯入會寫、但覆寫永遠記不到」——匯入每次都蓋走
+  //    幹事改過的值，而且一句都不會講。
+  assert.strictEqual(JSON.stringify(declared), JSON.stringify(derived),
+    '宣告 ' + JSON.stringify(declared) + '　推算 ' + JSON.stringify(derived));
+});
+
+test('1b-5. 浸禮六欄與 baptismBoxFieldDefs_() 一致（六欄的單一真相來源）', function () {
+  const env = makeEnv({});
+  const fromDefs = env.sandbox.baptismBoxFieldKeys_().slice().sort();
+  const inOverridable = env.sandbox.CONTENT_SHEET_OVERRIDABLE_FIELDS
+    .filter(function (k) { return fromDefs.indexOf(k) !== -1; }).sort();
+  assert.strictEqual(JSON.stringify(inOverridable), JSON.stringify(fromDefs),
+    '六欄的單一真相來源是 baptismBoxFieldDefs_()，兩邊不可以分岔');
+});
+
 test('1d. 前後端共用同一份：apiLoadWeek 的 readOnly.readOnlyFields 就是那一份', function () {
   const env = makeEnv({});
   const fields = env.sandbox.CONTENT_SHEET_READONLY_FIELDS;

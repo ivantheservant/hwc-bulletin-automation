@@ -284,6 +284,12 @@ function backfillRosterForQuarter_(quarterId) {
   var statusBefore = countRosterStatuses_(targets.map(function (t) { return t.row; }));
   var filled = 0;
   var stillBlank = 0;
+  // ⚠️ D-7：「本應空白」與「缺資料」要**分開數**。
+  //
+  //    `SPECIAL_TYPE` 在平常主日**本來就該空白**——它不是缺資料。舊版把
+  //    兩者一齊數，於是職事表明明齊晒，補抓仍然永遠報「仍有 12 格空白」
+  //    （12 個平常主日 × 一欄）。一個永遠不會變零的數字，等於冇數字。
+  var expectedBlank = 0;
   var rowsTouched = 0;
   var auditNotes = [];
 
@@ -296,9 +302,17 @@ function backfillRosterForQuarter_(quarterId) {
       var current = target.row[key];
       if (!isBlankWeekCell_(current)) return;      // ⚠️ 人手填過的一格都不動
 
+      // 讀不到職事表 → 真的缺資料。
       if (!derived.ok) { stillBlank++; return; }
+
       var value = derived.values[key];
-      if (isBlankWeekCell_(value)) { stillBlank++; return; }
+      if (isBlankWeekCell_(value)) {
+        // 讀到了職事表，而算出來仍然是空白 → **本應空白**，不是缺。
+        // 例如平常主日的 SPECIAL_TYPE：職事表沒有那一個特別主日，
+        // 所以正確答案就是空白。
+        expectedBlank++;
+        return;
+      }
 
       setCellValueTextSafe_(sheet, def, target.rowNo, key,
         typeof value === 'number' ? value : sanitizeCellText_(value));
@@ -341,12 +355,14 @@ function backfillRosterForQuarter_(quarterId) {
     quarterId: qid,
     filled: filled,
     stillBlank: stillBlank,
+    expectedBlank: expectedBlank,
     rowsTouched: rowsTouched,
     statusBefore: statusBefore,
     statusAfter: statusAfter,
     rosterFound: resolution.source === 'ROSTER',
     message: buildRosterBackfillMessage_({
       quarterId: qid, filled: filled, stillBlank: stillBlank,
+      expectedBlank: expectedBlank,
       statusBefore: statusBefore, statusAfter: statusAfter,
       rosterFound: resolution.source === 'ROSTER', resolutionMessage: resolution.message
     })
@@ -413,16 +429,37 @@ function describeRosterStatusCounts_(counts) {
  */
 function buildRosterBackfillMessage_(input) {
   var lines = [];
+  var expectedBlank = Number(input.expectedBlank || 0);
+
   if (!input.rosterFound) {
+    // ⚠️ D-2 第一種情況：**整個季度**在職事表找不到。
     lines.push('職事表仍然未有季度「' + input.quarterId + '」的資料。');
-    lines.push('已經補了 ' + input.filled + ' 格，仍有 ' + input.stillBlank + ' 格空白。');
+    lines.push('已經補了 ' + input.filled + ' 格，仍有 ' + input.stillBlank + ' 格未能填。');
     lines.push('職事表準備好之後，再撳一次「補抓空白的事奉欄位」就可以。'
       + '（隨時可以重試，不限次數；人手填過的一格都不會被覆寫。）');
   } else {
     lines.push('已經由職事表補了 ' + input.filled + ' 格。');
-    lines.push('仍有 ' + input.stillBlank + ' 格空白'
-      + (input.stillBlank > 0 ? '（那幾個主日在職事表仍然找不到）。' : '。'));
+
+    // ⚠️ D-2 第二種情況：季度**找到了**，只是個別主日在職事表沒有指派。
+    //    舊版兩種情況都寫「那幾個主日在職事表仍然找不到」，於是出現
+    //    「仍有 12 格空白（找不到）」而同一個對話框寫住「NOT_FOUND 0」
+    //    ——兩句互相矛盾，而其實兩件事都不成立。
+    if (input.stillBlank > 0) {
+      lines.push('仍有 ' + input.stillBlank + ' 格未能填：'
+        + '季度本身在職事表找得到，但那幾個主日還沒有指派。');
+    } else {
+      lines.push('沒有任何一格因為職事表缺資料而填不到。');
+    }
   }
+
+  // ⚠️ D-7：「本應空白」要**分開講**，而且要講明它不是問題。
+  //    平常主日的「特別主日類型」本來就該空白——把它算進「仍有 N 格空白」
+  //    的話，職事表齊晒都會永遠報 12 格，而幹事每次都要重新確認一次。
+  if (expectedBlank > 0) {
+    lines.push('另有 ' + expectedBlank + ' 格**本來就應該空白**（例如平常主日沒有'
+      + '「特別主日類型」），這些不算缺資料，不用處理。');
+  }
+
   lines.push('職事表狀態：' + describeRosterStatusCounts_(input.statusBefore)
     + '　→　' + describeRosterStatusCounts_(input.statusAfter));
   lines.push('⚠️ 補抓只填空白格，人手填過的值一格都沒有改。');

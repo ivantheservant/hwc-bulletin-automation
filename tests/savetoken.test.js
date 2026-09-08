@@ -154,7 +154,9 @@ function makeEnv(options) {
     Prayers: ownSheetFor(freshSandbox, 'PRAYERS', []),
     Fellowships: ownSheetFor(freshSandbox, 'FELLOWSHIPS', []),
     Finance: ownSheetFor(freshSandbox, 'FINANCE', []),
-    AuditLog: ownSheetFor(freshSandbox, 'AUDIT_LOG', [])
+    AuditLog: ownSheetFor(freshSandbox, 'AUDIT_LOG', []),
+    // R-043／R-045：第三種模式的覆寫紀錄。真環境由「初始化工作表」建立。
+    FieldOverride: ownSheetFor(freshSandbox, 'FIELD_OVERRIDE', [])
   };
   const FakeApp = { getActiveSpreadsheet: function () { return makeFakeSpreadsheet(sheets); } };
   return loadAllSrcFilesInOrder(Object.assign({}, GAS_STUBS, { SpreadsheetApp: FakeApp }));

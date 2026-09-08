@@ -701,7 +701,11 @@ function seedPostDisplayRows_() {
   postDisplayRow_('ANNOUNCE', '報告', 20, true, 'MG_CHAIR_ANNOUNCE', '報告', 20, true, '',
     '第 1 頁與 CHAIR 合併顯示為「主席及報告」（同一人擔任兩個崗位時才合併）；第 3 頁不合併，各自顯示。'),
   postDisplayRow_('PREACHER', '講員', 30, true, '', '講員', 30, true, ''),
-  postDisplayRow_('SCRIPTURE', '讀經', 40, true, '', '讀經', 40, true, ''),
+  // ⚠️ R-046：本來兩個都叫「讀經」，與崇拜程序那個「讀經經文」同名，
+  //    但這個是**人**、那個是**經文**。2026-09-08 實測就是因此漏填了經文
+  //    卻以為已經填好。這裏改的是**事奉框**的顯示名稱，Word 程序表那個
+  //    「讀經」（ProgramTemplates.ITEM_NAME）一字不變。
+  postDisplayRow_('SCRIPTURE', '讀經（事奉）', 40, true, '', '讀經（事奉）', 40, true, ''),
   postDisplayRow_('WORSHIP', '領詩', 50, true, '', '領詩', 50, true, ''),
   postDisplayRow_('PIANO', '司琴', 60, true, '', '司琴', 60, true, ''),
   postDisplayRow_('DEACON', '當值堂委', 70, true, '', '當值堂委', 120, true, ''),
@@ -760,7 +764,12 @@ function seedProgramTemplatesRows_() {
   programRow_('TPL_NORMAL', 30, '祈禱', 'BLANK', POSTURE.STAND, false, CONDITION_TYPE.ALWAYS),
   programRow_('TPL_NORMAL', 40, '誦讀', 'AUTO:RECITATION', POSTURE.STAND, false, CONDITION_TYPE.ALWAYS),
   programRow_('TPL_NORMAL', 50, '詩歌頌讚', 'FIELD:HYMN_PRAISE', POSTURE.SIT, false, CONDITION_TYPE.ALWAYS),
-  programRow_('TPL_NORMAL', 60, '詩班頌唱', 'FIELD:CHOIR_TITLE', POSTURE.SIT, false, 'IF_FIELD:CHOIR_TITLE'),
+  // ⚠️ R-044：平常主日真週報印的是「詩班**獻**唱」（2025-11-02、2026-07-19、
+  //    2026-04-05 三期核對過），播種值本來寫錯成「詩班頌唱」。
+  //    浸禮合堂那一份才是「詩班頌唱」，所以兩個範本刻意不同，不是打錯。
+  //    ⚠️ 改播種值**不會改到既有工作表的 ProgramTemplates**——既有季度
+  //    要人手改那一格，見 docs/待確認事項.md DD-3。
+  programRow_('TPL_NORMAL', 60, '詩班獻唱', 'FIELD:CHOIR_TITLE', POSTURE.SIT, false, 'IF_FIELD:CHOIR_TITLE'),
   programRow_('TPL_NORMAL', 70, '讀經', 'FIELD:SCRIPTURE_REF', POSTURE.SIT, false, CONDITION_TYPE.ALWAYS),
   programRow_('TPL_NORMAL', 80, '證道', 'FIELD:SERMON_TITLE', POSTURE.SIT, false, CONDITION_TYPE.ALWAYS),
   programRow_('TPL_NORMAL', 90, '回應詩歌', 'FIELD:RESPONSE_HYMN', POSTURE.SIT, false, CONDITION_TYPE.ALWAYS),

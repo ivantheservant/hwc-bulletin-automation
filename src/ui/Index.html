@@ -53,7 +53,7 @@
       <button id="prevWeekBtn" type="button" class="btn btn-secondary" title="上一個主日（可跨季）">← 上一個</button>
       <button id="nextWeekBtn" type="button" class="btn btn-secondary" title="下一個主日（可跨季）">下一個 →</button>
       <span id="statMissing" class="stat stat-clickable" title="撳一下展開待填清單">待填 0 項</span>
-      <span id="statWarnings" class="stat">警告 0 項</span>
+      <span id="statWarnings" class="stat stat-clickable" title="撳一下展開警告清單">警告 0 項</span>
       <span id="statConflicts" class="stat stat-clickable" title="撳一下展開職事表分歧清單">衝突 0 項</span>
       <span id="statSaved" class="stat">最後儲存時間：（尚未儲存）</span>
       <span class="topbar-spacer"></span>
@@ -92,6 +92,8 @@
     <div id="messageBar" class="message-bar hidden"></div>
     <div id="missingPanel" class="missing-panel hidden"></div>
     <div id="conflictPanel" class="conflict-panel hidden"></div>
+    <!-- D-11：警告清單。本來這個徽章不可以撳，警告內容完全看不到。 -->
+    <div id="warningsPanel" class="missing-panel hidden"></div>
   </header>
 
   <main id="mainContent">
@@ -109,9 +111,22 @@
       <div id="dutyBoxPage1Body" class="duty-list"></div>
     </section>
 
-    <section class="panel readonly-panel">
-      <h2>下週事奉（第 3 頁，唯讀，僅供核對）</h2>
-      <table class="readonly-table"><tbody id="nextWeekDutyBody"></tbody></table>
+    <!--
+      R-040：下週事奉由唯讀改為可覆寫。
+      ⚠️ 同一格會在**兩個畫面**出現：這一週的「下週事奉」＝下一週的「本週
+        事奉」。兩邊寫的是同一筆 DutyOverride（鍵帶主日日期），所以改完
+        互相看得見。
+    -->
+    <section class="panel duty-panel">
+      <div class="panel-head">
+        <h2>下週事奉（第 3 頁，可直接修改）</h2>
+        <span id="nextWeekDutyDate" class="hint"></span>
+      </div>
+      <p class="hint">
+        這一區改的是<strong>下一個主日</strong>那一格。在下一個主日的「本週事奉」也會見到同一個值。
+      </p>
+      <div id="nextWeekDutyNotice" class="roster-gap-bar hidden"></div>
+      <div id="nextWeekDutyBody" class="duty-list"></div>
     </section>
 
     <section class="panel">
@@ -136,15 +151,22 @@
         <div class="field-wide" data-content-sheet-bar></div>
         <label>誦讀（覆寫）
           <select data-field="RECITATION_OVERRIDE" id="recitationSelect"></select>
+          <!-- R-041：由後端算好的自動值。前端不可以自己重算一次月份分組。 -->
+          <span id="recitationAutoHint" class="hint"></span>
         </label>
         <label>詩歌頌讚
           <input type="text" data-field="HYMN_PRAISE">
+          <!-- R-044：三期真週報核對過，這一欄全部空白。 -->
+          <span class="hint">多數留空</span>
         </label>
         <label>詩班項目名稱
-          <input type="text" data-field="CHOIR_LABEL">
+          <!-- R-044：留空就用範本那一行的項目名稱（placeholder 顯示目前生效那個）。 -->
+          <input type="text" data-field="CHOIR_LABEL" id="choirLabelInput">
+          <span class="hint">留空就用範本預設值</span>
         </label>
         <label>詩班曲名
           <input type="text" data-field="CHOIR_TITLE">
+          <span class="hint">留空的話，週報上整行不會出現</span>
         </label>
         <label>讀經
           <input type="text" data-field="SCRIPTURE_REF">
@@ -223,9 +245,12 @@
     <section class="panel hidden" id="baptismPanel">
       <h2>丙之二、浸禮合堂（副框）</h2>
       <p class="hint">
-        只有浸禮三堂聯合崇拜那一週才需要填。三個「主禮」是<strong>一位</strong>，會自動套用尊稱；
+        只有浸禮三堂聯合崇拜那一週才需要填。三個「主禮」是<strong>一位</strong>——
+        <strong>在 <code>PersonDisplay</code> 找得到的才會自動套用尊稱，找不到就原樣印出</strong>
+        （例如直接打「ET牧師」會原樣印出，並在警告清單提一句）。
         三個名單欄可以填<strong>多位</strong>，用空格分隔，<strong>原樣印出</strong>（不會自動加尊稱、不會重新排序）。
         留空的一行不會印在週報上，六格全部留空整個副框都不會出現。
+        這六格亦可以由<strong>內容表「浸禮合堂」分頁</strong>填——在這裏改就等於覆寫，之後匯入不會蓋過去。
       </p>
       <div class="field-grid">
         <label>浸禮主禮

@@ -434,7 +434,7 @@ function nextExecution(env) {
 // 1-2. 建立：分頁齊備、標題正確
 // =====================================================================
 
-test('1. 建立：六張表加 _說明 都在，次序正確', function () {
+test('1. 建立：八張表加 _說明 都在，次序正確', function () {
   const env = makeEnv({});
   const result = env.sandbox.buildOrRefreshContentSheet_(QUARTER_ID);
   assert.strictEqual(result.ok, true, JSON.stringify(result));
@@ -442,7 +442,9 @@ test('1. 建立：六張表加 _說明 都在，次序正確', function () {
 
   assertArrayEqual(
     env.contentSpreadsheet().__tabNames(),
-    ['_說明', '家事報告', '代禱事項', '團契聚會', '財政報告', '崇拜人數', '宣召'],
+    // R-043 加「崇拜程序」、R-045 加「浸禮合堂」，兩張都排喺最後——
+    // 加喺中間會令既有內容表刷新之後分頁次序同新建的唔同。
+    ['_說明', '家事報告', '代禱事項', '團契聚會', '財政報告', '崇拜人數', '宣召', '崇拜程序', '浸禮合堂'],
     '分頁次序要同 contentSheetTabNames_() 一致，而且預設嗰張 Sheet1 要被清走'
   );
 });

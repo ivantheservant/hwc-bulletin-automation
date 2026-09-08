@@ -260,6 +260,18 @@ function previewContentSheetBuild_(quarterId) {
   var existing = findContentSheetRow_(qid);
   var lines = ['季度：' + qid, '本季主日：' + serviceDates.length + ' 個'];
 
+  // ⚠️ §4.0：如果有第三種模式的分頁尚未建立，刷新時會由 BulletinWeeks
+  //    回填現有資料。撳之前一定要講——幹事不知道系統會幫他填東西入內容表，
+  //    見到之後會以為同工已經填過。
+  var willBackfill = previewContentTabBackfill_(qid, existing, serviceDates);
+  if (willBackfill.length > 0) {
+    lines.push('');
+    willBackfill.forEach(function (b) {
+      lines.push('將會新建分頁「' + b.tabName + '」，並由週報回填 ' + b.rows + ' 行現有資料。');
+    });
+    lines.push('（那幾欄本來就已經填好，回填之後匯入才不會把它們清空。）');
+  }
+
   if (existing) {
     lines.push('');
     lines.push('這一季**已經有**內容表，所以是「刷新」，不是重建。');
@@ -279,9 +291,68 @@ function previewContentSheetBuild_(quarterId) {
     summary: {
       exists: Boolean(existing), willCreate: !existing,
       serviceDateCount: serviceDates.length,
-      fileUrl: existing ? String(existing.FILE_URL || '') : ''
+      fileUrl: existing ? String(existing.FILE_URL || '') : '',
+      backfillTabs: willBackfill
     }
   };
+}
+
+/**
+ * 用途：預覽「刷新會回填幾多行」。**唯讀，一格不寫、一張分頁都不建。**
+ *
+ *   ⚠️ 數法要跟 `backfillContentTabFromWeeks_()` 一模一樣（該季有週報、
+ *   而且該分頁那幾欄至少有一格非空的主日），否則預覽講 8 行、實際回填
+ *   7 行，沒有人查得出差在哪裏。
+ * Args:
+ *   quarterId {string}
+ *   contentSheetRow {?Object} `findContentSheetRow_()` 的結果。
+ *   serviceDates {string[]}
+ * Returns:
+ *   {{tabName:string, rows:number}[]}
+ */
+function previewContentTabBackfill_(quarterId, contentSheetRow, serviceDates) {
+  var out = [];
+  var spreadsheet = null;
+  if (contentSheetRow) {
+    try {
+      spreadsheet = openContentSpreadsheet_(contentSheetRow.FILE_ID);
+    } catch (err) {
+      spreadsheet = null;
+    }
+  }
+
+  var weekByDate = {};
+  readSheet(SHEETS.BULLETIN_WEEKS).forEach(function (w) {
+    weekByDate[formatIsoDate_(w.SERVICE_DATE)] = w;
+  });
+
+  contentSheetTabDefs_().forEach(function (tabDef) {
+    if (!isOverridableContentTab_(tabDef)) return;
+
+    // 分頁已經存在（而且有資料）就不會回填。開不到檔案時當成「會新建」——
+    // 寧可多講一句，好過撳完先發現系統幫你填咗嘢。
+    if (spreadsheet) {
+      var sheet = spreadsheet.getSheetByName(tabDef.tabName);
+      if (sheet && sheet.getLastRow() >= CONTENT_SHEET_FIRST_DATA_ROW_) return;
+    }
+
+    var valueKeys = tabDef.keys.filter(function (k) {
+      return k !== 'SERVICE_DATE' && k !== 'ACTIVE' && k !== 'NOTES';
+    });
+    var count = 0;
+    (serviceDates || []).forEach(function (iso) {
+      var week = weekByDate[iso];
+      if (!week) return;
+      var hasAny = valueKeys.some(function (key) {
+        return String(week[key] === null || week[key] === undefined ? '' : week[key]).trim() !== '';
+      });
+      if (hasAny) count++;
+    });
+
+    if (count > 0) out.push({ tabName: tabDef.tabName, rows: count });
+  });
+
+  return out;
 }
 
 /**

@@ -331,6 +331,20 @@
 
   /* 改動過的格子：左邊一條橙色直線 ＋ 一個「還原」小按鈕。 */
   .duty-row.is-overridden { border-left-color: #e08a1e; background: #fffaf2; }
+
+  /*
+    R-039：**逐格**的「已覆寫」標示。整行那條橙色左邊本來已經有，但一行
+    可以有幾格（司事 #1 #2 #3）——幹事分不出係邊一格自己改過。
+    ⚠️ CONFLICT 的紅底維持原狀，一行都沒有改。
+  */
+  .duty-slot.is-overridden {
+    border-left: 3px solid #e08a1e;
+    padding-left: 0.5em;
+    margin-left: -0.5em;
+  }
+
+  /* D-10：待填清單第二段（通常空白，有就填）。 */
+  .missing-optional-head { margin-top: 0.7em; padding-top: 0.5em; border-top: 1px dashed #cbd3da; }
   .duty-row.is-conflict { border-left-color: #b3261e; background: #fdeceb; }
 
   .duty-conflict-detail {

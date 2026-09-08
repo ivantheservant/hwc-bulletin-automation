@@ -427,7 +427,8 @@ test('10. 內容表全部空白 → 週報一格都沒有改', function () {
 
   const result = env.sandbox.applyContentImport_(QUARTER_ID, {});
   assert.strictEqual(result.plan.added + result.plan.updated + result.plan.removed, 0);
-  assert.strictEqual(result.plan.skippedTabs.length, 6, '六張分頁全部整張空白');
+  // R-043／R-045 之後係八張（多咗「崇拜程序」同「浸禮合堂」）。
+  assert.strictEqual(result.plan.skippedTabs.length, 8, '八張分頁全部整張空白');
 
   const after = JSON.stringify(env.sandbox.readSheet('Announcements'))
     + JSON.stringify(env.sandbox.readSheet('Prayers'))

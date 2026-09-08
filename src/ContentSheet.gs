@@ -172,6 +172,60 @@ function contentSheetTabDefs_() {
       wrapColumns: [{ key: 'CALL_TEXT', width: 600 }],
       activeKey: 'ACTIVE',
       note: '一個主日一行。「宣召出處」例如「詩篇 100:1-2」，「宣召經文」為整段經文。'
+    },
+    {
+      // R-043：本來這四欄是純介面填。搬入內容表之後改用**第三種模式**
+      // ——內容表為來源，但填寫介面仍然改得到，改了就寫一筆 FieldOverride，
+      // 之後匯入不會蓋過去（見 src/FieldOverride.gs 檔頭）。
+      //
+      // ⚠️「讀經經文」刻意**不叫「讀經」**：事奉框那個「讀經（事奉）」是
+      //    **人**，這個是**經文**。2026-09-08 實測就是因為同名而漏填了經文
+      //    卻以為已經填好（R-046）。
+      tabName: '崇拜程序',
+      headers: ['主日日期', '讀經經文', '證道講題', '回應詩歌', '詩班曲名', '有效', '備註'],
+      keys: ['SERVICE_DATE', 'SCRIPTURE_REF', 'SERMON_TITLE', 'RESPONSE_HYMN', 'CHOIR_TITLE', 'ACTIVE', 'NOTES'],
+      dateColumns: ['SERVICE_DATE'],
+      attendanceDates: false,
+      plainTextColumns: [],
+      wrapColumns: [{ key: 'SERMON_TITLE', width: 260 }, { key: 'NOTES', width: 260 }],
+      activeKey: 'ACTIVE',
+      note: '一個主日一行。「讀經經文」是**經文出處**（例如「約翰福音 3:16」），'
+        + '不是讀經的**人**——讀經那位肢體由職事表決定，在週報的事奉框顯示為「讀經（事奉）」。'
+        + '「詩班曲名」留空時，週報那一行整行不會出現。'
+        + '⚠️ 這四欄在填寫介面仍然改得到：改了之後那一格就不再跟隨內容表，'
+        + '差異報告會標示為「已覆寫」。想改回跟隨內容表，把介面那一格改成與內容表相同即可。'
+    },
+    {
+      // R-045：浸禮合堂副框六欄。職事表完全沒有浸禮相關崗位（16 個 PostID
+      // 逐個核對過），所以只可能經內容表。同樣是第三種模式。
+      tabName: '浸禮合堂',
+      headers: [
+        '主日日期', '浸禮主禮', '入會禮主禮', '孩童奉獻禮主禮',
+        '受浸肢體', '入會肢體', '奉獻孩童', '有效', '備註'
+      ],
+      keys: [
+        'SERVICE_DATE', 'BAPTISM_OFFICIANT', 'MEMBERSHIP_OFFICIANT', 'CHILD_DEDICATION_OFFICIANT',
+        'BAPTISM_MEMBERS', 'MEMBERSHIP_MEMBERS', 'CHILD_DEDICATION_CHILDREN', 'ACTIVE', 'NOTES'
+      ],
+      dateColumns: ['SERVICE_DATE'],
+      attendanceDates: false,
+      // ⚠️ 六欄全部純文字。多人欄位是「一格內多位、空格分隔」，一被試算表
+      //    自動轉換就會變成別的東西（見 src/BaptismBox.gs 檔頭）。
+      plainTextColumns: [
+        'BAPTISM_OFFICIANT', 'MEMBERSHIP_OFFICIANT', 'CHILD_DEDICATION_OFFICIANT',
+        'BAPTISM_MEMBERS', 'MEMBERSHIP_MEMBERS', 'CHILD_DEDICATION_CHILDREN'
+      ],
+      wrapColumns: [
+        { key: 'BAPTISM_MEMBERS', width: 300 },
+        { key: 'MEMBERSHIP_MEMBERS', width: 300 },
+        { key: 'CHILD_DEDICATION_CHILDREN', width: 300 }
+      ],
+      activeKey: 'ACTIVE',
+      note: '⚠️ **整季通常只有一個主日是浸禮合堂，只填那一行，其餘主日留空。**'
+        + '其餘主日全部空白是正常的，系統不會當成錯誤，也不會提示。'
+        + '「受浸肢體」「入會肢體」「奉獻孩童」三欄可以一格填多位，**用空格分隔**'
+        + '（例如「陳大文 李小明」），系統會原樣印出，不會加尊稱、不會重新排序。'
+        + '三位「主禮」會在 PersonDisplay 找得到的才自動套用尊稱，找不到就原樣印出。'
     }
   ];
 }
@@ -282,6 +336,27 @@ function buildContentSheetInstructionLines_(input) {
   lines.push('　3. **日期只可以用下拉選單選擇。** 手動輸入的日期系統無法辨識，會被拒絕。');
   lines.push('');
 
+  // ⚠️ R-047：「熱烈歡迎來賓」那一句**三個 Word 範本本身已經硬寫住**，
+  //    位置固定、無編號。在家事報告再填一次就會印兩次——2026-09-08 兩次
+  //    實測都中招。
+  lines.push('【家事報告：有一句不要填】');
+  lines.push('　「熱烈歡迎來賓，請留下姓名、通訊地址和電話以便聯絡。」');
+  lines.push('　這一句**週報範本已經印住**（在家事報告上面，沒有編號），請不要再填一次。');
+  lines.push('　填了的話，同一句會在同一頁出現兩次。');
+  lines.push('');
+
+  // ⚠️ R-043／R-045：第三種模式要在 _說明 講清楚，否則同工改完發現值
+  //    「無端端變返舊嘅」，而其實是幹事在填寫介面覆寫過。
+  lines.push('【「崇拜程序」與「浸禮合堂」兩張分頁】');
+  lines.push('　這兩張的內容，幹事在週報填寫介面**也改得到**。');
+  lines.push('　幹事改過的那一格，之後匯入**不會**被這裏的值蓋過去，');
+  lines.push('　匯入報告會列出來（寫住「沒有蓋過」），由幹事決定。');
+  lines.push('　所以如果你改了而週報沒有跟著變，多數就是那一格已經被覆寫，請直接問幹事。');
+  lines.push('');
+  lines.push('　⚠️ 「浸禮合堂」：整季通常**只有一個主日**是浸禮合堂，只填那一行，');
+  lines.push('　其餘主日留空。其餘全部空白是正常的，系統不會當成錯誤。');
+  lines.push('');
+
   lines.push('【本季主日（共 ' + (input.serviceDates || []).length + ' 個）】');
   (input.serviceDates || []).forEach(function (d) { lines.push('　' + d); });
   lines.push('');
@@ -324,10 +399,19 @@ function buildContentSheetSampleRows_(serviceDates) {
 
   var rows = {};
 
+  // ⚠️ R-047：第一行本來播種住「熱烈歡迎來賓，請留下姓名、通訊地址和
+  //    電話以便聯絡。」——而**三個 Word 範本本身已經硬寫住同一句**
+  //    （無編號，固定位置）。結果每一期都印兩次，2026-09-08 兩次實測都
+  //    中招。
+  //
+  //    真正成因不是「幹事自然會填」，是**系統自己幫佢填咗**。所以只在
+  //    `_說明` 寫「不要再填」是沒有用的——一定要把這一行換走，那才是唯一
+  //    真正解決問題的一步。
   rows['家事報告'] = [
     {
       SERVICE_DATE: first, SEQ_NO: 10, ACTIVE: true, REPEAT_UNTIL: '',
-      TEXT: '熱烈歡迎來賓，請留下姓名、通訊地址和電話以便聯絡。'
+      TEXT: '（示範用，請自行修改或把「有效」改為 FALSE）差傳部主日下午二時舉行祈禱會，'
+        + '地點：副堂，歡迎各位弟兄姊妹參加。'
     },
     {
       SERVICE_DATE: first, SEQ_NO: 20, ACTIVE: true, REPEAT_UNTIL: '',

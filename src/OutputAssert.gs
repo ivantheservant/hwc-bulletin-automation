@@ -487,7 +487,11 @@ function docxScanDuplicateParagraphs_(xml, minChars) {
   var match;
   while ((match = paragraphRegex.exec(body)) !== null) {
     var raw = docxExtractPlainText_(match[0]);
-    var key = raw.replace(/\s+/g, '');
+    // ⚠️ R-047：比對之前**先剝走開頭的編號前綴**。
+    //    範本硬寫那句「熱烈歡迎來賓⋯」是**無編號**的，而由內容表家事報告
+    //    印出來的同一句會帶「1.」——逐字比對就捉唔到，而印出來明明係
+    //    重複咗兩次。2026-09-08 兩次實測都中招。
+    var key = stripLeadingItemNumber_(raw).replace(/\s+/g, '');
     if (key.length < min) continue;
 
     if (counts[key] === undefined) {
@@ -502,6 +506,32 @@ function docxScanDuplicateParagraphs_(xml, minChars) {
     .filter(function (key) { return counts[key] >= 2; })
     .map(function (key) { return { text: samples[key], count: counts[key] }; })
     .sort(function (a, b) { return b.count - a.count; });
+}
+
+/**
+ * 用途：剝走一段文字開頭的**項目編號前綴**。**純函式。**
+ *
+ *   認得出的形狀（後面一定要有內容，否則原樣回傳）：
+ *   `1.`、`1、`、`1)`、`(1)`、`（1）`、`一.`、`一、`、`①`
+ *
+ *   ⚠️ 只剝**開頭**那一個，而且只剝一次。剝到盡的話，
+ *   「1. 2027 年財政報告」會變成「年財政報告」——比捉唔到重複更差。
+ *
+ *   ⚠️ **只用於比對，不用於顯示。** 顯示要印原文，否則幹事在 Word 裏面
+ *   搜不到那一段。
+ * Args:
+ *   text {string}
+ * Returns:
+ *   {string}
+ */
+function stripLeadingItemNumber_(text) {
+  var raw = String(text === null || text === undefined ? '' : text);
+  var stripped = raw.replace(
+    /^\s*(?:[（(]\s*(?:\d{1,2}|[一二三四五六七八九十]{1,3})\s*[）)]|(?:\d{1,2}|[一二三四五六七八九十]{1,3})\s*[.、)）]|[①-⑳])\s*/,
+    ''
+  );
+  // 剝完變空白就當作沒有前綴——整段只有一個編號，那本來就是一段內容。
+  return stripped.trim() === '' ? raw : stripped;
 }
 
 /**

@@ -456,6 +456,10 @@ function contentSheetOwnedWeekKeysDerived_() {
   var keys = [];
   contentImportTargets_().forEach(function (def) {
     if (def.targetSheet !== SHEETS.BULLETIN_WEEKS) return;
+    // ⚠️ 第三種模式（`overridable`）的分頁**不算唯讀**：內容表是來源，
+    //    但介面照樣改得到。把它們算進唯讀清單的話，幹事一按儲存就會被
+    //    整次拒絕，而拒絕訊息會講「這一欄由內容表接管」——完全誤導。
+    if (def.overridable === true) return;
     Object.keys(def.fieldMap).forEach(function (sourceKey) {
       var targetKey = def.fieldMap[sourceKey];
       if (keys.indexOf(targetKey) === -1) keys.push(targetKey);
@@ -538,6 +542,17 @@ function contentSheetReadOnlyLabel_(key) {
  */
 function webAppEditableWeekFieldKeys_() {
   var owned = contentSheetOwnedWeekKeys_();
+  // ⚠️ R-043／R-045：第三種模式那十欄**照樣寫入 `BulletinWeeks`**，
+  //    同時另外記一筆 `FieldOverride`——與 `DutyOverride` 完全同一個做法。
+  //
+  //    一度試過「只寫 FieldOverride、不寫 BulletinWeeks」，結果係錯的：
+  //    季度填寫表（`FillGrid`）同樣改得到呢十欄，而佢寫嘅係 `BulletinWeeks`。
+  //    兩個介面寫兩個唔同地方，等於同一格有兩個真相來源——正正係
+  //    docs/已知bug類型.md 事故三。
+  //
+  //    ⚠️ 「覆寫前嘅來源值」記喺 `FieldOverride.SOURCE_VALUE_AT_OVERRIDE`，
+  //    唔係靠 `BulletinWeeks` 現值推——現值已經係覆寫值，拿佢去比就永遠
+  //    相等。呢一點同 `DutyOverride.ROSTER_VALUE_AT_OVERRIDE` 一模一樣。
   return webAppWeekFieldKeys_().filter(function (key) { return owned.indexOf(key) === -1; });
 }
 
@@ -664,6 +679,29 @@ function saveWeekFromWebApp_(payload) {
   // 樂觀鎖是同一次操作的一部分（所以在同一個 payload 內），但邏輯上是
   // 完全分開的一件事。
   applyDutyEditsFromPayload_(isoDate, targetDate, payload.dutyEdits, auditEntries);
+
+  // ⚠️ R-040：下週事奉的覆寫寫的是**下一個主日**那一筆記錄，不是這一週的。
+  //
+  //    `DutyOverride` 的鍵本來就是「主日＋崗位＋位次」，所以資料結構完全
+  //    不用改——**而正因為不用改，才最容易寫錯**：如果誤用這一週的
+  //    `SERVICE_DATE`，兩個畫面（這一週的「下週事奉」與下一週的「本週
+  //    事奉」）各存一筆，外表完全正常，只是永遠對不上。
+  //    tests/fieldoverride.test.js 有一條雙向測試專門盯住它。
+  //    ⚠️ 日期**只算一次**再兩邊共用。分開算兩次的話，兩個參數可以講兩件
+  //    事：第一個決定「讀邊一日的既有覆寫」，第二個決定「寫落去嗰格係邊一日」
+  //    ——兩者不一致就會出現「讀 A 日、寫 B 日」，每儲存一次多一筆記錄，
+  //    而外表完全正常。
+  var nextDate = addDays_(targetDate, 7);
+  applyDutyEditsFromPayload_(formatIsoDate_(nextDate), nextDate,
+    payload.nextWeekDutyEdits, auditEntries);
+
+  // ⚠️ R-043／R-045：第三種模式的欄位覆寫。與事奉覆寫同一個道理——
+  //    寫的是另一張表（`FieldOverride`），但屬於同一次儲存。
+  //    ⚠️ 一定要傳**寫入之前**那一行（`weekRowInfo`）。這一步排在
+  //    `applyWeekFieldChanges_()` 之後，工作表那一格已經係新值——用佢做
+  //    來源值就永遠相等，一筆覆寫都唔會寫得出。
+  applyFieldOverridesFromPayload_(isoDate, targetDate, normalizedWeek,
+    weekRowInfo || {}, auditEntries);
 
   var newTimestamp = new Date();
   writeWeekCell_(weekRowInfo.__rowNo, 'LAST_SAVED_AT', newTimestamp);
@@ -1037,6 +1075,53 @@ function applyListPlan_(sheetName, targetDate, isoDate, listType, plan, auditEnt
 }
 
 /**
+ * 用途：把 payload 內第三種模式那幾欄的值，套用到 `FieldOverride`。
+ *
+ *   ⚠️ **比較的對象是「內容表帶入的值」，不是「工作表現值」。**
+ *   工作表現值本身可能已經是一個覆寫值——拿它去比，改一次之後就永遠
+ *   算「沒有改動」，覆寫記錄再也不會更新。
+ *
+ *   內容表帶入的值 = 覆寫**之前**的 `BulletinWeeks` 那一格，也就是
+ *   `readSheet()` 讀出來、**未經** `applyFieldOverrides_()` 那一份。
+ * Args:
+ *   isoDate {string} 主日日期。
+ *   targetDate {Date} 主日日期。
+ *   normalizedWeek {Object} 這一次儲存要寫入的欄位值。
+ *   weekBeforeSave {Object} **寫入之前**的 `BulletinWeeks` 那一行。
+ *   auditEntriesOut {Object[]} 累積用的陣列。
+ * Returns:
+ *   {void}
+ */
+function applyFieldOverridesFromPayload_(isoDate, targetDate, normalizedWeek, weekBeforeSave, auditEntriesOut) {
+  var draft = {};
+  var touched = false;
+  CONTENT_SHEET_OVERRIDABLE_FIELDS.forEach(function (key) {
+    if (!(key in (normalizedWeek || {}))) return;
+    draft[key] = normalizedWeek[key];
+    touched = true;
+  });
+  if (!touched) return;
+
+  // ⚠️ 「來源值」＝內容表帶入嗰個值，**唔係** BulletinWeeks 現值。
+  //    現值有機會已經係上一次嘅覆寫值（介面同格子表都會寫落去），
+  //    拿佢去比就永遠相等，覆寫記錄從此唔會再更新。
+  //
+  //    所以：有覆寫就用 `SOURCE_VALUE_AT_OVERRIDE`（覆寫嗰陣記低嘅來源值），
+  //    冇覆寫先用現值。同 `DutyOverride` 用 `ROSTER_VALUE_AT_OVERRIDE`
+  //    完全一樣。
+  var overrideIndex = readFieldOverrideIndexForDate_(isoDate);
+  var before = weekBeforeSave || {};
+  var sourceValues = {};
+  CONTENT_SHEET_OVERRIDABLE_FIELDS.forEach(function (key) {
+    var existing = overrideIndex[fieldOverrideKey_(isoDate, key)];
+    sourceValues[key] = existing ? existing.SOURCE_VALUE_AT_OVERRIDE : before[key];
+  });
+
+  var plan = computeFieldOverridePlan_(draft, sourceValues, overrideIndex, isoDate);
+  applyFieldOverridePlan_(plan, targetDate, isoDate, getCallerEmail_(), auditEntriesOut);
+}
+
+/**
  * 用途：把 payload 內的事奉框編輯（`dutyEdits`）套用到 `DutyOverride`
  *   工作表。真正的規則在 `src/DutyOverride.gs` 的
  *   `computeDutyOverridePlan_()`（純函式）與 `applyDutyOverridePlan_()`
@@ -1063,6 +1148,7 @@ function applyListPlan_(sheetName, targetDate, isoDate, listType, plan, auditEnt
  */
 function applyDutyEditsFromPayload_(isoDate, targetDate, dutyEdits, auditEntriesOut) {
   if (!dutyEdits || dutyEdits.length === 0) return;
+  if (!isoDate) return;
 
   var snapshot = readRosterSnapshot_(isoDate);
   var plan = computeDutyOverridePlan_({

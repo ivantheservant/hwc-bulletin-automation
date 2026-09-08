@@ -93,8 +93,36 @@ function contentImportTargets_() {
     {
       tabName: '宣召', kind: 'WEEK', targetSheet: SHEETS.BULLETIN_WEEKS,
       fieldMap: { CALL_REF: 'CALL_REF', CALL_TEXT: 'CALL_TEXT' }, repeatUntil: false
+    },
+    // ⚠️ R-043／R-045 這兩張是**第三種模式**（內容表為來源、介面可覆寫），
+    //    `overridable: true` 就是那個分別：有 FieldOverride 的欄位，匯入
+    //    **不會蓋過去**，只在差異報告標 CONFLICT。
+    {
+      tabName: '崇拜程序', kind: 'WEEK', targetSheet: SHEETS.BULLETIN_WEEKS,
+      fieldMap: {
+        SCRIPTURE_REF: 'SCRIPTURE_REF', SERMON_TITLE: 'SERMON_TITLE',
+        RESPONSE_HYMN: 'RESPONSE_HYMN', CHOIR_TITLE: 'CHOIR_TITLE'
+      },
+      repeatUntil: false, overridable: true
+    },
+    {
+      tabName: '浸禮合堂', kind: 'WEEK', targetSheet: SHEETS.BULLETIN_WEEKS,
+      fieldMap: baptismImportFieldMap_(), repeatUntil: false, overridable: true
     }
   ];
+}
+
+/**
+ * 用途：浸禮副框六欄的對應表——兩邊機器鍵完全同名，所以由
+ *   `baptismBoxFieldDefs_()`（**六欄的單一真相來源**）衍生，不另抄一份。
+ * Args: （無）
+ * Returns:
+ *   {Object<string,string>}
+ */
+function baptismImportFieldMap_() {
+  var map = {};
+  baptismBoxFieldKeys_().forEach(function (key) { map[key] = key; });
+  return map;
 }
 
 /**
@@ -144,8 +172,14 @@ function parseContentTabRows_(values, keys) {
     });
 
     // 留空當作 TRUE；只有明確寫 FALSE 才算停用。
+    //
+    // ⚠️ D-4：留空當成 TRUE 是刻意的（那 200 行預留空白行如果當成 FALSE，
+    //    幹事每加一行都要記得打 TRUE），但**不可以靜靜當成 TRUE**——
+    //    「我以為我停用咗」同「我根本冇填」在畫面上一模一樣。所以額外記低
+    //    `__activeBlank`，由差異報告逐行列出，交返畀幹事決定。
     var active = String(obj.ACTIVE || '').trim().toUpperCase();
     obj.__active = active !== 'FALSE';
+    obj.__activeBlank = active === '';
     out.push(obj);
   });
   return out;
@@ -260,6 +294,7 @@ function buildContentImportTargets_(contentData, serviceDates) {
   var targets = {};
   var warnings = [];
   var skippedTabs = [];
+  var blankActiveRows = [];
 
   contentImportTargets_().forEach(function (def) {
     var rows = (contentData || {})[def.tabName] || [];
@@ -269,6 +304,13 @@ function buildContentImportTargets_(contentData, serviceDates) {
       skippedTabs.push(def.tabName);
       return;
     }
+
+    // ⚠️ D-4：「有效」留空當成 TRUE，但要逐行講出來。留空與明確寫 TRUE
+    //    在畫面上一模一樣，而兩者的意思可以完全相反（「我以為我停用咗」）。
+    rows.forEach(function (r) {
+      if (r.__activeBlank !== true) return;
+      blankActiveRows.push({ tabName: def.tabName, rowNo: r.__rowNo, isoDate: String(r.SERVICE_DATE || '') });
+    });
 
     var activeRows = rows.filter(function (r) { return r.__active; });
     var byDate = {};
@@ -321,7 +363,10 @@ function buildContentImportTargets_(contentData, serviceDates) {
     targets[def.tabName] = byDate;
   });
 
-  return { targets: targets, warnings: warnings, skippedTabs: skippedTabs };
+  return {
+    targets: targets, warnings: warnings, skippedTabs: skippedTabs,
+    blankActiveRows: blankActiveRows
+  };
 }
 
 // =====================================================================
@@ -486,7 +531,13 @@ function computeContentImportPlan_(input) {
     added: 0, updated: 0, removed: 0, unchanged: 0,
     details: [], warnings: (input.warnings || []).slice(),
     skippedTabs: (input.skippedTabs || []).slice(),
-    listPlans: {}, weekUpdates: []
+    listPlans: {}, weekUpdates: [],
+    // R-043／R-045：有覆寫、所以這一次匯入**刻意不蓋過去**的欄位。
+    // ⚠️ 不算入 added／updated／removed／unchanged 任何一個——它是第五種
+    //    結果：「內容表有新值，但你自己改過，所以冇動你」。
+    conflicts: [],
+    // D-4：「有效」留空的行。留空當成 TRUE 是刻意的，但一定要講出來。
+    blankActiveRows: (input.blankActiveRows || []).slice()
   };
 
   var weekByDate = {};
@@ -546,6 +597,26 @@ function computeContentImportPlan_(input) {
         var targetKey = def.fieldMap[sourceKey];
         var newValue = sourceRow[sourceKey];
         if (contentValuesEqual_(week[targetKey], newValue)) return;
+
+        // ⚠️ 第三種模式的核心那一條：**有覆寫就不蓋過去，只提醒。**
+        //    這裏 return 之前一定要記一筆 conflict——靜靜不改而不講，
+        //    幹事會以為內容表那個新值已經入咗週報。
+        if (def.overridable === true) {
+          var ov = (input.fieldOverrideIndex || {})[fieldOverrideKey_(iso, targetKey)];
+          if (ov) {
+            plan.conflicts.push({
+              isoDate: iso, field: targetKey,
+              overrideValue: ov.OVERRIDE_VALUE,
+              sourceValue: newValue,
+              sourceValueAtOverride: ov.SOURCE_VALUE_AT_OVERRIDE
+            });
+            plan.details.push({
+              action: 'CONFLICT', sheet: SHEETS.BULLETIN_WEEKS, isoDate: iso,
+              field: targetKey, oldValue: ov.OVERRIDE_VALUE, newValue: newValue
+            });
+            return;
+          }
+        }
 
         if (!weekChangesByDate[iso]) weekChangesByDate[iso] = { rowNo: week.__rowNo, isoDate: iso, changes: [] };
         weekChangesByDate[iso].changes.push({ field: targetKey, oldValue: week[targetKey], newValue: newValue });
@@ -680,9 +751,15 @@ function previewContentImport_(quarterId, options) {
     targets: built.targets,
     skippedTabs: built.skippedTabs,
     warnings: built.warnings,
+    blankActiveRows: built.blankActiveRows,
     existingLists: existingLists,
     existingWeeks: readRowsWithRowNo_(SHEETS.BULLETIN_WEEKS),
-    serviceDates: serviceDates
+    serviceDates: serviceDates,
+    // R-043／R-045：第三種模式要知道邊幾格已經被人手覆寫。
+    // ⚠️ 讀**整季**的覆寫，不是只讀 serviceDates 那幾個——單一主日匯入時
+    //    serviceDates 只有一個，但索引的鍵本來就帶主日，多讀不會影響判斷，
+    //    少讀就會漏。
+    fieldOverrideIndex: buildFieldOverrideIndex_(readRowsWithRowNo_(SHEETS.FIELD_OVERRIDE))
   });
 
   // ⚠️ 主日清單由哪裏來一定要講出來。用了退而求其次的來源而不講，
@@ -849,6 +926,38 @@ function buildContentImportDialogLines_(result, options) {
     + verb + '刪除 ' + plan.removed + ' 行　不變 ' + plan.unchanged + ' 行');
   lines.push('（「刪除」是把「有效」改為 FALSE，不會真的刪走任何一行。）');
 
+  // ⚠️ R-043／R-045：覆寫過的欄位排喺**最前**（緊接住四個數字），
+  //    因為它答的是「內容表明明改咗，點解週報冇變」——那是幹事最容易
+  //    誤會成 bug 的一種結果。排喺明細下面就會被淹沒。
+  if ((plan.conflicts || []).length > 0) {
+    lines.push('');
+    lines.push('✋ 有 ' + plan.conflicts.length + ' 格你自己改過，所以這一次**沒有**蓋過去：');
+    plan.conflicts.slice(0, 10).forEach(function (c) {
+      lines.push('　' + c.isoDate + '　' + contentFieldLabel_(c.field)
+        + '：你填的是「' + (c.overrideValue || '（空白）')
+        + '」，內容表現在是「' + (c.sourceValue || '（空白）') + '」');
+    });
+    if (plan.conflicts.length > 10) {
+      lines.push('　（其餘 ' + (plan.conflicts.length - 10) + ' 格見完整明細。）');
+    }
+    lines.push('　想改回跟隨內容表，把填寫介面那一格改成與內容表相同即可。');
+  }
+
+  // ⚠️ D-4：留空的「有效」不可以靜靜當成 TRUE。
+  if ((plan.blankActiveRows || []).length > 0) {
+    lines.push('');
+    lines.push('ℹ️ 有 ' + plan.blankActiveRows.length + ' 行的「有效」是空白的，'
+      + '本次**當成 TRUE**（會匯入）：');
+    plan.blankActiveRows.slice(0, 10).forEach(function (b) {
+      lines.push('　' + b.tabName + ' 第 ' + b.rowNo + ' 行'
+        + (b.isoDate ? ('（' + b.isoDate + '）') : ''));
+    });
+    if (plan.blankActiveRows.length > 10) {
+      lines.push('　（其餘 ' + (plan.blankActiveRows.length - 10) + ' 行見完整明細。）');
+    }
+    lines.push('　如果其中有些其實想停用，請在內容表那一格填 FALSE，然後再匯入一次。');
+  }
+
   if (plan.skippedTabs.length > 0) {
     lines.push('');
     plan.skippedTabs.forEach(function (tabName) {
@@ -894,11 +1003,38 @@ function buildContentImportDialogLines_(result, options) {
  *   {string}
  */
 function formatContentImportDetail_(detail) {
-  var actionText = { ADD: '新增', UPDATE: '修改', REMOVE: '停用' }[detail.action] || detail.action;
+  // ⚠️ CONFLICT 的箭嘴方向要**倒轉**：其餘三種是「舊 → 新」，
+  //    CONFLICT 是「內容表想改成新值，但你填的舊值贏咗」。用同一個
+  //    箭嘴方向會令人以為值已經改咗。
+  var actionText = {
+    ADD: '新增', UPDATE: '修改', REMOVE: '停用', CONFLICT: '沒有蓋過'
+  }[detail.action] || detail.action;
   var oldText = truncateForReport_(detail.oldValue);
   var newText = truncateForReport_(detail.newValue);
+  var oldShown = (oldText === '' ? '（空白）' : oldText);
+  var newShown = (newText === '' ? '（空白）' : newText);
+
+  if (detail.action === 'CONFLICT') {
+    return actionText + '　' + detail.sheet + '　' + detail.isoDate + '　'
+      + contentFieldLabel_(detail.field)
+      + '　保留你填的「' + oldShown + '」（內容表現在是「' + newShown + '」）';
+  }
   return actionText + '　' + detail.sheet + '　' + detail.isoDate + '　' + detail.field
-    + '　' + (oldText === '' ? '（空白）' : oldText) + ' → ' + (newText === '' ? '（空白）' : newText);
+    + '　' + oldShown + ' → ' + newShown;
+}
+
+/**
+ * 用途：把 `BulletinWeeks` 機器鍵換成中文標題。**純函式。**
+ *
+ *   ⚠️ 找不到就原樣回機器鍵——講一個機器碼，好過不講。
+ * Args:
+ *   fieldKey {string}
+ * Returns:
+ *   {string}
+ */
+function contentFieldLabel_(fieldKey) {
+  var idx = COLUMNS.BULLETIN_WEEKS.keys.indexOf(String(fieldKey || ''));
+  return idx === -1 ? String(fieldKey || '') : COLUMNS.BULLETIN_WEEKS.headers[idx];
 }
 
 /**

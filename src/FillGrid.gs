@@ -92,7 +92,8 @@ function fillGridColumnDefs_() {
   add('崇拜程序', 'HYMN_PRAISE', '詩歌頌讚');
   add('崇拜程序', 'CHOIR_LABEL', '詩班項目名稱');
   add('崇拜程序', 'CHOIR_TITLE', '詩班曲名');
-  add('崇拜程序', 'SCRIPTURE_REF', '讀經');
+  // ⚠️ R-046：叫「讀經經文」，不是「讀經」——事奉框那個「讀經（事奉）」是人。
+  add('崇拜程序', 'SCRIPTURE_REF', '讀經經文');
   add('崇拜程序', 'SERMON_TITLE', '證道講題');
   add('崇拜程序', 'RESPONSE_HYMN', '回應詩歌');
 

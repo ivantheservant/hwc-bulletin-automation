@@ -88,6 +88,29 @@ function buildBulletinModel_(isoDate) {
     week = {};
   }
 
+  // ⚠️ R-043／R-045：第三種模式（內容表為來源、介面可覆寫）的取值次序，
+  //    **固定**是「BulletinWeeks 現值 ← 內容表匯入 → 套用 FieldOverride」。
+  //    這一行就是那個「→ 套用 FieldOverride」，而且是**系統之內唯一**
+  //    套用的地方——加第二個地方套一次，就等於加了第二個真相來源
+  //    （見 src/FieldOverride.gs 檔頭與 docs/已知bug類型.md 事故三）。
+  //
+  //    ⚠️ 排喺 buildProgramTable_() **之前**：程序表要用 SCRIPTURE_REF、
+  //    CHOIR_TITLE 這幾欄，用未套覆寫的值就會印錯。
+  week = applyFieldOverrides_(week, isoDate, readFieldOverrideIndexForDate_(isoDate));
+
+  // ⚠️ R-042：獻花兩欄接上職事表的 `FLOWER` 崗位。
+  //
+  //    `FLOWER` **一直都有讀入職事表快照**（所以分歧報告見到「獻花 #1」），
+  //    但 `PersonDisplay` 那一行的 `SHOW_ON_PAGE1`／`SHOW_ON_PAGE3` 兩個都
+  //    是 `false`——**事奉框根本沒有畫出獻花那一格**，那是刻意的設計。
+  //    Word 範本用的是 `FLOWER_THIS_WEEK`／`FLOWER_NEXT_WEEK` 這兩個週欄位，
+  //    而它們一直是純人手欄位，跟已讀入的快照完全沒有接通。
+  //
+  //    ⚠️ 覆寫用 `DutyOverride`（`POST_ID='FLOWER'`），**不是**
+  //    `FieldOverride`——它本質是崗位，不是內容。
+  //    ⚠️ 「下週獻花」對應的是**下一個主日**，與 R-040 同一條規則。
+  week = applyFlowerFromRoster_(week, snapshot, nextSnapshot);
+
   var program = buildProgramTable_(week, snapshot);
   if (program.inferred && weekRows.length > 0 && Object.keys(week).length > 0) {
     persistInferredTemplateId_(isoDate, program.templateId, warnings);
@@ -125,6 +148,9 @@ function buildBulletinModel_(isoDate) {
 
   return assembleBulletinModel_({
     isoDate: isoDate,
+    // R-040：下週事奉那一格寫的是**下一個主日**那一筆 DutyOverride，
+    // 所以前端要知道它是哪一日。同一個推算只應該有一處。
+    nextIsoDate: nextIsoDate,
     targetDate: targetDate,
     snapshot: snapshot,
     nextSnapshot: nextSnapshot,
@@ -132,6 +158,8 @@ function buildBulletinModel_(isoDate) {
     templateId: program.templateId,
     program: program.rows,
     recitation: program.recitation,
+    // R-041：誦讀下拉旁邊要顯示的「目前自動值」。
+    recitationAuto: program.recitationAuto,
     dutyBoxPage1: dutyBoxPage1,
     nextWeekDuty: nextWeekDuty,
     rosterDiff: diff,
@@ -196,6 +224,8 @@ function emptyBulletinModel_(isoDate, overrides) {
     // 第七輪新增：誦讀內容（Word 範本的 {{RECITATION}} 佔位符要用；
     // 誦讀那一格不一定在程序表內，所以另外單獨帶一份）。
     recitation: '',
+    recitationAuto: '',
+    nextIsoDate: '',
     // 第七輪新增：`BulletinWeeks` 該主日那一行的原始欄位值。
     //
     // ⚠️ 為什麼要把原始行也放進模型：Word 範本有大量佔位符
@@ -260,6 +290,8 @@ function assembleBulletinModel_(input) {
     dutyBoxPage1: input.dutyBoxPage1 || [],
     program: input.program || [],
     recitation: input.recitation || '',
+    recitationAuto: input.recitationAuto || '',
+    nextIsoDate: input.nextIsoDate || '',
     weekFields: week,
     nextWeekDuty: input.nextWeekDuty || [],
     rosterDiff: input.rosterDiff || {
@@ -427,8 +459,19 @@ function buildMissingList_(input) {
     var idx = COLUMNS.BULLETIN_WEEKS.keys.indexOf(key);
     return idx === -1 ? key : COLUMNS.BULLETIN_WEEKS.headers[idx];
   }
-  function add(field, label, reason) {
-    missing.push({ field: field, label: label, reason: reason });
+  // ⚠️ D-10：`optional` 就是「通常空白，有就填」那一段。
+  //
+  //    獻花、翻譯這一類**正常就是空白**的欄位，本來永遠清不掉待填——
+  //    幹事每一週都見到「待填 3 項」，然後每一週都確認一次「哦，果然又是
+  //    那三項」。一個永遠不會變零的數字，等於沒有數字。
+  //
+  //    ⚠️ 刻意**不是**「隱藏」：它們仍然逐項列出來，只是不計入頂部徽章
+  //    那個數字。「正常空白」與「漏填」本來就不是二元的——真的漏填了
+  //    獻花也有可能，所以看得見比數得準重要。
+  function add(field, label, reason, optional) {
+    missing.push({
+      field: field, label: label, reason: reason, optional: optional === true
+    });
   }
 
   // 宣召：經文與出處兩者皆空才算缺（只有出處是合法的，見 2026-04-05 樣本）。
@@ -437,7 +480,9 @@ function buildMissingList_(input) {
   }
 
   ['SCRIPTURE_REF', 'SERMON_TITLE', 'RESPONSE_HYMN', 'FLOWER_THIS_WEEK'].forEach(function (key) {
-    if (isBlank(key)) add(key, labelOf(key), '尚未填寫。');
+    if (!isBlank(key)) return;
+    var optional = optionalMissingFieldKeys_().indexOf(key) !== -1;
+    add(key, labelOf(key), optional ? '通常空白，有就填。' : '尚未填寫。', optional);
   });
 
   attendanceRowDefs_().forEach(function (def) {
@@ -458,10 +503,113 @@ function buildMissingList_(input) {
 
   (input.dutyBoxPage1 || []).forEach(function (row) {
     if (!row.isPending) return;
-    add('POST:' + row.postIds.join('+'), row.label, '職事表尚未排定人選。');
+    var optionalPosts = optionalMissingPostIds_();
+    // 合併組（例如影音＝SOUND＋PPT）只要**全部**成員都是「通常空白」
+    // 才算選填。其中一個是必填就整格必填——寧可多提醒一次。
+    var optional = (row.postIds || []).length > 0
+      && row.postIds.every(function (p) { return optionalPosts.indexOf(p) !== -1; });
+    add('POST:' + row.postIds.join('+'), row.label,
+      optional ? '通常空白，有就填。' : '職事表尚未排定人選。', optional);
   });
 
   return missing;
+}
+
+/**
+ * 用途：**「通常空白，有就填」的週欄位。單一真相來源**（D-10）。
+ *
+ *   ⚠️ 寫成函式延遲求值，不依賴 `.gs` 載入次序（事故一）。
+ * Args: （無）
+ * Returns:
+ *   {string[]}
+ */
+function optionalMissingFieldKeys_() {
+  // 獻花：實際週報大部分主日都沒有獻花。
+  return ['FLOWER_THIS_WEEK'];
+}
+
+/**
+ * 用途：**「通常空白，有就填」的崗位。單一真相來源**（D-10）。
+ * Args: （無）
+ * Returns:
+ *   {string[]}
+ */
+function optionalMissingPostIds_() {
+  // 翻譯：只有需要傳譯那幾期才有；獻花：崗位本身不在事奉框顯示，
+  // 列在這裏是為了合併組判斷完整。
+  return ['TRANSLATOR', 'FLOWER'];
+}
+
+/**
+ * 用途：把待填清單分成「一定要填」與「通常空白，有就填」兩段。
+ *   **純函式。**
+ *
+ *   ⚠️ 頂部徽章的數字**只數第一段**。第二段仍然回傳，介面照樣列出來，
+ *   只是不計入數字——見 `buildMissingList_()` 的 `add()` 說明。
+ * Args:
+ *   missing {Object[]} `buildMissingList_()` 的輸出。
+ * Returns:
+ *   {{required:Object[], optional:Object[], requiredCount:number}}
+ */
+function splitMissingList_(missing) {
+  var required = [];
+  var optional = [];
+  (missing || []).forEach(function (m) {
+    if (m && m.optional === true) optional.push(m);
+    else required.push(m);
+  });
+  return { required: required, optional: optional, requiredCount: required.length };
+}
+
+/**
+ * 用途：**R-042**——把職事表 `FLOWER` 崗位的值帶入獻花兩個週欄位。
+ *   **純函式。**
+ *
+ *   規則三條，與其他覆寫機制一致：
+ *     1. 週報那一格**有值** → 那就是人手填的（或者上一次帶入之後改過），
+ *        一格都不動；
+ *     2. 週報那一格空白、職事表有值 → 帶入；
+ *     3. 兩邊都空白 → 維持空白。
+ *
+ *   ⚠️ 第 1 條就是「人手輸入即覆寫」：這裏**不會**用職事表蓋走已填的值。
+ *   要跟隨職事表就把那一格清空，下一次載入自然帶入。
+ *
+ *   ⚠️ 用的是**已經套過 `DutyOverride`** 的快照（呼叫方在上面已經套好），
+ *   所以幹事在事奉框改過的獻花人選，這裏帶入的就是改過之後那一個。
+ * Args:
+ *   week {Object} `BulletinWeeks` 那一行。
+ *   snapshot {Object} 這一個主日的職事表快照。
+ *   nextSnapshot {?Object} 下一個主日的職事表快照；沒有就傳 `null`。
+ * Returns:
+ *   {Object} 一個**新物件**，不改動傳進來那個。
+ */
+function applyFlowerFromRoster_(week, snapshot, nextSnapshot) {
+  var out = {};
+  Object.keys(week || {}).forEach(function (k) { out[k] = week[k]; });
+
+  function rosterFlowerName(snap) {
+    if (!snap || !snap.found) return '';
+    var slots = (snap.slotsByPost || {}).FLOWER || [];
+    var names = slots.map(function (slot) {
+      var name = (slot.rosterName === undefined || slot.rosterName === null)
+        ? slot.personName : slot.rosterName;
+      return String(name || '').trim();
+    }).filter(function (n) { return n !== ''; });
+    // 一個崗位可以有多位（例如兩家人一齊獻花）——用頓號串起來，
+    // 次序照職事表，不重新排序。
+    return names.join('、');
+  }
+
+  function fill(key, snap) {
+    var current = String(out[key] === null || out[key] === undefined ? '' : out[key]).trim();
+    if (current !== '') return;              // ⚠️ 人手填過的一格都不動
+    var name = rosterFlowerName(snap);
+    if (name) out[key] = name;
+  }
+
+  fill('FLOWER_THIS_WEEK', snapshot);
+  fill('FLOWER_NEXT_WEEK', nextSnapshot);
+  return out;
 }
 
 /**

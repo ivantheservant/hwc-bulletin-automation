@@ -275,6 +275,42 @@ function writeRosterSnapshotVersion_(isoDate, rosterVersion) {
 }
 
 /**
+ * 用途：組出分歧報告用的崗位標籤。**純函式。**
+ *
+ *   ⚠️ D-8：兩個崗位共用同一個顯示名稱（合併組——`SOUND` 與 `PPT`
+ *   都叫「影音」、`CHAIR` 與 `ANNOUNCE` 都叫「主席及報告」）時，補上原始
+ *   崗位的中文名，例如「影音 #1（音響）」「影音 #1（PPT）」。
+ *
+ *   本來兩者都印「影音 #1」，報告會出現兩行一模一樣的字——看的人分不出
+ *   哪一行講哪一個崗位，亦分不出是不是同一行印咗兩次。
+ *
+ *   ⚠️ 沒有撞名就原樣回顯示名稱：沒有撞名還要加括號，只會令每一行
+ *   都變長而沒有多講任何東西。
+ * Args:
+ *   postId {string} 原始崗位 ID。
+ *   postLabels {Object<string,string>} 崗位 ID → 週報顯示名稱。
+ *   nameByPostId {Object<string,string>} 崗位 ID → 職事表名稱。
+ * Returns:
+ *   {string}
+ */
+function rosterDiffPostLabel_(postId, postLabels, nameByPostId) {
+  var labels = postLabels || {};
+  var byRoster = nameByPostId || {};
+  var display = labels[postId] || byRoster[postId] || postId;
+
+  var sharedWith = Object.keys(labels).filter(function (other) {
+    return other !== postId && labels[other] === display;
+  });
+  if (sharedWith.length === 0) return display;
+
+  // 原始崗位的名稱優先用職事表那個（「音響」「PPT」），拿不到就用崗位 ID
+  // ——講一個機器碼，好過兩行一模一樣。
+  var origin = byRoster[postId] || postId;
+  if (origin === display) return display;
+  return display + '（' + origin + '）';
+}
+
+/**
  * 用途：把比對結果排版成 `Diagnostics` 報告的內容行，供選單
  *   「檢查職事表分歧」使用。
  *

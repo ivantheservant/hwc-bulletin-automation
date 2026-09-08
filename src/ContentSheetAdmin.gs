@@ -247,6 +247,8 @@ function buildOrRefreshContentSheet_(quarterId, options) {
 
   var sampleRows = (created && config.seedSample) ? buildContentSheetSampleRows_(serviceDates) : {};
   var seededSample = false;
+  // §4.0：新分頁首次建立時由 BulletinWeeks 回填了幾多行。
+  var backfilledTabs = [];
 
   contentSheetTabDefs_().forEach(function (tabDef) {
     var ensured = ensureContentTab_(spreadsheet, tabDef.tabName);
@@ -265,6 +267,25 @@ function buildOrRefreshContentSheet_(quarterId, options) {
     if (created && rows && rows.length > 0 && ensured.sheet.getLastRow() < CONTENT_SHEET_FIRST_DATA_ROW_) {
       writeContentRows_(ensured.sheet, tabDef.keys, rows, CONTENT_SHEET_FIRST_DATA_ROW_);
       seededSample = true;
+    }
+
+    // ⚠️⚠️ §4.0：**新分頁首次建立時，一定要把 BulletinWeeks 現有的值
+    //    回填落去。** 唔回填嘅話，下一次整季匯入會即刻**清空**嗰九欄。
+    //
+    //    點解會咁：R-043／R-045 把九個本來「介面填」嘅欄位改成「內容表
+    //    為來源」。第三種模式規則 2 係「冇覆寫嘅欄位自動跟隨內容表最新
+    //    值」——而全新分頁係空嘅，所以「最新值」就係空白。
+    //
+    //    現時嘅分頁層空白保護擋唔到：佢只擋「整張分頁全空」，一旦有人
+    //    填咗其中一個主日，其餘主日就唔再受保護。
+    //
+    //    ⚠️ 只喺**新建**嗰陣做。已經存在嘅分頁一格都唔可以覆蓋——
+    //    覆蓋就等於用週報嘅舊值蓋走同工啱啱喺內容表填嘅嘢。
+    if (ensured.created && isOverridableContentTab_(tabDef)) {
+      var filled = backfillContentTabFromWeeks_(ensured.sheet, tabDef, serviceDates);
+      if (filled > 0) {
+        backfilledTabs.push({ tabName: tabDef.tabName, rows: filled });
+      }
     }
   });
 
@@ -303,8 +324,87 @@ function buildOrRefreshContentSheet_(quarterId, options) {
     serviceDateCount: serviceDates.length,
     seededSample: seededSample,
     sharingApplied: sharingApplied,
-    sharingError: sharingError
+    sharingError: sharingError,
+    backfilledTabs: backfilledTabs
   };
+}
+
+/**
+ * 用途：這一張分頁是不是**第三種模式**（內容表為來源、介面可覆寫）。
+ *   **純函式。**
+ *
+ *   ⚠️ 由 `contentImportTargets_()` 的 `overridable` 推出來，**不在這裏
+ *   另抄一份分頁名單**——抄一份就多一個會不同步的地方。
+ * Args:
+ *   tabDef {Object} `contentSheetTabDefs_()` 其中一項。
+ * Returns:
+ *   {boolean}
+ */
+function isOverridableContentTab_(tabDef) {
+  var name = String((tabDef || {}).tabName || '');
+  var hit = false;
+  contentImportTargets_().forEach(function (def) {
+    if (def.tabName === name && def.overridable === true) hit = true;
+  });
+  return hit;
+}
+
+/**
+ * 用途：**§4.0 的核心**——把 `BulletinWeeks` 該季現有的值，逐行回填到一張
+ *   **剛剛建立**的第三種模式分頁。
+ *
+ *   ⚠️ 這一步做錯的代價是**清空真實資料**：不回填的話，下一次整季匯入
+ *   會把那九欄全部變成空白（新分頁是空的，而規則 2 是「沒有覆寫就跟隨
+ *   內容表最新值」）。
+ *
+ *   ⚠️ **全空的主日不寫行。** 整季只有一個主日是浸禮合堂，其餘十二個
+ *   主日六欄全空——寫十二行空白落去只會令幹事以為要填。
+ * Args:
+ *   sheet {Sheet} 剛剛建立的分頁。
+ *   tabDef {Object} `contentSheetTabDefs_()` 其中一項。
+ *   serviceDates {string[]} 該季主日。
+ * Returns:
+ *   {number} 回填了幾多行。
+ */
+function backfillContentTabFromWeeks_(sheet, tabDef, serviceDates) {
+  // 已經有資料就一格都不碰——這一支只准對全新的空分頁做。
+  if (sheet.getLastRow() >= CONTENT_SHEET_FIRST_DATA_ROW_) return 0;
+
+  var weekByDate = {};
+  readSheet(SHEETS.BULLETIN_WEEKS).forEach(function (w) {
+    weekByDate[formatIsoDate_(w.SERVICE_DATE)] = w;
+  });
+
+  var valueKeys = tabDef.keys.filter(function (k) {
+    return k !== 'SERVICE_DATE' && k !== 'ACTIVE' && k !== 'NOTES';
+  });
+
+  var rows = [];
+  (serviceDates || []).forEach(function (iso) {
+    var week = weekByDate[iso];
+    if (!week) return;
+
+    var row = { SERVICE_DATE: iso, ACTIVE: true, NOTES: '' };
+    var hasAny = false;
+    valueKeys.forEach(function (key) {
+      var v = String(week[key] === null || week[key] === undefined ? '' : week[key]).trim();
+      row[key] = v;
+      if (v !== '') hasAny = true;
+    });
+
+    if (hasAny) rows.push(row);
+  });
+
+  if (rows.length === 0) return 0;
+  writeContentRows_(sheet, tabDef.keys, rows, CONTENT_SHEET_FIRST_DATA_ROW_);
+  appendAuditLog_({
+    action: 'CONTENT_SHEET_BACKFILL',
+    sheetName: SHEETS.CONTENT_SHEETS, rowKey: tabDef.tabName,
+    newValue: String(rows.length),
+    notes: '新分頁「' + tabDef.tabName + '」首次建立，由 BulletinWeeks 回填 '
+      + rows.length + ' 行現有資料——不回填的話，下一次匯入會把那些欄位清空。'
+  });
+  return rows.length;
 }
 
 /**
@@ -721,6 +821,16 @@ function buildContentSheetResultLines_(result) {
     if (result.tabsCreated.length > 0) {
       lines.push('已補回缺少的分頁：' + result.tabsCreated.join('、'));
     }
+  }
+
+  // ⚠️ §4.0：回填了幾多行一定要講出來。幹事撳之前那一刻不知道系統會
+  //    幫他填東西入內容表，見到之後會以為同工已經填過。
+  if ((result.backfilledTabs || []).length > 0) {
+    lines.push('');
+    result.backfilledTabs.forEach(function (b) {
+      lines.push('已由週報回填「' + b.tabName + '」' + b.rows + ' 行現有資料——'
+        + '那幾欄本來就已經填好，回填之後匯入才不會把它們清空。');
+    });
   }
 
   lines.push('');

@@ -73,6 +73,9 @@ var SHEETS = Object.freeze({
   SEND_LOG: 'SendLog',
   ERROR_LOG: 'ErrorLog',
   DUTY_OVERRIDE: 'DutyOverride',
+  // R-043／R-045：第三種欄位模式（內容表為來源、介面可覆寫）的覆寫紀錄。
+  // 與 DutyOverride 同構，規則一條都沒有改，見 src/FieldOverride.gs 檔頭。
+  FIELD_OVERRIDE: 'FieldOverride',
   CONFLICT_NOTICE_LOG: 'ConflictNoticeLog',
   FELLOWSHIP_DEFAULTS: 'FellowshipDefaults',
   FILL_SNAPSHOT: 'FillSnapshot',
@@ -125,7 +128,11 @@ var COLUMNS = Object.freeze({
     headers: [
       '主日日期', '季度', '當月第幾個主日', '特別主日類型', '程序表大標題',
       '程序範本', '序樂', '宣召經文', '宣召出處', '誦讀（覆寫）',
-      '詩歌頌讚', '詩班項目名稱', '詩班曲名', '讀經', '證道講題',
+      // ⚠️ R-046：本來叫「讀經」，與事奉框那個「讀經」（是**人**）同名，
+      //    2026-09-08 實測就是因此漏填了經文而以為已經填好。
+      //    改名只改介面與工作表標題，Word 印出來那個字（ProgramTemplates
+      //    的 ITEM_NAME）**一字不變**。
+      '詩歌頌讚', '詩班項目名稱', '詩班曲名', '讀經經文', '證道講題',
       '回應詩歌', '人數表標題', '人數統計日期',
       '英語堂崇拜', '粵語堂主堂崇拜', '粵語堂北岸崇拜', '華語堂崇拜',
       '英語堂祈禱會', '粵語堂主堂祈禱會', '粵語堂北岸祈禱會', '華語堂祈禱會',
@@ -343,6 +350,29 @@ var COLUMNS = Object.freeze({
     types: [
       'DATE', 'TEXT', 'INT', 'TEXT', 'TEXT',
       'INT', 'DATE', 'TEXT', 'TEXT', 'BOOLEAN', 'TEXT'
+    ]
+  },
+
+  // R-043／R-045：第三種欄位模式的覆寫紀錄。**與 DUTY_OVERRIDE 同構**——
+  // 同樣不刪行（取消覆寫是把 ACTIVE 改 FALSE）、同樣記下覆寫當時來源的值
+  // （衝突判斷完全靠 SOURCE_VALUE_AT_OVERRIDE）。
+  //
+  // ⚠️ 與 DUTY_OVERRIDE 的分別只有一個：這裏的鍵是「主日＋欄位鍵」，
+  // 那邊是「主日＋崗位＋位次」。崗位是「這一格係邊個」，欄位是「這一格
+  // 係咩內容」——兩者不可以合併成一張表，否則 POST_ID 與 FIELD_KEY 會
+  // 撞在同一欄，而兩者的取值來源完全不同。
+  FIELD_OVERRIDE: {
+    headers: [
+      '主日日期', '欄位鍵', '覆寫值', '覆寫時的內容表值',
+      '覆寫時間', '覆寫者', '原因', '有效', '備註'
+    ],
+    keys: [
+      'SERVICE_DATE', 'FIELD_KEY', 'OVERRIDE_VALUE', 'SOURCE_VALUE_AT_OVERRIDE',
+      'OVERRIDE_AT', 'OVERRIDE_BY', 'REASON', 'ACTIVE', 'NOTES'
+    ],
+    types: [
+      'DATE', 'TEXT', 'TEXT', 'TEXT',
+      'DATE', 'TEXT', 'TEXT', 'BOOLEAN', 'TEXT'
     ]
   },
 
@@ -962,6 +992,29 @@ var CONTENT_SHEET_READONLY_FIELDS = Object.freeze({
   // `webAppListDefs_()` 的 key。
   LISTS: Object.freeze(['announcements', 'prayers', 'fellowships', 'finance'])
 });
+
+/**
+ * **第三種欄位模式**（R-043／R-045）：**內容表為來源，介面可覆寫**。
+ *
+ *   與 `CONTENT_SHEET_READONLY_FIELDS.WEEK` 的分別：那些是**唯讀**，
+ *   介面改不到；這些介面改得到，改了就寫一筆 `FieldOverride`，之後匯入
+ *   不會蓋過去（見 src/FieldOverride.gs 檔頭那五條）。
+ *
+ * ⚠️ 三份清單**互不重疊**、合起來覆蓋所有可寫欄位——由
+ * `tests/readonly.test.js` 的三態一致性測試釘住。加欄位的時候三份都要看。
+ *
+ * ⚠️ 浸禮那六欄由 `baptismBoxFieldDefs_()` 衍生**不可以**在這裏抄一份：
+ * 那邊是六欄的單一真相來源。但那支函式在 `BaptismBox.gs`（載入次序在
+ * `Constants.gs` 之後），頂層引用會讀到 `undefined`（事故一），所以這裏
+ * 逐個列出，並由測試釘住兩邊一致。
+ */
+var CONTENT_SHEET_OVERRIDABLE_FIELDS = Object.freeze([
+  // R-043：崇拜程序分頁
+  'SCRIPTURE_REF', 'SERMON_TITLE', 'RESPONSE_HYMN', 'CHOIR_TITLE',
+  // R-045：浸禮合堂分頁（次序同 baptismBoxFieldDefs_()）
+  'BAPTISM_OFFICIANT', 'MEMBERSHIP_OFFICIANT', 'CHILD_DEDICATION_OFFICIANT',
+  'BAPTISM_MEMBERS', 'MEMBERSHIP_MEMBERS', 'CHILD_DEDICATION_CHILDREN'
+]);
 
 /**
  * 唯讀欄位給人看的名稱。拒絕訊息要講得出「是哪一欄」，機器鍵對幹事

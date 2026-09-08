@@ -110,6 +110,20 @@ function buildProgramTable_(week, snapshot) {
       recitationGroups,
       recitationValues,
       '誦讀（資料模型）'
+    ),
+    // ⚠️ R-041：**自動值**——即是「如果不覆寫，會用哪一個」。
+    //    刻意把 `RECITATION_OVERRIDE` 當成空白再算一次，所以它答的一定是
+    //    「自動會是什麼」，不是「現在是什麼」。
+    //
+    //    ⚠️ 前端**不可以**自己重寫一次月份分組：`RECITATION_MONTH_GROUPS`
+    //    是 Config 改得到的，前端寫死一份就等於加了第二個真相來源，
+    //    而 Config 一改，介面顯示的自動值就會靜靜地錯。
+    recitationAuto: resolveRecitationContent_(
+      {},
+      snapshot ? snapshot.isoDate : '',
+      recitationGroups,
+      recitationValues,
+      '誦讀（自動值）'
     )
   };
 }
@@ -250,7 +264,15 @@ function buildProgramTableRows_(input) {
     var fullWidth = row.FULL_WIDTH === true;
     result.push({
       seqNo: row.SEQ_NO,
-      itemName: String(row.ITEM_NAME || ''),
+      // ⚠️ R-044：`CHOIR_LABEL`（詩班項目名稱）本來是**死欄位**——
+      //    `BulletinWeeks` 有欄、格子表有欄、填寫介面有格，但三個 Word
+      //    範本都沒有 `{{CHOIR_LABEL}}`，左欄標題一直來自這裏的 ITEM_NAME。
+      //    幹事填了永遠不見效，而系統一句都沒有講。
+      //
+      //    接法是**覆寫這一行的項目名稱**，不是加一個 Config 預設值：
+      //    加預設值只會變成第三個永遠不生效的來源。空白就照用 ITEM_NAME，
+      //    所以資料格保持空白時輸出完全不變。
+      itemName: programRowItemName_(row, week),
       content: content,
       posture: fullWidth ? '' : String(row.POSTURE || ''),
       fullWidth: fullWidth,
@@ -259,6 +281,28 @@ function buildProgramTableRows_(input) {
   });
 
   return result;
+}
+
+/**
+ * 用途：算出一行程序表**實際印出來**的項目名稱。**純函式。**
+ *
+ *   ⚠️ 目前只有詩班那一行支援覆寫（`CHOIR_LABEL`）。判斷用的是
+ *   「這一行的內容來源是不是 `FIELD:CHOIR_TITLE`」，**不是**比對項目名稱
+ *   字面——比對字面的話，範本改個名（「詩班頌唱」→「詩班獻唱」）就會
+ *   靜靜失效。
+ * Args:
+ *   row {Object} `ProgramTemplates` 那一行。
+ *   week {Object} `BulletinWeeks` 那一行。
+ * Returns:
+ *   {string}
+ */
+function programRowItemName_(row, week) {
+  var itemName = String((row || {}).ITEM_NAME || '');
+  var source = String((row || {}).CONTENT_SOURCE || '').trim().toUpperCase();
+  if (source !== 'FIELD:CHOIR_TITLE') return itemName;
+
+  var label = String(((week || {}).CHOIR_LABEL) || '').trim();
+  return label || itemName;
 }
 
 /**

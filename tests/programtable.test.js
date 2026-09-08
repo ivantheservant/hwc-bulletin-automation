@@ -117,16 +117,49 @@ function templateRow(overrides) {
 // IF_FIELD
 // =====================================================================
 
-test('IF_FIELD:CHOIR_TITLE 有值 → 詩班頌唱出現，內容就是該欄的值', function () {
+// ⚠️ R-044：TPL_NORMAL 的項目名稱由「詩班頌唱」改正為「詩班**獻**唱」
+//    ——三期真週報核對過，平常主日印的是「獻唱」。浸禮合堂那一份仍然是
+//    「頌唱」，兩個範本刻意不同。
+test('IF_FIELD:CHOIR_TITLE 有值 → 詩班獻唱出現，內容就是該欄的值', function () {
   var rows = build({ week: { CHOIR_TITLE: '主是我萬有' } });
-  var row = rowFor(rows, '詩班頌唱');
+  var row = rowFor(rows, '詩班獻唱');
   assert.ok(row, '有詩班曲名時應該出現');
   assert.strictEqual(row.content, '主是我萬有');
 });
 
-test('IF_FIELD:CHOIR_TITLE 空白 → 詩班頌唱不出現', function () {
-  assert.strictEqual(rowFor(build({ week: { CHOIR_TITLE: '' } }), '詩班頌唱'), null);
-  assert.strictEqual(rowFor(build({ week: {} }), '詩班頌唱'), null);
+test('IF_FIELD:CHOIR_TITLE 空白 → 詩班獻唱不出現', function () {
+  assert.strictEqual(rowFor(build({ week: { CHOIR_TITLE: '' } }), '詩班獻唱'), null);
+  assert.strictEqual(rowFor(build({ week: {} }), '詩班獻唱'), null);
+});
+
+// =====================================================================
+// R-044：CHOIR_LABEL 由死欄位接上程序表
+// =====================================================================
+
+test('R-044：CHOIR_LABEL 有值 → 覆寫該行的項目名稱', function () {
+  var rows = build({ week: { CHOIR_TITLE: '羔羊配得', CHOIR_LABEL: '詩班頌唱' } });
+  assert.ok(rowFor(rows, '詩班頌唱'), 'CHOIR_LABEL 應該覆寫項目名稱');
+  assert.strictEqual(rowFor(rows, '詩班獻唱'), null, '覆寫之後不應該再用範本那個名');
+});
+
+test('R-044：CHOIR_LABEL 空白 → 用範本的 ITEM_NAME，資料格保持空白', function () {
+  // ⚠️ 這一條就是 prompt §5.6：資料格空白時輸出「詩班獻唱」，
+  //    **而資料格仍然是空白**——不可以自動寫一個預設值入資料。
+  var week = { CHOIR_TITLE: '羔羊配得', CHOIR_LABEL: '' };
+  var rows = build({ week: week });
+  assert.ok(rowFor(rows, '詩班獻唱'), '空白時要退回範本的項目名稱');
+  assert.strictEqual(week.CHOIR_LABEL, '', '不可以把預設值寫入資料格');
+});
+
+test('R-044：CHOIR_LABEL 只有空白字元 → 當成空白', function () {
+  assert.ok(rowFor(build({ week: { CHOIR_TITLE: '羔羊配得', CHOIR_LABEL: '   ' } }), '詩班獻唱'));
+});
+
+// ⚠️ 判斷用「這一行的內容來源是不是 FIELD:CHOIR_TITLE」，不是比對項目名稱
+//    字面——比對字面的話，範本改個名就會靜靜失效。
+test('R-044：CHOIR_LABEL 不會影響其他行（例如讀經那一行）', function () {
+  var rows = build({ week: { SCRIPTURE_REF: '約 3:16', CHOIR_LABEL: '詩班頌唱' } });
+  assert.ok(rowFor(rows, '讀經'), '讀經那一行的名稱一字都不可以變');
 });
 
 test('IF_FIELD:CHOIR_TITLE 只有空白字元 → 視為空白，不出現', function () {

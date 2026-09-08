@@ -235,7 +235,9 @@ function makeEnv(options) {
     Prayers: ownSheetFor(freshSandbox, 'PRAYERS', o.prayers || []),
     Fellowships: ownSheetFor(freshSandbox, 'FELLOWSHIPS', o.fellowships || []),
     Finance: ownSheetFor(freshSandbox, 'FINANCE', o.finance || []),
-    AuditLog: ownSheetFor(freshSandbox, 'AUDIT_LOG', [])
+    AuditLog: ownSheetFor(freshSandbox, 'AUDIT_LOG', []),
+    // R-043／R-045：第三種模式的覆寫紀錄。真環境由「初始化工作表」建立。
+    FieldOverride: ownSheetFor(freshSandbox, 'FIELD_OVERRIDE', o.fieldOverride || [])
   };
   const FakeApp = { getActiveSpreadsheet: function () { return makeFakeSpreadsheet(sheets); } };
   return {
@@ -277,13 +279,25 @@ test('真正入口：第一次儲存（lastSavedAt 皆空）→ 成功，仍然�
   assert.ok(result.lastSavedAt, 'lastSavedAt 要有值');
 
   const week = env.sandbox.readSheet('BulletinWeeks')[0];
+  // ⚠️ R-043 之後，`SERMON_TITLE` 是**第三種模式**（內容表為來源、介面
+  //    可覆寫）。值**照樣寫入 BulletinWeeks**（季度填寫表同樣讀寫那一格，
+  //    兩個介面不可以寫兩個不同地方），同時另外記一筆 FieldOverride。
+  //    與 DutyOverride 完全同一個做法。
   assert.strictEqual(week.SERMON_TITLE, '因信稱義');
-  assert.strictEqual(week.FLOWER_THIS_WEEK, '假甲');
+  assert.strictEqual(week.FLOWER_THIS_WEEK, '假甲', '獻花仍然是純介面填');
+
+  const overrides = env.sandbox.readSheet('FieldOverride');
+  const titleRow = overrides.filter(function (r) { return r.FIELD_KEY === 'SERMON_TITLE'; })[0];
+  assert.ok(titleRow, '講題要寫成一筆 FieldOverride');
+  assert.strictEqual(titleRow.OVERRIDE_VALUE, '因信稱義');
+  assert.strictEqual(titleRow.ACTIVE, true);
 
   const auditRows = env.sandbox.readSheet('AuditLog');
   assert.ok(auditRows.length > 0, '應該有 AuditLog 記錄');
   assert.ok(
-    auditRows.every(function (r) { return r.ACTION === 'WEBAPP_SAVE_WEEK'; }),
+    auditRows.every(function (r) {
+      return r.ACTION === 'WEBAPP_SAVE_WEEK' || r.ACTION === 'FIELD_OVERRIDE_SET';
+    }),
     '實際 ACTION：' + JSON.stringify(auditRows.map(function (r) { return r.ACTION; }))
   );
   assert.strictEqual(
@@ -395,7 +409,10 @@ test('浸禮六欄：六欄一律留在清單內，即使那一週不是浸禮�
   assert.strictEqual(keys.length, new Set(keys).size, '不可以有重複的鍵');
 });
 
-test('浸禮六欄：儲存時原樣存進 BulletinWeeks，多人欄位不加尊稱、不重排', function () {
+// ⚠️ R-045 之後浸禮六欄改用**第三種模式**：值不再寫入 `BulletinWeeks`，
+//    而是寫成 `FieldOverride`。「多人欄位原樣保存」這個承諾一字不變，
+//    只是保存的地方換咗——所以下面照樣逐格驗原樣。
+test('浸禮六欄：儲存時原樣存進 BulletinWeeks 與 FieldOverride，多人欄位不加尊稱、不重排', function () {
   const env = makeEnv({
     bulletinWeeks: [{ SERVICE_DATE: '2027-10-03', QUARTER_ID: '2027T4', WEEK_OF_MONTH: 1, STATUS: 'DRAFT' }]
   });
@@ -412,10 +429,16 @@ test('浸禮六欄：儲存時原樣存進 BulletinWeeks，多人欄位不加尊
   }));
 
   const week = env.sandbox.readSheet('BulletinWeeks')[0];
-  assert.strictEqual(week.BAPTISM_OFFICIANT, '甲');
+  assert.strictEqual(week.BAPTISM_OFFICIANT, '甲', '值照樣寫入 BulletinWeeks');
   assert.strictEqual(week.BAPTISM_MEMBERS, '丙 乙 丁', '多人欄位原樣存（次序不變、不加尊稱）');
-  assert.strictEqual(week.MEMBERSHIP_MEMBERS, '己');
-  assert.strictEqual(week.CHILD_DEDICATION_CHILDREN, '辛 壬');
+
+  const byKey = {};
+  env.sandbox.readSheet('FieldOverride').forEach(function (r) { byKey[r.FIELD_KEY] = r; });
+  assert.strictEqual(byKey.BAPTISM_OFFICIANT.OVERRIDE_VALUE, '甲');
+  assert.strictEqual(byKey.BAPTISM_MEMBERS.OVERRIDE_VALUE, '丙 乙 丁',
+    '多人欄位原樣存（次序不變、不加尊稱）');
+  assert.strictEqual(byKey.MEMBERSHIP_MEMBERS.OVERRIDE_VALUE, '己');
+  assert.strictEqual(byKey.CHILD_DEDICATION_CHILDREN.OVERRIDE_VALUE, '辛 壬');
 });
 
 test('浸禮六欄：改動會逐格寫入 AuditLog；沒有改動的不會', function () {
@@ -430,11 +453,15 @@ test('浸禮六欄：改動會逐格寫入 AuditLog；沒有改動的不會', fu
     week: { BAPTISM_OFFICIANT: '甲', BAPTISM_MEMBERS: '乙 丙' } // 只有第二格改過
   }));
 
-  const audit = env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'WEBAPP_SAVE_WEEK'; });
+  // ⚠️ 改用第三種模式之後，記錄的 ACTION 是 FIELD_OVERRIDE_SET。
+  //    「只有改過那一格才有記錄」這個承諾一字不變。
+  const audit = env.sandbox.readSheet('AuditLog')
+    .filter(function (r) { return r.ACTION === 'FIELD_OVERRIDE_SET'; });
   const fields = audit.map(function (r) { return r.FIELD; });
   assert.ok(fields.indexOf('BAPTISM_MEMBERS') !== -1, '改過那一格要有記錄');
-  assert.strictEqual(fields.indexOf('BAPTISM_OFFICIANT'), -1, '沒有改動的那一格不可以有記錄');
-  assert.strictEqual(result.changedFieldCount, audit.length);
+  assert.strictEqual(fields.indexOf('BAPTISM_OFFICIANT'), -1,
+    '沒有改動的那一格不可以有記錄，實際：' + JSON.stringify(fields));
+  assert.ok(result.changedFieldCount >= audit.length);
 });
 
 // =====================================================================

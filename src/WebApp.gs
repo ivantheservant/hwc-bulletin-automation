@@ -1378,6 +1378,14 @@ function loadWeekForWebApp_(isoDate) {
     readOnly: {
       dutyBoxPage1: model.dutyBoxPage1,
       nextWeekDuty: model.nextWeekDuty,
+      // ⚠️ R-040：下週事奉由唯讀改為可覆寫。前端要知道**改的是哪一個
+      //    主日**——那一格的 `SERVICE_DATE` 是下一個主日，不是這一週。
+      //    前端不自己由日期加七天：同一個推算只應該有一處。
+      nextWeekIsoDate: model.nextIsoDate || '',
+      // 下一季未建立時，前端要顯示提示，**不可以靜靜當成空白可編輯**
+      // ——填了會寫進一個沒有週報的主日，之後沒有人見得到。
+      nextWeekEditable: (model.nextWeekDuty || []).length > 0,
+      nextWeekNotice: buildNextWeekDutyNotice_(model),
       special: model.special,
       templateId: model.templateId,
       // 前端靠這個旗標決定要不要顯示「浸禮合堂副框」那一段。刻意由伺服器
@@ -1387,6 +1395,9 @@ function loadWeekForWebApp_(isoDate) {
       rosterVersionUsed: model.rosterVersionUsed,
       rosterIsOfficial: model.rosterIsOfficial,
       program: model.program,
+      // R-041：誦讀下拉旁邊顯示「目前自動值：主禱文」。由後端算好——
+      // 月份分組是 Config 改得到的，前端不可以自己算一次。
+      recitationAuto: model.recitationAuto || '',
       // ⚠️ 唯讀欄位清單由**伺服器**送過來，前端不再自己寫一份。
       //    第一輪自測之前這份清單在前端寫死，與後端那一份是兩件會分岔的
       //    東西；分岔的方向如果是「前端少列了一項」，那一欄就會變成看起來
@@ -1421,6 +1432,26 @@ function loadWeekForWebApp_(isoDate) {
     // 季度的定義只應該有一處知道。
     quarterId: model.quarterId
   };
+}
+
+/**
+ * 用途：**R-040**——「下週事奉」改不到的時候，那一句提示寫什麼。
+ *   **純函式。**
+ *
+ *   ⚠️ 「下一季未建立」是**很正常**的狀況（季末最後一個主日必然遇到），
+ *   不是錯誤。文案要講得出下一步，而不是報一句紅色的失敗。
+ * Args:
+ *   model {Object} `buildBulletinModel_()` 的回傳值。
+ * Returns:
+ *   {string} 可以編輯時回空字串（前端就不顯示提示）。
+ */
+function buildNextWeekDutyNotice_(model) {
+  if ((model.nextWeekDuty || []).length > 0) return '';
+  var nextIso = String((model || {}).nextIsoDate || '');
+  return '下一個主日（' + (nextIso || '？') + '）尚未在職事表出現，'
+    + '多數是因為下一季還沒有生成。這一區暫時改不到——'
+    + '等下一季的職事表出咗，再開這一頁就可以填。'
+    + '（週報照樣產生得到，下週事奉那一欄會留白。）';
 }
 
 /**

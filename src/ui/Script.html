@@ -36,6 +36,10 @@
     // 伺服器，由 computeDutyOverridePlan_() 決定哪幾格真的需要寫
     // DutyOverride（與職事表現值相同的格子不會產生記錄）。
     dutyEdits: {},
+    // R-040：下週事奉那一框的編輯。**刻意與 dutyEdits 分開**——共用一個
+    // map 的話，同一個崗位在兩框各有一格，後者會蓋走前者，而後端亦分不出
+    // 應該用哪一個主日去寫。
+    nextWeekDutyEdits: {},
     // 「由職事表重新取數」對話框目前列出的候選項目。
     fetchCandidates: [],
     // R-038：「季度作業」區塊的現況（季度、DRY_RUN、內容表）。
@@ -409,8 +413,74 @@
     }
 
     renderEditableDutyBox(readOnly.dutyBoxPage1);
-    renderDutyTable('nextWeekDutyBody', readOnly.nextWeekDuty);
+    renderNextWeekDutyBox(readOnly);
     applyBaptismPanelVisibility(readOnly.isBaptismSunday === true);
+
+    // R-041：誦讀下拉旁邊的「目前自動值」。由後端算好——月份分組是
+    // Config 改得到的，前端自己算一次就會有第二個真相來源。
+    var autoHint = document.getElementById('recitationAutoHint');
+    autoHint.textContent = readOnly.recitationAuto
+      ? ('目前自動值：' + readOnly.recitationAuto)
+      : '';
+
+    // R-044：詩班項目名稱留空時，顯示範本現時會印的那一個。
+    var choirInput = document.getElementById('choirLabelInput');
+    if (choirInput) {
+      var choirRow = (readOnly.program || []).filter(function (r) {
+        return String(r.content || '') === String(state.week.CHOIR_TITLE || '')
+          && String(state.week.CHOIR_TITLE || '') !== '';
+      })[0];
+      choirInput.placeholder = choirRow ? ('預設：' + choirRow.itemName) : '留空就用範本預設值';
+    }
+  }
+
+  /**
+   * 用途：**R-040**——渲染「下週事奉」，可編輯。
+   *
+   *   ⚠️ 改的是**下一個主日**那一筆 `DutyOverride`，所以收集出來的編輯
+   *   要另外送（`nextWeekDutyEdits`），不可以混入 `dutyEdits`——混入的話
+   *   後端會用這一週的日期去寫，兩個畫面各存一筆，外表完全正常，
+   *   只是永遠對不上。
+   *
+   *   ⚠️ 下一季未建立時**不可以扮成空白可編輯**：填了會寫進一個沒有週報
+   *   的主日，之後沒有人見得到。改為顯示伺服器算好那一句提示。
+   * Args:
+   *   readOnly {Object} `apiLoadWeek()` 回傳的 `readOnly`。
+   * Returns:
+   *   {void}
+   */
+  function renderNextWeekDutyBox(readOnly) {
+    var container = document.getElementById('nextWeekDutyBody');
+    var notice = document.getElementById('nextWeekDutyNotice');
+    container.innerHTML = '';
+    state.nextWeekDutyEdits = {};
+
+    document.getElementById('nextWeekDutyDate').textContent =
+      readOnly.nextWeekIsoDate ? ('下一個主日：' + readOnly.nextWeekIsoDate) : '';
+
+    if (readOnly.nextWeekEditable !== true) {
+      notice.textContent = readOnly.nextWeekNotice || '下一個主日暫時未有職事表資料。';
+      notice.classList.remove('hidden');
+      return;
+    }
+    notice.classList.add('hidden');
+
+    (readOnly.nextWeekDuty || []).forEach(function (row) {
+      var rowEl = el('div', 'duty-row');
+      if (row.status === 'CONFLICT') rowEl.classList.add('is-conflict');
+      else if (row.hasOverride) rowEl.classList.add('is-overridden');
+
+      var labelEl = el('div', 'duty-row-label');
+      labelEl.textContent = row.label;
+      rowEl.appendChild(labelEl);
+
+      var slotsWrap = el('div', 'duty-row-slots');
+      (row.slots || []).forEach(function (slot) {
+        slotsWrap.appendChild(buildDutySlotRow(slot, rowEl, state.nextWeekDutyEdits));
+      });
+      rowEl.appendChild(slotsWrap);
+      container.appendChild(rowEl);
+    });
   }
 
   // =====================================================================
@@ -616,7 +686,7 @@
 
       var slotsWrap = el('div', 'duty-row-slots');
       (row.slots || []).forEach(function (slot) {
-        slotsWrap.appendChild(buildDutySlotRow(slot, rowEl));
+        slotsWrap.appendChild(buildDutySlotRow(slot, rowEl, state.dutyEdits));
       });
       rowEl.appendChild(slotsWrap);
 
@@ -632,10 +702,22 @@
    * Returns:
    *   {HTMLElement}
    */
-  function buildDutySlotRow(slot, rowEl) {
+  function buildDutySlotRow(slot, rowEl, editsMap) {
     var wrap = el('div', 'duty-slot');
     var key = slot.postId + '#' + slot.slotIndex;
-    state.dutyEdits[key] = { postId: slot.postId, slotIndex: slot.slotIndex, name: slot.bulletinName };
+    // ⚠️ R-040：本週與下週兩個事奉框共用這一支，但**各自一個 edits map**
+    //    ——共用一個的話，下週那一格會蓋走本週同一個崗位那一格。
+    var edits = editsMap || state.dutyEdits;
+    edits[key] = { postId: slot.postId, slotIndex: slot.slotIndex, name: slot.bulletinName };
+
+    // ⚠️ R-039：**逐格**標示「已覆寫」。本來只有整行有橙色左邊，
+    //    而一行可以有幾格（例如司事 #1 #2 #3）——幹事分不出係邊一格
+    //    自己改過。CONFLICT 的紅底維持原狀，不改。
+    if (slot.status !== 'CONFLICT' && slot.hasOverride) {
+      wrap.classList.add('is-overridden');
+      wrap.title = '這一格是人手覆寫的（職事表現值：'
+        + (slot.rosterName || '（未排定）') + '）。撳「還原」可以改回跟隨職事表。';
+    }
 
     var input = el('input');
     input.type = 'text';
@@ -644,7 +726,7 @@
 
     var restoreBtn = makeSmallButton('還原', function () {
       input.value = slot.rosterName || '';
-      state.dutyEdits[key].name = input.value;
+      edits[key].name = input.value;
       refreshSlotMarkers();
     });
     restoreBtn.title = '把這一格改回職事表現時的值';
@@ -665,8 +747,13 @@
 
     input.dataset.rosterName = slot.rosterName || '';
     input.addEventListener('input', function () {
-      state.dutyEdits[key].name = input.value;
+      edits[key].name = input.value;
       refreshSlotMarkers();
+      // R-039：改到與職事表不同就即時加上逐格標示。
+      if (!wrap.classList.contains('is-conflict')) {
+        wrap.classList.toggle('is-overridden',
+          String(input.value || '').trim() !== String(slot.rosterName || '').trim());
+      }
     });
 
     wrap.appendChild(input);
@@ -875,10 +962,43 @@
   // =====================================================================
 
   function renderStats(missing, warnings, lastSavedAt) {
-    document.getElementById('statMissing').textContent = '待填 ' + (missing ? missing.length : 0) + ' 項';
+    // ⚠️ D-10：徽章那個數字**只數「一定要填」那一段**。
+    //    獻花、翻譯這類正常就是空白的欄位永遠清不掉，一個永遠不會變零的
+    //    數字等於沒有數字。它們仍然在下面的清單列出來，只是不計入。
+    var list = missing || [];
+    var required = list.filter(function (m) { return !m.optional; });
+    var optional = list.filter(function (m) { return m.optional; });
+
+    document.getElementById('statMissing').textContent = '待填 ' + required.length + ' 項'
+      + (optional.length > 0 ? '（另有 ' + optional.length + ' 項通常空白）' : '');
     document.getElementById('statWarnings').textContent = '警告 ' + (warnings ? warnings.length : 0) + ' 項';
     document.getElementById('statSaved').textContent = '最後儲存時間：' + formatTimestamp(lastSavedAt);
-    renderMissingPanel(missing);
+    renderMissingPanel(required, optional);
+    renderWarningsPanel(warnings);
+  }
+
+  /**
+   * 用途：**D-11**——「警告 N 項」撳開之後的清單。
+   *
+   *   ⚠️ 本來這個徽章不可以撳、也沒有 title，所以警告的內容**完全看不到**
+   *   ——只見到一個數字，而數字本身講不出任何東西。與「待填」「衝突」
+   *   兩個徽章看齊。
+   * Args:
+   *   warnings {Object[]} `apiLoadWeek()` 回傳的 `warnings`。
+   * Returns:
+   *   {void}
+   */
+  function renderWarningsPanel(warnings) {
+    var panel = document.getElementById('warningsPanel');
+    var list = warnings || [];
+    if (list.length === 0) {
+      panel.innerHTML = '（目前沒有警告）';
+      return;
+    }
+    panel.innerHTML = '<ul>' + list.map(function (w) {
+      var code = w.code ? ('<code>' + escapeHtml(w.code) + '</code>　') : '';
+      return '<li>' + code + escapeHtml(w.message || String(w)) + '</li>';
+    }).join('') + '</ul>';
   }
 
   /**
@@ -913,15 +1033,34 @@
       + '</ul><div>本系統不會改動職事表。如果週報的版本才是正確的，請自行到職事表更正。</div>';
   }
 
-  function renderMissingPanel(missing) {
+  function renderMissingPanel(required, optional) {
     var panel = document.getElementById('missingPanel');
-    if (!missing || missing.length === 0) {
+    var req = required || [];
+    var opt = optional || [];
+
+    if (req.length === 0 && opt.length === 0) {
       panel.innerHTML = '（目前沒有待填項目）';
       return;
     }
-    var html = '<ul>' + missing.map(function (m) {
-      return '<li>' + escapeHtml(m.label) + '：' + escapeHtml(m.reason) + '</li>';
-    }).join('') + '</ul>';
+
+    function itemsHtml(items) {
+      return '<ul>' + items.map(function (m) {
+        return '<li>' + escapeHtml(m.label) + '：' + escapeHtml(m.reason) + '</li>';
+      }).join('') + '</ul>';
+    }
+
+    var html = '';
+    // ⚠️ D-10：兩段刻意都列出來。第二段不計入徽章，但**看得見**——
+    //    「正常空白」與「漏填」本來就不是二元的，真的漏填了獻花也有可能。
+    if (req.length > 0) {
+      html += '<div><strong>一定要填（' + req.length + ' 項）：</strong></div>' + itemsHtml(req);
+    } else {
+      html += '<div><strong>一定要填的都已經填好了。</strong></div>';
+    }
+    if (opt.length > 0) {
+      html += '<div class="missing-optional-head"><strong>通常空白，有就填（'
+        + opt.length + ' 項）：</strong>這幾項不計入上面那個數字。</div>' + itemsHtml(opt);
+    }
     panel.innerHTML = html;
   }
 
@@ -1081,7 +1220,10 @@
       isoDate: state.isoDate,
       lastSavedAt: state.lastSavedAt,
       week: week,
-      dutyEdits: Object.keys(state.dutyEdits).map(function (k) { return state.dutyEdits[k]; })
+      dutyEdits: Object.keys(state.dutyEdits).map(function (k) { return state.dutyEdits[k]; }),
+      // R-040：送去後端之後，後端會用**下一個主日**的日期寫 DutyOverride。
+      nextWeekDutyEdits: Object.keys(state.nextWeekDutyEdits)
+        .map(function (k) { return state.nextWeekDutyEdits[k]; })
     };
   }
 
@@ -1134,6 +1276,30 @@
     var msg = resp.data.message;
     showMessage(msg.type, msg.text);
     loadWeek(state.isoDate, { keepMessage: true });
+
+    // ⚠️ D-9：主日下拉的「待填 N 項」標籤要一併刷新。
+    //    本來只有頂部徽章更新，下拉仍然顯示儲存之前那個數字——同一個狀態
+    //    有兩個來源，而兩個對不上的時候，幹事會信下拉那個（它比較顯眼）。
+    refreshWeekSelectorLabels();
+  }
+
+  /**
+   * 用途：**D-9**——重新拿一次主日清單，只為了更新下拉的狀態標籤。
+   *
+   *   ⚠️ 用 `busy:'preview'`：這是一個背景刷新，不應該把整個介面鎖住。
+   *   失敗也不出紅色橫幅——標籤舊咗一次不是錯誤，而剛剛那個儲存是成功的，
+   *   彈一句紅色訊息只會令人以為儲存失敗。
+   * Returns:
+   *   {void}
+   */
+  function refreshWeekSelectorLabels() {
+    callServer('apiListWeeks', [state.showArchived], function (resp) {
+      if (!resp.ok || !resp.data) return;
+      populateWeekSelectors(resp.data, state.isoDate);
+    }, {
+      busy: 'preview',
+      onError: function () { /* 標籤舊咗一次不是錯誤，靜靜略過 */ }
+    });
   }
 
   // =====================================================================
@@ -1876,6 +2042,10 @@
     document.getElementById('reloadRosterBtn').addEventListener('click', reloadRosterOnly);
     document.getElementById('statMissing').addEventListener('click', function () {
       document.getElementById('missingPanel').classList.toggle('hidden');
+    });
+    // D-11：警告徽章與另外兩個看齊。
+    document.getElementById('statWarnings').addEventListener('click', function () {
+      document.getElementById('warningsPanel').classList.toggle('hidden');
     });
     document.getElementById('statConflicts').addEventListener('click', function () {
       document.getElementById('conflictPanel').classList.toggle('hidden');
