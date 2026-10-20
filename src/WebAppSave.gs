@@ -31,7 +31,10 @@
  * {
  *   isoDate: 'yyyy-MM-dd',
  *   lastSavedAt: (Date|string|null),   // apiLoadWeek() 回傳的原值，原樣送回
- *   week: {                            // BulletinWeeks 可編輯欄位，見 webAppWeekFieldKeys_()
+ *   baseWeek: {...},                   // 必填。下面 week 內每個欄位「載入時」的值；沒有就是舊版前端，
+ *                                      // 整次拒絕（CLIENT_OUTDATED）
+ *   week: {                            // 只放使用者真的改過的欄位（沒出現＝沒有改），
+ *                                      // 可選的鍵見 webAppWeekFieldKeys_()
  *     PAGE_TITLE, PROGRAM_TEMPLATE_ID, PRELUDE, CALL_TEXT, CALL_REF,
  *     RECITATION_OVERRIDE, HYMN_PRAISE, CHOIR_LABEL, CHOIR_TITLE,
  *     SCRIPTURE_REF, SERMON_TITLE, RESPONSE_HYMN,
@@ -95,6 +98,40 @@ function webAppWeekFieldKeys_() {
     // 清單剔走，非浸禮主日儲存一次就會把既有的浸禮資料洗掉（例如幹事把
     // 某一週的範本由浸禮改回平常再改返），而且完全沒有提示。
   ].concat(baptismBoxFieldKeys_());
+}
+
+/**
+ * 用途：填寫介面上每個 `BulletinWeeks` 欄位的中文名稱（與 `src/ui/Index.html`
+ *   的標籤一致），`FIELD_CONFLICT` 的錯誤訊息要用。使用者看不懂機器鍵，
+ *   訊息講「PRELUDE」等於沒有講。
+ *
+ *   ⚠️ 改了介面標籤要同步改這裡；`tests/webappsave.test.js` 有一條測試
+ *   確保 `webAppWeekFieldKeys_()` 每一個鍵都有名稱。
+ * Args: （無）
+ * Returns:
+ *   {Object<string,string>} 機器鍵 → 中文名稱。
+ */
+function webAppWeekFieldLabels_() {
+  var labels = {
+    PAGE_TITLE: '程序表大標題', PROGRAM_TEMPLATE_ID: '程序範本', PRELUDE: '序樂',
+    CALL_TEXT: '宣召經文', CALL_REF: '宣召出處', RECITATION_OVERRIDE: '誦讀（覆寫）',
+    HYMN_PRAISE: '詩歌頌讚', CHOIR_LABEL: '詩班項目名稱', CHOIR_TITLE: '詩班曲名',
+    SCRIPTURE_REF: '讀經經文', SERMON_TITLE: '證道講題', RESPONSE_HYMN: '回應詩歌',
+    ATTENDANCE_HEADING: '人數表標題', ATTENDANCE_DATE: '人數統計日期',
+    FLOWER_THIS_WEEK: '本週獻花', FLOWER_NEXT_WEEK: '下週獻花', NEXT_WEEK_HEADING: '下週事奉標題',
+    PRAYER_BLOCK_HEADING: '代禱區塊標題',
+    BAPTISM_OFFICIANT: '浸禮主禮', BAPTISM_MEMBERS: '受浸肢體',
+    MEMBERSHIP_OFFICIANT: '入會禮主禮', MEMBERSHIP_MEMBERS: '入會肢體',
+    CHILD_DEDICATION_OFFICIANT: '孩童奉獻禮主禮', CHILD_DEDICATION_CHILDREN: '奉獻孩童'
+  };
+  var attGroups = { WORSHIP: '崇拜', PRAYER: '祈禱會', CHILD: '兒童' };
+  var attColumns = { ENG: '英語堂', CANE: '粵語堂（英）', CANN: '粵語堂（粵）', MAN: '國語堂' };
+  Object.keys(attGroups).forEach(function (g) {
+    Object.keys(attColumns).forEach(function (c) {
+      labels['ATT_' + c + '_' + g] = '人數統計：' + attGroups[g] + '・' + attColumns[c];
+    });
+  });
+  return labels;
 }
 
 /**
@@ -340,27 +377,105 @@ function computeListUpsertPlan_(existingRows, payloadItems, fieldKeys) {
 }
 
 /**
- * 用途：整份儲存請求的純函式層。先做樂觀鎖檢查（不符直接拋錯，一個格
- *   都不會算進後面的計畫），再算出週欄位的異動與四張清單的 upsert 計畫。
+ * 用途：判斷一個值是不是「有出現」的欄位值——`payload.week` 與
+ *   `payload.baseWeek` 只放使用者真的改過的欄位，沒有出現的鍵代表「這次
+ *   沒有改」，不是「改成空白」。
+ * Args:
+ *   obj {?Object}　key {string}
+ * Returns:
+ *   {boolean}
+ */
+function weekPayloadHasKey_(obj, key) {
+  return !!obj && Object.prototype.hasOwnProperty.call(obj, key);
+}
+
+/**
+ * 用途：替「由程式叫儲存入口」的呼叫方（自測機、亂行測試）算出 `baseWeek`：
+ *   `week` 內每個欄位在**載入時**的值，取自 `loadWeekForWebApp_()` 回傳的
+ *   `week`。填寫介面自己的前端有同樣的邏輯（`diffWeekFields()`）。
+ *
+ *   載入結果裡沒有這個鍵時當作空白，與 `fieldsEqual_()` 把空值視為同一個
+ *   「空」一致。
+ * Args:
+ *   loadedWeek {?Object} `loadWeekForWebApp_(isoDate).week`。
+ *   patchWeek {Object} 準備送去儲存的 `week`。
+ * Returns:
+ *   {Object} 鍵與 `patchWeek` 完全相同。
+ */
+function baseWeekFor_(loadedWeek, patchWeek) {
+  var base = {};
+  Object.keys(patchWeek || {}).forEach(function (key) {
+    var v = loadedWeek ? loadedWeek[key] : undefined;
+    base[key] = (v === null || v === undefined) ? '' : v;
+  });
+  return base;
+}
+
+/**
+ * 用途：判斷 payload 有沒有帶 `baseWeek`。`null`／陣列／字串／數字一律當作
+ *   沒有——缺失不可以被當成「沒有任何欄位改動」而放行。`saveWeekFromWebApp_()`
+ *   與 `buildSaveOperations_()` 共用這一個判斷，不各寫一套。
+ * Args:
+ *   baseWeek {*} 。
+ * Returns:
+ *   {boolean}
+ */
+function hasBaseWeek_(baseWeek) {
+  return !!baseWeek && typeof baseWeek === 'object' && !Array.isArray(baseWeek);
+}
+
+/**
+ * 用途：整份儲存請求的純函式層。先做 `baseWeek` 與樂觀鎖檢查（不符直接拋
+ *   錯，一個格都不會算進後面的計畫），再用**三方比較**算出週欄位的異動與
+ *   四張清單的 upsert 計畫。
+ *
+ * ─────────────────────────────────────────────────────────────────────
+ * 為甚麼是三方比較（docs/已知bug類型.md 事故四十八）
+ * ─────────────────────────────────────────────────────────────────────
+ *
+ * 前端只送「使用者真的改過」的欄位（`payload.week`），另外送那些欄位
+ * **載入時**的值（`payload.baseWeek`）。對每一個送來的欄位，有三個值：
+ *
+ *   | 工作表現值 | 結果 |
+ *   |---|---|
+ *   | = 送來的值 | 不用寫（別處已經是這個值） |
+ *   | = baseWeek 的值 | 照寫（載入之後沒有人動過這一格） |
+ *   | 兩者都不等 | 別人在載入之後改過同一格 ⇒ **整次拒絕**（`FIELD_CONFLICT`） |
+ *
+ * 只比「表單值 vs 工作表現值」的兩方比較分不出「使用者改過」與「表單上
+ * 是舊值」，舊分頁一儲存就會把觸發器、匯入剛寫入的值蓋回舊值。
+ *
+ * ⚠️ 有任何一格衝突，**一格都不寫**——拋錯發生在套用計畫之前。
  * Args:
  *   input {{currentWeek:(Object|null), payload:Object, existingLists:Object}}
  *     `currentWeek` 是目前 `BulletinWeeks` 該主日那一行（帶 `__rowNo`），
  *     沒有該行時傳 `null`；`payload` 見檔頭的 payload 形狀說明，其中
- *     `payload.week` 必須是**已經正規化過**的值（`DATE` 型別欄位已經是
- *     `Date` 或 `null`，見 `normalizeWeekPayloadForCompare_()`）；
- *     `existingLists` 是四個清單目前的資料列（`{announcements, prayers,
- *     fellowships, finance}`，每個元素帶 `__rowNo`）。
+ *     `payload.week` 與 `payload.baseWeek` 必須是**已經正規化過**的值
+ *     （`DATE` 型別欄位已經是 `Date` 或 `null`，見
+ *     `normalizeWeekPayloadForCompare_()`）；`existingLists` 是四個清單
+ *     目前的資料列。
  * Returns:
  *   {{weekChanges:Object[], listPlans:Object<string,Object>}}
+ *     `weekChanges` 每個元素 `{field, oldValue, newValue}`，只含真的要寫的欄位。
  * Raises:
+ *   Error（`code:'CLIENT_OUTDATED'`）如果 payload 沒有 `baseWeek`（舊版
+ *     前端，仍然送整張表單）——不可以退回舊的整張寫入。
  *   Error（`code:'STALE'`）如果樂觀鎖不符。訊息**同時包含兩個時間**
- *     （工作表上目前的最後儲存時間、payload 帶來的載入時版本時間），
- *     不再只講一句「有人改過」卻不講是什麼時候——真正 STALE 時，這兩個
- *     時間點對使用者判斷「要不要覆蓋」是必要資訊。
+ *     （工作表上目前的最後儲存時間、payload 帶來的載入時版本時間）。
+ *   Error（`code:'FIELD_CONFLICT'`）如果有欄位在使用者載入之後已被別處
+ *     改過；`err.conflictFields` 是機器鍵清單。
  */
 function buildSaveOperations_(input) {
   var payload = input.payload || {};
   var currentWeek = input.currentWeek || null;
+
+  // ⚠️ 沒有 baseWeek ＝ 舊版前端（未重新載入的分頁）。`null`／陣列／非物件
+  // 一律當作沒有——缺失不可以被當成「沒有任何欄位改動」而放行。
+  if (!hasBaseWeek_(payload.baseWeek)) {
+    var outdated = new Error('介面版本已更新，請重新載入這一頁再儲存。');
+    outdated.code = 'CLIENT_OUTDATED';
+    throw outdated;
+  }
 
   var currentToken = canonicalSaveToken_(currentWeek ? currentWeek.LAST_SAVED_AT : null);
   var payloadToken = canonicalSaveToken_(payload.lastSavedAt);
@@ -375,7 +490,36 @@ function buildSaveOperations_(input) {
     throw err;
   }
 
-  var weekChanges = computeFieldDiff_(currentWeek || {}, payload.week || {}, webAppEditableWeekFieldKeys_());
+  var week = payload.week || {};
+  var baseWeek = payload.baseWeek;
+  var current = currentWeek || {};
+  var weekChanges = [];
+  var conflictFields = [];
+
+  // 只看 payload 內有出現的欄位；沒有出現的欄位一律不碰。
+  webAppEditableWeekFieldKeys_().forEach(function (key) {
+    if (!weekPayloadHasKey_(week, key)) return;
+    var currentValue = current[key];
+    var sentValue = week[key];
+    if (fieldsEqual_(currentValue, sentValue)) return;
+    if (fieldsEqual_(currentValue, baseWeek[key])) {
+      weekChanges.push({ field: key, oldValue: currentValue, newValue: sentValue });
+      return;
+    }
+    conflictFields.push(key);
+  });
+
+  if (conflictFields.length > 0) {
+    var labels = webAppWeekFieldLabels_();
+    var names = conflictFields.map(function (key) { return labels[key] || key; });
+    var conflict = new Error(
+      '以下欄位在你載入之後已經被改過（可能是季度填寫表、內容表匯入或另一個分頁）：'
+      + names.join('、') + '。請重新載入再改，以免蓋走別人的修改。'
+    );
+    conflict.code = 'FIELD_CONFLICT';
+    conflict.conflictFields = conflictFields;
+    throw conflict;
+  }
 
   // ⚠️ R-011 起，四張清單（家事報告／代禱事項／團契聚會／財政報告）**全部
   // 改由內容表輸入**，填寫介面一行都不會再送。所以這裡**完全不處理清單**，
@@ -391,16 +535,24 @@ function buildSaveOperations_(input) {
 }
 
 /**
- * 用途：把前端送來的 `payload.week` 正規化成可以拿去跟工作表現有值比較
- *   的形狀——`BulletinWeeks` 型別是 `DATE` 的欄位（目前只有
- *   `ATTENDANCE_DATE`）轉成 `Date`／`null`，其餘欄位缺少的一律補成 `''`。
+ * 用途：把前端送來的 `payload.week`（或 `payload.baseWeek`）正規化成可以
+ *   拿去跟工作表現有值比較的形狀——`BulletinWeeks` 型別是 `DATE` 的欄位
+ *   （目前只有 `ATTENDANCE_DATE`）轉成 `Date`／`null`，其餘欄位的
+ *   `null`／`undefined` 轉成 `''`。
+ *
+ *   ⚠️ **只處理 payload 內有出現的鍵**。前端現時只送使用者改過的欄位，
+ *   沒有出現的鍵代表「沒有改」；若像舊版一樣把缺少的鍵補成 `''`，一個
+ *   只改了獻花的 payload 就會把其餘欄位全部清空。
+ *   `createWeekRow_()`（防呆補行）讀 `normalizedWeek[key]` 時，未出現的
+ *   鍵本來就是 `undefined`，它自己把 `undefined` 當空白，不受影響。
+ *
  *   分離出這個函式，是因為前端經 `google.script.run` 傳回來的日期通常是
  *   `yyyy-MM-dd` 文字，而工作表讀出來的是 `Date` 物件——`fieldsEqual_()`
  *   對 `Date` 有專門的比較邏輯，兩邊型別要先對齊才比得出「真的有沒有變」。
  * Args:
- *   rawWeek {Object} `payload.week`。
+ *   rawWeek {?Object} `payload.week` 或 `payload.baseWeek`。
  * Returns:
- *   {Object} 只含 `webAppWeekFieldKeys_()` 列出的欄位。
+ *   {Object} 只含 `webAppWeekFieldKeys_()` 列出、而且 `rawWeek` 內有出現的欄位。
  * Raises:
  *   Error 如果 `ATTENDANCE_DATE` 有值但不是合法的 `yyyy-MM-dd`（`normalizeDate_()`
  *     原樣拋出）。
@@ -412,6 +564,7 @@ function normalizeWeekPayloadForCompare_(rawWeek) {
   var types = COLUMNS.BULLETIN_WEEKS.types;
 
   webAppWeekFieldKeys_().forEach(function (key) {
+    if (!weekPayloadHasKey_(week, key)) return;
     var idx = keys.indexOf(key);
     var type = idx === -1 ? 'TEXT' : types[idx];
     var raw = week[key];
@@ -611,8 +764,12 @@ function assertContentSheetFieldsNotSubmitted_(payload) {
  * 用途：`apiSaveWeek()` 的真正入口。讀現有工作表狀態、呼叫純函式層算出
  *   異動計畫、把計畫套用到 `BulletinWeeks`／四張清單／`AuditLog`。
  *
- *   樂觀鎖不符時（`buildSaveOperations_()` 拋錯）**不會執行任何寫入**——
- *   拋錯發生在讀完現有狀態、套用計畫之前。
+ *   樂觀鎖不符、欄位衝突或前端版本過舊時（`buildSaveOperations_()` 拋錯）
+ *   **不會執行任何寫入**——拋錯發生在讀完現有狀態、套用計畫之前。
+ *
+ *   欄位、事奉覆寫、下週事奉覆寫、第三種欄位覆寫**全部沒有改動**時，
+ *   不寫 `LAST_SAVED_AT`，回傳原本的 token（見 F2：沒有改動的儲存若也更新
+ *   token，另一個分頁就會被無辜地判成 STALE）。
  * Args:
  *   payload {Object} 見本檔案檔頭的 payload 形狀說明。
  * Returns:
@@ -626,7 +783,9 @@ function assertContentSheetFieldsNotSubmitted_(payload) {
  *     文案分支放在這裡才測得到）。
  * Raises:
  *   Error 如果 `payload.isoDate` 缺漏或格式不對；Error（`code:'STALE'`）
- *     如果樂觀鎖不符，此時**不會執行任何寫入**。
+ *     如果樂觀鎖不符；Error（`code:'FIELD_CONFLICT'`）如果有欄位在載入之後
+ *     已被別處改過；Error（`code:'CLIENT_OUTDATED'`）如果 payload 沒有
+ *     `baseWeek`。這三種情況都**不會執行任何寫入**。
  */
 function saveWeekFromWebApp_(payload) {
   if (!payload || !payload.isoDate) {
@@ -644,6 +803,7 @@ function saveWeekFromWebApp_(payload) {
   assertContentSheetFieldsNotSubmitted_(payload);
 
   var normalizedWeek = normalizeWeekPayloadForCompare_(payload.week);
+  var normalizedBaseWeek = normalizeWeekPayloadForCompare_(payload.baseWeek);
 
   var weekRowInfo = readBulletinWeekRowWithRowNo_(isoDate);
   var listDefs = webAppListDefs_();
@@ -654,7 +814,12 @@ function saveWeekFromWebApp_(payload) {
 
   var ops = buildSaveOperations_({
     currentWeek: weekRowInfo,
-    payload: Object.assign({}, payload, { week: normalizedWeek }),
+    // `baseWeek` 沒有出現（舊版前端）時要保持 `undefined`，讓
+    // `buildSaveOperations_()` 拒絕；不可以在這裡補成空物件而被當成有。
+    payload: Object.assign({}, payload, {
+      week: normalizedWeek,
+      baseWeek: hasBaseWeek_(payload.baseWeek) ? normalizedBaseWeek : undefined
+    }),
     existingLists: existingLists
   });
 
@@ -703,8 +868,16 @@ function saveWeekFromWebApp_(payload) {
   applyFieldOverridesFromPayload_(isoDate, targetDate, normalizedWeek,
     weekRowInfo || {}, auditEntries);
 
-  var newTimestamp = new Date();
-  writeWeekCell_(weekRowInfo.__rowNo, 'LAST_SAVED_AT', newTimestamp);
+  // ⚠️ F2：完全沒有改動就不更新 `LAST_SAVED_AT`。`auditEntries` 是欄位、
+  //    兩種事奉覆寫、第三種欄位覆寫共用的累積陣列，「有沒有改動」與
+  //    訊息裡的數字用同一個來源（`auditEntries.length`）。
+  var hasChanges = auditEntries.length > 0;
+  var savedToken = canonicalSaveToken_(weekRowInfo ? weekRowInfo.LAST_SAVED_AT : null);
+  if (hasChanges) {
+    var newTimestamp = new Date();
+    writeWeekCell_(weekRowInfo.__rowNo, 'LAST_SAVED_AT', newTimestamp);
+    savedToken = canonicalSaveToken_(newTimestamp);
+  }
 
   auditEntries.forEach(function (entry) { appendAuditLog_(entry); });
 
@@ -719,7 +892,7 @@ function saveWeekFromWebApp_(payload) {
   refreshFillSnapshotAfterSave_(isoDate, ops.weekChanges);
 
   return {
-    lastSavedAt: canonicalSaveToken_(newTimestamp),
+    lastSavedAt: savedToken,
     changedFieldCount: auditEntries.length,
     message: buildSaveResultMessage_(auditEntries.length)
   };

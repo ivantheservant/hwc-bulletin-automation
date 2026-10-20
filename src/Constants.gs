@@ -798,8 +798,8 @@ var DEFAULTS = Object.freeze([
   { key: CONFIG_KEYS.PUBLISH_DEDUP_SEC, value: '30', note: '同一個主日在幾多秒內重複發佈會被視為「撳多了一次」，直接回報上一次的版本號，不再產生新版本' },
   { key: CONFIG_KEYS.WEBAPP_CALL_TIMEOUT_SEC, value: '120', note: '填寫介面等候伺服器回應的上限（秒）；超過就顯示逾時訊息，不會一直轉圈' },
   { key: CONFIG_KEYS.TEST_MODE_BANNER, value: '', note: '填寫介面頂部要顯示的藍色提示文字（例如「這是測試系統，資料可以隨便改」）；留空就不顯示這一條橫幅' },
-  { key: CONFIG_KEYS.SELFTEST_QUARTER_ID, value: '2030T1', note: '⚠️ 自測機的沙盒季度：自測機**只准寫這一季**。要同時滿足兩個條件：(1) 職事表沒有這一季的資料（順便測「職事表無資料」那條路）；(2) 含夏令時間轉換提示日，S22–S24 才驗得到寫入。提示登在改動當日的**前一個主日**，所以實際上要用 YYYYT1（4 月那一次，提示日在 3 月底）或者 YYYYT3（9 月那一次）——YYYYT2 與 YYYYT4 永遠不會含提示日。改成一個有真實資料的季度＝自測機會寫壞真資料' },
-  { key: CONFIG_KEYS.SELFTEST_ROSTER_QUARTER_ID, value: '2027T4', note: '自測機需要真實職事表資料時讀哪一季。**只讀不寫**' },
+  { key: CONFIG_KEYS.SELFTEST_QUARTER_ID, value: '2030T1', note: '⚠️ 自測機的沙盒季度：自測機只准寫這一季。要同時滿足兩個條件：(1) 職事表沒有這一季的資料（順便測「職事表無資料」那條路）；(2) 含夏令時間轉換提示日，S22–S24 才驗得到寫入。提示登在改動當日的前一個主日，所以實際上要用 YYYYT1（4 月那一次，提示日在 3 月底）或者 YYYYT3（9 月那一次）——YYYYT2 與 YYYYT4 永遠不會含提示日。改成一個有真實資料的季度＝自測機會寫壞真資料' },
+  { key: CONFIG_KEYS.SELFTEST_ROSTER_QUARTER_ID, value: '2027T4', note: '自測機需要真實職事表資料時讀哪一季。只讀不寫' },
   { key: CONFIG_KEYS.SELFTEST_MASTER_PDF_FILE_ID, value: '', note: '自測機專用的沙盒 master 發佈檔案 ID（自測機不會碰正式那一個）。留空時自測機會略過發佈相關情境並講明原因' },
   { key: CONFIG_KEYS.SELFTEST_TIME_BUDGET_SEC, value: '240', note: '自測機／亂行機每一次執行的時間預算（秒）。接近上限就乾淨停低並寫明「跑到哪一步、還有幾多個未跑」，Apps Script 本身的上限是 360 秒' },
   { key: CONFIG_KEYS.MONKEY_NO_PROGRESS_LIMIT, value: '5', note: '亂行機連續幾多步狀態完全沒有變就當成原地打轉、停手（防打轉閘）' },
@@ -807,21 +807,21 @@ var DEFAULTS = Object.freeze([
   { key: CONFIG_KEYS.BULLETIN_ROSTER_PENDING_NOTE, value: '本期事奉資料尚未確定，稍後另行通知。', note: 'R-036：職事表未有資料而仍然寄出時，加在信中的一句' },
   { key: CONFIG_KEYS.DST_AUTO_INSERT, value: 'TRUE', note: 'R-030：建立／刷新內容表時，自動加入夏令時間轉換提示（登在轉換當日的前一個主日那一期）' },
   { key: CONFIG_KEYS.DST_ANNOUNCEMENT_SEQ, value: '5', note: 'R-030：夏令時間提示在家事報告的次序（數字細者排前）' },
-  { key: CONFIG_KEYS.DST_START_ANNOUNCEMENT, value: 'Daylight Saving將開始：今年Daylight Saving於下主日({{CHANGE_DATE}})開始，請於{{SATURDAY}}星期六晚上將時鐘撥前一小時。', note: 'R-030：夏令時間**開始**的提示範本。{{CHANGE_DATE}}＝轉換當日，{{SATURDAY}}＝之前那個星期六' },
-  { key: CONFIG_KEYS.DST_END_ANNOUNCEMENT, value: '今年Daylight Saving於下主日({{CHANGE_DATE}}) 完結，請大家於本週六晚將時間回撥一小時。', note: 'R-030：夏令時間**完結**的提示範本。同樣支援 {{CHANGE_DATE}} 與 {{SATURDAY}}' },
+  { key: CONFIG_KEYS.DST_START_ANNOUNCEMENT, value: 'Daylight Saving將開始：今年Daylight Saving於下主日({{CHANGE_DATE}})開始，請於{{SATURDAY}}星期六晚上將時鐘撥前一小時。', note: 'R-030：夏令時間開始的提示範本。{{CHANGE_DATE}}＝轉換當日，{{SATURDAY}}＝之前那個星期六' },
+  { key: CONFIG_KEYS.DST_END_ANNOUNCEMENT, value: '今年Daylight Saving於下主日({{CHANGE_DATE}}) 完結，請大家於本週六晚將時間回撥一小時。', note: 'R-030：夏令時間完結的提示範本。同樣支援 {{CHANGE_DATE}} 與 {{SATURDAY}}' },
 
   // ---- R-033：草稿預覽網頁 ----
   { key: CONFIG_KEYS.PREVIEW_ENABLED, value: 'TRUE', note: 'R-033：星期一是否自動寄出草稿預覽連結。設 FALSE 就整個關掉（預覽網頁本身仍然開得到，只是不會自動寄信）' },
-  { key: CONFIG_KEYS.PREVIEW_REQUIRE_ALLOWLIST, value: 'FALSE', note: 'R-033：預覽網頁要不要受 WEBAPP_ALLOWED_EMAILS 限制。預設 FALSE——預覽頁**完全唯讀**，沒有任何可以改資料的入口，而它的用途正是讓 CC／DB 一堆人核對內容，逐個加進名單不切實際。要收緊就改 TRUE' },
+  { key: CONFIG_KEYS.PREVIEW_REQUIRE_ALLOWLIST, value: 'FALSE', note: 'R-033：預覽網頁要不要受 WEBAPP_ALLOWED_EMAILS 限制。預設 FALSE——預覽頁完全唯讀，沒有任何可以改資料的入口，而它的用途正是讓 CC／DB 一堆人核對內容，逐個加進名單不切實際。要收緊就改 TRUE' },
   { key: CONFIG_KEYS.PREVIEW_NOTICE, value: '這是草稿預覽，只供核對內容。版面與正式印刷版不同，一切以正式發佈的週報為準。', note: 'R-033：預覽網頁最頂那一段提示。⚠️ 一定要講明「版面不同」——預覽頁是純 HTML，不是排版後的成品，看的人不講清楚會以為週報排成這樣' },
   { key: CONFIG_KEYS.PREVIEW_SEND_GROUPS, value: 'CC,DB,ADMIN', note: 'R-033：草稿預覽連結寄給 Recipients 內哪幾個組別（逗號分隔）' },
   { key: CONFIG_KEYS.PREVIEW_WEBAPP_URL, value: '', note: 'R-033：Web App 的網址，由 Ivan 部署後填入（部署 ▸ 管理部署作業 ▸ 網頁應用程式網址）。⚠️ 留空時系統會用 ScriptApp.getService().getUrl() 自己取，但那一支在觸發器情境下有機會取不到，所以填一次最穩陣。預覽連結＝這個網址 ＋ ?page=preview' },
 
   // ---- R-032：內容過多的提示 ----
-  { key: CONFIG_KEYS.BULLETIN_CONTENT_WARN_CHARS, value: '5600', note: 'R-032：內容份量估算的提示門檻（字元數）。門檻的來歷：88 期真實週報之中，4 頁的中位數約 4,500 字元、5 頁的約 6,000 至 6,500 字元，取中間偏保守。⚠️ 這**只是估算**——Apps Script 算不到準確頁數，頁數要靠 Word 的排版引擎，所以超過門檻只會提示「請用 Word 開啟確認」，一定不會擋住產生' },
+  { key: CONFIG_KEYS.BULLETIN_CONTENT_WARN_CHARS, value: '5600', note: 'R-032：內容份量估算的提示門檻（字元數）。門檻的來歷：88 期真實週報之中，4 頁的中位數約 4,500 字元、5 頁的約 6,000 至 6,500 字元，取中間偏保守。⚠️ 這只是估算——Apps Script 算不到準確頁數，頁數要靠 Word 的排版引擎，所以超過門檻只會提示「請用 Word 開啟確認」，一定不會擋住產生' },
   // ---- R-035：舊季度自動封存 ----
-  { key: CONFIG_KEYS.RETENTION_QUARTERS_VISIBLE, value: '2', note: 'R-035：季度下拉預設顯示最近幾多季（2 ＝ 本季 ＋ 前一季）。更早的季度會被標記 ARCHIVED=TRUE、Fill_* 隱藏、內容表登記行 ACTIVE=FALSE。⚠️ **一格資料都不會刪**——封存只是「預設不顯示」，撳「顯示已封存」就見得返，亦可以用選單「取消封存」完全還原' },
-  { key: CONFIG_KEYS.CONTENT_SHEET_ARCHIVE_FOLDER_ID, value: '', note: 'R-035：封存時把內容表檔案搬去哪一個資料夾（Shared Drive 內的子資料夾 ID）。⚠️ 留空就**只改 ContentSheets 那一行的 ACTIVE，不搬檔案**，並在報告講明——搬檔案是 Drive 操作，設定未填就靜靜不搬而不講，下次找不到檔案會查半日' },
+  { key: CONFIG_KEYS.RETENTION_QUARTERS_VISIBLE, value: '2', note: 'R-035：季度下拉預設顯示最近幾多季（2 ＝ 本季 ＋ 前一季）。更早的季度會被標記 ARCHIVED=TRUE、Fill_* 隱藏、內容表登記行 ACTIVE=FALSE。⚠️ 一格資料都不會刪——封存只是「預設不顯示」，撳「顯示已封存」就見得返，亦可以用選單「取消封存」完全還原' },
+  { key: CONFIG_KEYS.CONTENT_SHEET_ARCHIVE_FOLDER_ID, value: '', note: 'R-035：封存時把內容表檔案搬去哪一個資料夾（Shared Drive 內的子資料夾 ID）。⚠️ 留空就只改 ContentSheets 那一行的 ACTIVE，不搬檔案，並在報告講明——搬檔案是 Drive 操作，設定未填就靜靜不搬而不講，下次找不到檔案會查半日' },
 
   { key: CONFIG_KEYS.DUPLICATE_PARAGRAPH_MIN_CHARS, value: '25', note: 'R-032：重複段落偵測的最短長度（字元）。短過這個數的段落（例如「本週」「阿們」）重複是正常的，不當成問題' }
 ]);

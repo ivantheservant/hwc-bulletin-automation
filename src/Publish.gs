@@ -506,9 +506,36 @@ function detectPublishDateIssues_(input) {
 function buildForcedReasonSummary_(precheck) {
   var o = precheck || {};
   var parts = [];
+  // F6：missingCount 只數「一定要填」。
   if (Number(o.missingCount || 0) > 0) parts.push('未填欄位 ' + o.missingCount + ' 項');
   (o.dateIssues || []).forEach(function (issue) { parts.push(issue.message); });
   return parts.join('；');
+}
+
+/**
+ * 用途：確認視窗的標題、勾選框字眼、確認按鈕字眼。**純函式。**
+ *
+ *   ⚠️ F7：只勾「寄出」時，視窗不可以講「發佈」——使用者沒有要發佈任何
+ *   東西，卻要勾一句「仍然要發佈」，會以為自己即將覆寫 master 連結。
+ *   有勾「發佈」（不論有沒有同時勾寄出）維持原有字眼。
+ * Args:
+ *   doPublish {boolean} 這次有沒有勾「發佈到 master 連結」。
+ * Returns:
+ *   {{title:string, checkbox:string, confirmButton:string}}
+ */
+function publishConfirmLabels_(doPublish) {
+  if (doPublish === true) {
+    return {
+      title: '發佈前檢查',
+      checkbox: '我明白以上情況，仍然要發佈（未填的欄位會在成品留空）',
+      confirmButton: '確認發佈'
+    };
+  }
+  return {
+    title: '寄出前檢查',
+    checkbox: '我明白以上情況，仍然要寄出',
+    confirmButton: '確認寄出'
+  };
 }
 
 /**
@@ -518,19 +545,29 @@ function buildForcedReasonSummary_(precheck) {
  *   截斷嘅話，被截走嗰幾項就係最容易漏嘅嗰幾項。
  * Args:
  *   precheck {Object} `buildPublishPrecheck_()` 嘅回傳值。
+ *   doPublish {boolean=} 這次有沒有發佈；`false` 時標題用「寄出前檢查」。
+ *     省略當作 `true`（維持舊有字眼）。
  * Returns:
  *   {string[]}
  */
-function buildPublishPrecheckLines_(precheck) {
+function buildPublishPrecheckLines_(precheck, doPublish) {
   var o = precheck || {};
-  var lines = ['發佈前檢查：' + String(o.isoDate || '')];
+  var lines = [publishConfirmLabels_(doPublish !== false).title + '：' + String(o.isoDate || '')];
 
+  // F6：括號內的數字只數「一定要填」；通常空白的另外列出，不計入數字。
+  //    分類一律經 `splitMissingList_()`，這裏不自己判斷。
+  var split = splitMissingList_(o.missing);
   if (Number(o.missingCount || 0) > 0) {
     lines.push('');
-    lines.push('未填欄位（' + o.missingCount + ' 項）');
-    groupPublishMissing_(o.missing).forEach(function (group) {
+    lines.push('未填欄位（' + o.missingCount + ' 項）' + missingCountSummary_(o.missing).optionalSuffix);
+    groupPublishMissing_(split.required).forEach(function (group) {
       lines.push('　' + group.label + '：' + group.items.join('、'));
     });
+  }
+  if (split.optional.length > 0) {
+    lines.push('');
+    lines.push('通常空白（有就填，不計入上面的數字）：'
+      + split.optional.map(function (m) { return String((m || {}).label || (m || {}).field || ''); }).join('、'));
   }
 
   if ((o.dateIssues || []).length > 0) {
@@ -548,6 +585,8 @@ function buildPublishPrecheckLines_(precheck) {
  *   加三種日期異常。
  * Args:
  *   isoDate {string} 主日日期，yyyy-MM-dd。
+ *   doPublish {boolean=} 這次有沒有發佈；`false`（只寄出）時標題改為
+ *     「寄出前檢查」。省略當作 `true`。
  * Returns:
  *   {{isoDate:string, missing:Object[], missingCount:number,
  *     dateIssues:Object[], needsConfirm:boolean, forcedReason:string,
@@ -555,10 +594,12 @@ function buildPublishPrecheckLines_(precheck) {
  * Raises:
  *   Error 如果 `isoDate` 格式不對或者職事表讀取失敗（原樣拋出）。
  */
-function buildPublishPrecheck_(isoDate) {
+function buildPublishPrecheck_(isoDate, doPublish) {
   var config = publishConfig_();
   var model = buildBulletinModel_(isoDate);
   var missing = (model && model.missing) ? model.missing : [];
+  // F6：「未填欄位」的數字只數「一定要填」，經 `missingCountSummary_()`。
+  var missingSummary = missingCountSummary_(missing);
 
   var todayIso = Utilities.formatDate(new Date(), config.timezone, 'yyyy-MM-dd');
   // ⚠️ R-037 §2.2：排除自測嘅行。混咗入去嘅話，發佈前檢查會以為
@@ -573,12 +614,13 @@ function buildPublishPrecheck_(isoDate) {
   var precheck = {
     isoDate: isoDate,
     missing: missing,
-    missingCount: missing.length,
+    missingCount: missingSummary.requiredCount,
+    optionalCount: missingSummary.optionalCount,
     dateIssues: dateIssues,
-    needsConfirm: (missing.length > 0 || dateIssues.length > 0)
+    needsConfirm: (missingSummary.requiredCount > 0 || dateIssues.length > 0)
   };
   precheck.forcedReason = buildForcedReasonSummary_(precheck);
-  precheck.lines = buildPublishPrecheckLines_(precheck);
+  precheck.lines = buildPublishPrecheckLines_(precheck, doPublish);
   return precheck;
 }
 
@@ -1336,7 +1378,7 @@ function runPublishFlow_(payload) {
   }
 
   // ---- 發佈前檢查（R-006／R-007）----
-  var precheck = buildPublishPrecheck_(isoDate);
+  var precheck = buildPublishPrecheck_(isoDate, doPublish);
 
   // ⚠️ 使用者測試模式的保險（prompt-pre-usertest 第 3 部分）：`DRY_RUN`
   // 只影響「寄出」，發佈本身一樣會真的覆寫 master 連結。測試期間這一點
@@ -1360,7 +1402,9 @@ function runPublishFlow_(payload) {
   if (needsConfirmDialog && p.confirmed !== true) {
     return {
       ok: false, reason: 'NEEDS_CONFIRM', precheck: precheck, lines: precheck.lines,
-      message: '發佈前檢查發現需要確認的事項，請閱讀後勾選確認方框。'
+      // F7：視窗字眼跟著這次做的動作走（只寄出就不可以叫人勾「仍然要發佈」）。
+      labels: publishConfirmLabels_(doPublish),
+      message: publishConfirmLabels_(doPublish).title + '發現需要確認的事項，請閱讀後勾選確認方框。'
     };
   }
 
@@ -1512,9 +1556,16 @@ function buildPublishResultLines_(result) {
     lines.push('⚠️ 寄出失敗：' + o.sendError);
   }
 
+  // ⚠️ F7：「已記入 PublishLog」只在真的發佈成功時才講——只寄出根本沒有
+  //    寫 PublishLog，聲稱已記入就是說謊。
   if (o.precheck && o.precheck.needsConfirm) {
-    lines.push('');
-    lines.push('（本次是在確認「仍然要發佈」之後執行的，已記入 PublishLog。）');
+    if (o.published) {
+      lines.push('');
+      lines.push('（本次是在確認「仍然要發佈」之後執行的，已記入 PublishLog。）');
+    } else if (o.sent) {
+      lines.push('');
+      lines.push('（本次是在確認「仍然要寄出」之後執行的。）');
+    }
   }
 
   return lines;
@@ -1672,7 +1723,7 @@ function ensureMasterPublishFile_() {
         message: 'Drive 進階服務尚未啟用，因此無法確認 master 發佈檔案的狀況。'
           + '請在 Apps Script 編輯器左邊的「服務」按 ＋，加入「Drive API」'
           + '（識別碼保持 Drive、版本選 v2），儲存後再按一次。'
-          + '⚠️ 在這之前**不要**清空 Config 那一格——檔案很可能好端端在，只是查不到。'
+          + '⚠️ 在這之前不要清空 Config 那一格——檔案很可能好端端在，只是查不到。'
       };
     }
 
@@ -1825,7 +1876,7 @@ function checkMasterFileIdsDistinct_() {
     return {
       ok: false, published: published, selftest: selftest,
       message: '⚠️ ' + CONFIG_KEYS.PUBLISHED_PDF_FILE_ID + ' 與 '
-        + CONFIG_KEYS.SELFTEST_MASTER_PDF_FILE_ID + ' 是**同一個檔案**（'
+        + CONFIG_KEYS.SELFTEST_MASTER_PDF_FILE_ID + ' 是同一個檔案（'
         + maskFileId_(published) + '）。'
         + '這代表自測機／亂行機每一次發佈都會覆寫教會網站那條連結指向的 PDF，'
         + '而且完全沒有錯誤訊息。'
@@ -1897,7 +1948,7 @@ function checkPublishedMasterMatchesLog_() {
       ok: false, configValue: configValue, loggedValue: loggedValue, isoDate: isoDate,
       message: '⚠️ Config 的 ' + CONFIG_KEYS.PUBLISHED_PDF_FILE_ID + ' 是 '
         + maskFileId_(configValue) + '，但 PublishLog 最新一行正式發佈（' + isoDate
-        + '）用的是 ' + maskFileId_(loggedValue) + '——**兩者對不上**。'
+        + '）用的是 ' + maskFileId_(loggedValue) + '——兩者對不上。'
         + '這代表 Config 那一格在上一次正式發佈之後被改過。'
         + '請先看 AuditLog 的 SET_CONFIG／CONFIG_MANUAL_EDIT 確認是幾時、由什麼改成什麼，'
         + '再決定要改回舊值還是接受新值。'

@@ -562,11 +562,14 @@ function generateBulletinDocx_(isoDate) {
   }
 
   var blockIfMissing = normalizeBoolean_(getConfig(CONFIG_KEYS.RENDER_BLOCK_IF_MISSING_FIELDS, 'FALSE')) === true;
-  if (blockIfMissing && model.missing && model.missing.length > 0) {
+  // F6：只數「一定要填」。獻花這類通常空白的欄位若也算進去，幾乎每一週都被擋。
+  var renderMissing = missingCountSummary_(model.missing || []);
+  if (blockIfMissing && renderMissing.requiredCount > 0) {
     return {
       ok: false, reason: 'MISSING_FIELDS',
-      missingCount: model.missing.length,
-      message: '這一週還有 ' + model.missing.length + ' 個待填欄位，而 Config 的 '
+      missingCount: renderMissing.requiredCount,
+      message: '這一週還有 ' + renderMissing.requiredCount + ' 個待填欄位'
+        + renderMissing.optionalSuffix + '，而 Config 的 '
         + CONFIG_KEYS.RENDER_BLOCK_IF_MISSING_FIELDS + ' 設成了 TRUE，所以拒絕產生。'
         + '請先在填寫介面補齊，或者把那個設定改成 FALSE。'
     };
@@ -651,7 +654,9 @@ function generateBulletinDocx_(isoDate) {
     contentSize: contentScan.size,
     duplicateParagraphs: contentScan.duplicateParagraphs,
     warnings: renderWarnings.concat(model.warnings || []),
-    modelMissingCount: (model.missing || []).length
+    // F6：只數「一定要填」，通常空白的另外記。
+    modelMissingCount: renderMissing.requiredCount,
+    modelOptionalCount: renderMissing.optionalCount
   };
 }
 
@@ -995,7 +1000,8 @@ function buildGenerateResultDialogLines_(isoDate, result) {
     + ((stats.missingKeys || []).length > 0 ? '（' + stats.missingKeys.join('、') + '）' : ''));
   lines.push('疑似被切斷的佔位符：' + ((stats.broken || []).length) + ' 個'
     + ((stats.broken || []).length > 0 ? '　⚠️ 這些會原樣印出來，請檢查範本' : ''));
-  lines.push('待填欄位：' + (result.modelMissingCount || 0) + ' 個');
+  lines.push('待填欄位：' + (result.modelMissingCount || 0) + ' 個'
+    + ((result.modelOptionalCount || 0) > 0 ? ('（另有 ' + result.modelOptionalCount + ' 項通常空白）') : ''));
   lines.push('');
 
   // ---- R-032：內容份量估算 ----

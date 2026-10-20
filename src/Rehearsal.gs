@@ -172,7 +172,7 @@ function runQuarterRehearsal_(quarterId) {
       templateId: model.templateId || '',
       programRows: (model.program || []).length,
       dutyRows: (model.dutyBoxPage1 || []).length,
-      missingCount: (model.missing || []).length,
+      missingCount: missingCountSummary_(model.missing || []).requiredCount,
       warningCount: (model.warnings || []).length,
       conflictCount: diff ? diff.conflictCount : null
     };

@@ -399,6 +399,8 @@
     padding: 0.5em 0.8em;
     margin: 0.7em 0 0;
   }
+  .confirm-body .confirm-line { white-space: pre-wrap; word-break: break-word; line-height: 1.6; font-size: 13px; }
+  .confirm-body .confirm-line:empty::before { content: ' '; }
   .dialog-actions { display: flex; justify-content: flex-end; gap: 0.5em; margin-top: 0.8em; }
   .dialog-empty { font-size: 13px; color: #555; padding: 1em 0; }
 

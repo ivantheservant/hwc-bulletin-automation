@@ -456,7 +456,7 @@ function buildRosterBackfillMessage_(input) {
   //    平常主日的「特別主日類型」本來就該空白——把它算進「仍有 N 格空白」
   //    的話，職事表齊晒都會永遠報 12 格，而幹事每次都要重新確認一次。
   if (expectedBlank > 0) {
-    lines.push('另有 ' + expectedBlank + ' 格**本來就應該空白**（例如平常主日沒有'
+    lines.push('另有 ' + expectedBlank + ' 格本來就應該空白（例如平常主日沒有'
       + '「特別主日類型」），這些不算缺資料，不用處理。');
   }
 
@@ -529,7 +529,7 @@ function rosterGapBannerForQuarter_(quarterId) {
   if (unknown > 0 && notFound === 0 && partial === 0) {
     return {
       show: true, notFound: notFound, partial: partial, unknown: unknown,
-      text: '本季有 ' + unknown + ' 個主日**未查證過**職事表狀態（多數是舊資料）。'
+      text: '本季有 ' + unknown + ' 個主日未查證過職事表狀態（多數是舊資料）。'
         + '撳「補抓空白的事奉欄位」就會逐個查證並更新。'
     };
   }
@@ -551,7 +551,7 @@ function menuBackfillRoster_() {
     var resolution = resolveWorkingQuarter_();
     var defaultQuarter = resolution.ok ? resolution.quarterId : '';
     var resp = ui.prompt('補抓空白的事奉欄位',
-      '⚠️ **不會覆寫你填過的任何一格。** 這一支只把「現在是空白」的事奉欄位，\n'
+      '⚠️ 不會覆寫你填過的任何一格。這一支只把「現在是空白」的事奉欄位，\n'
         + '用職事表的資料補回去；有值的一律不動，所以隨時可以重試，撳幾多次都一樣。\n\n'
         + '範圍：整個季度（不是單一主日）。\n'
         + '⚠️ 職事表全程唯讀，一格都不會寫進去。\n\n'
@@ -589,7 +589,7 @@ function buildRosterBackfillReportLines_(result) {
   var lines = [];
   lines.push('【摘要】');
   lines.push('季度：' + result.quarterId);
-  lines.push('職事表' + (result.rosterFound ? '找得到這一季' : '**仍然未有**這一季的資料'));
+  lines.push('職事表' + (result.rosterFound ? '找得到這一季' : '仍然未有這一季的資料'));
   lines.push('補了 ' + result.filled + ' 格，仍有 ' + result.stillBlank + ' 格空白，動了 '
     + result.rowsTouched + ' 行。');
   lines.push('');
@@ -598,7 +598,7 @@ function buildRosterBackfillReportLines_(result) {
   lines.push('補抓後：' + describeRosterStatusCounts_(result.statusAfter));
   lines.push('');
   lines.push('【要知道的事】');
-  lines.push('補抓只填**空白格**。人手填過的值一格都不會被覆寫，所以這個動作');
+  lines.push('補抓只填空白格。人手填過的值一格都不會被覆寫，所以這個動作');
   lines.push('隨時可以重試，跑幾多次都不會蓋走任何東西。');
   lines.push('職事表全程唯讀，一格都不會寫進去。');
   if (!result.rosterFound) {

@@ -256,7 +256,7 @@ function numberRegistryProbes_(ctx) {
       label: '本季主日數（「建立本季空白週報」對話框、季度填寫表標題）',
       sheetName: SHEETS.BULLETIN_WEEKS,
       recountRule: '數 BulletinWeeks 內 QUARTER_ID = 本季 的行數',
-      independence: '完全獨立**但只在職事表有這一季的時候**：reported 走職事表 ServiceDates，'
+      independence: '完全獨立但只在職事表有這一季的時候：reported 走職事表 ServiceDates，'
         + 'recount 走本試算表 BulletinWeeks。職事表未有這一季時兩路會變成同一個來源，'
         + '所以那種情況一律報「不適用」，不會假裝驗過。',
       // ⚠️ 2026-08-27 修正（C 類：兩邊定義不同）。舊版 reported 寫死
@@ -390,8 +390,8 @@ function numberRegistryProbes_(ctx) {
       recountRule: '重新解壓成品，挖走文字方塊之後逐段數，長度 >= '
         + 'DUPLICATE_PARAGRAPH_MIN_CHARS 而且出現 >= 2 次的段落數目',
       independence: '⚠️ 部分獨立，而且程度比其餘幾個低：兩路都要讀同一份 .docx（'
-        + '這個數字的來源本來就是產出檔案，不是工作表）。分別在於**走兩條不同的'
-        + '管線**：reported 走 assertDocxOutput_()（對話框那一條），recount 走 '
+        + '這個數字的來源本來就是產出檔案，不是工作表）。分別在於走兩條不同的'
+        + '管線：reported 走 assertDocxOutput_()（對話框那一條），recount 走 '
         + 'scanDocxContentSize_()（Diagnostics 那一條）。兩者對不上就代表'
         + '同一份成品在兩個地方會顯示不同的數字——那本身就是要修的 bug。',
       // ⚠️ 沒有產生過 .docx 就報「不適用」，不是報 0：「未產生過」與
@@ -1480,7 +1480,7 @@ function runInvariantI12_() {
       return invariantResult_('I12', label, null, '兩個 ID 不同', '比不到', check.message);
     }
     if (check.ok === false) {
-      return invariantResult_('I12', label, false, '兩個 ID 不同', '**同一個檔案**', check.message);
+      return invariantResult_('I12', label, false, '兩個 ID 不同', '同一個檔案', check.message);
     }
     return invariantResult_('I12', label, true, '兩個 ID 不同', '兩個 ID 不同', check.message);
   });
@@ -1632,7 +1632,7 @@ function invariantDefinitions_(ctx, opts) {
     },
     {
       id: 'I13', sideEffect: false, environment: E.ANY,
-      environmentNote: '只看 PublishLog **非自測**那些行，所以兩個環境用同一條規則；'
+      environmentNote: '只看 PublishLog 非自測那些行，所以兩個環境用同一條規則；'
         + '從未正式發佈過就報「不適用」，不是失敗。',
       run: function () { return runInvariantI13_(); }
     }

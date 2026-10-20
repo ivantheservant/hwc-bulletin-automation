@@ -100,7 +100,7 @@ function buildConflictNoticeHtml_(isoDate, rows, options) {
 
   return [
     '<h2 style="margin:0 0 0.6em;">職事表分歧提醒 — ' + esc(isoDate) + '</h2>',
-    '<p>' + esc(opts.churchName || '') + '週報系統偵測到以下事奉崗位，在幹事於週報人手修改**之後**，職事表又再改過：</p>',
+    '<p>' + esc(opts.churchName || '') + '週報系統偵測到以下事奉崗位，在幹事於週報人手修改之後，職事表又再改過：</p>',
     '<table style="border-collapse:collapse;width:100%;margin-bottom:1em;">',
     '<thead><tr>'
     + cell('th', '崗位／位次')

@@ -206,7 +206,7 @@ test('2. 該行 MASTER_FILE_ID 與 Config 相同 → 講「相同」；不同 �
   });
   const diffText = diff.sandbox.buildI06DiagnosisLines_(
     diff.sandbox.collectI06Diagnosis_({ revisionLister: fakeRevisions([]) })).join('\n');
-  assert.ok(diffText.indexOf('兩者**不同**') !== -1, diffText);
+  assert.ok(diffText.indexOf('兩者不同') !== -1, diffText);
   assert.ok(diffText.indexOf('應該用該行那一個') !== -1, diffText);
 });
 

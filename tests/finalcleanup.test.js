@@ -476,7 +476,7 @@ test('10d. 走過的路：連精簡格式都爆格 → 截尾，並明寫截了�
   for (let i = 1; i <= 40000; i++) steps.push({ stepNo: i, actionId: 'LONG_ACTION_NAME_HERE' });
   const rendered = env.sandbox.renderMonkeyPath_(steps, {});
   assert.ok(rendered.indexOf('1:LONG_ACTION_NAME_HERE') !== -1, '開頭一定要完整');
-  assert.ok(rendered.indexOf('截的是**尾**') !== -1, rendered.slice(0, 120));
+  assert.ok(rendered.indexOf('截的是尾') !== -1, rendered.slice(0, 120));
   assert.ok(rendered.indexOf('步已經截斷') !== -1, rendered.slice(0, 120));
 });
 

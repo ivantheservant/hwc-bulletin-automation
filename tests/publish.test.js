@@ -657,7 +657,8 @@ test('10. 未填欄位清單來自 buildBulletinModel_()，不是另一套判斷
   const model = env.sandbox.buildBulletinModel_(TARGET_DATE);
   const precheck = env.sandbox.buildPublishPrecheck_(TARGET_DATE);
 
-  assert.strictEqual(precheck.missingCount, model.missing.length,
+  // F6：數字只數「一定要填」，一律經 splitMissingList_()。
+  assert.strictEqual(precheck.missingCount, env.sandbox.splitMissingList_(model.missing).requiredCount,
     '兩者只可以有一個真相來源；數目對不上就代表有人另寫了一套判斷');
   deepEq(
     precheck.missing.map(function (m) { return m.field; }),
@@ -675,9 +676,14 @@ test('11. 未填欄位全部列出，不截斷、不寫「等 N 項」', functio
   assert.ok(text.indexOf('…') === -1, '不可以用省略號截斷');
 
   // 每一項的中文標題都要出現在報告裏面。
-  const grouped = env.sandbox.groupPublishMissing_(precheck.missing);
+  const grouped = env.sandbox.groupPublishMissing_(env.sandbox.splitMissingList_(precheck.missing).required);
   const total = grouped.reduce(function (sum, g) { return sum + g.items.length; }, 0);
   assert.strictEqual(total, precheck.missingCount, '分組之後總數要跟原始清單一樣，一項都不可以掉');
+  // F6：通常空白的另外列出，不計入數字，但一項都不可以消失。
+  const optionalLabels = env.sandbox.splitMissingList_(precheck.missing).optional.map(function (m) { return m.label; });
+  optionalLabels.forEach(function (label) {
+    assert.ok(text.indexOf(label) !== -1, '通常空白的「' + label + '」也要列出來');
+  });
 });
 
 test('11b. 未填欄位分組：人數、家事報告、代禱事項、事奉人選各自成組', function () {
@@ -1077,6 +1083,98 @@ test('30. 使用者可見文字一律書面語繁體中文，不用口語廣東�
   texts.forEach(function (text, i) {
     assertWrittenChinese(assert, '第 ' + (i + 1) + ' 段發佈文案', String(text || ''));
   });
+});
+
+// =====================================================================
+// F7：只寄出時，確認視窗與結果訊息不可以講「發佈」或「已記入 PublishLog」
+// =====================================================================
+
+test('F7-1 只勾寄出、有未填欄位 → NEEDS_CONFIRM 的字眼全部是「寄出」', function () {
+  const env = makeCleanEnv({ weekFields: {} });
+  const result = env.sandbox.runPublishFlow_({
+    isoDate: TARGET_DATE, doPublish: false, doSend: true,
+    groups: ['CC'], customEmails: '', confirmed: false
+  });
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(result.reason, 'NEEDS_CONFIRM');
+  assert.strictEqual(result.labels.title, '寄出前檢查');
+  assert.strictEqual(result.labels.checkbox, '我明白以上情況，仍然要寄出');
+  assert.strictEqual(result.labels.confirmButton, '確認寄出');
+  assert.ok(result.lines[0].indexOf('寄出前檢查：') === 0, result.lines[0]);
+  assert.strictEqual(result.lines.join('\n').indexOf('發佈前檢查'), -1);
+  assert.strictEqual(result.message.indexOf('發佈'), -1, result.message);
+  assert.strictEqual(env.mails.length, 0, '確認之前一封都不可以寄');
+});
+
+test('F7-2 只寄出、確認之後：結果訊息不可以聲稱「已記入 PublishLog」（根本沒有寫 PublishLog）', function () {
+  const env = makeCleanEnv({ weekFields: {} });
+  const before = readPublishLog(env).length;
+  const result = env.sandbox.runPublishFlow_({
+    isoDate: TARGET_DATE, doPublish: false, doSend: true,
+    groups: ['CC'], customEmails: '', confirmed: true
+  });
+  assert.strictEqual(result.ok, true, result.message);
+  assert.strictEqual(readPublishLog(env).length, before, '前提：只寄出沒有寫 PublishLog');
+
+  const text = result.lines.join('\n');
+  assert.ok(text.indexOf('（本次是在確認「仍然要寄出」之後執行的。）') !== -1, text);
+  assert.strictEqual(text.indexOf('PublishLog'), -1, '⚠️ 沒有寫入就不可以說已記入：' + text);
+  assert.strictEqual(text.indexOf('仍然要發佈'), -1, text);
+});
+
+test('F7-3 有勾發佈：字眼維持原樣，結果仍然講已記入 PublishLog', function () {
+  const env = makeCleanEnv({ weekFields: {} });
+  const first = env.sandbox.runPublishFlow_({
+    isoDate: TARGET_DATE, doPublish: true, doSend: false,
+    pdfBase64: PDF_BASE64, pdfName: '週報.pdf', confirmed: false
+  });
+  assert.strictEqual(first.reason, 'NEEDS_CONFIRM');
+  assert.strictEqual(first.labels.title, '發佈前檢查');
+  assert.strictEqual(first.labels.checkbox, '我明白以上情況，仍然要發佈（未填的欄位會在成品留空）');
+  assert.strictEqual(first.labels.confirmButton, '確認發佈');
+  assert.ok(first.lines[0].indexOf('發佈前檢查：') === 0);
+
+  const done = env.sandbox.runPublishFlow_({
+    isoDate: TARGET_DATE, doPublish: true, doSend: false,
+    pdfBase64: PDF_BASE64, pdfName: '週報.pdf', confirmed: true
+  });
+  assert.strictEqual(done.ok, true, done.message);
+  assert.ok(done.lines.join('\n').indexOf('（本次是在確認「仍然要發佈」之後執行的，已記入 PublishLog。）') !== -1);
+});
+
+test('F7-4 同時勾發佈與寄出：維持現有字眼', function () {
+  const labels = loadAllSrcFilesInOrder(baseStubs({})).publishConfirmLabels_(true);
+  assert.strictEqual(labels.title, '發佈前檢查');
+  assert.strictEqual(labels.confirmButton, '確認發佈');
+});
+
+test('F7-5 沒有需要確認的事項時，結果訊息不加任何「確認之後」的句子', function () {
+  const env = makeCleanEnv();
+  const result = env.sandbox.runPublishFlow_({
+    isoDate: TARGET_DATE, doPublish: false, doSend: true, groups: ['CC'], customEmails: '', confirmed: true
+  });
+  assert.strictEqual(result.lines.join('\n').indexOf('確認「仍然要'), -1);
+});
+
+test('F6 發佈前檢查：未填欄位的數字只數一定要填，通常空白另列', function () {
+  const env = makeCleanEnv({ weekFields: {} });
+  const precheck = env.sandbox.buildPublishPrecheck_(TARGET_DATE);
+  const split = env.sandbox.splitMissingList_(precheck.missing);
+  assert.strictEqual(precheck.missingCount, split.requiredCount);
+  assert.strictEqual(precheck.optionalCount, split.optional.length);
+  assert.ok(split.optional.length > 0, '獻花是通常空白');
+  const text = precheck.lines.join('\n');
+  assert.ok(text.indexOf('未填欄位（' + split.requiredCount + ' 項）（另有 ' + split.optional.length + ' 項通常空白）') !== -1, text);
+  assert.ok(text.indexOf('通常空白（有就填，不計入上面的數字）：') !== -1, text);
+  assert.ok(precheck.forcedReason.indexOf('未填欄位 ' + split.requiredCount + ' 項') !== -1, precheck.forcedReason);
+});
+
+test('F6 只有通常空白的欄位未填 → 不需要確認', function () {
+  // fullWeekFields 填齊一定要填的欄位，獻花留空。
+  const env = makeCleanEnv();
+  const precheck = env.sandbox.buildPublishPrecheck_(TARGET_DATE);
+  assert.strictEqual(precheck.missingCount, 0);
+  assert.strictEqual(precheck.needsConfirm, false, '只欠通常空白的欄位，不應該逼人勾確認方框');
 });
 
 // =====================================================================

@@ -521,10 +521,19 @@ function summariseContentRow_(row, def) {
  *          serviceDates:string[]}}
  *     `existingLists` 是「目標表名稱 → 該表全部資料列（帶 `__rowNo`）」；
  *     `existingWeeks` 是 `BulletinWeeks` 全部資料列（帶 `__rowNo`）。
+ *
+ *   F5：對每一個**啟用中**的第三種欄位覆寫，若內容表**現在**的值等於覆寫值，
+ *   該覆寫要解除（`plan.releases`）。判斷的是「內容表現值 = 覆寫值」，
+ *   **不是**「覆寫值 = 覆寫當時的來源值」：前者才反映幹事此刻想要的狀態
+ *   ——覆寫當時的來源值可能是空白（先在介面填過、後來才有內容表），或者
+ *   內容表其後改過；用舊的來源值去比，幹事改回內容表的值也永遠解除不了，
+ *   之後內容表再改，匯入一律報「你自己改過」而不更新。
  * Returns:
  *   {{added:number, updated:number, removed:number, unchanged:number,
  *     details:Object[], warnings:string[], skippedTabs:string[],
- *     listPlans:Object, weekUpdates:Object[]}}
+ *     listPlans:Object, weekUpdates:Object[], conflicts:Object[],
+ *     releases:{isoDate:string, field:string, overrideValue:*, row:Object}[],
+ *     blankActiveRows:Object[]}}
  */
 function computeContentImportPlan_(input) {
   var plan = {
@@ -536,6 +545,8 @@ function computeContentImportPlan_(input) {
     // ⚠️ 不算入 added／updated／removed／unchanged 任何一個——它是第五種
     //    結果：「內容表有新值，但你自己改過，所以冇動你」。
     conflicts: [],
+    // F5：內容表現值已經等於覆寫值、所以要解除的覆寫（`ACTIVE` 改 FALSE，不刪行）。
+    releases: [],
     // D-4：「有效」留空的行。留空當成 TRUE 是刻意的，但一定要講出來。
     blankActiveRows: (input.blankActiveRows || []).slice()
   };
@@ -596,13 +607,31 @@ function computeContentImportPlan_(input) {
       Object.keys(def.fieldMap).forEach(function (sourceKey) {
         var targetKey = def.fieldMap[sourceKey];
         var newValue = sourceRow[sourceKey];
+
+        // ⚠️ F5：解除覆寫的判斷一定要排在下面「週報現值＝內容表值就 return」
+        //    **之前**——幹事改回內容表的值之後，兩邊正正相等，那一行 return
+        //    之後就永遠碰不到覆寫行。範圍只限這次匯入的主日。
+        var ov = null;
+        if (def.overridable === true) {
+          ov = (input.fieldOverrideIndex || {})[fieldOverrideKey_(iso, targetKey)] || null;
+          if (ov && (input.serviceDates || []).indexOf(iso) !== -1
+            && contentValuesEqual_(ov.OVERRIDE_VALUE, newValue)) {
+            plan.releases.push({ isoDate: iso, field: targetKey, overrideValue: ov.OVERRIDE_VALUE, row: ov });
+            plan.details.push({
+              action: 'RELEASE', sheet: SHEETS.FIELD_OVERRIDE, isoDate: iso,
+              field: targetKey, oldValue: ov.OVERRIDE_VALUE, newValue: newValue
+            });
+            // 已經解除，這一格從此跟隨內容表，下面不可以再當成「你自己改過」。
+            ov = null;
+          }
+        }
+
         if (contentValuesEqual_(week[targetKey], newValue)) return;
 
         // ⚠️ 第三種模式的核心那一條：**有覆寫就不蓋過去，只提醒。**
         //    這裏 return 之前一定要記一筆 conflict——靜靜不改而不講，
         //    幹事會以為內容表那個新值已經入咗週報。
         if (def.overridable === true) {
-          var ov = (input.fieldOverrideIndex || {})[fieldOverrideKey_(iso, targetKey)];
           if (ov) {
             plan.conflicts.push({
               isoDate: iso, field: targetKey,
@@ -690,7 +719,7 @@ function previewContentImport_(quarterId, options) {
   if (!row) {
     return {
       ok: false, quarterId: qid, scope: 'QUARTER', reason: 'NO_CONTENT_SHEET',
-      message: '季度「' + qid + '」尚未建立內容表。請先按選單「內容表 ▸ 建立本季內容表」。'
+      message: '季度「' + qid + '」尚未建立內容表。請先在下面「季度作業」區塊按「建立／刷新本季內容表」。'
     };
   }
 
@@ -875,6 +904,46 @@ function writeContentImportPlan_(plan) {
       appendContentImportAudit_(SHEETS.BULLETIN_WEEKS, update.isoDate, change);
     });
   });
+
+  // ---- F5：解除已經與內容表一致的覆寫 ----
+  releaseFieldOverrides_(plan.releases || []);
+}
+
+/**
+ * 用途：把一批「已經與內容表一致」的 `FieldOverride` 解除：`ACTIVE` 改
+ *   `FALSE`（**不刪行**，記錄保留），逐筆記 `AuditLog` 的
+ *   `FIELD_OVERRIDE_RELEASE`。
+ * Args:
+ *   releases {{isoDate:string, field:string, overrideValue:*, row:Object}[]}
+ *     `computeContentImportPlan_()` 的 `plan.releases`；`row.__rowNo` 是
+ *     `FieldOverride` 工作表的實際行號。
+ * Returns:
+ *   {void}
+ * Raises:
+ *   Error 如果有東西要解除、但 `FieldOverride` 工作表不存在——有東西要寫
+ *     卻沒有表可以寫，是必須講出來的結構問題。
+ */
+function releaseFieldOverrides_(releases) {
+  if (!releases || releases.length === 0) return;
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.FIELD_OVERRIDE);
+  if (!sheet) {
+    throw new Error('releaseFieldOverrides_：找不到工作表「' + SHEETS.FIELD_OVERRIDE
+      + '」，請先執行「初始化工作表」。');
+  }
+  var activeCol = COLUMNS.FIELD_OVERRIDE.keys.indexOf('ACTIVE') + 1;
+  releases.forEach(function (r) {
+    sheet.getRange(r.row.__rowNo, activeCol).setValue(false);
+    appendAuditLog_({
+      action: 'FIELD_OVERRIDE_RELEASE',
+      sheetName: SHEETS.FIELD_OVERRIDE,
+      rowKey: r.isoDate + '#' + r.field,
+      field: 'ACTIVE',
+      oldValue: 'TRUE',
+      newValue: 'FALSE',
+      notes: '內容表現在的值已經與覆寫值一致（「' + String(r.overrideValue || '（空白）')
+        + '」），改回跟隨內容表。記錄保留，不刪行。'
+    });
+  });
 }
 
 /**
@@ -931,7 +1000,7 @@ function buildContentImportDialogLines_(result, options) {
   //    誤會成 bug 的一種結果。排喺明細下面就會被淹沒。
   if ((plan.conflicts || []).length > 0) {
     lines.push('');
-    lines.push('✋ 有 ' + plan.conflicts.length + ' 格你自己改過，所以這一次**沒有**蓋過去：');
+    lines.push('✋ 有 ' + plan.conflicts.length + ' 格你自己改過，所以這一次沒有蓋過去：');
     plan.conflicts.slice(0, 10).forEach(function (c) {
       lines.push('　' + c.isoDate + '　' + contentFieldLabel_(c.field)
         + '：你填的是「' + (c.overrideValue || '（空白）')
@@ -943,11 +1012,18 @@ function buildContentImportDialogLines_(result, options) {
     lines.push('　想改回跟隨內容表，把填寫介面那一格改成與內容表相同即可。');
   }
 
+  // F5：覆寫的值已經與內容表一致，這一次匯入把它解除。
+  if ((plan.releases || []).length > 0) {
+    lines.push('');
+    lines.push('ℹ️ 有 ' + plan.releases.length + ' 格你之前改過的值，現在已經與內容表一致，'
+      + (opts.applied ? '已從此改回跟隨內容表。' : '將會從此改回跟隨內容表。'));
+  }
+
   // ⚠️ D-4：留空的「有效」不可以靜靜當成 TRUE。
   if ((plan.blankActiveRows || []).length > 0) {
     lines.push('');
     lines.push('ℹ️ 有 ' + plan.blankActiveRows.length + ' 行的「有效」是空白的，'
-      + '本次**當成 TRUE**（會匯入）：');
+      + '本次當成 TRUE（會匯入）：');
     plan.blankActiveRows.slice(0, 10).forEach(function (b) {
       lines.push('　' + b.tabName + ' 第 ' + b.rowNo + ' 行'
         + (b.isoDate ? ('（' + b.isoDate + '）') : ''));
@@ -1007,7 +1083,7 @@ function formatContentImportDetail_(detail) {
   //    CONFLICT 是「內容表想改成新值，但你填的舊值贏咗」。用同一個
   //    箭嘴方向會令人以為值已經改咗。
   var actionText = {
-    ADD: '新增', UPDATE: '修改', REMOVE: '停用', CONFLICT: '沒有蓋過'
+    ADD: '新增', UPDATE: '修改', REMOVE: '停用', CONFLICT: '沒有蓋過', RELEASE: '解除覆寫'
   }[detail.action] || detail.action;
   var oldText = truncateForReport_(detail.oldValue);
   var newText = truncateForReport_(detail.newValue);

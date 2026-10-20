@@ -480,12 +480,12 @@ test('19c. 明細行數（不含截斷提示行）≤ SELFCHECK_MISSING_DETAIL_R
   assert.ok(summaryLines.length <= 20, '應該不超過 SELFCHECK_MISSING_DETAIL_ROWS 預設值 20，實際：' + summaryLines.length);
 });
 
-test('19d. 「尚有 N 項未列出」的 N 數值正確（25 個主日，20 個顯示，5 個隱藏 × 20 項＝100）', function () {
+test('19d. 「尚有 N 項未列出」的 N 數值正確（25 個主日，20 個顯示，5 個隱藏 × 19 項＝95；F6 起「通常空白」的獻花不計）', function () {
   const env = makeManySundaysEnv({ sundayCount: 25 });
   const summary = env.sandbox.runSelfCheck_();
   const item = findItem(summary, '待填欄位總數')[0];
   const last = item.detail[item.detail.length - 1];
-  assert.strictEqual(last, '尚有 100 項未列出，請用選單「本季待填清單」查看完整明細。');
+  assert.strictEqual(last, '尚有 95 項未列出，請用選單「本季待填清單」查看完整明細。');
 });
 
 test('19e. selfCheckMissingSummaryByDate_()／selfCheckCapMissingSummary_()：沒有任何主日待填 → 沒有明細段、沒有截斷提示', function () {
@@ -516,12 +516,12 @@ test('19f. selfCheckCapMissingSummary_()：待填 5 項（1 個主日，遠低�
   assert.ok(result.every(function (l) { return l.indexOf('尚有') === -1; }), '不應該有截斷提示：' + JSON.stringify(result));
 });
 
-test('19g. 每主日彙總行的括號內最多 3 個欄位名（一個全空白的主日有 20 項待填）', function () {
+test('19g. 每主日彙總行的括號內最多 3 個欄位名（一個全空白的主日有 19 項「一定要填」，另有 1 項通常空白不計）', function () {
   const env = makeManySundaysEnv({ sundayCount: 1 });
   const summary = env.sandbox.runSelfCheck_();
   const item = findItem(summary, '待填欄位總數')[0];
   const line = item.detail[0];
-  assert.ok(line.indexOf('20 項待填') !== -1, line);
+  assert.ok(line.indexOf('19 項待填') !== -1, line);
 
   const match = /（(.+)）$/.exec(line);
   assert.ok(match, '應該有括號內容：' + line);

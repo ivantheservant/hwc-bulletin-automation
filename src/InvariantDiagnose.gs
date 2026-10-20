@@ -58,7 +58,7 @@ function collectI06Diagnosis_(options) {
   var latest = latestPublishLogRow_(production);
 
   if (!latest) {
-    out.notes.push('PublishLog 沒有任何**非自測**的發佈紀錄（總行數 ' + rows.length + '），'
+    out.notes.push('PublishLog 沒有任何非自測的發佈紀錄（總行數 ' + rows.length + '），'
       + '所以 I06 的「正式」那一條通道根本沒有東西可以對——'
       + '它應該回「不適用」，不是「對不上」。');
     return out;
@@ -236,7 +236,7 @@ function buildI06DiagnosisLines_(d) {
 
   lines.push('【這份報告的用途】');
   lines.push('I06 報「對不上」的時候，這裏列出它實際比對的兩邊、以及相關檔案');
-  lines.push('目前的實況。全部都是**唯讀**，一個位元組都沒有寫。');
+  lines.push('目前的實況。全部都是唯讀，一個位元組都沒有寫。');
   lines.push('');
 
   // ---- 1 ----
@@ -259,7 +259,7 @@ function buildI06DiagnosisLines_(d) {
   if (d.rowMasterMatchesConfig === null) {
     lines.push('　比不到：該行沒有 MASTER_FILE_ID。');
   } else {
-    lines.push('　兩者' + (d.rowMasterMatchesConfig ? '相同' : '**不同**')
+    lines.push('　兩者' + (d.rowMasterMatchesConfig ? '相同' : '不同')
       + (d.rowMasterMatchesConfig ? '。' : '——I06 應該用該行那一個，不是 Config 那一個。'));
   }
   lines.push('');
@@ -538,7 +538,7 @@ function menuRealignI06_() {
   var ui = SpreadsheetApp.getUi();
   try {
     var answer = ui.alert('重新對齊 I06',
-      '這個動作會把 master 檔案**目前**的內容指紋，記回 PublishLog 最新一行。\n\n'
+      '這個動作會把 master 檔案目前的內容指紋，記回 PublishLog 最新一行。\n\n'
         + '⚠️ 它是「承認現況」，不是修復：\n'
         + '　　它不會碰 Drive 檔案，只會改 PublishLog 兩格。\n'
         + '　　撳完之後 I06 會變成成立——因為記錄被對齊到現況。\n\n'
@@ -620,11 +620,11 @@ function buildPublishRevisionLines_(info) {
   lines.push('　3. 按那一版右邊的三點 ▸ 下載，先把它存到電腦。');
   lines.push('　4. 回到週報系統的填寫介面，用「發佈及匯出」把剛才下載的那一份重新發佈。');
   lines.push('');
-  lines.push('　⚠️ 刻意**不做**「一鍵還原」：還原等於再覆寫一次 master，');
+  lines.push('　⚠️ 刻意不做「一鍵還原」：還原等於再覆寫一次 master，');
   lines.push('　　而按錯的代價是網站上那條固定連結指向錯的一期。');
   lines.push('　　多一步人手下載，是要你親眼看過那一份內容才發佈。');
   lines.push('');
-  lines.push('　⚠️ 用「發佈及匯出」重新發佈會產生**新的一版**（版本號 +1），');
+  lines.push('　⚠️ 用「發佈及匯出」重新發佈會產生新的一版（版本號 +1），');
   lines.push('　　不是把舊版本刪走。PublishLog 會看得出還原這一次。');
 
   return lines;
@@ -771,7 +771,7 @@ function buildI04DiagnosisLines_(d) {
   lines.push('　左邊（預期）：用同一組收件組別重新預覽 → '
     + (d.previewCount === null ? '（算不到）' : (d.previewCount + ' 人')));
   lines.push('　　來源：Recipients 工作表 ＋ 收件組別 ' + (d.groups.join('、') || '（沒有）'));
-  lines.push('　右邊（實際）：SendLog **最近一批**的行數 → ' + d.loggedCount + ' 行');
+  lines.push('　右邊（實際）：SendLog 最近一批的行數 → ' + d.loggedCount + ' 行');
   lines.push('　　來源：SendLog（全表 ' + d.totalRows + ' 行）'
     + '，狀態 ' + (d.batchStatus || '（沒有）'));
   lines.push('');
@@ -841,7 +841,7 @@ function i04DifferenceText_(d) {
   if (d.mergedSendCount && d.mergedSendCount > 1) {
     text += '\n　⚠️ 行數剛好是預期的 ' + d.mergedSendCount + ' 倍，而且這一批有 '
       + d.distinctTimestamps.length + ' 個不同的時間戳記——'
-      + '極可能是**' + d.mergedSendCount + ' 次不同的寄出被時間視窗併成了一批**。'
+      + '極可能是' + d.mergedSendCount + ' 次不同的寄出被時間視窗併成了一批。'
       + '\n　　那不是系統寄錯，是 I04 圈「一批」的規則本身不準。';
   } else if (d.distinctTimestamps.length > 2) {
     text += '\n　⚠️ 這一批有 ' + d.distinctTimestamps.length + ' 個不同的時間戳記，'

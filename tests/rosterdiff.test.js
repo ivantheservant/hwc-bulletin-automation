@@ -567,7 +567,7 @@ test('真正入口 buildBulletinModel_()：model.rosterDiff 帶著比對結果�
 test('真正入口 saveWeekFromWebApp_()：改一格 → DutyOverride 出現一行，且職事表完全沒有被寫入', function () {
   const env = makeEnv({ rosterVersion: 12, snapshotVersion: 12 });
   env.sandbox.saveWeekFromWebApp_({
-    isoDate: env.isoDate, lastSavedAt: null, week: {},
+    isoDate: env.isoDate, lastSavedAt: null, week: {}, baseWeek: {},
     announcements: [], prayers: [], fellowships: [], finance: [],
     dutyEdits: [{ postId: 'CHAIR', slotIndex: 1, name: '李小明' }]
   });
@@ -586,14 +586,14 @@ test('真正入口 saveWeekFromWebApp_()：改一格 → DutyOverride 出現一�
 test('真正入口 saveWeekFromWebApp_()：把該格改回與職事表相同 → 那一行變成 ACTIVE=FALSE（不刪行）', function () {
   const env = makeEnv({ rosterVersion: 12, snapshotVersion: 12 });
   env.sandbox.saveWeekFromWebApp_({
-    isoDate: env.isoDate, lastSavedAt: null, week: {},
+    isoDate: env.isoDate, lastSavedAt: null, week: {}, baseWeek: {},
     announcements: [], prayers: [], fellowships: [], finance: [],
     dutyEdits: [{ postId: 'CHAIR', slotIndex: 1, name: '李小明' }]
   });
   const afterFirst = env.sandbox.readSheet('BulletinWeeks')[0].LAST_SAVED_AT;
 
   env.sandbox.saveWeekFromWebApp_({
-    isoDate: env.isoDate, lastSavedAt: afterFirst, week: {},
+    isoDate: env.isoDate, lastSavedAt: afterFirst, week: {}, baseWeek: {},
     announcements: [], prayers: [], fellowships: [], finance: [],
     dutyEdits: [{ postId: 'CHAIR', slotIndex: 1, name: '陳大文' }]
   });

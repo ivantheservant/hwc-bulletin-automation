@@ -679,7 +679,7 @@ test('9. ⚠️ Web App 儲存後，FillSnapshot 一定要更新', function () {
 
   env.sandbox.saveWeekFromWebApp_({
     isoDate: '2027-11-07', lastSavedAt: null,
-    week: { SERMON_TITLE: '經填寫介面改的' },
+    week: { SERMON_TITLE: '經填寫介面改的' }, baseWeek: { SERMON_TITLE: '' },
     announcements: [], prayers: [], fellowships: [], finance: []
   });
 
@@ -696,7 +696,7 @@ test('9b. ⚠️ Web App 儲存 ＋ 格子表改另一格 → 各自同步，不
   // 填寫介面改一格
   env.sandbox.saveWeekFromWebApp_({
     isoDate: '2027-11-07', lastSavedAt: null,
-    week: { SERMON_TITLE: '介面改的講題' },
+    week: { SERMON_TITLE: '介面改的講題' }, baseWeek: { SERMON_TITLE: '' },
     announcements: [], prayers: [], fellowships: [], finance: []
   });
   // 格子表改另一格
@@ -722,7 +722,7 @@ test('9b-2. ⚠️ 反向鎖：填寫介面儲存之後，同步**不可以**把
   const env = makeSyncedEnv();
   env.sandbox.saveWeekFromWebApp_({
     isoDate: '2027-11-07', lastSavedAt: null,
-    week: { SERMON_TITLE: '介面改的講題' },
+    week: { SERMON_TITLE: '介面改的講題' }, baseWeek: { SERMON_TITLE: '' },
     announcements: [], prayers: [], fellowships: [], finance: []
   });
 
@@ -741,7 +741,7 @@ test('9b-3. 格子表那一格有未同步的改動時，儲存**不會**蓋掉�
 
   env.sandbox.saveWeekFromWebApp_({
     isoDate: '2027-11-07', lastSavedAt: null,
-    week: { SERMON_TITLE: '介面打的' },
+    week: { SERMON_TITLE: '介面打的' }, baseWeek: { SERMON_TITLE: '' },
     announcements: [], prayers: [], fellowships: [], finance: []
   });
 
@@ -758,7 +758,7 @@ test('9c. Web App 儲存同一格之後，格子表再改**同一格** → 才�
   const env = makeSyncedEnv();
   env.sandbox.saveWeekFromWebApp_({
     isoDate: '2027-11-07', lastSavedAt: null,
-    week: { SERMON_TITLE: '介面改的' },
+    week: { SERMON_TITLE: '介面改的' }, baseWeek: { SERMON_TITLE: '' },
     announcements: [], prayers: [], fellowships: [], finance: []
   });
   // 快照已經更新成「介面改的」；現在格子表改成第三個值

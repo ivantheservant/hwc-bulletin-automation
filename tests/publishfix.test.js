@@ -1090,7 +1090,7 @@ test('11b. 進階服務未啟用 → 訊息叫人去啟用，不是叫人重新�
   assert.strictEqual(result.ok, false);
   assert.strictEqual(result.reason, 'ADVANCED_SERVICE_DISABLED');
   assert.ok(result.message.indexOf('尚未啟用') !== -1, result.message);
-  assert.ok(result.message.indexOf('不要**清空') !== -1 || result.message.indexOf('不要') !== -1,
+  assert.ok(result.message.indexOf('不要清空') !== -1,
     '要明確叫人先不要清空 Config 那一格');
   assert.ok(result.message.indexOf('重新建立') === -1,
     '這一種情況不可以叫人重新建立——那會換掉連結');

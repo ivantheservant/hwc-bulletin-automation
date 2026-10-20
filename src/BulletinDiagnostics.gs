@@ -270,7 +270,8 @@ function menuPreviewBulletinModel_() {
         '程序表行數：' + model.program.length,
         '事奉框行數：' + model.dutyBoxPage1.length,
         '下週事奉行數：' + model.nextWeekDuty.length,
-        '待填項目數：' + model.missing.length,
+        '待填項目數：' + missingCountSummary_(model.missing).requiredCount
+          + missingCountSummary_(model.missing).optionalSuffix,
         '警告數：' + model.warnings.length,
         '',
         '完整內容見 Diagnostics 工作表。'
@@ -368,9 +369,12 @@ function buildBulletinModelReportLines_(model) {
   });
 
   lines.push('');
-  lines.push('【待填清單（' + model.missing.length + ' 項）】');
+  // F6：括號內只數「一定要填」，完整列出每一項，通常空白的標明出來。
+  var missingSummary = missingCountSummary_(model.missing);
+  lines.push('【待填清單（' + missingSummary.requiredCount + ' 項）】' + missingSummary.optionalSuffix);
   model.missing.forEach(function (m) {
-    lines.push('　' + m.label + '（' + m.field + '）：' + m.reason);
+    lines.push('　' + m.label + '（' + m.field + '）：' + m.reason
+      + (m.optional === true ? '　〔通常空白〕' : ''));
   });
 
   lines.push('');

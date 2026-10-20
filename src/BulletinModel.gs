@@ -562,6 +562,29 @@ function splitMissingList_(missing) {
 }
 
 /**
+ * 用途：F6——「待填 N 項」這個數字的**唯一出口**。頂部徽章、主日下拉標籤、
+ *   預覽報告、Word 產生報告、發佈前檢查、自我檢測……全部經過這一支，
+ *   不可以各自再數一次 `missing.length`（那樣會把「通常空白」也數進去，
+ *   同一週在不同畫面出現不同數字）。**純函式。**
+ * Args:
+ *   missing {Object[]} `buildMissingList_()` 的輸出。
+ * Returns:
+ *   {{requiredCount:number, optionalCount:number, optionalSuffix:string}}
+ *     `requiredCount` 只數「一定要填」；`optionalCount` 是「通常空白，有就填」
+ *     的項數；`optionalSuffix` 是現成的附註 `（另有 M 項通常空白）`，
+ *     沒有通常空白的項目時是空字串。
+ */
+function missingCountSummary_(missing) {
+  var split = splitMissingList_(missing);
+  var optionalCount = split.optional.length;
+  return {
+    requiredCount: split.requiredCount,
+    optionalCount: optionalCount,
+    optionalSuffix: optionalCount > 0 ? ('（另有 ' + optionalCount + ' 項通常空白）') : ''
+  };
+}
+
+/**
  * 用途：**R-042**——把職事表 `FLOWER` 崗位的值帶入獻花兩個週欄位。
  *   **純函式。**
  *

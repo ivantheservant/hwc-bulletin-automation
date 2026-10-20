@@ -274,13 +274,13 @@ function previewContentSheetBuild_(quarterId) {
 
   if (existing) {
     lines.push('');
-    lines.push('這一季**已經有**內容表，所以是「刷新」，不是重建。');
+    lines.push('這一季已經有內容表，所以是「刷新」，不是重建。');
     lines.push('會刷新：欄位、日期下拉選單、版面。');
-    lines.push('⚠️ 同工已經填落去的資料**一格都不會改**。');
+    lines.push('⚠️ 同工已經填落去的資料一格都不會改。');
     lines.push('現有連結：' + String(existing.FILE_URL || '（沒有記錄）'));
   } else {
     lines.push('');
-    lines.push('這一季**未有**內容表，會在雲端硬碟建立一個新的試算表。');
+    lines.push('這一季未有內容表，會在雲端硬碟建立一個新的試算表。');
     lines.push('建立之後會把連結記入 ContentSheets，並自動設定分享權限'
       + (config.domain ? ('（' + config.domain + ' 網域內可編輯）')
         : ('（⚠️ 未設定 ' + CONFIG_KEYS.CONTENT_SHEET_DOMAIN + '，要人手分享）')));
@@ -446,7 +446,7 @@ function previewContentSheetInvite_(quarterId) {
     return {
       ok: false, quarterId: qid, title: title, reason: 'NO_RECIPIENTS', lines: lines,
       message: 'Recipients 找不到屬於 ' + config.inviteGroups.join('／')
-        + ' 的有效收件人——即是話，就算撳落去，**也不會寄到任何人**。'
+        + ' 的有效收件人——即是話，就算撳落去，也不會寄到任何人。'
         + '請先在 Recipients 工作表加入收件人，並確認「有效」是 TRUE。'
     };
   }

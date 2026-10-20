@@ -25,6 +25,7 @@ const assert = require('assert');
 const vm = require('vm');
 const { loadAllSrcFilesInOrder } = require('./helpers/loadGas');
 const { makeFakeSheet, makeFakeSpreadsheet } = require('./helpers/fakeSpreadsheet');
+const { withDefaultBaseWeek } = require('./helpers/savePayload');
 
 const GAS_STUBS = {
   Utilities: { formatDate: function () { return ''; } },
@@ -163,12 +164,12 @@ function makeEnv(options) {
 }
 
 function basicPayload(overrides) {
-  return Object.assign({
+  return withDefaultBaseWeek(Object.assign({
     isoDate: '2027-10-03',
     lastSavedAt: null,
     week: {},
     announcements: [], prayers: [], fellowships: [], finance: []
-  }, overrides || {});
+  }, overrides || {}));
 }
 
 test('真正入口：首次儲存（BulletinWeeks 那一行從未有過 LAST_SAVED_AT，payload 帶 null）→ 成功，不再誤判 STALE', function () {
@@ -189,15 +190,16 @@ test('真正入口：已儲存過、token 相符 → 允許儲存', function () 
   // 用重新讀出來的 lastSavedAt（而不是第一次呼叫的回傳值）送第二次儲存，
   // 理由同上一個測試的註解：假工作表把 Date 存成 'yyyy-MM-dd' 字串。
   var reloadedLastSavedAt = sb.readSheet('BulletinWeeks')[0].LAST_SAVED_AT;
-  var second = sb.saveWeekFromWebApp_(basicPayload({ lastSavedAt: reloadedLastSavedAt, week: { SERMON_TITLE: '第二次' } }));
+  var second = sb.saveWeekFromWebApp_(basicPayload({ lastSavedAt: reloadedLastSavedAt, week: { SERMON_TITLE: '第二次' }, baseWeek: { SERMON_TITLE: '第一次' } }));
   assert.strictEqual(sb.readSheet('BulletinWeeks')[0].SERMON_TITLE, '第二次');
   assert.ok(second.lastSavedAt);
 });
 
 test('真正入口：已儲存過、token 不符 → STALE，錯誤訊息同時包含兩個時間，而且完全沒有寫入動作', function () {
   var sb = makeEnv({
-    bulletinWeeks: [{ SERVICE_DATE: '2027-10-03', QUARTER_ID: '2027T4', WEEK_OF_MONTH: 1, STATUS: 'DRAFT', SERMON_TITLE: '原本的' }]
+    bulletinWeeks: [{ SERVICE_DATE: '2027-10-03', QUARTER_ID: '2027T4', WEEK_OF_MONTH: 1, STATUS: 'DRAFT' }]
   });
+  // 第一次儲存要真的有改動，才會寫入 LAST_SAVED_AT（F2：沒有改動不更新）。
   sb.saveWeekFromWebApp_(basicPayload({ week: { SERMON_TITLE: '原本的' } }));
 
   // ⚠️ 假工作表把 Date 存成 'yyyy-MM-dd' 字串（見 tests/helpers/fakeSpreadsheet.js

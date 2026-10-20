@@ -875,6 +875,34 @@ test('10d. 真正入口：範本佔位符被拆成格式不同的多個 run → 
   assert.ok(visibleText(documentXmlOf(result.blob)).indexOf('因信稱義') !== -1);
 });
 
+test('F6 真正入口 generateBulletinDocx_()：Word 產生報告的「待填欄位」只數一定要填，通常空白另附', function () {
+  const env = makeEnv({});
+  const result = env.sandbox.generateBulletinDocx_('2027-11-07');
+  assert.strictEqual(result.ok, true, JSON.stringify(result));
+
+  const model = env.sandbox.buildBulletinModel_('2027-11-07');
+  const summary = env.sandbox.missingCountSummary_(model.missing);
+  assert.strictEqual(result.modelMissingCount, summary.requiredCount, '一定要填的數字');
+  assert.strictEqual(result.modelOptionalCount, summary.optionalCount, '通常空白的數字');
+  assert.ok(summary.optionalCount > 0, '這個情境的獻花是空白，應該有一項通常空白');
+
+  // 對話框用的是 saveBulletinDocx_() 的回傳值：產生結果再加上存檔位置。
+  const saved = Object.assign({}, result, { file: { fileName: result.fileName, url: 'https://example.invalid/f' } });
+  const lines = env.sandbox.buildGenerateResultDialogLines_('2027-11-07', saved);
+  const line = lines.filter(function (l) { return l.indexOf('待填欄位：') === 0; })[0];
+  assert.strictEqual(line,
+    '待填欄位：' + summary.requiredCount + ' 個（另有 ' + summary.optionalCount + ' 項通常空白）');
+});
+
+test('F6 RENDER_BLOCK_IF_MISSING_FIELDS=TRUE 時，拒絕訊息的數字也只數一定要填', function () {
+  const env = makeEnv({ config: { RENDER_BLOCK_IF_MISSING_FIELDS: 'TRUE' } });
+  const result = env.sandbox.generateBulletinDocx_('2027-11-07');
+  if (result.ok) return; // 這個情境一定要填的欄位全部填齊時不會被擋，另一方向由上面的測試負責
+  assert.strictEqual(result.reason, 'MISSING_FIELDS');
+  const model = env.sandbox.buildBulletinModel_('2027-11-07');
+  assert.strictEqual(result.missingCount, env.sandbox.missingCountSummary_(model.missing).requiredCount);
+});
+
 // =====================================================================
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');

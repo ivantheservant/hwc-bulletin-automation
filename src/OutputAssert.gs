@@ -365,7 +365,7 @@ function buildContentSizeLines_(size) {
   return [
     '內容份量：約 ' + formatThousands_(s.chars) + ' 字元（超過 4 頁的估算門檻 '
       + formatThousands_(s.warnChars) + '，可能會排到第 5 頁）',
-    '　⚠️ 這只是**估算**，準確頁數要用 Word 開啟確認頁數與分頁位置。'
+    '　⚠️ 這只是估算，準確頁數要用 Word 開啟確認頁數與分頁位置。'
   ];
 }
 

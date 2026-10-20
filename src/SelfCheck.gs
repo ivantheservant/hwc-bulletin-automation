@@ -64,7 +64,7 @@ function buildDeployerInAllowlistItem_(allowedEmails, deployerEmail, statuses) {
   }
   if (list.indexOf(deployer) === -1) {
     return [label, statuses.YELLOW,
-      'WEBAPP_ALLOWED_EMAILS 目前有 ' + list.length + ' 個電郵，但**不包含部署者**（'
+      'WEBAPP_ALLOWED_EMAILS 目前有 ' + list.length + ' 個電郵，但不包含部署者（'
         + deployer + '）。'
         + '部署者仍然可以使用（系統一律放行），但清單建議加入，以免將來換人時混亂'
         + '——看名單的人會以為那就是全部有權限的人。'];
@@ -233,7 +233,8 @@ function selfCheckMissingSummaryByDate_(serviceDates) {
 
   (serviceDates || []).forEach(function (sd) {
     try {
-      var missing = buildBulletinModel_(sd.isoDate).missing || [];
+      // F6：只數「一定要填」，與頂部徽章同一個算法。
+      var missing = splitMissingList_(buildBulletinModel_(sd.isoDate).missing || []).required;
       if (missing.length === 0) return;
       totalMissing += missing.length;
       var topLabels = missing.slice(0, 3).map(function (m) { return m.label; });
@@ -980,7 +981,9 @@ function buildQuarterMissingFieldsReportLines_(quarterId, sourceLabel) {
   serviceDates.forEach(function (sd) {
     try {
       (buildBulletinModel_(sd.isoDate).missing || []).forEach(function (m) {
-        itemLines.push(sd.isoDate + '　' + m.label + '（' + m.field + '）');
+        // F6：完整列出，通常空白的標明出來（不計入「本季待填欄位總數」）。
+        itemLines.push(sd.isoDate + '　' + m.label + '（' + m.field + '）'
+          + (m.optional === true ? '　〔通常空白〕' : ''));
       });
     } catch (perDateErr) {
       itemLines.push(sd.isoDate + '　（無法計算：' + ((perDateErr && perDateErr.message) ? perDateErr.message : String(perDateErr)) + '）');

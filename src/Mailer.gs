@@ -130,7 +130,7 @@ function sendBulletinForDate_(isoDate, options) {
     ChurchName: getConfig(CONFIG_KEYS.CHURCH_NAME, ''),
     ServiceDate: model.isoDate,
     SpecialType: model.special ? model.special.title : '',
-    MissingCount: String(model.missing.length),
+    MissingCount: String(missingCountSummary_(model.missing).requiredCount),
     RosterVersion: (model.rosterVersionUsed === null || model.rosterVersionUsed === undefined) ? '（尚未生成）' : String(model.rosterVersionUsed)
   };
   var churchNameWarning = checkChurchNameConfigured_(vars.ChurchName);

@@ -620,7 +620,8 @@ test('16b. 該季未建立內容表 → 明確錯誤，叫人先建立', functio
   const result = env.sandbox.previewContentImport_(QUARTER_ID, {});
   assert.strictEqual(result.ok, false);
   assert.strictEqual(result.reason, 'NO_CONTENT_SHEET');
-  assert.ok(result.message.indexOf('建立本季內容表') !== -1, result.message);
+  assert.ok(result.message.indexOf('「季度作業」區塊按「建立／刷新本季內容表」') !== -1, result.message);
+  assert.strictEqual(result.message.indexOf('選單'), -1, '整季匯入現時在填寫介面進行，不再指向選單：' + result.message);
 });
 
 test('17. 財政：TITLE_OVERRIDE 有值不會寫進 Finance（那張表沒有這一欄），四個數字欄照樣對應', function () {

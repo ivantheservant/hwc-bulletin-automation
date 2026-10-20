@@ -73,7 +73,7 @@ function buildGoLiveChecklist_() {
     label: '上線前：寄送模式',
     status: dryRun ? S.YELLOW : S.GREEN,
     message: dryRun
-      ? '⚠️ 測試模式（DRY_RUN=TRUE）：**不會真的寄出任何郵件**，只會寫 SendLog。'
+      ? '⚠️ 測試模式（DRY_RUN=TRUE）：不會真的寄出任何郵件，只會寫 SendLog。'
         + '正式上線之前要記得改成 FALSE。'
       : '正式模式（DRY_RUN=FALSE）：郵件會真的寄出。'
   });
@@ -86,7 +86,7 @@ function buildGoLiveChecklist_() {
     message: previewUrl
       ? '已填。星期一寄出的預覽連結會用這一條。'
       : '⚠️ Config 的 ' + CONFIG_KEYS.PREVIEW_WEBAPP_URL + ' 未填。'
-        + '系統會退回用 ScriptApp 自己取，但**那一支在觸發器情境下有機會取不到**'
+        + '系統會退回用 ScriptApp 自己取，但那一支在觸發器情境下有機會取不到'
         + '（而星期一寄信正正是觸發器情境），取不到就不會寄預覽信。'
         + '請在「部署 ▸ 管理部署作業」複製網頁應用程式網址填進去。'
   });

@@ -329,7 +329,7 @@ function writeInitializeDiagnosticsReport_(summary) {
   var md5Backfill = summary.publishLogMd5Backfill;
   if (md5Backfill && md5Backfill.filled > 0) {
     lines.push('PublishLog 補寫內容指紋：' + md5Backfill.filled + ' 行'
-      + '（⚠️ 指紋來自**存檔副本**，不是發佈當時直接記下的值）');
+      + '（⚠️ 指紋來自存檔副本，不是發佈當時直接記下的值）');
   }
   if (md5Backfill && md5Backfill.skipped > 0) {
     lines.push('PublishLog 有 ' + md5Backfill.skipped + ' 行補寫不到內容指紋'
@@ -503,7 +503,7 @@ function backfillPublishLogContentFingerprint_() {
       action: 'PUBLISH_LOG_BACKFILL_MD5', sheetName: SHEETS.PUBLISH_LOG,
       rowKey: publishRowIsoDate_(row), field: 'CONTENT_MD5',
       oldValue: '', newValue: fingerprint,
-      notes: '一次性補寫：指紋**來自存檔副本**（' + maskFileId_(archiveFileId)
+      notes: '一次性補寫：指紋來自存檔副本（' + maskFileId_(archiveFileId)
         + '），不是發佈當時直接記下的值。'
     });
   });
@@ -703,9 +703,14 @@ function seedPostDisplayRows_() {
   postDisplayRow_('PREACHER', '講員', 30, true, '', '講員', 30, true, ''),
   // ⚠️ R-046：本來兩個都叫「讀經」，與崇拜程序那個「讀經經文」同名，
   //    但這個是**人**、那個是**經文**。2026-09-08 實測就是因此漏填了經文
-  //    卻以為已經填好。這裏改的是**事奉框**的顯示名稱，Word 程序表那個
-  //    「讀經」（ProgramTemplates.ITEM_NAME）一字不變。
-  postDisplayRow_('SCRIPTURE', '讀經（事奉）', 40, true, '', '讀經（事奉）', 40, true, ''),
+  //    卻以為已經填好。歧義由**介面與格子表的欄位名稱**解決（改叫
+  //    「讀經經文」）。
+  //
+  //    ⚠️ 事奉框這裏**維持「讀經」**，不可以改成「讀經（事奉）」：
+  //    `PAGE1_NAME`／`PAGE3_NAME` 經 `src/DutyBox.gs` 直接印在 Word 第 1、3
+  //    頁的事奉框，改了印刷版就會變成「讀經（事奉）：某某弟兄」，違反
+  //    R-046「Word 輸出一字不變」。2026-10-21 瀏覽器測試核對時發現。
+  postDisplayRow_('SCRIPTURE', '讀經', 40, true, '', '讀經', 40, true, ''),
   postDisplayRow_('WORSHIP', '領詩', 50, true, '', '領詩', 50, true, ''),
   postDisplayRow_('PIANO', '司琴', 60, true, '', '司琴', 60, true, ''),
   postDisplayRow_('DEACON', '當值堂委', 70, true, '', '當值堂委', 120, true, ''),
@@ -854,7 +859,7 @@ function seedEmailTemplatesRows_() {
       ].join('\n'),
       ACTIVE: true,
       NOTES: 'R-033：星期一自動寄出的草稿預覽連結。'
-        + '⚠️ {{PreviewUrl}} 是那條**固定不變**的連結（不帶日期＝永遠顯示下一個主日）；'
+        + '⚠️ {{PreviewUrl}} 是那條固定不變的連結（不帶日期＝永遠顯示下一個主日）；'
         + '{{RosterPendingNote}} 只在職事表未有該季資料時才有內容，其餘時候是空字串。'
     },
     {
@@ -922,7 +927,7 @@ function seedNumberRegistryRows_() {
       SHEET_NAME: SHEETS.BULLETIN_WEEKS,
       RECOUNT_RULE: '數 BulletinWeeks 內 QUARTER_ID = 本季 的行數',
       ACTIVE: true,
-      NOTES: '完全獨立**但只在職事表有這一季的時候**：那時 reported 走職事表 ServiceDates、'
+      NOTES: '完全獨立但只在職事表有這一季的時候：那時 reported 走職事表 ServiceDates、'
         + 'recount 走本試算表。職事表未有這一季時兩路會變成同一個來源，一律報「不適用」'
         + '——自己對自己一定對得上，報綠等於講大話。'
     },
@@ -979,7 +984,7 @@ function seedNumberRegistryRows_() {
       RECOUNT_RULE: '重新解壓成品，挖走文字方塊（mc:AlternateContent）之後逐段數，'
         + '長度 >= DUPLICATE_PARAGRAPH_MIN_CHARS 而且出現 >= 2 次的段落數目',
       ACTIVE: true,
-      NOTES: 'R-032。⚠️ 這個數字的來源不是工作表，是**產出檔案本身**——'
+      NOTES: 'R-032。⚠️ 這個數字的來源不是工作表，是產出檔案本身——'
         + '所以 I03 那一條兩路對數只能兩邊都掃同一份 blob，獨立性比其餘幾個低。'
         + '真正的獨立性來自「一路是渲染時算的、一路是回頭實掃成品」，'
         + '而這一項本來就只有實掃那一路，沒有渲染時的對應數字。'

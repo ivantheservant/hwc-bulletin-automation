@@ -154,7 +154,7 @@ function assertSelfTestSandbox_(config) {
     return {
       ok: false,
       message: '尚未設定沙盒季度。請在 Config 的 ' + CONFIG_KEYS.SELFTEST_QUARTER_ID
-        + ' 填入一個**職事表沒有資料**的季度（預設 2030T1）。'
+        + ' 填入一個職事表沒有資料的季度（預設 2030T1）。'
     };
   }
 
@@ -587,7 +587,7 @@ function selfTestS19_(ctx) {
       + '季度寫錯的 ' + wrongQuarter + ' 行、'
       + '對話框' + (messageMentions ? '有' : '沒有') + '提職事表',
     '季度 ' + config.quarterId + '；逐格檢查的欄位：' + dutyKeys.join('、')
-      + '（WEEK_OF_MONTH 與 PROGRAM_TEMPLATE_ID **刻意不計**——它們不讀職事表都一定有值）；'
+      + '（WEEK_OF_MONTH 與 PROGRAM_TEMPLATE_ID 刻意不計——它們不讀職事表都一定有值）；'
       + '對話框訊息：' + String(result.message || '（空）'));
 }
 
@@ -630,12 +630,12 @@ function selfTestS20_(ctx) {
 
   return selfTestOutcome_(ok,
     '補了 0 格、事奉格一格未變、訊息有講明職事表仍然找不到',
-    '補了 ' + result.filled + ' 格、事奉格' + (dutyUnchanged ? '一格未變' : '**變了**')
+    '補了 ' + result.filled + ' 格、事奉格' + (dutyUnchanged ? '一格未變' : '變了')
       + '、訊息' + (saidSo ? '有' : '沒有') + '講明',
     '季度 ' + config.quarterId + '；職事表狀態 '
       + describeRosterStatusCounts_(result.statusBefore) + ' → '
       + describeRosterStatusCounts_(result.statusAfter)
-      + '（狀態被更正是**正常的**，補抓的職責之一就是更正它）；'
+      + '（狀態被更正是正常的，補抓的職責之一就是更正它）；'
       + '訊息：' + String(result.message || '（空）'));
 }
 /**
@@ -670,7 +670,10 @@ function selfTestS21_(ctx) {
   var loaded = loadWeekForWebApp_(isoDate);
   var patch = {};
   patch[fieldKey] = sentinel;
-  saveWeekFromWebApp_({ isoDate: isoDate, lastSavedAt: loaded.lastSavedAt, week: patch, dutyEdits: [] });
+  saveWeekFromWebApp_({
+    isoDate: isoDate, lastSavedAt: loaded.lastSavedAt, week: patch,
+    baseWeek: baseWeekFor_(loaded.week, patch), dutyEdits: []
+  });
 
   var result = backfillRosterForQuarter_(config.quarterId);
 
@@ -869,7 +872,7 @@ function selfTestS25_(ctx) {
   if (notices.length > 0) {
     return selfTestOutcome_(null, '沙盒季度沒有夏令時間轉換提示',
       '有 ' + notices.length + ' 個（' + notices.map(function (n) { return n.noticeIso; }).join('、') + '）',
-      '不適用：沙盒季度「' + config.quarterId + '」**含**提示日，所以驗不到「不含轉換的季度」'
+      '不適用：沙盒季度「' + config.quarterId + '」含提示日，所以驗不到「不含轉換的季度」'
         + '這一條。S22–S24 那一組會驗到寫入那一邊。'
         + '⚠️ 「不適用」不等於「通過」。');
   }
@@ -992,7 +995,7 @@ function selfTestS28_(ctx) {
     result.recipientCount + ' 筆 STATUS=PREVIEW、內文含預覽連結、DRY_RUN=TRUE',
     added + ' 筆、內文' + (hasUrl ? '有' : '沒有') + '連結、DRY_RUN=' + result.dryRun,
     '主日 ' + dates[0] + '；連結 ' + (result.previewUrl || '（取不到）')
-      + '　⚠️ 覆蓋缺口：這一條**沒有**真的呼叫 weeklyBulletinSendTrigger_()，'
+      + '　⚠️ 覆蓋缺口：這一條沒有真的呼叫 weeklyBulletinSendTrigger_()，'
       + '因為那一支會替真實季度建立填寫表與內容表。見 docs/待確認事項.md。');
 }
 
@@ -1112,7 +1115,7 @@ function selfTestS31_(ctx) {
       + '超過 ' + big.chars + ' 字元（提示 ' + bigWarns + '）、穩定 ' + stable,
     '門檻 500（測試用）。⚠️ 兩邊都要驗——只驗「超過會提示」的話，'
       + '一支永遠提示的壞實作一樣會綠。'
-      + '　⚠️ 這個數字**只是估算**：準確頁數要靠 Word 的排版引擎。');
+      + '　⚠️ 這個數字只是估算：準確頁數要靠 Word 的排版引擎。');
 }
 
 /**
@@ -1142,7 +1145,7 @@ function selfTestS32_(ctx) {
     '可見 2029T3、2029T2；封存 2029T1',
     '可見 ' + plan.visible.join('、') + '；封存 ' + plan.toArchive.join('、'),
     '保留 2 季（Config ' + CONFIG_KEYS.RETENTION_QUARTERS_VISIBLE + '）。'
-      + '　⚠️ 覆蓋缺口：這一條只驗「決定封存哪一季」那一段，**沒有真的封存**'
+      + '　⚠️ 覆蓋缺口：這一條只驗「決定封存哪一季」那一段，沒有真的封存'
       + '——封存是整季操作，會動到沙盒範圍以外的資料。真正的寫入要靠'
       + '十二月真數據演練，或者人手撳選單「立即整理舊季度」。');
 }
@@ -1175,7 +1178,7 @@ function selfTestS33_(ctx) {
   return selfTestOutcome_(ok,
     '封存後可見 2 季；取消封存後可見 3 季（2029T1 重新出現）',
     '封存後 ' + hiddenList.length + ' 季；取消封存後 ' + restoredList.length + ' 季',
-    '⚠️ 封存**一格資料都沒有刪**，所以取消封存之後那一季完完整整地回來。'
+    '⚠️ 封存一格資料都沒有刪，所以取消封存之後那一季完完整整地回來。'
       + '　⚠️ 覆蓋缺口：同 S32，這一條沒有真的寫入。');
 }
 
@@ -1225,7 +1228,7 @@ function selfTestS34_(ctx) {
       + '、PublishLog ' + before.publishLog + '→' + after.publishLog
       + '、AuditLog ' + before.auditLog + '→' + after.auditLog
       + '、SendLog ' + before.sendLog + '→' + after.sendLog
-      + '　⚠️ 那四張是**紀錄**，不是「本季的工作」——封存它們等於把稽核軌跡'
+      + '　⚠️ 那四張是紀錄，不是「本季的工作」——封存它們等於把稽核軌跡'
       + '藏起來，而稽核軌跡的用途正正是事後回去查。'
       + '　⚠️ 覆蓋缺口：這一條只跑得到唯讀那一段（真封存會動到沙盒以外）。'
       + '真正的防線是 tests/retention.test.js 那條靜態掃描。');
@@ -1292,9 +1295,10 @@ function selfTestS36_(ctx) {
   // 在沙盒季度填一格內容，令它變成「未發佈但有內容」。
   var isoDate = dates[0];
   var loaded = loadWeekForWebApp_(isoDate);
+  var s36Week = { SERMON_TITLE: 'S36 測試講題 ' + ctx.runId };
   saveWeekFromWebApp_({
     isoDate: isoDate, lastSavedAt: loaded.lastSavedAt,
-    week: { SERMON_TITLE: 'S36 測試講題 ' + ctx.runId }, dutyEdits: []
+    week: s36Week, baseWeek: baseWeekFor_(loaded.week, s36Week), dutyEdits: []
   });
 
   var blockers = findUnpublishedWorkInQuarter_(config.quarterId);
@@ -1341,7 +1345,7 @@ function selfTestS37_(ctx) {
     '可見 ' + visible.length + ' 季、勾之後 ' + withArchived.length + ' 季、'
       + '提示語' + (hintHasAction ? '有' : '沒有') + '講下一步',
     '提示語：「' + RETENTION_EMPTY_HINT_ + '」'
-      + '　⚠️ 提示語一定要**講得出下一步**（撳「顯示已封存」或者建立新一季），'
+      + '　⚠️ 提示語一定要講得出下一步（撳「顯示已封存」或者建立新一季），'
       + '只講「沒有季度」等於把人留在原地。');
 }
 
@@ -1397,7 +1401,7 @@ function selfTestDstGate_(config) {
         '不適用：季度「' + config.quarterId + '」不含',
         '請把 Config 的 ' + CONFIG_KEYS.SELFTEST_QUARTER_ID
           + ' 改成一個含 4 月第一個主日或 9 月最後一個主日的季度。'
-          + '⚠️ 提示登在**改動當日的前一個主日**，所以實際上要用 YYYYT1'
+          + '⚠️ 提示登在改動當日的前一個主日，所以實際上要用 YYYYT1'
           + '（4 月那一次，提示日在 3 月底）或者 YYYYT3（9 月那一次，提示日在 9 月中）；'
           + 'YYYYT2 與 YYYYT4 永遠不會含提示日。'
           + '同時那一季必須是職事表沒有資料的季度，兩個條件都要滿足。'
@@ -1919,10 +1923,12 @@ function selfTestS08_(ctx) {
   var newTitle = '自測講題 ' + ctx.runId;
   var auditBefore = readSheet(SHEETS.AUDIT_LOG).length;
 
+  var s08Week = { SERMON_TITLE: newTitle };
   var saved = saveWeekFromWebApp_({
     isoDate: isoDate,
     lastSavedAt: loaded.lastSavedAt,
-    week: { SERMON_TITLE: newTitle },
+    week: s08Week,
+    baseWeek: baseWeekFor_(loaded.week, s08Week),
     dutyEdits: []
   });
 
@@ -1964,7 +1970,7 @@ function selfTestS09_(ctx) {
     {
       label: '清單（家事報告）',
       payload: {
-        isoDate: isoDate, lastSavedAt: loaded.lastSavedAt, week: {},
+        isoDate: isoDate, lastSavedAt: loaded.lastSavedAt, week: {}, baseWeek: {},
         announcements: [{ TEXT: '這是唯讀欄位，不應該存得到' }],
         dutyEdits: []
       }
@@ -1974,6 +1980,7 @@ function selfTestS09_(ctx) {
       payload: {
         isoDate: isoDate, lastSavedAt: loaded.lastSavedAt,
         week: { CALL_TEXT: '這是唯讀欄位，不應該存得到' },
+        baseWeek: { CALL_TEXT: '' },
         dutyEdits: []
       }
     },
@@ -1982,6 +1989,7 @@ function selfTestS09_(ctx) {
       payload: {
         isoDate: isoDate, lastSavedAt: loaded.lastSavedAt,
         week: { ATT_ENG_WORSHIP: '99', SERMON_TITLE: '這一欄本來可以寫' },
+        baseWeek: { ATT_ENG_WORSHIP: '', SERMON_TITLE: '' },
         dutyEdits: []
       }
     }
@@ -2138,7 +2146,10 @@ function selfTestBaptismScenario_(ctx, spec) {
   baptismBoxFieldKeys_().forEach(function (key) {
     if (!Object.prototype.hasOwnProperty.call(week, key)) week[key] = '';
   });
-  saveWeekFromWebApp_({ isoDate: isoDate, lastSavedAt: loaded.lastSavedAt, week: week, dutyEdits: [] });
+  saveWeekFromWebApp_({
+    isoDate: isoDate, lastSavedAt: loaded.lastSavedAt, week: week,
+    baseWeek: baseWeekFor_(loaded.week, week), dutyEdits: []
+  });
 
   var result = saveBulletinDocx_(isoDate);
   if (!result.ok) {
@@ -2628,7 +2639,7 @@ function selfTestPublishGuard_(config) {
   if (!config.masterFileId) {
     return selfTestOutcome_(null, '已設定沙盒 master 發佈檔案', '尚未設定',
       'Config 的 ' + CONFIG_KEYS.SELFTEST_MASTER_PDF_FILE_ID + ' 是空的，所以略過 S13–S15。'
-        + '⚠️ 自測機**絕對不會**碰正式那一個 master 檔案（' + CONFIG_KEYS.PUBLISHED_PDF_FILE_ID
+        + '⚠️ 自測機絕對不會碰正式那一個 master 檔案（' + CONFIG_KEYS.PUBLISHED_PDF_FILE_ID
         + '），所以要驗發佈就必須另外建立一個沙盒檔案並填在這裡。'
         + '「略過」不等於「通過」。');
   }
@@ -2820,7 +2831,7 @@ function selfTestS18_(ctx) {
       : ('算不出：' + schedule.reason)) + '、DRY_RUN=' + dryRun,
     describeNextSendSunday_(schedule)
       + '　獨立算法（直接數星期幾）：' + independentSunday
-      + '　⚠️ 覆蓋缺口：這一條**沒有**真的呼叫 weeklyBulletinSendTrigger_()，'
+      + '　⚠️ 覆蓋缺口：這一條沒有真的呼叫 weeklyBulletinSendTrigger_()，'
       + '因為那一支會順手替真實季度建立季度填寫表，違反沙盒規則。'
       + '真正的觸發器行為仍然要人手驗一次（見需求登記 R-028）。');
 }
@@ -3332,7 +3343,7 @@ function selfTestMenuRun_(options, title) {
     var config = selfTestConfig_();
     if (!options.resume) {
       var confirm = ui.alert(title,
-        '自測機會**清空並重造**沙盒季度（' + config.quarterId + '）的資料，然後由真實入口跑一次完整流程。\n\n'
+        '自測機會清空並重造沙盒季度（' + config.quarterId + '）的資料，然後由真實入口跑一次完整流程。\n\n'
         + '目前 DRY_RUN＝' + (config.dryRun ? 'TRUE（不會真的寄出）' : 'FALSE（⚠️ 會真的寄出）') + '\n'
         + '職事表：全程唯讀，跑完會比對版本記錄確認。\n'
         // ⚠️ 開跑前就要講，不是跑完才在報告裏見到「不適用」。跑一次要幾分鐘，

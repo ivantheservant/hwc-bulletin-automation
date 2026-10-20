@@ -257,14 +257,14 @@ function setContentSheetArchived_(quarterId, archived, archiveFolderId) {
     out.ok = true;
     out.message = '內容表登記行的「有效」已改為 ' + (archived ? 'FALSE' : 'TRUE')
       + '。⚠️ Config 的 ' + CONFIG_KEYS.CONTENT_SHEET_ARCHIVE_FOLDER_ID
-      + ' 未設定，所以**沒有搬動檔案**——檔案仍然在原本的資料夾。';
+      + ' 未設定，所以沒有搬動檔案——檔案仍然在原本的資料夾。';
     return out;
   }
 
   if (!archived) {
     out.ok = true;
     out.message = '內容表登記行的「有效」已改回 TRUE。'
-      + '⚠️ 檔案**沒有**自動搬回原本的資料夾——搬回哪裏系統不知道，請人手處理。';
+      + '⚠️ 檔案沒有自動搬回原本的資料夾——搬回哪裏系統不知道，請人手處理。';
     return out;
   }
 
@@ -316,7 +316,7 @@ function archiveQuarter_(quarterId, options) {
     out.reason = 'HAS_UNPUBLISHED_WORK';
     out.blockers = blockers;
     out.message = '季度「' + qid + '」有 ' + blockers.length
-      + ' 個主日**未發佈但已經有內容**，所以沒有封存。'
+      + ' 個主日未發佈但已經有內容，所以沒有封存。'
       + '那一季看來還在做，收起它等於把正在填的東西藏走。'
       + '確認過真的可以收起，請再撳一次並選擇「照樣封存」。';
     return out;
@@ -498,9 +498,9 @@ function buildRetentionReportLines_(plan, archived, skipped, config) {
     lines.push('');
   }
 
-  lines.push('⚠️ 封存只是「預設不顯示」，**一格資料都沒有刪**：');
+  lines.push('⚠️ 封存只是「預設不顯示」，一格資料都沒有刪：');
   lines.push('　　BulletinWeeks 只多了一個 ARCHIVED=TRUE 的標記，內容一格未動；');
-  lines.push('　　季度填寫表是**隱藏**（不是刪除），取消隱藏就見得返；');
+  lines.push('　　季度填寫表是隱藏（不是刪除），取消隱藏就見得返；');
   lines.push('　　內容表檔案沒有刪，只是登記行的「有效」改成 FALSE。');
   lines.push('　　要完全還原，用選單「取消封存季度」。');
   lines.push('');
@@ -562,9 +562,9 @@ function menuRunQuarterRetention_() {
     var config = retentionConfig_();
     var confirm = ui.alert('立即整理舊季度',
       '把超出保留範圍的季度標記為「已封存」。\n\n'
-        + '⚠️ **一格資料都不會刪。** 封存只是「預設不顯示」：\n'
+        + '⚠️ 一格資料都不會刪。封存只是「預設不顯示」：\n'
         + '　　• BulletinWeeks 只多一個 ARCHIVED 標記，內容一格未動\n'
-        + '　　• 季度填寫表是**隱藏**，不是刪除\n'
+        + '　　• 季度填寫表是隱藏，不是刪除\n'
         + '　　• 內容表檔案沒有刪，只是登記行的「有效」改成 FALSE\n'
         + '　　• 隨時可以用選單「取消封存季度」完全還原\n\n'
         + '目前設定保留最近 ' + config.visibleQuarters + ' 季（Config 的 '
@@ -589,7 +589,7 @@ function menuRunQuarterRetention_() {
       }).join('\n');
 
       var again = ui.alert('有季度未封存',
-        '以下季度有**未發佈但已經有內容**的主日，所以沒有封存：\n\n'
+        '以下季度有未發佈但已經有內容的主日，所以沒有封存：\n\n'
           + detail + '\n\n'
           + '那幾季看來還在做。確認過真的可以收起，撳「是」照樣封存；\n'
           + '撳「否」就維持現狀（其餘季度已經封存好）。',
@@ -618,7 +618,7 @@ function menuUnarchiveQuarter_() {
     var resp = ui.prompt('取消封存季度',
       '把一個已封存的季度完全還原：ARCHIVED 改回 FALSE、季度填寫表取消隱藏、\n'
         + '內容表登記行的「有效」改回 TRUE。\n\n'
-        + '⚠️ 內容表**檔案**不會自動搬回原本的資料夾——搬回哪裏系統不知道，\n'
+        + '⚠️ 內容表檔案不會自動搬回原本的資料夾——搬回哪裏系統不知道，\n'
         + '　　請在 Drive 人手處理（檔案一直都在，沒有刪）。\n\n'
         + '要還原哪一個季度？（例如 2027T4）',
       ui.ButtonSet.OK_CANCEL);

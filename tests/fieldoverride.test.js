@@ -507,7 +507,7 @@ test('⚠️ A 主日改「下週事奉」→ 寫的是 B 主日那一筆記錄'
   //    才最容易誤用這一週的日期**，兩個畫面各存一筆，外表完全正常。
   const env = makeEnv({});
   env.sandbox.saveWeekFromWebApp_({
-    isoDate: D1, lastSavedAt: null, week: {},
+    isoDate: D1, lastSavedAt: null, week: {}, baseWeek: {},
     nextWeekDutyEdits: [{ postId: 'CHAIR', slotIndex: 1, name: '陳大文' }]
   });
 
@@ -522,7 +522,7 @@ test('⚠️ A 主日改「下週事奉」→ 寫的是 B 主日那一筆記錄'
 test('⚠️ 反向：B 主日改「本週事奉」→ 同一筆記錄（不是新開一筆）', function () {
   const env = makeEnv({});
   env.sandbox.saveWeekFromWebApp_({
-    isoDate: D1, lastSavedAt: null, week: {},
+    isoDate: D1, lastSavedAt: null, week: {}, baseWeek: {},
     nextWeekDutyEdits: [{ postId: 'CHAIR', slotIndex: 1, name: '陳大文' }]
   });
   const afterFirst = rows(env, 'DUTY_OVERRIDE').length;
@@ -531,7 +531,7 @@ test('⚠️ 反向：B 主日改「本週事奉」→ 同一筆記錄（不是�
     return env.sandbox.formatIsoDate_(r.SERVICE_DATE) === D2;
   })[0];
   env.sandbox.saveWeekFromWebApp_({
-    isoDate: D2, lastSavedAt: env.sandbox.canonicalSaveToken_(week2.LAST_SAVED_AT), week: {},
+    isoDate: D2, lastSavedAt: env.sandbox.canonicalSaveToken_(week2.LAST_SAVED_AT), week: {}, baseWeek: {},
     dutyEdits: [{ postId: 'CHAIR', slotIndex: 1, name: '李小明' }]
   });
 
@@ -547,14 +547,14 @@ test('⚠️ R-040：讀與寫用同一個日期（連續兩次儲存只可以�
   //    每儲存一次就多一筆記錄——而外表完全正常，只是永遠對不上。
   const env = makeEnv({});
   env.sandbox.saveWeekFromWebApp_({
-    isoDate: D1, lastSavedAt: null, week: {},
+    isoDate: D1, lastSavedAt: null, week: {}, baseWeek: {},
     nextWeekDutyEdits: [{ postId: 'CHAIR', slotIndex: 1, name: '第一次' }]
   });
   const week1 = rows(env, 'BULLETIN_WEEKS').filter(function (r) {
     return env.sandbox.formatIsoDate_(r.SERVICE_DATE) === D1;
   })[0];
   env.sandbox.saveWeekFromWebApp_({
-    isoDate: D1, lastSavedAt: env.sandbox.canonicalSaveToken_(week1.LAST_SAVED_AT), week: {},
+    isoDate: D1, lastSavedAt: env.sandbox.canonicalSaveToken_(week1.LAST_SAVED_AT), week: {}, baseWeek: {},
     nextWeekDutyEdits: [{ postId: 'CHAIR', slotIndex: 1, name: '第二次' }]
   });
 
@@ -594,7 +594,7 @@ test('⚠️ D-7：職事表有齊資料 → 「本應空白」不算入「仍�
     statusBefore: { OK: 13 }, statusAfter: { OK: 13 }, rosterFound: true
   });
   assert.ok(msg.indexOf('沒有任何一格因為職事表缺資料而填不到') !== -1, msg);
-  assert.ok(msg.indexOf('12 格**本來就應該空白**') !== -1, msg);
+  assert.ok(msg.indexOf('12 格本來就應該空白') !== -1, msg);
   assert.ok(msg.indexOf('不算缺資料') !== -1, msg);
 });
 
@@ -727,8 +727,11 @@ test('R-046：介面與格子表叫「讀經經文」，Word 印出來的「讀�
 
   assert.ok(constants.indexOf("'讀經經文', '證道講題'") !== -1, 'BulletinWeeks 標題要改');
   assert.ok(fillGrid.indexOf("'SCRIPTURE_REF', '讀經經文'") !== -1, '格子表標題要改');
-  assert.ok(bootstrap.indexOf("postDisplayRow_('SCRIPTURE', '讀經（事奉）'") !== -1,
-    '事奉框那個是**人**，要改成「讀經（事奉）」');
+  // ⚠️ 事奉框維持「讀經」：PAGE1_NAME／PAGE3_NAME 直接印在 Word 第 1、3
+  //    頁的事奉框，改成「讀經（事奉）」會令印刷版多出括號。
+  assert.ok(bootstrap.indexOf("postDisplayRow_('SCRIPTURE', '讀經', 40, true, '', '讀經', 40, true, '')") !== -1,
+    '事奉框維持「讀經」，歧義由介面欄位「讀經經文」解決');
+  assert.strictEqual(bootstrap.indexOf("postDisplayRow_('SCRIPTURE', '讀經（事奉）'"), -1, '種子資料不可以再有「讀經（事奉）」');
 
   // ⚠️ 這一條最要緊：ProgramTemplates 的 ITEM_NAME 是 Word 印出來的字。
   assert.ok(bootstrap.indexOf("programRow_('TPL_NORMAL', 70, '讀經', 'FIELD:SCRIPTURE_REF'") !== -1,
@@ -856,6 +859,187 @@ test('浸禮分頁六欄與 baptismBoxFieldDefs_() 一致', function () {
   assert.strictEqual(JSON.stringify(valueKeys),
     JSON.stringify(Array.prototype.slice.call(env.sandbox.baptismBoxFieldKeys_())),
     '六欄的單一真相來源是 baptismBoxFieldDefs_()');
+});
+
+// =====================================================================
+// 第 8 組：2028T2 瀏覽器測試修正（F1 匯入後的舊分頁、F5 改回同內容表一致）
+// =====================================================================
+
+console.log('\n第 8 組：F1／F5');
+
+function overrideRow(iso, key, overrideValue, sourceAtOverride, active) {
+  return {
+    SERVICE_DATE: iso, FIELD_KEY: key, OVERRIDE_VALUE: overrideValue,
+    SOURCE_VALUE_AT_OVERRIDE: sourceAtOverride, OVERRIDE_AT: '2027-09-01',
+    OVERRIDE_BY: 'tester@x.com', REASON: '', ACTIVE: active !== false, NOTES: ''
+  };
+}
+
+test('F1 匯入後：匯入前載入的分頁只改獻花儲存 → 證道講題保持匯入值，FieldOverride 沒有新行', function () {
+  // 分頁載入時講題是「舊講題」；之後整季匯入把講題改成「匯入的新講題」。
+  const env = makeEnv({
+    content: { 崇拜程序: [{ SERVICE_DATE: D1, SERMON_TITLE: '匯入的新講題', ACTIVE: 'TRUE' }] },
+    weekRows: [{ SERVICE_DATE: D1, QUARTER_ID: QUARTER_ID, SERMON_TITLE: '舊講題' }]
+  });
+  const loadedToken = env.sandbox.canonicalSaveToken_(rows(env, 'BULLETIN_WEEKS')[0].LAST_SAVED_AT);
+
+  const applied = env.sandbox.applyContentImport_(QUARTER_ID, {});
+  assert.strictEqual(applied.ok, true, JSON.stringify(applied));
+  assert.strictEqual(rows(env, 'BULLETIN_WEEKS')[0].SERMON_TITLE, '匯入的新講題');
+
+  // 匯入不更新 LAST_SAVED_AT，所以舊分頁的 token 仍然相符——整行 STALE 檢查擋不住。
+  env.sandbox.saveWeekFromWebApp_({
+    isoDate: D1, lastSavedAt: loadedToken,
+    baseWeek: { FLOWER_THIS_WEEK: '' }, week: { FLOWER_THIS_WEEK: '玫瑰' }
+  });
+
+  assert.strictEqual(rows(env, 'BULLETIN_WEEKS')[0].SERMON_TITLE, '匯入的新講題',
+    '⚠️ 舊講題不可以被寫回去');
+  assert.strictEqual(rows(env, 'BULLETIN_WEEKS')[0].FLOWER_THIS_WEEK, '玫瑰');
+  assert.strictEqual(rows(env, 'FIELD_OVERRIDE').length, 0,
+    '⚠️ 不可以替舊講題開一筆覆寫，否則之後每次匯入都報「你自己改過」');
+
+  // 之後內容表再改，匯入照常更新，沒有 ✋。
+  env.contentTabs['崇拜程序'].__data[2][env.contentTabs['崇拜程序'].__data[1].indexOf('SERMON_TITLE')] = '內容表再改';
+  const again = env.sandbox.applyContentImport_(QUARTER_ID, {});
+  assert.strictEqual((again.plan.conflicts || []).length, 0);
+  assert.strictEqual(rows(env, 'BULLETIN_WEEKS')[0].SERMON_TITLE, '內容表再改');
+});
+
+test('F1 匯入後：舊分頁真的改了講題 → 與匯入值衝突，整次拒絕', function () {
+  const env = makeEnv({
+    content: { 崇拜程序: [{ SERVICE_DATE: D1, SERMON_TITLE: '匯入的新講題', ACTIVE: 'TRUE' }] },
+    weekRows: [{ SERVICE_DATE: D1, QUARTER_ID: QUARTER_ID, SERMON_TITLE: '舊講題' }]
+  });
+  env.sandbox.applyContentImport_(QUARTER_ID, {});
+
+  let thrown = null;
+  try {
+    env.sandbox.saveWeekFromWebApp_({
+      isoDate: D1, lastSavedAt: '',
+      baseWeek: { SERMON_TITLE: '舊講題' }, week: { SERMON_TITLE: '我在舊分頁改的' }
+    });
+  } catch (err) { thrown = err; }
+  assert.ok(thrown && thrown.code === 'FIELD_CONFLICT', String(thrown));
+  assert.ok(thrown.message.indexOf('證道講題') !== -1, thrown.message);
+  assert.strictEqual(rows(env, 'BULLETIN_WEEKS')[0].SERMON_TITLE, '匯入的新講題');
+  assert.strictEqual(rows(env, 'FIELD_OVERRIDE').length, 0);
+});
+
+test('⚠️ F5 覆寫來源值是空白（內容表建立前已在介面填過），內容表值 = 覆寫值 → 匯入後覆寫停用', function () {
+  const env = makeEnv({
+    content: { 崇拜程序: [{ SERVICE_DATE: D1, SERMON_TITLE: '同一個講題', ACTIVE: 'TRUE' }] },
+    weekRows: [{ SERVICE_DATE: D1, QUARTER_ID: QUARTER_ID, SERMON_TITLE: '同一個講題' }],
+    fieldOverride: [overrideRow(D1, 'SERMON_TITLE', '同一個講題', '')]
+  });
+
+  const preview = env.sandbox.previewContentImport_(QUARTER_ID, {});
+  assert.strictEqual(preview.ok, true, JSON.stringify(preview));
+  assert.strictEqual(preview.plan.releases.length, 1, '預覽也要算出會解除一格');
+  assert.strictEqual(rows(env, 'FIELD_OVERRIDE')[0].ACTIVE, true, '預覽是唯讀的，不可以寫');
+  const previewText = env.sandbox.buildContentImportDialogLines_(preview, { applied: false }).join('\n');
+  assert.ok(previewText.indexOf('ℹ️ 有 1 格你之前改過的值，現在已經與內容表一致，將會從此改回跟隨內容表。') !== -1, previewText);
+
+  const applied = env.sandbox.applyContentImport_(QUARTER_ID, {});
+  assert.strictEqual(applied.ok, true);
+  const ov = rows(env, 'FIELD_OVERRIDE');
+  assert.strictEqual(ov.length, 1, '不刪行');
+  assert.strictEqual(ov[0].ACTIVE, false, '覆寫要停用');
+  assert.strictEqual(rows(env, 'BULLETIN_WEEKS')[0].SERMON_TITLE, '同一個講題');
+
+  const audit = rows(env, 'AUDIT_LOG').filter(function (r) { return r.ACTION === 'FIELD_OVERRIDE_RELEASE'; });
+  assert.strictEqual(audit.length, 1, '要記 FIELD_OVERRIDE_RELEASE');
+  assert.strictEqual(audit[0].ROW_KEY, D1 + '#SERMON_TITLE');
+
+  const appliedText = env.sandbox.buildContentImportDialogLines_(applied, { applied: true }).join('\n');
+  assert.ok(appliedText.indexOf('ℹ️ 有 1 格你之前改過的值，現在已經與內容表一致，已從此改回跟隨內容表。') !== -1, appliedText);
+
+  // 之後內容表改值 → 下一次匯入照常更新，沒有 ✋。
+  const tab = env.contentTabs['崇拜程序'];
+  tab.__data[2][tab.__data[1].indexOf('SERMON_TITLE')] = '內容表之後改的';
+  const next = env.sandbox.applyContentImport_(QUARTER_ID, {});
+  assert.strictEqual((next.plan.conflicts || []).length, 0, '不可以再報「你自己改過」');
+  assert.strictEqual(next.plan.releases.length, 0);
+  assert.strictEqual(rows(env, 'BULLETIN_WEEKS')[0].SERMON_TITLE, '內容表之後改的');
+  const nextText = env.sandbox.buildContentImportDialogLines_(next, { applied: true }).join('\n');
+  assert.strictEqual(nextText.indexOf('✋'), -1, nextText);
+});
+
+test('⚠️ F5 內容表改過值之後，幹事改回內容表的新值 → 同樣解除（比的是內容表現值，不是覆寫當時的來源值）', function () {
+  const env = makeEnv({
+    content: { 崇拜程序: [{ SERVICE_DATE: D1, SERMON_TITLE: '內容表新值', ACTIVE: 'TRUE' }] },
+    // 覆寫當時來源是「內容表舊值」；內容表其後改成「內容表新值」；幹事把介面改成同一個新值。
+    weekRows: [{ SERVICE_DATE: D1, QUARTER_ID: QUARTER_ID, SERMON_TITLE: '內容表新值' }],
+    fieldOverride: [overrideRow(D1, 'SERMON_TITLE', '內容表新值', '內容表舊值')]
+  });
+  const applied = env.sandbox.applyContentImport_(QUARTER_ID, {});
+  assert.strictEqual(applied.plan.releases.length, 1);
+  assert.strictEqual(rows(env, 'FIELD_OVERRIDE')[0].ACTIVE, false);
+});
+
+test('F5 內容表值與覆寫值不同 → 覆寫保留，照舊報 ✋，不解除', function () {
+  const env = makeEnv({
+    content: { 崇拜程序: [{ SERVICE_DATE: D1, SERMON_TITLE: '內容表的值', ACTIVE: 'TRUE' }] },
+    weekRows: [{ SERVICE_DATE: D1, QUARTER_ID: QUARTER_ID, SERMON_TITLE: '幹事的值' }],
+    fieldOverride: [overrideRow(D1, 'SERMON_TITLE', '幹事的值', '舊值')]
+  });
+  const applied = env.sandbox.applyContentImport_(QUARTER_ID, {});
+  assert.strictEqual(applied.plan.releases.length, 0);
+  assert.strictEqual(applied.plan.conflicts.length, 1);
+  assert.strictEqual(rows(env, 'FIELD_OVERRIDE')[0].ACTIVE, true);
+  assert.strictEqual(rows(env, 'BULLETIN_WEEKS')[0].SERMON_TITLE, '幹事的值');
+  const text = env.sandbox.buildContentImportDialogLines_(applied, { applied: true }).join('\n');
+  assert.strictEqual(text.indexOf('ℹ️ 有'), -1, '沒有解除就不可以講有解除：' + text);
+});
+
+test('F5 已經停用的覆寫不會被重複解除；其他欄位的覆寫不受影響', function () {
+  const env = makeEnv({
+    content: { 崇拜程序: [{ SERVICE_DATE: D1, SERMON_TITLE: '甲', RESPONSE_HYMN: '乙', ACTIVE: 'TRUE' }] },
+    weekRows: [{ SERVICE_DATE: D1, QUARTER_ID: QUARTER_ID, SERMON_TITLE: '甲', RESPONSE_HYMN: '幹事改的詩' }],
+    fieldOverride: [
+      overrideRow(D1, 'SERMON_TITLE', '甲', '', false),
+      overrideRow(D1, 'RESPONSE_HYMN', '幹事改的詩', '舊詩')
+    ]
+  });
+  const applied = env.sandbox.applyContentImport_(QUARTER_ID, {});
+  assert.strictEqual(applied.plan.releases.length, 0, '已停用的不用再解除');
+  const byKey = {};
+  rows(env, 'FIELD_OVERRIDE').forEach(function (r) { byKey[r.FIELD_KEY] = r; });
+  assert.strictEqual(byKey.RESPONSE_HYMN.ACTIVE, true);
+  assert.strictEqual(applied.plan.conflicts.length, 1);
+});
+
+test('F5 單週匯入只解除那一週的覆寫', function () {
+  const env = makeEnv({
+    content: {
+      崇拜程序: [
+        { SERVICE_DATE: D1, SERMON_TITLE: '甲', ACTIVE: 'TRUE' },
+        { SERVICE_DATE: D2, SERMON_TITLE: '乙', ACTIVE: 'TRUE' }
+      ]
+    },
+    weekRows: [
+      { SERVICE_DATE: D1, QUARTER_ID: QUARTER_ID, SERMON_TITLE: '甲' },
+      { SERVICE_DATE: D2, QUARTER_ID: QUARTER_ID, SERMON_TITLE: '乙' }
+    ],
+    fieldOverride: [overrideRow(D1, 'SERMON_TITLE', '甲', ''), overrideRow(D2, 'SERMON_TITLE', '乙', '')]
+  });
+  const applied = env.sandbox.applyContentImport_(QUARTER_ID, { isoDate: D1 });
+  assert.strictEqual(applied.plan.releases.length, 1);
+  const byDate = {};
+  rows(env, 'FIELD_OVERRIDE').forEach(function (r) { byDate[env.sandbox.formatIsoDate_(r.SERVICE_DATE)] = r.ACTIVE; });
+  assert.strictEqual(byDate[D1], false);
+  assert.strictEqual(byDate[D2], true, '另一週不在這次匯入範圍內，不可以動');
+});
+
+test('F5 預覽與套用走同一組計算：releases 數目一致', function () {
+  const env = makeEnv({
+    content: { 崇拜程序: [{ SERVICE_DATE: D1, SERMON_TITLE: '甲', ACTIVE: 'TRUE' }] },
+    weekRows: [{ SERVICE_DATE: D1, QUARTER_ID: QUARTER_ID, SERMON_TITLE: '甲' }],
+    fieldOverride: [overrideRow(D1, 'SERMON_TITLE', '甲', '')]
+  });
+  const preview = env.sandbox.previewContentImport_(QUARTER_ID, {});
+  const applied = env.sandbox.applyContentImport_(QUARTER_ID, {});
+  assert.strictEqual(preview.plan.releases.length, applied.plan.releases.length);
 });
 
 // =====================================================================

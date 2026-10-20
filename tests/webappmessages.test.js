@@ -155,7 +155,7 @@ test('真正入口：apiSaveWeek() 有改動時，回傳的 data.message 是 suc
   });
   var resp = sb.apiSaveWeek({
     isoDate: '2027-10-03', lastSavedAt: null,
-    week: { SERMON_TITLE: '因信稱義' },
+    week: { SERMON_TITLE: '因信稱義' }, baseWeek: { SERMON_TITLE: '' },
     announcements: [], prayers: [], fellowships: [], finance: []
   });
   assert.strictEqual(resp.ok, true, JSON.stringify(resp));
@@ -165,11 +165,11 @@ test('真正入口：apiSaveWeek() 有改動時，回傳的 data.message 是 suc
 
 test('真正入口：apiSaveWeek() 沒有改動時，回傳的 data.message 是 info', function () {
   var sb = makeEnv({
-    bulletinWeeks: [{ SERVICE_DATE: '2027-10-03', QUARTER_ID: '2027T4', WEEK_OF_MONTH: 1, STATUS: 'DRAFT', SERMON_TITLE: '不變的講題' }]
+    bulletinWeeks: [{ SERVICE_DATE: '2027-10-03', QUARTER_ID: '2027T4', WEEK_OF_MONTH: 1, STATUS: 'DRAFT' }]
   });
   var first = sb.apiSaveWeek({
     isoDate: '2027-10-03', lastSavedAt: null,
-    week: { SERMON_TITLE: '不變的講題' },
+    week: { SERMON_TITLE: '不變的講題' }, baseWeek: { SERMON_TITLE: '' },
     announcements: [], prayers: [], fellowships: [], finance: []
   });
   assert.strictEqual(first.ok, true, JSON.stringify(first));
@@ -177,7 +177,7 @@ test('真正入口：apiSaveWeek() 沒有改動時，回傳的 data.message 是 
   var reloadedLastSavedAt = sb.readSheet('BulletinWeeks')[0].LAST_SAVED_AT;
   var second = sb.apiSaveWeek({
     isoDate: '2027-10-03', lastSavedAt: reloadedLastSavedAt,
-    week: { SERMON_TITLE: '不變的講題' },
+    week: { SERMON_TITLE: '不變的講題' }, baseWeek: { SERMON_TITLE: '不變的講題' },
     announcements: [], prayers: [], fellowships: [], finance: []
   });
   assert.strictEqual(second.ok, true, JSON.stringify(second));

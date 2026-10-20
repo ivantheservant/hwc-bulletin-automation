@@ -24,6 +24,7 @@
 const assert = require('assert');
 const { loadAllSrcFilesInOrder } = require('./helpers/loadGas');
 const { makeFakeSheet, makeFakeSpreadsheet } = require('./helpers/fakeSpreadsheet');
+const { withDefaultBaseWeek } = require('./helpers/savePayload');
 
 const GAS_STUBS = {
   Utilities: { formatDate: function () { return ''; } },
@@ -247,7 +248,7 @@ function makeEnv(options) {
 }
 
 function basicPayload(overrides) {
-  return Object.assign({
+  return withDefaultBaseWeek(Object.assign({
     isoDate: '2027-10-03',
     lastSavedAt: null,
     week: {},
@@ -255,7 +256,7 @@ function basicPayload(overrides) {
     prayers: [],
     fellowships: [],
     finance: []
-  }, overrides || {});
+  }, overrides || {}));
 }
 
 test('真正入口：第一次儲存（lastSavedAt 皆空）→ 成功，仍然可以編輯的欄位照樣寫入', function () {
@@ -450,7 +451,8 @@ test('浸禮六欄：改動會逐格寫入 AuditLog；沒有改動的不會', fu
   });
 
   const result = env.sandbox.saveWeekFromWebApp_(basicPayload({
-    week: { BAPTISM_OFFICIANT: '甲', BAPTISM_MEMBERS: '乙 丙' } // 只有第二格改過
+    week: { BAPTISM_OFFICIANT: '甲', BAPTISM_MEMBERS: '乙 丙' }, // 只有第二格改過
+    baseWeek: { BAPTISM_OFFICIANT: '甲', BAPTISM_MEMBERS: '乙' }
   }));
 
   // ⚠️ 改用第三種模式之後，記錄的 ACTION 是 FIELD_OVERRIDE_SET。

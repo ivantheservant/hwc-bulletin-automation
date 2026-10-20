@@ -926,7 +926,7 @@ test('S18 的證據明確講出「沒有真的呼叫觸發器」這個覆蓋缺�
   const outcome = env.sandbox.selfTestS18_({ config: env.sandbox.selfTestConfig_() });
 
   assert.ok(outcome.evidence.indexOf('覆蓋缺口') !== -1, outcome.evidence);
-  assert.ok(outcome.evidence.indexOf('沒有**真的呼叫') !== -1
+  assert.ok(outcome.evidence.indexOf('沒有真的呼叫') !== -1
     || outcome.evidence.indexOf('沒有') !== -1, outcome.evidence);
   assert.ok(outcome.evidence.indexOf('人手驗') !== -1, '要講明仍然需要人手驗：' + outcome.evidence);
 });

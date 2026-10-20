@@ -816,7 +816,7 @@ function buildContentSheetResultLines_(result) {
         + '，因此沒有自動設定分享權限——請人手將檔案分享給教會網域內的同工（可編輯）。');
     }
   } else {
-    lines.push('**已更新，未重建**——既有的內容表不會重做，人手輸入的資料一格都沒有改動。');
+    lines.push('已更新，未重建——既有的內容表不會重做，人手輸入的資料一格都沒有改動。');
     lines.push('已刷新：欄位、下拉選單（本季 ' + result.serviceDateCount + ' 個主日）、版面。');
     if (result.tabsCreated.length > 0) {
       lines.push('已補回缺少的分頁：' + result.tabsCreated.join('、'));

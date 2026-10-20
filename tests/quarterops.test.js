@@ -785,8 +785,10 @@ test('有副作用那四粒一律先預覽、後確認', function () {
     code.indexOf('function runQuarterReport('));
 
   assert.ok(block.indexOf('opts.previewApi') !== -1);
-  assert.ok(block.indexOf('window.confirm') !== -1, '確認之後才可以叫執行 API');
-  const confirmPos = block.indexOf('window.confirm');
+  // F9：改用頁內確認對話框，不再用瀏覽器原生的 window.confirm。
+  assert.strictEqual(block.indexOf('window.confirm'), -1, '不可以再用原生確認視窗');
+  assert.ok(block.indexOf('openConfirmDialog(') !== -1, '確認之後才可以叫執行 API');
+  const confirmPos = block.indexOf('openConfirmDialog(');
   assert.ok(block.indexOf('opts.runApi') > confirmPos,
     '執行 API 一定要排在確認之後——排在前面等於沒有確認');
 });

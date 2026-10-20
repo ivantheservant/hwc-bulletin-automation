@@ -311,11 +311,22 @@ function assertCallerAuthorized_() {
 // =====================================================================
 
 /**
+ * 用途：「預期中的使用者情況」的錯誤碼清單。這些不是系統出錯，而是系統
+ *   正確地擋下了一次不安全的儲存（樂觀鎖不符、欄位被別處改過、前端版本
+ *   過舊）。照樣回傳錯誤給介面，但**不寫 `ErrorLog`**——寫進去會令「上線前
+ *   檢查」的「最近 7 日的錯誤」變黃，把真正的故障淹沒在正常的擋駕裡。
+ *
+ *   純字串常數，沒有跨檔案頂層引用，不受載入次序影響。
+ */
+var EXPECTED_USER_ERROR_CODES_ = Object.freeze(['STALE', 'FIELD_CONFLICT', 'CLIENT_OUTDATED']);
+
+/**
  * 用途：把一個會拋錯的函式包成統一的 `{ ok, data?, error? }` 形狀，並在
  *   執行前檢查呼叫者權限。全部 `api*` 函式都經由這個函式呼叫底層邏輯。
  *
  *   ⚠️ **例外發生時，先寫一筆 `ErrorLog`（`SOURCE='SERVER'`）才回傳
- *   `{ok:false,...}`**——Apps Script 的執行紀錄只看得到「這次呼叫完成」，
+ *   `{ok:false,...}`**（錯誤碼屬於 `EXPECTED_USER_ERROR_CODES_` 的除外，
+ *   那些照樣回傳錯誤，但不算故障，不寫 `ErrorLog`）——Apps Script 的執行紀錄只看得到「這次呼叫完成」，
  *   看不出裡面其實是失敗的；不記下來就沒有人知道發生過什麼事（見
  *   docs/已知bug類型.md 事故七的第 2 部分）。寫 `ErrorLog` 本身若失敗，
  *   `appendErrorLog_()` 自己會吞掉例外，不會影響這裡照樣回傳
@@ -336,13 +347,15 @@ function withApiResult_(fn, context) {
   } catch (err) {
     var errorCode = (err && err.code) || 'ERROR';
     var message = enrichAuthError_(err);
-    appendErrorLog_({
-      source: ERROR_LOG_SOURCE.SERVER,
-      functionName: (context && context.functionName) || '',
-      errorCode: errorCode,
-      message: message,
-      detail: buildErrorDetail_(err, context)
-    });
+    if (EXPECTED_USER_ERROR_CODES_.indexOf(errorCode) === -1) {
+      appendErrorLog_({
+        source: ERROR_LOG_SOURCE.SERVER,
+        functionName: (context && context.functionName) || '',
+        errorCode: errorCode,
+        message: message,
+        detail: buildErrorDetail_(err, context)
+      });
+    }
     return {
       ok: false,
       error: { code: errorCode, message: message }
@@ -846,17 +859,22 @@ function publishPanelDataForWebApp_() {
  * Args:
  *   defaultGroups {string[]} 沒有存過時要用的預設勾選（Config
  *     `PUBLISH_SEND_GROUPS`）。
+ *
+ *   ⚠️ `doPublish` **永遠以 `false` 載入**，不論預設或之前記住的值。
+ *   「發佈到 master 連結」會覆寫網站上的 master 連結，不應該靠記憶中的勾選
+ *   在載入時就已經打了剔——每次發佈都要使用者當下自己勾。`doSend` 與
+ *   群組照舊記住。
  * Returns:
- *   {{doPublish:boolean, doSend:boolean, groups:string[]}}
+ *   {{doPublish:boolean, doSend:boolean, groups:string[]}} `doPublish` 一律 `false`。
  */
 function loadPublishPrefs_(defaultGroups) {
-  var fallback = { doPublish: true, doSend: false, groups: (defaultGroups || []).slice() };
+  var fallback = { doPublish: false, doSend: false, groups: (defaultGroups || []).slice() };
   try {
     var raw = PropertiesService.getUserProperties().getProperty(PUBLISH_PREFS_KEY_);
     if (!raw) return fallback;
     var parsed = JSON.parse(raw);
     return {
-      doPublish: parsed.doPublish === true,
+      doPublish: false,
       doSend: parsed.doSend === true,
       groups: Array.isArray(parsed.groups) ? parsed.groups : fallback.groups
     };
@@ -1055,6 +1073,7 @@ function weekSelectorIsoOf_(value) {
 
 /**
  * 用途：算出每一個主日「未填欄位」有多少項，供下拉的狀態標記用。
+ *   F6：只數「一定要填」，「通常空白」不計入（下拉標籤很短，不附註）。
  *
  *   ⚠️ 這裏**故意只數本試算表拿得到的東西**（`BulletinWeeks` 的欄位、
  *   家事報告／代禱／團契有沒有行），不去讀職事表。下拉選單一開就要出來，
@@ -1078,13 +1097,14 @@ function weekSelectorMissingIndex_(weekRows, announcementRows, prayerRows, fello
   (weekRows || []).forEach(function (row) {
     var iso = weekSelectorIsoOf_(row.SERVICE_DATE);
     if (!iso) return;
-    index[iso] = buildMissingList_({
+    // F6：只數「一定要填」，與頂部徽章同一個算法（經 `missingCountSummary_()`）。
+    index[iso] = missingCountSummary_(buildMissingList_({
       week: row,
       dutyBoxPage1: [],                                  // 見上面的說明：不讀職事表
       announcementCount: announcements[iso] || 0,
       prayerCount: prayers[iso] || 0,
       fellowshipCount: fellowships[iso] || 0
-    }).length;
+    })).requiredCount;
   });
   return index;
 }
@@ -1331,6 +1351,7 @@ function pickDefaultWeekIsoDate_(entries, todayIso) {
  *   {Object} 形狀：
  *     `{ isoDate, week:Object, lists:{announcements,prayers,fellowships,finance},
  *        lastSavedAt:string, readOnly:Object, missing:Object[],
+ *        missingSplit:{required:Object[], optional:Object[], requiredCount:number},
  *        warnings:Object[], options:Object, rosterReloadMessage:Object }`
  *     `lastSavedAt` 經 `canonicalSaveToken_()` 正規化（見 WebAppSave.gs），
  *     前端只需要原樣存起來、儲存時原樣送回，不需要自己解析或轉換；
@@ -1408,6 +1429,9 @@ function loadWeekForWebApp_(isoDate) {
       }
     },
     missing: model.missing,
+    // F6：頂部徽章與待填清單面板用的分類，由 `splitMissingList_()` 算好。
+    // 前端不可以再自己 filter 一次 `optional`——那是第三份分類。
+    missingSplit: splitMissingList_(model.missing),
     warnings: model.warnings,
     options: webAppFieldOptions_(),
     // 第六輪：週報與職事表的比對結果。前端用 `conflictCount` 顯示頂部

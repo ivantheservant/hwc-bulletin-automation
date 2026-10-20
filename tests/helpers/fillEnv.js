@@ -187,7 +187,10 @@ function makeFillGridSheet(sandbox, rows) {
  *   options {{weekRows:Object[]=, gridRows:Object[]=, snapshotRows:Object[]=,
  *            config:Object=, recipients:Object[]=, fellowships:Object[]=,
  *            fellowshipDefaults:Object[]=, backupRows:Object[]=,
- *            announcements:Object[]=, withGrid:boolean=}=}
+ *            announcements:Object[]=, withGrid:boolean=,
+ *            ui:Object=, extraStubs:Object=}=}
+ *     `ui` 覆寫 `getUi()` 回傳物件的方法；`extraStubs` 額外注入的全域替身
+ *     （例如 `PropertiesService`）。
  *     `withGrid` 預設 true；設成 false 代表格子表還未建立。
  * Returns:
  *   {{sandbox:Object, sheets:Object, mail:Object, triggers:Object,
@@ -305,7 +308,8 @@ function makeFillEnv(options) {
       return makeFakeSpreadsheet(rosterSheets);
     },
     getUi: function () {
-      return {
+      // `options.ui` 可以覆寫其中幾個方法（例如讓 prompt 回傳指定日期、或記錄 alert 內容）。
+      return Object.assign({
         createMenu: function () {
           const menu = {
             addItem: function () { return menu; },
@@ -320,7 +324,7 @@ function makeFillEnv(options) {
         showModalDialog: function () {},
         ButtonSet: { OK: 'OK', OK_CANCEL: 'OK_CANCEL', YES_NO: 'YES_NO' },
         Button: { OK: 'OK', CANCEL: 'CANCEL', YES: 'YES', NO: 'NO' }
-      };
+      }, o.ui || {});
     },
     newDataValidation: function () {
       const builder = {
@@ -384,7 +388,7 @@ function makeFillEnv(options) {
     MailApp: mail,
     ScriptApp: FakeScriptApp,
     Utilities: utilitiesForSandbox
-  }, o.driveApp ? { DriveApp: o.driveApp } : {},
+  }, o.extraStubs || {}, o.driveApp ? { DriveApp: o.driveApp } : {},
   // Drive 進階服務（Shared Drive 的 supportsAllDrives 那一套）跟 DriveApp
   // 一起注入——`uniqueOutputFileName_()` 兩者都要用得到。
   o.driveAdvanced ? { Drive: o.driveAdvanced } : {}));

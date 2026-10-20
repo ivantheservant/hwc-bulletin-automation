@@ -102,25 +102,38 @@ function isPreviewCallerAuthorized_() {
  *   ⚠️ 不帶日期就是「下一個主日」，而且用的是與星期一寄週報**同一支**
  *   `resolveNextSendSundayIso_()`——兩處各自算一次「下一個主日」，遲早會
  *   在某個星期給出不同答案，而那種不一致最難查。
+ *   F10：網址有帶 `date` 但格式不對（例如 `date=abcd`）時，照樣顯示下一個
+ *   主日，但一定要用 `warning` 講出來——靜靜改顯示另一個主日，核對的人會
+ *   以為自己看的就是自己指定的那一期。
  * Args:
- *   requestedIso {*} 網址帶來的 `date` 參數；不合法一律當成沒有傳。
+ *   requestedIso {*} 網址帶來的 `date` 參數；不合法一律當成沒有傳（有帶
+ *     內容的話會附 `warning`）。
  * Returns:
- *   {{isoDate:string, requested:boolean, message:string}}
- *     `isoDate` 空字串代表連下一個主日都算不到。
+ *   {{isoDate:string, requested:boolean, message:string, warning:string}}
+ *     `isoDate` 空字串代表連下一個主日都算不到。`warning` 是給人看的純文字
+ *     （含網址帶來的原文，**未經跳脫**，渲染時一定要經 `escapeHtml_()`），
+ *     沒有問題時是空字串。
  */
 function resolvePreviewIsoDate_(requestedIso) {
   var iso = String(requestedIso || '').trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
-    return { isoDate: iso, requested: true, message: '' };
+    return { isoDate: iso, requested: true, message: '', warning: '' };
   }
 
   var schedule = resolveNextSendSundayIso_();
   if (schedule.ok) {
-    return { isoDate: schedule.isoDate, requested: false, message: '' };
+    // 網址原文可以任意長，只取頭 40 字顯示。
+    var shown = iso.length > 40 ? (iso.slice(0, 40) + '…') : iso;
+    var warning = iso === ''
+      ? ''
+      : '網址的日期「' + shown + '」格式不正確（應為 YYYY-MM-DD），以下顯示下一個主日 '
+        + schedule.isoDate + '。';
+    return { isoDate: schedule.isoDate, requested: false, message: '', warning: warning };
   }
   return {
     isoDate: '',
     requested: false,
+    warning: '',
     message: '算不到下一個主日：' + (schedule.reason || '原因不明')
       + '　請在網址加上 &date=YYYY-MM-DD 指定要看哪一個主日。'
   };
@@ -176,6 +189,11 @@ function renderPreviewHtml_(data) {
     html.push('<p class="error">' + escapeHtml_(d.errorMessage) + '</p>');
     html.push('</body></html>');
     return html.join('');
+  }
+
+  // F10：網址日期格式不對時的提示。內容含網址帶來的原文，一定要跳脫。
+  if (d.dateWarning) {
+    html.push('<p class="pending">' + escapeHtml_(d.dateWarning) + '</p>');
   }
 
   if (d.rosterPendingNote) {
@@ -295,7 +313,7 @@ function previewCss_() {
  * Args:
  *   model {Object} `buildBulletinModel_()` 的輸出。
  *   options {{notice:string, footerLines:string[]=,
- *     rosterPendingNote:string=}=} 選填。
+ *     rosterPendingNote:string=, dateWarning:string=}=} 選填。
  * Returns:
  *   {Object} 見 `renderPreviewHtml_()`。
  */
@@ -392,6 +410,7 @@ function buildPreviewData_(model, options) {
     isoDate: m.isoDate || '',
     templateLabel: m.templateId || '',
     rosterPendingNote: o.rosterPendingNote || '',
+    dateWarning: o.dateWarning || '',
     sections: sections,
     footerLines: o.footerLines || [],
     errorMessage: ''
@@ -509,6 +528,7 @@ function buildPreviewPage_(requestedIso) {
   var data = buildPreviewData_(model, {
     notice: config.notice,
     rosterPendingNote: pendingNote,
+    dateWarning: resolved.warning,
     footerLines: buildPreviewFooterLines_(resolved.isoDate, model, config.timezone)
   });
 

@@ -556,7 +556,7 @@ function menuSendFillInvite_() {
         '季度：' + quarterId,
         '收件人：' + result.recipientCount + ' 位',
         result.dryRun
-          ? '⚠️ DRY_RUN 目前是 TRUE，**沒有真的寄出**，只在 SendLog 留了記錄。'
+          ? '⚠️ DRY_RUN 目前是 TRUE，沒有真的寄出，只在 SendLog 留了記錄。'
           : '已真正寄出。'
       ].join('\n'),
       ui.ButtonSet.OK

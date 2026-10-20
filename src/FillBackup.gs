@@ -418,7 +418,7 @@ function parseFillBackupPayload_(group) {
     throw new Error(
       'parseFillBackupPayload_：備份「' + group.backupId + '」的內容解析失敗（'
       + (err && err.message ? err.message : String(err)) + '）。'
-      + '這通常代表備份被截斷或被人手改動過。**不會**還原一份殘缺的資料——'
+      + '這通常代表備份被截斷或被人手改動過。不會還原一份殘缺的資料——'
       + '請改用另一個備份。'
     );
   }

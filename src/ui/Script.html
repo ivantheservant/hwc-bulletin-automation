@@ -31,6 +31,10 @@
     inFlight: 0,
     previewInFlight: 0,
     week: {},
+    // F1：表單各欄位「載入完成那一刻」的值（機器鍵 → 值）。儲存時只送跟它
+    // 不同的欄位，並把它們的載入值當作 `baseWeek` 一併送去後端做三方比較。
+    // ⚠️ 不可以拿 `state.week` 代替——`state.week` 在使用者打字時會跟著改。
+    loadedWeek: {},
     lists: { announcements: [], prayers: [], fellowships: [], finance: [] },
     // 第六輪：事奉框每一格目前的值，鍵是「崗位#位次」。儲存時整批送回
     // 伺服器，由 computeDutyOverridePlan_() 決定哪幾格真的需要寫
@@ -49,7 +53,7 @@
     // R-002 至 R-008：發佈及匯出。`pdfBase64` 是使用者剛選的 PDF，
     // **刻意只放在記憶體、不寫任何本地儲存**——重新整理頁面就要重新選
     // 一次檔案，比起「以為上次選的還在、其實發佈了一個舊 PDF」安全得多。
-    publish: { pdfBase64: '', pdfName: '', panel: null },
+    publish: { pdfBase64: '', pdfName: '', panel: null, confirmButton: '' },
     options: { programTemplateIds: [], recitationOptions: [], prayerBlockHeadingOptions: [], cantoneseSubColumnLabel: '主堂' }
   };
 
@@ -198,6 +202,9 @@
     document.getElementById('reloadRosterBtn').disabled = busy;
     document.getElementById('fetchFromRosterBtn').disabled = busy || !state.loaded;
     document.getElementById('saveBtn').disabled = busy || !state.loaded;
+    // F9：頁內確認對話框的兩粒按鈕，處理中一併停用。
+    document.getElementById('confirmOkBtn').disabled = busy;
+    document.getElementById('confirmCancelBtn').disabled = busy;
 
     var previewIndicator = document.getElementById('previewBusyIndicator');
     if (state.previewInFlight > 0) previewIndicator.classList.remove('hidden');
@@ -357,7 +364,7 @@
 
     timer = setTimeout(function () {
       fail(new Error('伺服器在 ' + Math.round(serverCallTimeoutMs() / 1000)
-        + ' 秒內沒有回應。這一次的動作**可能已經做了、也可能沒有做**，'
+        + ' 秒內沒有回應。這一次的動作可能已經做了、也可能沒有做，'
         + '請先看試算表的 ErrorLog 與 Apps Script 的「執行項目」確認，不要直接再按一次。'));
     }, serverCallTimeoutMs());
 
@@ -584,6 +591,73 @@
     bar.appendChild(oneWeekBtn);
   }
 
+  // BEGIN confirm-dialog（F9：測試會把這一段抽出來在假 DOM 上執行，請保持自足）
+  /**
+   * 用途：目前正在等待回應的頁內確認對話框的回呼；`null` 代表沒有對話框開著。
+   *   放在閉包內的單一變數，同一時間只會有一個確認對話框。
+   */
+  var confirmDialogCallback = null;
+
+  /**
+   * 用途：顯示頁內確認對話框，取代瀏覽器原生的確認視窗。
+   *
+   *   語意與原生確認視窗相同：按「確定」回傳 `true`，按「取消」或 Esc 回傳
+   *   `false`——呼叫方在 `false` 時一格都不可以寫。預設焦點在「取消」，
+   *   手快按 Enter 也不會寫入。內文逐行用 `textContent` 填入，絕不使用
+   *   `innerHTML`（內文含伺服器傳來的使用者資料，例如講題、姓名）。
+   * Args:
+   *   title {string} 對話框標題。
+   *   lines {string[]} 內文，每個元素一行；空字串代表空行。
+   *   onResult {function(boolean):void} 使用者按下按鈕之後呼叫一次。
+   * Returns:
+   *   {void}
+   */
+  function openConfirmDialog(title, lines, onResult) {
+    // 萬一上一個對話框還開著（正常不會發生），先當作取消，免得回呼遺失。
+    if (confirmDialogCallback) settleConfirmDialog(false);
+
+    document.getElementById('confirmDialogTitle').textContent = title;
+    var body = document.getElementById('confirmDialogBody');
+    body.textContent = '';
+    (lines || []).forEach(function (line) {
+      var row = el('div', 'confirm-line');
+      row.textContent = line;
+      body.appendChild(row);
+    });
+
+    confirmDialogCallback = onResult;
+    document.getElementById('confirmDialogBackdrop').classList.remove('hidden');
+    document.getElementById('confirmCancelBtn').focus();
+  }
+
+  /**
+   * 用途：關閉頁內確認對話框並把結果交給呼叫方。先清掉回呼再呼叫，
+   *   避免回呼內再開對話框時被誤當成「上一個還開著」。
+   * Args:
+   *   accepted {boolean} `true` 代表按了「確定」。
+   * Returns:
+   *   {void}
+   */
+  function settleConfirmDialog(accepted) {
+    var callback = confirmDialogCallback;
+    confirmDialogCallback = null;
+    document.getElementById('confirmDialogBackdrop').classList.add('hidden');
+    if (callback) callback(accepted === true);
+  }
+
+  /**
+   * 用途：確認對話框開著時，Esc 等於按「取消」。
+   * Args:
+   *   event {{key:string}} 鍵盤事件。
+   * Returns:
+   *   {void}
+   */
+  function onConfirmDialogKeydown(event) {
+    if (!confirmDialogCallback) return;
+    if (event && event.key === 'Escape') settleConfirmDialog(false);
+  }
+  // END confirm-dialog
+
   /**
    * 用途：「重新匯入」按鈕——先取差異預覽，確認之後才真的寫入。
    *
@@ -598,6 +672,15 @@
       { busyText: '計算差異中…' });
   }
 
+  /**
+   * 用途：「重新匯入」預覽回來之後的處理：沒有改動就只顯示訊息；有改動就
+   *   打開頁內確認對話框，使用者按「確定」才叫執行 API（F9：不再用原生
+   *   確認視窗）。取消就一格都不寫。
+   * Args:
+   *   resp {{ok:boolean, data:Object, error:Object}} `apiPreviewContentImport` 的回應。
+   * Returns:
+   *   {void}
+   */
   function onContentImportPreviewed(resp) {
     if (!resp.ok) { showMessage('error', resp.error.message); return; }
     if (!resp.data.ok) { showMessage('error', resp.data.message); return; }
@@ -609,12 +692,14 @@
       return;
     }
 
-    if (!window.confirm(resp.data.lines.join('\n') + '\n\n確定要匯入嗎？')) {
-      showMessage('info', '已取消，沒有寫入任何資料。');
-      return;
-    }
-
-    callServer('apiRunContentImport', [state.isoDate], onContentImportDone, { busyText: '匯入中…' });
+    var confirmLines = resp.data.lines.concat(['', '確定要匯入嗎？']);
+    openConfirmDialog('由內容表匯入', confirmLines, function (accepted) {
+      if (!accepted) {
+        showMessage('info', '已取消，沒有寫入任何資料。');
+        return;
+      }
+      callServer('apiRunContentImport', [state.isoDate], onContentImportDone, { busyText: '匯入中…' });
+    });
   }
 
   function onContentImportDone(resp) {
@@ -837,6 +922,34 @@
     return week;
   }
 
+  /**
+   * 用途：比對表單現值與載入時的值，算出儲存要送的 `week`（只含改過的欄位）
+   *   與 `baseWeek`（這些欄位載入時的值）。純函式，不碰 DOM、不碰 `state`。
+   *
+   *   ⚠️ 沒有出現在 `loaded` 的鍵，載入值當作空字串（與後端 `fieldsEqual_()`
+   *   「空值＝空字串」一致），不是「沒有改動」。
+   * Args:
+   *   current {Object} 表單現值（機器鍵 → 值）。
+   *   loaded {Object} 載入完成時的表單值（機器鍵 → 值）。
+   *   skipKeys {string[]} 不可以送的鍵（內容表接管的欄位）。
+   * Returns:
+   *   {{week:Object, baseWeek:Object}} 兩者的鍵完全相同。
+   */
+  function diffWeekFields(current, loaded, skipKeys) {
+    var week = {};
+    var baseWeek = {};
+    var skip = skipKeys || [];
+    Object.keys(current || {}).forEach(function (key) {
+      if (skip.indexOf(key) !== -1) return;
+      var nowValue = current[key] === null || current[key] === undefined ? '' : String(current[key]);
+      var loadedValue = loaded && loaded[key] !== null && loaded[key] !== undefined ? String(loaded[key]) : '';
+      if (nowValue === loadedValue) return;
+      week[key] = nowValue;
+      baseWeek[key] = loadedValue;
+    });
+    return { week: week, baseWeek: baseWeek };
+  }
+
   function populateSelectOptions(selectEl, options, labelFn) {
     selectEl.innerHTML = '';
     (options || []).forEach(function (opt) {
@@ -961,13 +1074,27 @@
   // 頂部統計與待填清單
   // =====================================================================
 
-  function renderStats(missing, warnings, lastSavedAt) {
+  /**
+   * 用途：更新頂部「待填／警告／最後儲存時間」三個標籤與待填清單面板。
+   * Args:
+   *   missingSplit {{required:Object[], optional:Object[]}} 伺服器按
+   *     `splitMissingList_()` 分好的待填清單。
+   *   warnings {Object[]} 警告清單。
+   *   lastSavedAt {string} 伺服器正規化過的最後儲存時間。
+   * Returns:
+   *   {void}
+   */
+  function renderStats(missingSplit, warnings, lastSavedAt) {
     // ⚠️ D-10：徽章那個數字**只數「一定要填」那一段**。
     //    獻花、翻譯這類正常就是空白的欄位永遠清不掉，一個永遠不會變零的
     //    數字等於沒有數字。它們仍然在下面的清單列出來，只是不計入。
-    var list = missing || [];
-    var required = list.filter(function (m) { return !m.optional; });
-    var optional = list.filter(function (m) { return m.optional; });
+    //
+    //    F6：分成「一定要填」與「通常空白」由**伺服器**（`splitMissingList_()`）
+    //    算好送來，這裏不再自己 filter——自己分一次就是第三份分類，
+    //    日後兩邊判斷不同，同一週的數字就會在不同畫面對不上。
+    var split = missingSplit || { required: [], optional: [] };
+    var required = split.required || [];
+    var optional = split.optional || [];
 
     document.getElementById('statMissing').textContent = '待填 ' + required.length + ' 項'
       + (optional.length > 0 ? '（另有 ' + optional.length + ' 項通常空白）' : '');
@@ -1102,6 +1229,15 @@
       { busyText: '載入中…', onError: function (message) { setLoaded(false); showMessage('error', message); } });
   }
 
+  /**
+   * 用途：一週載入成功之後，把伺服器資料放進 `state` 並渲染整個畫面。
+   *   表單填好之後立即記下 `state.loadedWeek`（F1：儲存時只送跟它不同的欄位）。
+   * Args:
+   *   isoDate {string} 主日日期。
+   *   resp {{ok:boolean, data:Object, error:Object}} `apiLoadWeek` 的回應。
+   * Returns:
+   *   {void}
+   */
   function onWeekLoaded(isoDate, resp) {
     if (!resp.ok) { setLoaded(false); showMessage('error', resp.error.message); return; }
     var data = resp.data;
@@ -1125,9 +1261,12 @@
     document.getElementById('attCantoneseSubLabel').textContent = '粵語堂' + (data.options.cantoneseSubColumnLabel || '主堂');
 
     applyWeekFieldsToForm();
+    // F1：基準值要在「表單剛填好」這一刻記下，取表單實際顯示的值（下拉選單
+    // 配不到選項時會變成空白，基準值要跟畫面一致，才不會把沒動過的欄位當成改動）。
+    state.loadedWeek = collectWeekFieldsFromForm();
     renderAllLists();
     renderReadOnly(data.readOnly);
-    renderStats(data.missing, data.warnings, data.lastSavedAt);
+    renderStats(data.missingSplit, data.warnings, data.lastSavedAt);
     renderConflictStat(data.rosterDiff);
     renderFillGridLink(data.fillGridUrl);
     renderPreviewLink(data.previewUrl);
@@ -1198,7 +1337,7 @@
   function onRosterReloaded(resp) {
     if (!resp.ok) { showMessage('error', resp.error.message); return; }
     renderReadOnly(resp.data.readOnly);
-    renderStats(resp.data.missing, resp.data.warnings, state.lastSavedAt);
+    renderStats(resp.data.missingSplit, resp.data.warnings, state.lastSavedAt);
     renderConflictStat(resp.data.rosterDiff);
     renderProgramPreview(resp.data.readOnly.program);
     var msg = resp.data.rosterReloadMessage;
@@ -1213,13 +1352,15 @@
    *   前端不送的是「介面自己不要製造出一個會被拒絕的請求」。
    */
   function buildSavePayload() {
-    var week = collectWeekFieldsFromForm();
-    CONTENT_SHEET_WEEK_FIELDS.forEach(function (key) { delete week[key]; });
+    // F1：只送使用者真的改過的欄位，另送它們載入時的值（baseWeek）。
+    // 沒有改動的欄位一律不送，否則較早載入的分頁會把別處剛寫入的值蓋回舊值。
+    var parts = diffWeekFields(collectWeekFieldsFromForm(), state.loadedWeek, CONTENT_SHEET_WEEK_FIELDS);
 
     return {
       isoDate: state.isoDate,
       lastSavedAt: state.lastSavedAt,
-      week: week,
+      baseWeek: parts.baseWeek,
+      week: parts.week,
       dutyEdits: Object.keys(state.dutyEdits).map(function (k) { return state.dutyEdits[k]; }),
       // R-040：送去後端之後，後端會用**下一個主日**的日期寫 DutyOverride。
       nextWeekDutyEdits: Object.keys(state.nextWeekDutyEdits)
@@ -1681,7 +1822,7 @@
     okBtn.disabled = busy === true
       ? true
       : !document.getElementById('publishForcedCheck').checked;
-    okBtn.textContent = busy ? (text || '處理中…') : '確認發佈';
+    okBtn.textContent = busy ? (text || '處理中…') : (state.publish.confirmButton || '確認發佈');
   }
 
   /**
@@ -1697,6 +1838,14 @@
     box.classList.toggle('hidden', !message);
   }
 
+  /**
+   * 用途：「執行」發佈／寄出的回應處理。需要確認時打開發佈前檢查視窗，
+   *   並帶上伺服器按這次動作算好的字眼（F7：只寄出時不出現「發佈」）。
+   * Args:
+   *   resp {{ok:boolean, data:Object, error:Object}} `apiRunPublish` 的回應。
+   * Returns:
+   *   {void}
+   */
   function onPublishDone(resp) {
     // 伺服器層的失敗（例外、權限）——訊息同時放在視窗內與訊息列，
     // 因為視窗是 modal，只寫訊息列的話會被蓋住。
@@ -1709,7 +1858,7 @@
 
     var data = resp.data;
     if (!data.ok && data.reason === 'NEEDS_CONFIRM') {
-      openPublishConfirm(data.lines);
+      openPublishConfirm(data.lines, data.labels);
       return;
     }
     if (!data.ok) {
@@ -1739,7 +1888,21 @@
     box.classList.toggle('is-error', isError === true);
   }
 
-  function openPublishConfirm(lines) {
+  /**
+   * 用途：打開發佈前檢查視窗。
+   * Args:
+   *   lines {string[]} 伺服器排好的內容行。
+   *   labels {{title:string, checkbox:string, confirmButton:string}=} 伺服器
+   *     按「這次做甚麼」算好的字眼（F7：只寄出時不可以出現「發佈」）。
+   * Returns:
+   *   {void}
+   */
+  function openPublishConfirm(lines, labels) {
+    var l = labels || { title: '發佈前檢查', checkbox: '我明白以上情況，仍然要發佈', confirmButton: '確認發佈' };
+    document.getElementById('publishConfirmTitle').textContent = l.title;
+    document.getElementById('publishForcedLabel').textContent = l.checkbox;
+    state.publish.confirmButton = l.confirmButton;
+    document.getElementById('publishConfirmOkBtn').textContent = l.confirmButton;
     var body = document.getElementById('publishConfirmBody');
     body.textContent = (lines || []).join('\n');
     showPublishConfirmError('');
@@ -2070,6 +2233,9 @@
     wireQuarterOpsEvents();
     document.getElementById('publishRunBtn').addEventListener('click', function () { runPublish(false); });
     document.getElementById('downloadWordBtn').addEventListener('click', downloadWord);
+    document.getElementById('confirmOkBtn').addEventListener('click', function () { settleConfirmDialog(true); });
+    document.getElementById('confirmCancelBtn').addEventListener('click', function () { settleConfirmDialog(false); });
+    document.addEventListener('keydown', onConfirmDialogKeydown);
     document.getElementById('publishConfirmCancelBtn').addEventListener('click', closePublishConfirm);
     document.getElementById('publishConfirmOkBtn').addEventListener('click', function () { runPublish(true); });
     // 勾了那一格才可以撳「確認發佈」——R-006／R-007 明文要求。
@@ -2250,20 +2416,22 @@
         return;
       }
 
-      var body = (data.lines || []).join('\n') + '\n\n' + opts.confirmSuffix;
-      if (!window.confirm(body)) {
-        showQuarterOpsMessage('info', '已取消，一格都沒有寫。');
-        return;
-      }
+      var confirmLines = (data.lines || []).concat(['', opts.confirmSuffix]);
+      openConfirmDialog(data.title || '季度作業', confirmLines, function (accepted) {
+        if (!accepted) {
+          showQuarterOpsMessage('info', '已取消，一格都沒有寫。');
+          return;
+        }
 
-      callServer(opts.runApi, opts.args, function (runResp) {
-        if (!runResp.ok) { showQuarterOpsMessage('error', runResp.error.message); return; }
-        if (!runResp.data.ok) { showQuarterOpsMessage('error', runResp.data.message); return; }
-        showQuarterOpsReport(runResp.data.title, runResp.data.lines);
-        showQuarterOpsMessage('success', runResp.data.title + '：完成。');
-        refreshQuarterOpsPanel();
-        if (opts.onDone) opts.onDone(runResp.data);
-      }, { busyText: opts.busyText });
+        callServer(opts.runApi, opts.args, function (runResp) {
+          if (!runResp.ok) { showQuarterOpsMessage('error', runResp.error.message); return; }
+          if (!runResp.data.ok) { showQuarterOpsMessage('error', runResp.data.message); return; }
+          showQuarterOpsReport(runResp.data.title, runResp.data.lines);
+          showQuarterOpsMessage('success', runResp.data.title + '：完成。');
+          refreshQuarterOpsPanel();
+          if (opts.onDone) opts.onDone(runResp.data);
+        }, { busyText: opts.busyText });
+      });
     }, { busyText: '計算中…' });
   }
 

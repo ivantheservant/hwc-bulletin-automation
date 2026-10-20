@@ -159,7 +159,8 @@ function monkeyActions_() {
         }
 
         var saved = saveWeekFromWebApp_({
-          isoDate: isoDate, lastSavedAt: loaded.lastSavedAt, week: week, dutyEdits: []
+          isoDate: isoDate, lastSavedAt: loaded.lastSavedAt, week: week,
+          baseWeek: baseWeekFor_(loaded.week, week), dutyEdits: []
         });
         return monkeyStepResult_(true, '主日 ' + isoDate + ' 改了 ' + saved.changedFieldCount + ' 格');
       }
@@ -566,7 +567,7 @@ function renderMonkeyPath_(pathSteps, labelById) {
     used += piece.length + 1;
   }
   return '（步數太多，改用精簡格式；後面 ' + (steps.length - kept.length)
-    + ' 步已經截斷——截的是**尾**，開頭完整）' + kept.join(',');
+    + ' 步已經截斷——截的是尾，開頭完整）' + kept.join(',');
 }
 
 /**
@@ -1184,7 +1185,7 @@ function menuRunMonkey_() {
       '亂行機會在沙盒季度（' + config.quarterId + '）內隨機執行合法動作，'
       + '每一步之後檢查一次全部不變量。\n\n'
       + '目前 DRY_RUN＝' + (config.dryRun ? 'TRUE（不會真的寄出）' : 'FALSE（⚠️ 會真的寄出）') + '\n\n'
-      + '⚠️ 這是**開新一輪**（新的執行編號與種子）。要接住上一次未跑完那一輪，'
+      + '⚠️ 這是開新一輪（新的執行編號與種子）。要接住上一次未跑完那一輪，'
       + '請撳〔繼續亂行〕。\n\n'
       + '目標走幾多步？（直接按確定＝50 步）',
       ui.ButtonSet.OK_CANCEL);

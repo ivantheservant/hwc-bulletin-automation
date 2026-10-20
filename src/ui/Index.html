@@ -168,7 +168,7 @@
           <input type="text" data-field="CHOIR_TITLE">
           <span class="hint">留空的話，週報上整行不會出現</span>
         </label>
-        <label>讀經
+        <label>讀經經文
           <input type="text" data-field="SCRIPTURE_REF">
         </label>
         <label>證道講題
@@ -421,7 +421,7 @@
       <div id="publishConfirmBody" class="dialog-body"></div>
       <label class="publish-confirm-check">
         <input type="checkbox" id="publishForcedCheck">
-        我明白以上情況，仍然要發佈（未填的欄位會在成品留空）
+        <span id="publishForcedLabel">我明白以上情況，仍然要發佈（未填的欄位會在成品留空）</span>
       </label>
       <!--
         ⚠️ 失敗訊息一定要顯示在**視窗之內**：視窗是 modal，蓋住了下面
@@ -432,6 +432,22 @@
       <div class="dialog-actions">
         <button type="button" class="btn btn-secondary" id="publishConfirmCancelBtn">取消</button>
         <button type="button" class="btn btn-primary" id="publishConfirmOkBtn" disabled>確認發佈</button>
+      </div>
+    </div>
+  </div>
+
+  <!--
+    頁內確認對話框（F9）：取代瀏覽器原生的確認視窗。原生對話框在部分瀏覽器和
+    嵌入環境會被停用（一律當成「取消」），而本介面在跨網域的框架內執行，
+    日後被瀏覽器限制的風險更大。內文一律逐行用 textContent 填入，不經 innerHTML。
+  -->
+  <div id="confirmDialogBackdrop" class="dialog-backdrop hidden">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="confirmDialogTitle">
+      <h3 id="confirmDialogTitle">請確認</h3>
+      <div id="confirmDialogBody" class="dialog-body confirm-body"></div>
+      <div class="dialog-actions">
+        <button type="button" class="btn btn-secondary" id="confirmCancelBtn">取消</button>
+        <button type="button" class="btn btn-primary" id="confirmOkBtn">確定</button>
       </div>
     </div>
   </div>

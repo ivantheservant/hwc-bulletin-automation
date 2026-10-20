@@ -24,6 +24,7 @@
 const assert = require('assert');
 const { loadAllSrcFilesInOrder } = require('./helpers/loadGas');
 const { makeFakeSheet, makeFakeSpreadsheet } = require('./helpers/fakeSpreadsheet');
+const { withDefaultBaseWeek } = require('./helpers/savePayload');
 const { assertWrittenChinese } = require('./helpers/writtenChinese');
 
 const ISO = '2027-10-03';
@@ -89,7 +90,7 @@ function makeEnv(options) {
 }
 
 function basicPayload(overrides) {
-  return Object.assign({
+  return withDefaultBaseWeek(Object.assign({
     isoDate: ISO,
     lastSavedAt: null,
     week: {},
@@ -98,7 +99,7 @@ function basicPayload(overrides) {
     fellowships: [],
     finance: [],
     dutyEdits: []
-  }, overrides || {});
+  }, overrides || {}));
 }
 
 /** 跑一次儲存，回報「有沒有被拒、錯誤碼、寫了多少筆 AuditLog」。 */

@@ -208,7 +208,7 @@ test('真正入口：schema 正常時 apiSaveWeek() 照常運作（確認上一�
   var resp = sb.apiSaveWeek({
     isoDate: '2027-10-03',
     lastSavedAt: null,
-    week: { SERMON_TITLE: '正常儲存' },
+    week: { SERMON_TITLE: '正常儲存' }, baseWeek: { SERMON_TITLE: '' },
     announcements: [], prayers: [], fellowships: [], finance: []
   });
   assert.strictEqual(resp.ok, true, JSON.stringify(resp));
