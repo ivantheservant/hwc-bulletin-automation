@@ -926,6 +926,114 @@ test('25e. 這個檢查本身有效（反向鎖：口語字真的捉得到）', 
 });
 
 // =====================================================================
+// 單週匯入的範圍：週欄位類分頁（宣召／崇拜人數／崇拜程序）也只動選定的主日
+// =====================================================================
+
+function weekOf(env, iso) {
+  return env.sandbox.readSheet('BulletinWeeks')
+    .filter(function (r) { return env.sandbox.formatIsoDate_(r.SERVICE_DATE) === iso; })[0];
+}
+
+test('範圍 1. 宣召：只匯入 10-03 → 10-10 的宣召一格都不可以動；整季匯入才兩週都更新', function () {
+  const env = makeEnv({
+    weekRows: [
+      { SERVICE_DATE: '2027-10-03', QUARTER_ID: QUARTER_ID, CALL_REF: '舊出處甲', CALL_TEXT: '舊經文甲' },
+      { SERVICE_DATE: '2027-10-10', QUARTER_ID: QUARTER_ID, CALL_REF: '舊出處乙', CALL_TEXT: '舊經文乙' }
+    ],
+    content: {
+      宣召: [
+        { SERVICE_DATE: '2027-10-03', CALL_REF: '新出處甲', CALL_TEXT: '新經文甲', ACTIVE: 'TRUE' },
+        { SERVICE_DATE: '2027-10-10', CALL_REF: '新出處乙', CALL_TEXT: '新經文乙', ACTIVE: 'TRUE' }
+      ]
+    }
+  });
+
+  const applied = env.sandbox.applyContentImport_(QUARTER_ID, { isoDate: '2027-10-03' });
+  assert.strictEqual(applied.ok, true, JSON.stringify(applied));
+  assert.strictEqual(weekOf(env, '2027-10-03').CALL_REF, '新出處甲', '選中的主日要更新');
+  assert.strictEqual(weekOf(env, '2027-10-03').CALL_TEXT, '新經文甲');
+  assert.strictEqual(weekOf(env, '2027-10-10').CALL_REF, '舊出處乙', '⚠️ 其他主日一格都不可以動');
+  assert.strictEqual(weekOf(env, '2027-10-10').CALL_TEXT, '舊經文乙');
+  assert.strictEqual(applied.plan.weekUpdates.length, 1);
+  assert.strictEqual(applied.plan.updated, 1, '「修改了幾行」只算選定的那一週');
+  const audit = env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'CONTENT_IMPORT' || r.SHEET_NAME === 'BulletinWeeks'; });
+  audit.forEach(function (r) {
+    assert.ok(String(r.ROW_KEY).indexOf('2027-10-10') === -1, '範圍外的主日不可以有 AuditLog：' + r.ROW_KEY);
+  });
+
+  const full = env.sandbox.applyContentImport_(QUARTER_ID, {});
+  assert.strictEqual(full.plan.weekUpdates.length, 1, '整季匯入把剩下那一週也更新');
+  assert.strictEqual(weekOf(env, '2027-10-10').CALL_REF, '新出處乙');
+});
+
+test('範圍 2. 崇拜人數：崇拜日期加七天對應的主日不在範圍內 → 不動', function () {
+  const env = makeEnv({
+    weekRows: [
+      { SERVICE_DATE: '2027-10-03', QUARTER_ID: QUARTER_ID, ATT_ENG_WORSHIP: '1' },
+      { SERVICE_DATE: '2027-10-10', QUARTER_ID: QUARTER_ID, ATT_ENG_WORSHIP: '2' }
+    ],
+    content: {
+      // 崇拜日期 09-26 → 週報 10-03；崇拜日期 10-03 → 週報 10-10。
+      崇拜人數: [
+        { SERVICE_DATE: '2027-09-26', ATT_ENG_WORSHIP: '57', ACTIVE: 'TRUE' },
+        { SERVICE_DATE: '2027-10-03', ATT_ENG_WORSHIP: '60', ACTIVE: 'TRUE' }
+      ]
+    }
+  });
+
+  env.sandbox.applyContentImport_(QUARTER_ID, { isoDate: '2027-10-10' });
+  assert.strictEqual(String(weekOf(env, '2027-10-10').ATT_ENG_WORSHIP), '60', '選中的主日要更新');
+  assert.strictEqual(String(weekOf(env, '2027-10-03').ATT_ENG_WORSHIP), '1', '⚠️ 其他主日的人數不可以動');
+});
+
+test('範圍 3. 範圍外的主日沒有 BulletinWeeks 那一行 → 不出「沒有這一行」的警告；範圍內才出', function () {
+  const env = makeEnv({
+    weekRows: [{ SERVICE_DATE: '2027-10-03', QUARTER_ID: QUARTER_ID }],
+    content: {
+      宣召: [
+        { SERVICE_DATE: '2027-10-03', CALL_REF: '甲', CALL_TEXT: '甲', ACTIVE: 'TRUE' },
+        { SERVICE_DATE: '2027-10-10', CALL_REF: '乙', CALL_TEXT: '乙', ACTIVE: 'TRUE' }
+      ]
+    }
+  });
+  const hasMissingRowWarning = function (plan) {
+    return plan.warnings.some(function (w) { return w.indexOf('BulletinWeeks 沒有 2027-10-10') !== -1; });
+  };
+
+  const one = env.sandbox.previewContentImport_(QUARTER_ID, { isoDate: '2027-10-03' });
+  assert.strictEqual(hasMissingRowWarning(one.plan), false, '10-10 不在這次範圍內，不應該為它警告');
+
+  const quarter = env.sandbox.previewContentImport_(QUARTER_ID, {});
+  assert.strictEqual(hasMissingRowWarning(quarter.plan), true, '整季匯入時 10-10 在範圍內，要警告');
+
+  const inScope = env.sandbox.previewContentImport_(QUARTER_ID, { isoDate: '2027-10-10' });
+  assert.strictEqual(hasMissingRowWarning(inScope.plan), true, '選中的主日沒有那一行，要警告');
+});
+
+test('範圍 4. 單週匯入：預覽與套用的數字一致，預覽不寫任何東西', function () {
+  const env = makeEnv({
+    weekRows: [
+      { SERVICE_DATE: '2027-10-03', QUARTER_ID: QUARTER_ID, CALL_REF: '舊甲' },
+      { SERVICE_DATE: '2027-10-10', QUARTER_ID: QUARTER_ID, CALL_REF: '舊乙' }
+    ],
+    content: {
+      宣召: [
+        { SERVICE_DATE: '2027-10-03', CALL_REF: '新甲', ACTIVE: 'TRUE' },
+        { SERVICE_DATE: '2027-10-10', CALL_REF: '新乙', ACTIVE: 'TRUE' }
+      ]
+    }
+  });
+  const preview = env.sandbox.previewContentImport_(QUARTER_ID, { isoDate: '2027-10-03' });
+  assert.strictEqual(weekOf(env, '2027-10-03').CALL_REF, '舊甲', '預覽不可以寫');
+  assert.strictEqual(preview.plan.updated, 1);
+  const applied = env.sandbox.applyContentImport_(QUARTER_ID, { isoDate: '2027-10-03' });
+  assert.strictEqual(applied.plan.updated, preview.plan.updated);
+  const lines = env.sandbox.buildContentImportDialogLines_(preview, { applied: false }).join('\n');
+  assert.ok(lines.indexOf('只匯入選定的一個主日') !== -1);
+  assert.ok(lines.indexOf('將會修改 1 行') !== -1, lines);
+});
+
+// =====================================================================
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail === 0 ? 0 : 1);

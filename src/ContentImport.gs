@@ -519,6 +519,8 @@ function summariseContentRow_(row, def) {
  *   input {{targets:Object, skippedTabs:string[], warnings:string[],
  *          existingLists:Object<string,Object[]>, existingWeeks:Object[],
  *          serviceDates:string[]}}
+ *     `serviceDates` 是這次匯入的範圍（整季或單一主日）；清單類與週欄位類
+ *     的分頁都只處理範圍內的主日。
  *     `existingLists` 是「目標表名稱 → 該表全部資料列（帶 `__rowNo`）」；
  *     `existingWeeks` 是 `BulletinWeeks` 全部資料列（帶 `__rowNo`）。
  *
@@ -597,6 +599,13 @@ function computeContentImportPlan_(input) {
 
     // WEEK 與 WEEK_ATTENDANCE：改 BulletinWeeks 同一行的幾個欄位。
     Object.keys(byDate).forEach(function (iso) {
+      // ⚠️ 範圍篩選：`byDate` 是整季的內容，只匯入單一主日時（`serviceDates`
+      //    只有那一個）其他主日一格都不可以動。清單類的分頁早已按
+      //    `serviceDates` 逐日處理，這裏漏了篩選，結果「只匯入選定的一個
+      //    主日」會把其他主日的講題、人數、宣召也一併更新。
+      //    篩選要排在「找不到那一行」的警告之前，範圍外的主日不應該出警告。
+      if ((input.serviceDates || []).indexOf(iso) === -1) return;
+
       var week = weekByDate[iso];
       if (!week) {
         plan.warnings.push(def.tabName + '：BulletinWeeks 沒有 ' + iso
@@ -610,12 +619,11 @@ function computeContentImportPlan_(input) {
 
         // ⚠️ F5：解除覆寫的判斷一定要排在下面「週報現值＝內容表值就 return」
         //    **之前**——幹事改回內容表的值之後，兩邊正正相等，那一行 return
-        //    之後就永遠碰不到覆寫行。範圍只限這次匯入的主日。
+        //    之後就永遠碰不到覆寫行。範圍已由上面的主日篩選限定。
         var ov = null;
         if (def.overridable === true) {
           ov = (input.fieldOverrideIndex || {})[fieldOverrideKey_(iso, targetKey)] || null;
-          if (ov && (input.serviceDates || []).indexOf(iso) !== -1
-            && contentValuesEqual_(ov.OVERRIDE_VALUE, newValue)) {
+          if (ov && contentValuesEqual_(ov.OVERRIDE_VALUE, newValue)) {
             plan.releases.push({ isoDate: iso, field: targetKey, overrideValue: ov.OVERRIDE_VALUE, row: ov });
             plan.details.push({
               action: 'RELEASE', sheet: SHEETS.FIELD_OVERRIDE, isoDate: iso,

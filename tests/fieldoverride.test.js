@@ -1042,6 +1042,26 @@ test('F5 預覽與套用走同一組計算：releases 數目一致', function ()
   assert.strictEqual(preview.plan.releases.length, applied.plan.releases.length);
 });
 
+test('範圍：崇拜程序（第三種欄位）只匯入 D1 → D2 的講題不可以被改成內容表新值', function () {
+  // 2026-10-21 補測時發現：單週匯入把其他主日沒有覆寫的週欄位也更新了。
+  const env = makeEnv({
+    content: {
+      崇拜程序: [
+        { SERVICE_DATE: D1, SERMON_TITLE: '甲新', ACTIVE: 'TRUE' },
+        { SERVICE_DATE: D2, SERMON_TITLE: '乙新', ACTIVE: 'TRUE' }
+      ]
+    },
+    weekRows: [
+      { SERVICE_DATE: D1, QUARTER_ID: QUARTER_ID, SERMON_TITLE: '甲舊' },
+      { SERVICE_DATE: D2, QUARTER_ID: QUARTER_ID, SERMON_TITLE: '乙舊' }
+    ]
+  });
+  const applied = env.sandbox.applyContentImport_(QUARTER_ID, { isoDate: D1 });
+  assert.strictEqual(applied.ok, true, JSON.stringify(applied));
+  const titles = rows(env, 'BULLETIN_WEEKS').map(function (r) { return r.SERMON_TITLE; });
+  assert.strictEqual(JSON.stringify(titles), JSON.stringify(['甲新', '乙舊']), '實際：' + JSON.stringify(titles));
+});
+
 // =====================================================================
 
 console.log('\n通過 ' + pass + ' 項，失敗 ' + fail + ' 項。');
