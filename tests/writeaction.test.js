@@ -11,6 +11,9 @@
  * click 事件由真正的 wireStaticEvents()／wireQuarterOpsEvents() 接上，還原按鈕由
  * 真正的 renderSnapshotList() 畫出來。
  *
+ * 第二批測試修正 G15：「重設這一週」與「還原到這個版本」對話框按「取消」，與季度作業
+ * 一樣顯示「已取消，一格都沒有寫。」（同一個常數），而且一個寫入請求都不送。
+ *
  * 執行方式：node tests/writeaction.test.js
  * 離開碼：0＝全部通過　1＝有測試失敗
  */
@@ -491,6 +494,60 @@ test('G13-10 分類：Script.html 用到的每一個 api 名稱都分了寫入�
   assertWrittenChinese(assert, 'G13 提示句', Object.keys(hints).map(function (k) { return hints[k]; }));
   // 等候時間要比 2026-10-22 那一次多出的 10.6 秒長，亦要比 callServer() 的逾時短。
   assert.ok(ui.delayMs >= 15000 && ui.delayMs < 120000, String(ui.delayMs));
+});
+
+// =====================================================================
+// G15：重設與還原對話框按「取消」
+// =====================================================================
+
+console.log('\n重設與還原對話框按「取消」（G15）');
+
+const CANCELLED = '已取消，一格都沒有寫。';
+
+test('G15-1 「重設這一週」→ 對話框按「取消」→ 頁頂顯示「已取消，一格都沒有寫。」，沒有送出 apiResetWeek', function () {
+  const ui = makeUi();
+  ui.click('resetWeekBtn');
+  assert.strictEqual(ui.els.confirmDialogBackdrop.classList.contains('hidden'), false, '前提：確認對話框打開了');
+  ui.click('confirmCancelBtn');
+  assert.strictEqual(ui.els.confirmDialogBackdrop.classList.contains('hidden'), true);
+  assert.deepStrictEqual(ui.message(), { type: 'info', text: CANCELLED });
+  assert.strictEqual(ui.count('apiResetWeek'), 0);
+});
+
+test('G15-2 「還原到這個版本」→ 對話框按「取消」或 Esc → 同一句，沒有送出 apiRestoreWeekSnapshot', function () {
+  const ui = makeUi();
+  clickRestoreButton(ui, 'SNAP-1');
+  ui.take('apiDiffWeekSnapshot').ok(DIFF_OK);
+  ui.click('confirmCancelBtn');
+  assert.deepStrictEqual(ui.message(), { type: 'info', text: CANCELLED });
+  assert.strictEqual(ui.count('apiRestoreWeekSnapshot'), 0);
+
+  const ui2 = makeUi();
+  clickRestoreButton(ui2, 'SNAP-2');
+  ui2.take('apiDiffWeekSnapshot').ok(DIFF_OK);
+  ui2.dom.docListeners.keydown({ key: 'Escape' });
+  assert.deepStrictEqual(ui2.message(), { type: 'info', text: CANCELLED });
+  assert.strictEqual(ui2.count('apiRestoreWeekSnapshot'), 0);
+});
+
+test('G15-3 與季度作業同一個常數：季度作業按「取消」顯示一字不差的一句；Script.html 內這句只寫一次', function () {
+  const ui = makeUi();
+  ui.click('opCreateWeeksBtn');
+  ui.take('apiPreviewCreateWeeks').ok({ ok: true, data: { ok: true, title: '建立本季空白週報', lines: ['會新增 13 個主日。'] } });
+  ui.click('confirmCancelBtn');
+  assert.strictEqual(ui.els.quarterOpsMessage.textContent, CANCELLED);
+  assert.strictEqual(ui.count('apiRunCreateWeeks'), 0);
+  assert.strictEqual(ui.ctx.CANCELLED_NOTHING_WRITTEN_MESSAGE, CANCELLED);
+  const js = readSrc('src/ui/Script.html');
+  assert.strictEqual(js.split(CANCELLED).length - 1, 1, '字眼只可以在常數那一處');
+});
+
+test('G15-4 對話框按「確定」照舊送出（取消那一句不會出現）', function () {
+  const ui = makeUi();
+  ui.click('resetWeekBtn');
+  ui.click('confirmOkBtn');
+  assert.strictEqual(ui.count('apiResetWeek'), 1);
+  assert.strictEqual(ui.message(), null);
 });
 
 console.log('\n通過 ' + pass + ' 項，失敗 ' + fail + ' 項。');

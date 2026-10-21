@@ -423,7 +423,9 @@ test('F9-8 兩處原本的 window.confirm 都改了；執行 API 一定排在確
   const opFn = js.slice(js.indexOf('function runQuarterOp('), js.indexOf('function runQuarterReport('));
   assert.ok(opFn.indexOf('openConfirmDialog(') !== -1);
   assert.ok(opFn.indexOf('opts.runApi') > opFn.indexOf('openConfirmDialog('));
-  assert.ok(opFn.indexOf('已取消，一格都沒有寫。') !== -1);
+  // G15：字眼改為共用常數 CANCELLED_NOTHING_WRITTEN_MESSAGE（重設、還原、季度作業同一句）。
+  assert.ok(opFn.indexOf("showQuarterOpsMessage('info', CANCELLED_NOTHING_WRITTEN_MESSAGE)") !== -1);
+  assert.ok(js.indexOf("var CANCELLED_NOTHING_WRITTEN_MESSAGE = '已取消，一格都沒有寫。';") !== -1);
 });
 
 test('F9-9 Index.html 有對話框結構（沿用 dialog-backdrop），預設隱藏，兩粒按鈕字眼正確', function () {

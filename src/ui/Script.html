@@ -788,6 +788,12 @@
   var confirmDialogCallback = null;
 
   /**
+   * 用途：第二批測試修正 G15：會改資料的確認對話框按「取消」（或 Esc）之後顯示的一句。
+   *   重設這一週、還原到這個版本、季度作業共用這一個，字眼只有一處。
+   */
+  var CANCELLED_NOTHING_WRITTEN_MESSAGE = '已取消，一格都沒有寫。';
+
+  /**
    * 用途：顯示頁內確認對話框，取代瀏覽器原生的確認視窗。
    *
    *   語意與原生確認視窗相同：按「確定」回傳 `true`，按「取消」或 Esc 回傳
@@ -1476,11 +1482,14 @@
 
   /**
    * 用途：「還原到這個版本」——先取最新的差異，用頁內對話框給使用者確認，
-   *   確定之後才呼叫還原；成功就重新載入這一週。
+   *   確定之後才呼叫還原；成功就重新載入這一週。按「取消」就一格都不寫，並顯示
+   *   CANCELLED_NOTHING_WRITTEN_MESSAGE（G15）。
    * Args:
    *   snapshotId {string}
    * Returns:
    *   {void}
+   * Raises:
+   *   （無）伺服器錯誤經訊息列顯示。
    */
   function onSnapshotRestoreClicked(snapshotId) {
     if (!state.isoDate) return;
@@ -1490,7 +1499,10 @@
       if (!resp.ok) { showMessage('error', resp.error.message); return; }
       var diff = resp.data;
       openConfirmDialog('還原到這個版本', buildRestoreDialogLines(diff, hasUnsavedWeekChanges()), function (confirmed) {
-        if (!confirmed) return;
+        if (!confirmed) {
+          showMessage('info', CANCELLED_NOTHING_WRITTEN_MESSAGE);
+          return;
+        }
         callServer('apiRestoreWeekSnapshot',
           [{ isoDate: isoDate, snapshotId: snapshotId, lastSavedAt: diff.lastSavedAt }],
           function (restored) {
@@ -1505,9 +1517,13 @@
 
   /**
    * 用途：「重設這一週…」——用頁內對話框列出會發生的五件事，確定之後才呼叫
-   *   重設；成功就重新載入這一週。
+   *   重設；成功就重新載入這一週。按「取消」就一格都不寫，並顯示
+   *   CANCELLED_NOTHING_WRITTEN_MESSAGE（G15）。
+   * Args: （無）
    * Returns:
    *   {void}
+   * Raises:
+   *   （無）伺服器錯誤經訊息列顯示。
    */
   function onResetWeekClicked() {
     if (!state.isoDate || !state.loaded) return;
@@ -1515,7 +1531,10 @@
     var isoDate = state.isoDate;
     var lastSavedAt = state.lastSavedAt;
     openConfirmDialog('重設這一週', buildResetDialogLines(hasUnsavedWeekChanges()), function (confirmed) {
-      if (!confirmed) return;
+      if (!confirmed) {
+        showMessage('info', CANCELLED_NOTHING_WRITTEN_MESSAGE);
+        return;
+      }
       callServer('apiResetWeek', [{ isoDate: isoDate, lastSavedAt: lastSavedAt }], function (resp) {
         if (!resp.ok) { showMessage('error', resp.error.message); return; }
         showMessage(resp.data.message.type, resp.data.message.text);
@@ -3488,11 +3507,15 @@
    *
    *   ⚠️ 預覽與執行走伺服器端同一組底層函式，所以預覽講的跟實際做的
    *   一定是同一件事。
+   *
+   *   按「取消」顯示 CANCELLED_NOTHING_WRITTEN_MESSAGE（與重設、還原同一句，G15）。
    * Args:
    *   opts {{previewApi:string, runApi:string, args:Array, busyText:string,
    *          confirmSuffix:string, onDone:(function(Object):void|undefined)}}
    * Returns:
    *   {void}
+   * Raises:
+   *   （無）伺服器錯誤經「季度作業」區塊的訊息列顯示。
    */
   function runQuarterOp(opts) {
     if (state.inFlight > 0) return;
@@ -3513,7 +3536,7 @@
       var confirmLines = (data.lines || []).concat(['', opts.confirmSuffix]);
       openConfirmDialog(data.title || '季度作業', confirmLines, function (accepted) {
         if (!accepted) {
-          showQuarterOpsMessage('info', '已取消，一格都沒有寫。');
+          showQuarterOpsMessage('info', CANCELLED_NOTHING_WRITTEN_MESSAGE);
           return;
         }
 
