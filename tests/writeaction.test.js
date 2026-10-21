@@ -1209,6 +1209,46 @@ test('G27-3 平常的載入失敗照舊（不是沒有回應之後的重新載�
 });
 
 // =====================================================================
+// G19 補充：發佈前檢查視窗按過「確認發佈」之後，「取消」不可以講「已取消，一格都沒有寫。」
+// =====================================================================
+
+console.log('\n發佈前檢查視窗送出之後按「取消」（G19 補充）');
+
+test('G19b-1 「確認發佈」→ 502 → 20 秒之後視窗內與頁頂出「可能已經完成」→ 按「取消」（唯一關閉方法）→ 視窗關閉，頁頂仍是那一句', function () {
+  const ui = makeUi();
+  publishThroughConfirm(ui).fail(new Error(NETWORK_502));
+  ui.timers.run(ui.delayMs);
+  assert.deepStrictEqual(ui.message(), { type: 'error', text: EXPECTED_PUBLISH_ONLY_MESSAGE }, '前提');
+  assert.strictEqual(ui.els.publishConfirmBackdrop.classList.contains('hidden'), false, '前提：視窗仍然開着');
+  ui.click('publishConfirmCancelBtn');
+  assert.strictEqual(ui.els.publishConfirmBackdrop.classList.contains('hidden'), true, '視窗關閉');
+  assert.deepStrictEqual(ui.message(), { type: 'error', text: EXPECTED_PUBLISH_ONLY_MESSAGE }, '不可以換成「已取消」');
+});
+
+test('G19b-2 「確認發佈」→ 伺服器回 ok:false → 按「取消」→ 頁頂仍是伺服器那一句；未送出就取消照舊講「已取消，一格都沒有寫。」；再次打開視窗重新計算', function () {
+  const ui = makeUi();
+  const busyText = '另一個發佈或匯入正在執行中，20 秒內都拿不到指令碼鎖，因此這一次沒有做任何事。';
+  publishThroughConfirm(ui).ok({ ok: true, data: { ok: false, reason: 'LOCK_BUSY', message: busyText } });
+  ui.click('publishConfirmCancelBtn');
+  assert.deepStrictEqual(ui.message(), { type: 'error', text: busyText });
+
+  // 同一頁再按「執行」→ 伺服器要求確認 → 視窗重新打開（未送出）→ 取消 → 照舊那一句。
+  ui.click('publishRunBtn');
+  ui.take('apiRunPublish').ok({ ok: true, data: { ok: false, reason: 'NEEDS_CONFIRM', lines: ['未填欄位（3 項）'],
+    labels: { title: '發佈前檢查', checkbox: '我明白以上情況，仍然要發佈', confirmButton: '確認發佈' } } });
+  ui.click('publishConfirmCancelBtn');
+  assert.deepStrictEqual(ui.message(), { type: 'info', text: CANCELLED });
+});
+
+test('G19b-3 其他確認對話框沒有同類路徑：openConfirmDialog() 的「確定」先關閉對話框才送出；由職事表重新取數亦先關閉才送出', function () {
+  const js = readSrc('src/ui/Script.html');
+  const settle = between(js, 'function settleConfirmDialog(', 'function onConfirmDialogKeydown(');
+  assert.ok(settle.indexOf("classList.add('hidden')") < settle.indexOf('callback(accepted === true)'), '先關閉才交回呼叫方');
+  const fetch = between(js, 'function confirmFetchFromRoster(', 'function schedulePreviewRefresh(');
+  assert.ok(fetch.indexOf('closeFetchDialog();') !== -1 && fetch.indexOf('closeFetchDialog();') < fetch.indexOf("callServer('apiFetchFromRoster'"));
+});
+
+// =====================================================================
 // G24：寫入類沒有回應的結尾，按連線錯誤與逾時分
 // =====================================================================
 

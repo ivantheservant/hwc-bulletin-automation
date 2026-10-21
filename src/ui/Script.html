@@ -64,7 +64,9 @@
     // **刻意只放在記憶體、不寫任何本地儲存**——重新整理頁面就要重新選
     // 一次檔案，比起「以為上次選的還在、其實發佈了一個舊 PDF」安全得多。
     // `pdfIsoDate` 是揀那個 PDF 時畫面上的主日（G9）：換了主日就不可以拿它發佈。
-    publish: { pdfBase64: '', pdfName: '', pdfIsoDate: '', panel: null, confirmButton: '' },
+    // `confirmSent`：發佈前檢查視窗這一次打開之後，是否已經按過「確認發佈」送出（G19 補充：
+    // 送出之後按「取消」只可以關閉視窗，不可以顯示 CANCELLED_NOTHING_WRITTEN_MESSAGE）。
+    publish: { pdfBase64: '', pdfName: '', pdfIsoDate: '', panel: null, confirmButton: '', confirmSent: false },
     options: { programTemplateIds: [], recitationOptions: [], prayerBlockHeadingOptions: [], cantoneseSubColumnLabel: '主堂' }
   };
 
@@ -3140,6 +3142,8 @@
 
     hideMessage();
     setPublishButtonsBusy(true, doPublish ? '發佈中…' : '寄出中…');
+    // G19 補充：由發佈前檢查視窗送出（confirmed）之後，那個視窗的「取消」不再代表「沒有做」。
+    if (confirmed === true) state.publish.confirmSent = true;
 
     callServer('apiRunPublish', [{
       isoDate: state.isoDate,
@@ -3348,6 +3352,8 @@
     showPublishConfirmError('');
     document.getElementById('publishForcedCheck').checked = false;
     document.getElementById('publishConfirmOkBtn').disabled = true;
+    // G19 補充：每次打開都是一個新的確認，未送出。
+    state.publish.confirmSent = false;
     document.getElementById('publishConfirmBackdrop').classList.remove('hidden');
   }
 
@@ -3360,6 +3366,11 @@
    * 用途：第二批測試修正 G19：發佈前檢查視窗按「取消」——關閉視窗，顯示與其他會寫入的
    *   確認對話框同一句（沒有發佈、沒有寄出）。成功之後關閉視窗的是 onPublishDone()，
    *   不經這裏。
+   *
+   *   G19 補充：這個視窗與其他確認對話框不同，按了「確認發佈」之後仍然開着（失敗、沒有回應、
+   *   伺服器回 ok:false 都寫在視窗之內），「取消」是唯一關閉它的方法。已經送出過
+   *   （state.publish.confirmSent）就只關閉視窗，頁頂保留原本那一句（例如「這個動作可能已經
+   *   完成」）——那時可能已經發佈或寄出了一部分，講「一格都沒有寫」與事實相反。
    * Returns:
    *   {void}
    * Raises:
@@ -3370,6 +3381,7 @@
     // 「一格都沒有寫」——那時可能已經發佈或寄出。按鈕亦已停用（applyBusyState()）。
     if (state.inFlight > 0) return;
     closePublishConfirm();
+    if (state.publish.confirmSent) return;
     showMessage('info', CANCELLED_NOTHING_WRITTEN_MESSAGE);
   }
 
