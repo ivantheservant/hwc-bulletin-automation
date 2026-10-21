@@ -554,7 +554,7 @@ var COLUMNS = Object.freeze({
 
   // 第二批階段 3：講員表格（Google Form）每一份答案一行（見 src/SpeakerForm.gs）。
   //
-  // ⚠️ 同一個主日有多份答案時，以**最新一份**為準；舊的**不停用**，只是不再採用
+  // ⚠️ 同一個主日有多份答案時，以最新一份為準；舊的不停用，只是不再採用
   // （`ACTIVE` 留給幹事日後手動停用某一份明顯填錯的答案，系統自己不會改它）。
   // ⚠️ `SCRIPTURE_REF`（例如「3:16」）、`SERMON_TITLE`、`NOTES` 是使用者填的原文，
   // 一律強制純文字，免得被試算表轉成時間或日期。
@@ -1028,7 +1028,7 @@ var RECIPIENT_GROUP = Object.freeze({
 });
 
 /**
- * `SpeakerFormSubmissions.RESULT` 的取值與中文名稱——**一處定義**。
+ * `SpeakerFormSubmissions.RESULT` 的取值與中文名稱——一處定義。
  *
  * | 代碼 | 意思 |
  * |---|---|
@@ -1049,7 +1049,7 @@ var SPEAKER_FORM_RESULTS = Object.freeze({
 });
 
 /**
- * `WeekSnapshots.REASON` 允許的取值與中文名稱——**一處定義**。程式與介面一律
+ * `WeekSnapshots.REASON` 允許的取值與中文名稱——一處定義。程式與介面一律
  * 由這裏取，不另抄一份字眼。見 src/WeekSnapshots.gs。
  *
  * | 代碼 | 時機 |

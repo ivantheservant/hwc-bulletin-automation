@@ -300,7 +300,7 @@ function backfillRosterForQuarter_(quarterId) {
     var touched = false;
     var snapshotTaken = false;
 
-    // 第二批階段 2：這一行**第一次**要寫之前，先存一個版本（只有真的會寫才存，
+    // 第二批階段 2：這一行第一次要寫之前，先存一個版本（只有真的會寫才存，
     // 一行只存一次）。
     function snapshotBeforeFirstWrite() {
       if (snapshotTaken) return;

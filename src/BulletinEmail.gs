@@ -295,7 +295,7 @@ function buildBulletinEmailHtml_(model, options) {
   }
 
   // 8b. 提示（model.warnings）。
-  //     ⚠️ 第二批階段 3 之前，週報資料模型的警告只出現在填寫介面頂部，**沒有**
+  //     ⚠️ 第二批階段 3 之前，週報資料模型的警告只出現在填寫介面頂部，沒有
   //     進過這封郵件；講員表格的「講員與事奉框不同」警告要讓審閱的人也看到，
   //     所以補上這一段。沒有警告就整段不出現，不影響平常的郵件。
   if (model.warnings && model.warnings.length > 0) {

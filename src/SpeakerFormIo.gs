@@ -4,7 +4,7 @@
  * 講員表格（Google Form）的全部 `FormApp` 呼叫。
  *
  * ─────────────────────────────────────────────────────────────────────
- * ⚠️ 本檔案是全 src/ **唯一**准許出現 `FormApp` 的地方
+ * ⚠️ 本檔案是全 src/ 唯一准許出現 `FormApp` 的地方
  * ─────────────────────────────────────────────────────────────────────
  *
  *   `tools/lint-readonly-roster.js` 的規則 5 把 `FormApp` 鎖死在本檔案，理由與
@@ -14,7 +14,7 @@
  *   格都不准出現 `ROSTER_SPREADSHEET_ID`——拿不到職事表的設定鍵，就沒有辦法自己
  *   找到職事表的任何東西。
  *
- *   本檔案也**不用** `DriveApp`：把表單搬進 Shared Drive 資料夾走
+ *   本檔案也不用 `DriveApp`：把表單搬進 Shared Drive 資料夾走
  *   `DriveShared.gs` 的 `driveMoveFileToFolder_()`。
  *
  * ─────────────────────────────────────────────────────────────────────
@@ -23,7 +23,7 @@
  *
  *   題目寫什麼、日期選項有哪些、答案怎樣處理，全部在 `src/SpeakerForm.gs`。
  *
- * ⚠️ 表單一律設成**只限教會帳戶（同網域）登入才可以填**、自動收集**已驗證**的
+ * ⚠️ 表單一律設成只限教會帳戶（同網域）登入才可以填、自動收集已驗證的
  * 電郵、不公開答案摘要。這是已定的決定，不是可以調整的選項。
  */
 
@@ -47,7 +47,7 @@ function probeFormsAccess_() {
 
 /**
  * 用途：建立講員表格（表單檔案），套用已定的安全設定，加入四個必填題與一個
- *   選填題，但**不**搬資料夾、不裝觸發器（那兩步由呼叫方接著做，失敗時才好
+ *   選填題，但不搬資料夾、不裝觸發器（那兩步由呼叫方接著做，失敗時才好
  *   分開說明）。
  * Args:
  *   spec {{title:string, description:string, confirmation:string,
@@ -112,7 +112,7 @@ function updateSpeakerFormDateChoices_(formId, dateQuestionTitle, choices) {
 }
 
 /**
- * 用途：檢查現有的講員表格有沒有按已定的決定設定好。**唯讀。**
+ * 用途：檢查現有的講員表格有沒有按已定的決定設定好。唯讀。
  *   給「上線前檢查」和「完成度自我檢測」用。
  * Args:
  *   formId {string} 表單檔案 ID。
@@ -120,7 +120,7 @@ function updateSpeakerFormDateChoices_(formId, dateQuestionTitle, choices) {
  *   {{reachable:boolean, error:string, requireLogin:?boolean, emailVerified:?boolean,
  *     publishedUrl:string, editUrl:string, dateChoiceCount:?number}}
  *     開不到（被刪、沒有權限、forms 範圍未授權）時 `reachable:false` 並帶原因；
- *     查不出的設定是 `null`，**不當成 `false`**。
+ *     查不出的設定是 `null`，不當成 `false`。
  */
 function inspectSpeakerFormFile_(formId) {
   var form;
@@ -169,7 +169,7 @@ function countSpeakerFormTriggers_() {
 }
 
 /**
- * 用途：為講員表格安裝**一個**表單提交觸發器（處理函式 `onSpeakerFormSubmit_`）。
+ * 用途：為講員表格安裝一個表單提交觸發器（處理函式 `onSpeakerFormSubmit_`）。
  *   已經有的就不重複安裝——重複安裝會令同一份答案被處理兩次。
  * Args:
  *   formId {string} 表單檔案 ID。

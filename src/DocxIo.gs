@@ -607,7 +607,7 @@ function openOutputFolder_(folderId, callerName) {
 /**
  * 用途：在父資料夾內找指定名稱的子資料夾，找不到就建立。
  *
- *   ⚠️ 查詢失敗（`driveListChildrenByName_()` 回 `null`）時**拋錯，不建立**：
+ *   ⚠️ 查詢失敗（`driveListChildrenByName_()` 回 `null`）時拋錯，不建立：
  *   查不到不等於沒有，貿然建立會在同一處留下兩個同名子資料夾，之後
  *   每一次都不知道該寫進哪一個。
  * Args:
@@ -631,14 +631,14 @@ function findOrCreateChildFolder_(parentFolder, childName) {
 }
 
 /**
- * 用途：把週報 Word 存成「這個主日**唯一一份**最新版」：目標資料夾內已有
+ * 用途：把週報 Word 存成「這個主日唯一一份最新版」：目標資料夾內已有
  *   同名檔案就原地覆寫內容（檔案 ID 與連結不變），沒有才新建。
  *
  *   ⚠️ 與 `writeOutputFile_()` 的分別：後者同名時加 `(2)`、`(3)`，檔案越積越
  *   多，幹事分不出哪一份是最新；這裏每個主日只有一份，連結永遠有效。
  *   舊版內容靠 Drive 自己的「版本記錄」找回，系統不另存。
  *
- *   ⚠️ 查不到「有沒有同名檔案」（`null`）時**拋錯，不新建**，理由同
+ *   ⚠️ 查不到「有沒有同名檔案」（`null`）時拋錯，不新建，理由同
  *   `findOrCreateChildFolder_()`。有多份同名檔案時只覆寫最舊的一份，
  *   `duplicateCount` 回報多出來的份數，由呼叫方提醒人手整理——系統
  *   不刪檔。

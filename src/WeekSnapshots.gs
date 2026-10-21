@@ -9,19 +9,19 @@
  * ─────────────────────────────────────────────────────────────────────
  *
  *   - 該主日 `BulletinWeeks` 那一行（全部欄位）；
- *   - 該主日**生效中**的 `DutyOverride` 行與 `FieldOverride` 行；
- *   - 四張清單（家事報告、代禱、團契、財政）**不存內容**，只在 `SUMMARY`
+ *   - 該主日生效中的 `DutyOverride` 行與 `FieldOverride` 行；
+ *   - 四張清單（家事報告、代禱、團契、財政）不存內容，只在 `SUMMARY`
  *     記條數——它們以內容表為準，還原不會動它們。
  *
  * ─────────────────────────────────────────────────────────────────────
  * 什麼時候存
  * ─────────────────────────────────────────────────────────────────────
  *
- * 一律在**寫入之前**存，而且只在那一次真的會改到該主日時才存（原因代碼見
+ * 一律在寫入之前存，而且只在那一次真的會改到該主日時才存（原因代碼見
  * `WEEK_SNAPSHOT_REASONS`）。唯一的例外是 `WORD_GENERATED`：它記的是產生
  * Word 當下的內容，所以在產生之後存，並記下 Word 檔案 ID。
  *
- * ⚠️ 存版本失敗**不可以令一般的儲存失敗**（`trySnapshotWeek_()` 不拋錯，改為
+ * ⚠️ 存版本失敗不可以令一般的儲存失敗（`trySnapshotWeek_()` 不拋錯，改為
  * 回傳一則警告，由呼叫方顯示）。但「重設」與「還原」是例外：它們的安全網
  * 就是這個版本，存不到就一格都不寫（直接用 `createWeekSnapshot_()`，會拋錯）。
  *
@@ -29,8 +29,8 @@
  * 與其他備份機制的分別
  * ─────────────────────────────────────────────────────────────────────
  *
- *   - `FillBackup` 是**整季**的備份（季度填寫表用）；本檔案是**單一主日**。
- *   - 長 JSON 的分拆與串回**重用** `FillBackup.gs` 的 `splitBackupPayload_()`／
+ *   - `FillBackup` 是整季的備份（季度填寫表用）；本檔案是單一主日。
+ *   - 長 JSON 的分拆與串回重用 `FillBackup.gs` 的 `splitBackupPayload_()`／
  *     `joinBackupPayload_()`，版本編號重用 `buildBackupId_()`，不另寫一份。
  *   - 不刪行：舊版本一直保留，列表只顯示最新的 `SNAPSHOT_LIST_LIMIT` 個。
  */
@@ -42,7 +42,7 @@
 // =====================================================================
 
 /**
- * 用途：把版本原因代碼換成中文名稱。**純函式。**
+ * 用途：把版本原因代碼換成中文名稱。純函式。
  * Args:
  *   code {string} `WEEK_SNAPSHOT_REASONS` 的鍵。
  * Returns:
@@ -55,7 +55,7 @@ function weekSnapshotReasonLabel_(code) {
 
 /**
  * 用途：「季度填寫表」一族的版本原因——同一個主日在時間限制之內只存一次。
- *   **純函式。**
+ *   純函式。
  * Args: （無）
  * Returns:
  *   {string[]}
@@ -65,7 +65,7 @@ function weekSnapshotThrottledReasons_() {
 }
 
 /**
- * 用途：只顯示電郵 `@` 之前的部分。**純函式。**
+ * 用途：只顯示電郵 `@` 之前的部分。純函式。
  * Args:
  *   email {*} 電郵或佔位字串（例如「（未知使用者）」）。
  * Returns:
@@ -78,7 +78,7 @@ function weekSnapshotActorShort_(email) {
 }
 
 /**
- * 用途：把一個值正規化成可以比較的文字。**純函式。**
+ * 用途：把一個值正規化成可以比較的文字。純函式。
  *   `Date` 用 `yyyy-MM-dd`、布林用 `TRUE`／`FALSE`、`null`／`undefined` 是
  *   空字串，其餘轉字串。與 `FillBackup` 序列化時的處理一致，所以「從工作表
  *   讀出來的 Date」與「版本內存的日期文字」比得起來。
@@ -92,11 +92,11 @@ function weekSnapshotText_(value) {
 }
 
 /**
- * 用途：組出一個版本的內容（JSON）。**純函式。**
+ * 用途：組出一個版本的內容（JSON）。純函式。
  * Args:
  *   input {{isoDate:string, quarterId:string, weekRow:Object, dutyRows:Object[],
  *     fieldRows:Object[], listCounts:Object<string,number>}}
- *     `dutyRows`／`fieldRows` 只放**生效中**的行。
+ *     `dutyRows`／`fieldRows` 只放生效中的行。
  * Returns:
  *   {{payload:Object, json:string}}
  */
@@ -140,7 +140,7 @@ function buildWeekSnapshotPayload_(input) {
 }
 
 /**
- * 用途：組出一個版本的一句摘要（列表上顯示）。**純函式。**
+ * 用途：組出一個版本的一句摘要（列表上顯示）。純函式。
  *   四張清單只報條數，名稱重用 `CONTENT_SHEET_READONLY_LABELS`。
  * Args:
  *   payload {Object} `buildWeekSnapshotPayload_()` 的 `payload`。
@@ -165,7 +165,7 @@ function summarizeWeekSnapshotPayload_(payload) {
 
 /**
  * 用途：把 `WeekSnapshots` 的資料列依 `SNAPSHOT_ID` 分組，只收指定主日、
- *   `ACTIVE` 的版本，由新到舊。**純函式。**
+ *   `ACTIVE` 的版本，由新到舊。純函式。
  * Args:
  *   rows {Object[]} `readSheet(SHEETS.WEEK_SNAPSHOTS)` 的輸出。
  *   isoDate {string} 主日日期，yyyy-MM-dd。
@@ -198,10 +198,10 @@ function groupWeekSnapshots_(rows, isoDate) {
 }
 
 /**
- * 用途：判斷「季度填寫表」一族的版本要不要因為時間限制而略過。**純函式。**
+ * 用途：判斷「季度填寫表」一族的版本要不要因為時間限制而略過。純函式。
  *   只看同一族原因（`weekSnapshotThrottledReasons_()`）最新的一個版本——
  *   其他動作（例如剛剛在填寫介面儲存過）不算數，因為那一個版本記的是
- *   **儲存之前**的內容，不等於現在的內容。
+ *   儲存之前的內容，不等於現在的內容。
  * Args:
  *   groups {Object[]} `groupWeekSnapshots_()` 的輸出（由新到舊）。
  *   nowMs {number} 現在的毫秒時間戳記。
@@ -227,7 +227,7 @@ function isWeekSnapshotThrottled_(groups, nowMs, minutes) {
  * Returns:
  *   {Object} 解析後的 payload。
  * Raises:
- *   Error 如果 JSON 解析失敗（多數代表被截斷或被人手改動）——**一定要拋錯**，
+ *   Error 如果 JSON 解析失敗（多數代表被截斷或被人手改動）——一定要拋錯，
  *     不可以用一份殘缺的資料去還原。
  */
 function parseWeekSnapshotGroup_(group) {
@@ -243,7 +243,7 @@ function parseWeekSnapshotGroup_(group) {
 }
 
 /**
- * 用途：給一個事奉框覆寫格取中文名稱。**純函式。**
+ * 用途：給一個事奉框覆寫格取中文名稱。純函式。
  * Args:
  *   postId {string} 崗位 ID。
  *   slotIndex {number} 位次。
@@ -261,7 +261,7 @@ function weekSnapshotDutyLabel_(postId, slotIndex, postDisplayRows) {
 
 /**
  * 用途：逐項比對「某個版本」與「現在」，給「看差異」和還原對話框用。
- *   **純函式。**
+ *   純函式。
  *
  *   三類差異（只列真的不同的項目）：
  *     - `FIELD`　　　填寫介面可以編輯的 `BulletinWeeks` 欄位（系統欄與內容表
@@ -338,10 +338,10 @@ function diffWeekSnapshotState_(payload, current, postDisplayRows) {
 }
 
 /**
- * 用途：算出「還原到某個版本」要改動什麼。**純函式。**
+ * 用途：算出「還原到某個版本」要改動什麼。純函式。
  *
  *   ⚠️ 事奉框覆寫與欄位覆寫的計畫刻意做成與 `computeDutyOverridePlan_()`／
- *   `computeFieldOverridePlan_()` **同一個形狀**，這樣真正寫入時直接重用
+ *   `computeFieldOverridePlan_()` 同一個形狀，這樣真正寫入時直接重用
  *   `applyDutyOverridePlan_()`／`applyFieldOverridePlan_()`，不另寫一份寫入
  *   邏輯。規則：
  *     - 該版本有、現在沒有（或已停用／內容不同）的覆寫 → 補回／重新啟用／改回；
@@ -447,7 +447,7 @@ function planWeekSnapshotRestore_(payload, current) {
 }
 
 /**
- * 用途：判斷一份事奉框覆寫計畫有沒有任何要寫的東西。**純函式。**
+ * 用途：判斷一份事奉框覆寫計畫有沒有任何要寫的東西。純函式。
  * Args:
  *   plan {?Object} `computeDutyOverridePlan_()` 形狀的計畫。
  * Returns:
@@ -458,7 +458,7 @@ function dutyOverridePlanHasChanges_(plan) {
 }
 
 /**
- * 用途：判斷一份欄位覆寫計畫有沒有任何要寫的東西。**純函式。**
+ * 用途：判斷一份欄位覆寫計畫有沒有任何要寫的東西。純函式。
  * Args:
  *   plan {?Object} `computeFieldOverridePlan_()` 形狀的計畫。
  * Returns:
@@ -469,7 +469,7 @@ function fieldOverridePlanHasChanges_(plan) {
 }
 
 /**
- * 用途：把版本警告併進儲存結果的訊息。**純函式。**
+ * 用途：把版本警告併進儲存結果的訊息。純函式。
  *   有警告就一律改成 `error` 類型（常駐、要使用者看到），文字先講已儲存。
  * Args:
  *   message {{type:string, text:string}} `buildSaveResultMessage_()` 的輸出。
@@ -489,7 +489,7 @@ function appendSnapshotWarnings_(message, warnings) {
 /**
  * 用途：讀出某個主日目前的完整狀態（版本內容與還原都用這一份）。
  *
- *   ⚠️ `DutyOverride`／`FieldOverride` 讀不到時**拋錯**，不當作「沒有覆寫」：
+ *   ⚠️ `DutyOverride`／`FieldOverride` 讀不到時拋錯，不當作「沒有覆寫」：
  *   把讀不到說成沒有，存出來的版本就會漏掉覆寫，還原時反而把它們全部停用。
  * Args:
  *   isoDate {string} 主日日期，yyyy-MM-dd。
@@ -525,7 +525,7 @@ function readWeekStateForSnapshot_(isoDate) {
 }
 
 /**
- * 用途：為某個主日存一個版本。**會拋錯**——「重設」「還原」靠它當安全網。
+ * 用途：為某個主日存一個版本。會拋錯——「重設」「還原」靠它當安全網。
  *   一般的寫入動作改用不拋錯的 `trySnapshotWeek_()`。
  * Args:
  *   isoDate {string} 主日日期，yyyy-MM-dd。
@@ -539,7 +539,7 @@ function readWeekStateForSnapshot_(isoDate) {
  *     `actor`：記進 `CREATED_BY`（表單提交觸發器裏查不到操作者，就用答題者的電郵）；
  *     `snapshotRows`：呼叫方已經讀好的 `WeekSnapshots` 資料列（一次替十幾個
  *     主日存版本時只讀一次，這張表每行可能有 49000 字元，逐個主日重讀很慢）。
- *     只可以傳給**不同主日**的連續呼叫——同一個主日要存第二個版本時必須重讀。
+ *     只可以傳給不同主日的連續呼叫——同一個主日要存第二個版本時必須重讀。
  * Returns:
  *   {{created:boolean, snapshotId:string, skipped:string, partCount:number}}
  *     `skipped` 是 `''`（有存）、`'THROTTLED'`、`'UNCHANGED'` 或 `'NO_WEEK'`
@@ -597,7 +597,7 @@ function createWeekSnapshot_(isoDate, reason, options) {
       CREATED_BY: sanitizeCellText_(actor),
       REASON: reason,
       SUMMARY: sanitizeCellText_(summary),
-      // ⚠️ 內容**不經** sanitizeCellText_()：這一欄是純文字格式，不會被當成公式；
+      // ⚠️ 內容不經 sanitizeCellText_()：這一欄是純文字格式，不會被當成公式；
       // 而分段之後的片段可能剛好以 `-`、`=` 開頭，加了前導單引號再串回去
       // 就是一份壞掉的 JSON。
       PAYLOAD_JSON: part,
@@ -617,7 +617,7 @@ function createWeekSnapshot_(isoDate, reason, options) {
 }
 
 /**
- * 用途：`createWeekSnapshot_()` 的**不拋錯**版本，給一般的寫入動作用——存版本
+ * 用途：`createWeekSnapshot_()` 的不拋錯版本，給一般的寫入動作用——存版本
  *   失敗不可以令使用者的儲存失敗（資料還沒寫，最壞的後果是這次改動之後
  *   不能用「還原」找回）。失敗會記一筆 `ErrorLog`，並回傳一句警告讓呼叫方顯示。
  * Args:
@@ -653,7 +653,7 @@ function trySnapshotWeek_(isoDate, reason, options) {
 
 /**
  * 用途：為一批主日各存一個版本（每個主日一個，重複的日期只存一次）。
- *   給整季匯入、補抓、同步這類一次動到多個主日的動作用。**不拋錯。**
+ *   給整季匯入、補抓、同步這類一次動到多個主日的動作用。不拋錯。
  * Args:
  *   isoDates {string[]} 主日日期。
  *   reason {string} `WEEK_SNAPSHOT_REASONS` 的鍵。
@@ -770,7 +770,7 @@ function loadWeekSnapshot_(isoDate, snapshotId) {
 }
 
 /**
- * 用途：「看差異」——逐項列出某個版本與現在的不同。**唯讀。**
+ * 用途：「看差異」——逐項列出某個版本與現在的不同。唯讀。
  * Args:
  *   isoDate {string} 主日日期。
  *   snapshotId {string} 版本編號。
@@ -801,7 +801,7 @@ function diffWeekSnapshotForWebApp_(isoDate, snapshotId) {
 }
 
 /**
- * 用途：還原對話框最後一句（也是「還原不動什麼」的唯一說明）。**純函式。**
+ * 用途：還原對話框最後一句（也是「還原不動什麼」的唯一說明）。純函式。
  * Args: （無）
  * Returns:
  *   {string}
@@ -831,7 +831,7 @@ function assertWeekNotChangedSince_(weekRow, lastSavedAt) {
 
 /**
  * 用途：把還原／重設算出來的欄位異動、事奉框覆寫計畫、欄位覆寫計畫真正寫入，
- *   全部經**既有**的寫入函式，並把 `AuditLog` 條目的動作代碼統一換成指定的一個
+ *   全部經既有的寫入函式，並把 `AuditLog` 條目的動作代碼統一換成指定的一個
  *   （`WEEK_RESTORE`／`WEEK_RESET`）。
  * Args:
  *   isoDate {string} 主日日期。
@@ -861,8 +861,8 @@ function applyWeekRestorePlan_(isoDate, rowNo, plan, action, noteHead) {
 /**
  * 用途：還原到某個版本。
  *
- *   步驟：核對鎖定值 → 算出要改什麼（沒有任何差異就什麼都不寫）→ **先存一個
- *   `BEFORE_RESTORE` 版本**（存不到就中止）→ 週報欄位只寫有差異的格 → 事奉框
+ *   步驟：核對鎖定值 → 算出要改什麼（沒有任何差異就什麼都不寫）→ 先存一個
+ *   `BEFORE_RESTORE` 版本（存不到就中止）→ 週報欄位只寫有差異的格 → 事奉框
  *   覆寫與欄位覆寫改回與該版本相同（多出來的停用，缺的補回或重新啟用，不刪行）
  *   → 刷新 `FillSnapshot` 與格子表 → 更新 `LAST_SAVED_AT` → 逐格 `AuditLog`
  *   `WEEK_RESTORE`。
@@ -932,7 +932,7 @@ function restoreWeekSnapshotFromWebApp_(payload) {
 
 /**
  * 用途：把 `BulletinWeeks` 一個空白週報行的預設值（建立本季空白週報時用）。
- *   **純函式。**「建立本季空白週報」與「重設這一週」共用這一支，預設值只有
+ *   純函式。「建立本季空白週報」與「重設這一週」共用這一支，預設值只有
  *   一個定義。
  * Args:
  *   input {{isoDate:string, quarterId:string, snapshot:Object, resolvedTemplateId:string,
@@ -949,7 +949,7 @@ function buildBlankWeekRow_(input) {
 
   return {
     SERVICE_DATE: targetDate,
-    // ⚠️ **一定要用呼叫方指定的季度，不可以用 `snapshot.quarterId`。**
+    // ⚠️ 一定要用呼叫方指定的季度，不可以用 `snapshot.quarterId`。
     //    快照那個值是職事表自己講這個日期屬於哪一季；兩者不一致時，
     //    用快照那個＝把一行寫進另一個季度，而畫面上完全看不出來。
     //    「決定處理哪一季」是呼叫方的事，職事表只負責答「這一天有沒有
@@ -994,7 +994,7 @@ function readBlankWeekSettings_() {
 }
 
 /**
- * 用途：算出「重設這一週」要改什麼。**純函式。**
+ * 用途：算出「重設這一週」要改什麼。純函式。
  *   填寫介面可以編輯的每一個欄位改回空白骨架的預設值（骨架沒有定義的欄位
  *   就是空白）；這個主日所有生效中的事奉框覆寫與欄位覆寫全部停用。
  * Args:
@@ -1042,7 +1042,7 @@ function planWeekReset_(blankRow, current) {
 /**
  * 用途：重設這一週。真正入口。
  *
- *   步驟：核對鎖定值 → **先存一個 `BEFORE_RESET` 版本**（存不到就中止）→ 填寫
+ *   步驟：核對鎖定值 → 先存一個 `BEFORE_RESET` 版本（存不到就中止）→ 填寫
  *   介面可編輯的欄位改回建立空白週報時的預設值（與「建立本季空白週報」共用
  *   `buildBlankWeekRow_()`）→ 這個主日全部事奉框覆寫（包括上一週「下週事奉」
  *   改到這一週的）與欄位覆寫停用（不刪行）→ 本季已有內容表就由內容表重新匯入
@@ -1106,7 +1106,7 @@ function resetWeekFromWebApp_(isoDate, lastSavedAt) {
   var stamp = new Date();
   writeWeekCell_(state.weekRow.__rowNo, 'LAST_SAVED_AT', stamp);
 
-  // 格子表要對齊**最終**的值（重設之後內容表可能又寫回了一些欄位），
+  // 格子表要對齊最終的值（重設之後內容表可能又寫回了一些欄位），
   // 所以重讀一次才算差異。
   var after = readBulletinWeekRowWithRowNo_(isoDate) || {};
   var finalChanges = [];

@@ -824,7 +824,7 @@ function saveWeekFromWebApp_(payload) {
     existingLists: existingLists
   });
 
-  // ⚠️ 第二批階段 2：版本記錄。**所有寫入之前**先把三種覆寫的計畫算好，
+  // ⚠️ 第二批階段 2：版本記錄。所有寫入之前先把三種覆寫的計畫算好，
   //    只有「這一次真的會改到該主日」才存一個版本（沒有任何改動的儲存不產生
   //    版本，與不更新 `LAST_SAVED_AT` 同一個道理）。計畫算好之後直接交給下面
   //    的套用步驟，不重算一次——算兩次就有「版本說會改、實際沒改」的機會。
@@ -1306,14 +1306,14 @@ function applyFieldOverridesFromPayload_(isoDate, targetDate, normalizedWeek, we
 }
 
 /**
- * 用途：算出 payload 內第三種模式那幾欄要對 `FieldOverride` 做什麼（**唯讀**，
+ * 用途：算出 payload 內第三種模式那幾欄要對 `FieldOverride` 做什麼（唯讀，
  *   不寫任何一格）。規則與注意事項見 `applyFieldOverridesFromPayload_()` 上面
  *   那一大段說明——計算與套用分開，是為了讓儲存可以在寫入之前就知道「這一次
  *   會不會動到這個主日」（版本記錄）。
  * Args:
  *   isoDate {string} 主日日期。
  *   normalizedWeek {Object} 這一次儲存要寫入的欄位值。
- *   weekBeforeSave {Object} **寫入之前**的 `BulletinWeeks` 那一行。
+ *   weekBeforeSave {Object} 寫入之前的 `BulletinWeeks` 那一行。
  * Returns:
  *   {?Object} `computeFieldOverridePlan_()` 的輸出；payload 完全沒有帶第三種
  *     模式的欄位時回 `null`。
@@ -1380,7 +1380,7 @@ function applyDutyEditsFromPayload_(isoDate, targetDate, dutyEdits, auditEntries
 }
 
 /**
- * 用途：算出一批事奉框編輯要對 `DutyOverride` 做什麼（**唯讀**，不寫任何一格）。
+ * 用途：算出一批事奉框編輯要對 `DutyOverride` 做什麼（唯讀，不寫任何一格）。
  *   計算與套用分開，是為了讓儲存可以在寫入之前就知道「這一次會不會動到這個
  *   主日」（版本記錄）。
  * Args:

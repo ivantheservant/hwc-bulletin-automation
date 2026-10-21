@@ -717,7 +717,7 @@ function assertSheetSchemaUpToDate_(actionWord) {
 
 /**
  * 用途：前端呼叫，取得「講員表格」區塊要顯示的現況（是否已建立、連結、
- *   觸發器狀態）。**唯讀**，不用 `FormApp`。
+ *   觸發器狀態）。唯讀，不用 `FormApp`。
  * Args: （無）
  * Returns:
  *   {{ok:boolean, data:Object, error?:Object}} `data` 形狀見 `speakerFormStatusForWebApp_()`。
@@ -753,7 +753,7 @@ function apiRefreshSpeakerFormDates() {
 }
 
 /**
- * 用途：前端呼叫，列出這一個主日的版本記錄與發佈記錄。**唯讀。**
+ * 用途：前端呼叫，列出這一個主日的版本記錄與發佈記錄。唯讀。
  * Args:
  *   isoDate {string} 主日日期，yyyy-MM-dd。
  * Returns:
@@ -766,7 +766,7 @@ function apiListWeekSnapshots(isoDate) {
 }
 
 /**
- * 用途：前端呼叫，逐項列出某個版本與現在的差異。**唯讀。**
+ * 用途：前端呼叫，逐項列出某個版本與現在的差異。唯讀。
  * Args:
  *   isoDate {string} 主日日期。
  *   snapshotId {string} 版本編號。
@@ -1034,7 +1034,7 @@ var PUBLISH_PREFS_KEY_ = 'PUBLISH_PANEL_PREFS';
  * 用途：`apiDownloadBulletinDocx()` 的 IO 層——產生 Word 檔並轉成 base64，
  *   同時把它存成這個主日在雲端硬碟的「最新版」。
  *
- *   ⚠️ 存雲端失敗**不可以**令下載失敗：幹事要的是手上這份檔案。失敗改為
+ *   ⚠️ 存雲端失敗不可以令下載失敗：幹事要的是手上這份檔案。失敗改為
  *   一則警告，由前端顯示；雲端沒有更新，`wordFile` 就是 `null`（前端會
  *   沿用載入時顯示的舊連結，警告已經講明新版沒有存進去）。
  * Args:

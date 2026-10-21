@@ -175,7 +175,7 @@ function driveCountFilesByNameInFolder_(folderId, fileName) {
  *   fileId {string} 檔案 ID。
  * Returns:
  *   {?{trashed:boolean, folderId:string}} 查不到（進階服務未啟用、沒有權限、
- *     檔案已被永久刪除）回 `null`，**不拋錯**；`folderId` 是第一個父資料夾，
+ *     檔案已被永久刪除）回 `null`，不拋錯；`folderId` 是第一個父資料夾，
  *     沒有就是空字串。
  */
 function driveGetFileLocation_(fileId) {
@@ -195,7 +195,7 @@ function driveGetFileLocation_(fileId) {
  *   也就是加上新的父資料夾、並移走舊的父資料夾。
  *   講員表格建立後搬進 `SPEAKER_FORM_FOLDER_ID` 用。
  *
- *   ⚠️ 搬不到會**拋錯**，由呼叫方決定怎樣向使用者說明；不當成成功。
+ *   ⚠️ 搬不到會拋錯，由呼叫方決定怎樣向使用者說明；不當成成功。
  * Args:
  *   fileId {string} 檔案 ID。
  *   folderId {string} 目標資料夾 ID。
@@ -224,7 +224,7 @@ function driveMoveFileToFolder_(fileId, folderId) {
  * Returns:
  *   {?boolean} 在 Shared Drive 內回 `true`，在「我的雲端硬碟」回 `false`；
  *     查不到（進階服務未啟用、沒有權限）回 `null`。
- *     ⚠️ `null` 與 `false` **不可以**混為一談：後者是「查過，不在」，前者是「查不到」。
+ *     ⚠️ `null` 與 `false` 不可以混為一談：後者是「查過，不在」，前者是「查不到」。
  */
 function driveIsInSharedDrive_(fileId) {
   var id = String(fileId || '').trim();
@@ -254,7 +254,7 @@ var DRIVE_FOLDER_MIME_TYPE_ = 'application/vnd.google-apps.folder';
  * Returns:
  *   {?string[]} 符合的 ID，最舊的排第一（按建立時間）；最多 20 個。
  *     查不到（權限、服務未啟用）一律回 `null`。
- *     ⚠️ `null` 與 `[]` **不可以**混為一談：`[]` 是「查過，沒有」，`null`
+ *     ⚠️ `null` 與 `[]` 不可以混為一談：`[]` 是「查過，沒有」，`null`
  *     是「查不到」——呼叫方見到 `null` 就不要新建，否則會重複建立。
  */
 function driveListChildrenByName_(parentId, name, kind) {

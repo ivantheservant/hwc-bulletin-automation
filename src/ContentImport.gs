@@ -828,7 +828,7 @@ function previewContentImport_(quarterId, options) {
  *   ⚠️ 整個寫入包在 `LockService` 內：`Fill_*` 的同步觸發器同樣會寫
  *   `BulletinWeeks`，兩者撞在一起會互相覆蓋。
  *
- *   寫入之前，每個**真的會被改到**的主日各存一個版本（`WeekSnapshots`，
+ *   寫入之前，每個真的會被改到的主日各存一個版本（`WeekSnapshots`，
  *   原因 `CONTENT_IMPORT_WEEK`／`CONTENT_IMPORT_QUARTER`）。存不到不阻止匯入，
  *   但會在結果的 `snapshotWarnings` 講出來。
  * Args:
@@ -856,7 +856,7 @@ function applyContentImport_(quarterId, options) {
   }
 
   try {
-    // ⚠️ 版本一定要在寫入**之前**存。
+    // ⚠️ 版本一定要在寫入之前存。
     preview.snapshotWarnings = skipSnapshot ? [] : snapshotWeeksBeforeWrite_(
       contentImportAffectedDates_(preview.plan),
       preview.scope === 'ONE_WEEK' ? 'CONTENT_IMPORT_WEEK' : 'CONTENT_IMPORT_QUARTER'
@@ -871,7 +871,7 @@ function applyContentImport_(quarterId, options) {
 }
 
 /**
- * 用途：找出一份匯入計畫會動到哪幾個主日的週報（填寫欄位或覆寫）。**純函式。**
+ * 用途：找出一份匯入計畫會動到哪幾個主日的週報（填寫欄位或覆寫）。純函式。
  *   只動到清單類分頁（家事報告等）的主日不算——那些以內容表為準，不在版本裏面。
  * Args:
  *   plan {Object} `computeContentImportPlan_()` 的輸出。

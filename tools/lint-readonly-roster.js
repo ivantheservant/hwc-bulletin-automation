@@ -72,14 +72,14 @@
  * 5. `FormApp`（Google 表單）只准出現在 src/SpeakerFormIo.gs。
  *
  *    第二批階段 3 加入「講員表格」（Google Form）。`FormApp.openById()` 與
- *    `DriveApp`／`SpreadsheetApp.openById()` 一樣，理論上可以開啟**任何**一份
+ *    `DriveApp`／`SpreadsheetApp.openById()` 一樣，理論上可以開啟任何一份
  *    表單，包括職事表系統自己的表單；而且它的 `openById(` 字樣會觸發規則 1，
  *    所以 SpeakerFormIo.gs 同時列入規則 1 的准許名單。處理方式與前面完全同一個
- *    手法：把能力鎖死在**單一新檔案**，其餘檔案一律不准（本規則）；而那個檔案
+ *    手法：把能力鎖死在單一新檔案，其餘檔案一律不准（本規則）；而那個檔案
  *    也一律不准出現 `ROSTER_SPREADSHEET_ID`（規則 4），拿不到職事表的設定鍵，
  *    就沒有辦法自己找到職事表。
  *
- *    ⚠️ SpeakerFormIo.gs **不**列入規則 3 的 `DriveApp` 准許名單：把表單搬進
+ *    ⚠️ SpeakerFormIo.gs 不列入規則 3 的 `DriveApp` 准許名單：把表單搬進
  *    Shared Drive 資料夾走 DriveShared.gs 的 `driveMoveFileToFolder_()`。
  *
  * 五條規則都會先用 tools/lib/maskSource.js 把字串與註解內容遮罩掉，

@@ -720,7 +720,7 @@ function buildResidualPlaceholderMessage_(fileName, templateLabel, residual) {
  *   輸出資料夾。供選單「產生本週週報（Word）」、整季批次產生與填寫介面
  *   「下載 Word」使用。
  *
- *   ⚠️ **每個主日只保留一份最新的檔案**：同名檔案已存在就原地覆寫（檔案
+ *   ⚠️ 每個主日只保留一份最新的檔案：同名檔案已存在就原地覆寫（檔案
  *   連結不變），不再加 `(2)`、`(3)`。Config `OUTPUT_GROUP_BY_QUARTER` 為
  *   TRUE（預設）時放進以季度 ID 命名的子資料夾。見 `writeLatestOutputFile_()`。
  * Args:
@@ -751,8 +751,8 @@ function saveBulletinDocx_(isoDate, generated) {
 
 /**
  * 用途：產生（或沿用已產生好的）週報 Word，存成這個主日的最新版，並把檔案
- *   ID 記進 `BulletinWeeks.DOC_ID`。**選單、整季批次、填寫介面「下載 Word」、
- *   星期一郵件附件全部走這一支**，不各寫一套。
+ *   ID 記進 `BulletinWeeks.DOC_ID`。選單、整季批次、填寫介面「下載 Word」、
+ *   星期一郵件附件全部走這一支，不各寫一套。
  * Args:
  *   isoDate {string} 主日日期，yyyy-MM-dd。
  *   generated {Object=} 已經產生好的 `generateBulletinDocx_()` 結果；省略就在這裏產生。
@@ -779,7 +779,7 @@ function storeLatestBulletinDocx_(isoDate, generated, audit) {
 }
 
 /**
- * 用途：`storeLatestBulletinDocx_()` 的**不拋錯**版本，給「Word 已經產生、
+ * 用途：`storeLatestBulletinDocx_()` 的不拋錯版本，給「Word 已經產生、
  *   存雲端只是附帶」的呼叫方用（填寫介面下載、郵件附件）：任何失敗都轉成一則
  *   警告，不影響手上那一份檔案。
  * Args:
@@ -819,8 +819,8 @@ function tryStoreLatestBulletinDocx_(isoDate, generated, audit) {
 }
 
 /**
- * 用途：產生週報 `.docx` 並存成一份**獨立的副本**（同名時加 `(2)`、`(3)`），
- *   **不碰**這個主日的「最新版」檔案。
+ * 用途：產生週報 `.docx` 並存成一份獨立的副本（同名時加 `(2)`、`(3)`），
+ *   不碰這個主日的「最新版」檔案。
  *
  *   給「全季流程演練」用：演練針對的是真實季度的第一個主日，如果用
  *   `saveBulletinDocx_()` 就會把幹事可能已經人手修改過的最新版蓋掉。
@@ -845,7 +845,7 @@ function saveBulletinDocxCopy_(isoDate) {
 }
 
 /**
- * 用途：決定 Word 檔要放進輸出資料夾下哪個子資料夾。**純函式。**
+ * 用途：決定 Word 檔要放進輸出資料夾下哪個子資料夾。純函式。
  * Args:
  *   quarterId {string} 這個主日所屬的季度 ID；未知就傳空字串。
  *   groupSetting {*} Config `OUTPUT_GROUP_BY_QUARTER` 的值（可以是字串

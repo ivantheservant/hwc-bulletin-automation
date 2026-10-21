@@ -190,7 +190,7 @@ function makeFillGridSheet(sandbox, rows) {
  *            announcements:Object[]=, withGrid:boolean=,
  *            ui:Object=, extraStubs:Object=, rosterAssignments:Object[]=,
  *            rosterPosts:Object[]=, emailTemplates:Object[]=}=}
- *     `rosterAssignments`／`rosterPosts` 是**額外**加進假職事表的指派與崗位
+ *     `rosterAssignments`／`rosterPosts` 是額外加進假職事表的指派與崗位
  *     （預設只有 CHAIR 一個崗位）。
  *     `ui` 覆寫 `getUi()` 回傳物件的方法；`extraStubs` 額外注入的全域替身
  *     （例如 `PropertiesService`）。

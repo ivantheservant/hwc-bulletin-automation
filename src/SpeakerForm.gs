@@ -7,14 +7,14 @@
  * 三個已定的決定（見 docs/需求登記_第二批.md）
  * ─────────────────────────────────────────────────────────────────────
  *
- *   1. **只限教會帳戶填寫**：表單設成同網域登入才可以填，自動收集已驗證電郵。
- *   2. **答案直接寫進週報**：不經幹事匯入。寫入的方式只有兩條，而且都重用既有
+ *   1. 只限教會帳戶填寫：表單設成同網域登入才可以填，自動收集已驗證電郵。
+ *   2. 答案直接寫進週報：不經幹事匯入。寫入的方式只有兩條，而且都重用既有
  *      函式，不另寫一套寫入邏輯：
- *        - 該季**已有內容表** → 把「讀經經文」「證道講題」寫進內容表「崇拜程序」
- *          分頁該主日那一行，再用**既有的匯入**只匯入該主日、只限那一張分頁；
- *        - 該季**未有內容表** → 直接寫 `BulletinWeeks` 那兩格（日後建立內容表時
+ *        - 該季已有內容表 → 把「讀經經文」「證道講題」寫進內容表「崇拜程序」
+ *          分頁該主日那一行，再用既有的匯入只匯入該主日、只限那一張分頁；
+ *        - 該季未有內容表 → 直接寫 `BulletinWeeks` 那兩格（日後建立內容表時
  *          由既有的回填帶入）。
- *   3. **表格上的「講員」只作核對**：不改事奉框，也不改職事表。講員與事奉框
+ *   3. 表格上的「講員」只作核對：不改事奉框，也不改職事表。講員與事奉框
  *      不同時，週報的警告區出 `SPEAKER_FORM_MISMATCH`，由人決定。
  *
  * ⚠️ 那一格有生效中的人手覆寫（`FieldOverride`）→ 不蓋過，結果記
@@ -50,7 +50,7 @@ function speakerFormQuestionTitles_() {
 }
 
 /**
- * 用途：把處理結果代碼換成中文名稱。**純函式。**
+ * 用途：把處理結果代碼換成中文名稱。純函式。
  * Args:
  *   code {string} `SPEAKER_FORM_RESULTS` 的鍵。
  * Returns:
@@ -63,7 +63,7 @@ function speakerFormResultLabel_(code) {
 
 /**
  * 用途：把樣式字串內的 `{{KEY}}` 換成對應的值，沒有提供的 KEY 原樣保留。
- *   **純函式。**
+ *   純函式。
  * Args:
  *   pattern {string} 樣式。
  *   vars {Object<string,string>} KEY → 值。
@@ -77,8 +77,8 @@ function fillSpeakerFormPattern_(pattern, vars) {
 }
 
 /**
- * 用途：算出「主日日期」下拉要列出的選項。**純函式。**
- *   `BulletinWeeks` 內**未封存**、由今日起（含今日）最近的 N 個主日；有特別主日
+ * 用途：算出「主日日期」下拉要列出的選項。純函式。
+ *   `BulletinWeeks` 內未封存、由今日起（含今日）最近的 N 個主日；有特別主日
  *   的附上名稱（樣式見 Config `SPEAKER_FORM_DATE_SPECIAL_PATTERN`）。
  * Args:
  *   weekRows {Object[]} `BulletinWeeks` 的資料列。
@@ -113,7 +113,7 @@ function buildSpeakerFormDateOptions_(weekRows, todayIso, weeksAhead, pattern) {
 
 /**
  * 用途：由「主日日期」那一題的答案文字認出日期（取開頭的 yyyy-MM-dd，後面的
- *   特別主日名稱不理）。**純函式。**
+ *   特別主日名稱不理）。純函式。
  * Args:
  *   text {string} 答案文字，例如 `2028-05-28（瀏覽器測試合堂）`。
  * Returns:
@@ -131,7 +131,7 @@ function parseSpeakerFormDateChoice_(text) {
 
 /**
  * 用途：把講員名字正規化成可以比較的形式：去掉尊稱（長的先去）、去掉所有空白
- *   （包括全形空白），英文字母轉小寫。**純函式。**
+ *   （包括全形空白），英文字母轉小寫。純函式。
  * Args:
  *   name {*} 名字。
  *   honorifics {string[]} 要去掉的尊稱清單（Config `SPEAKER_NAME_HONORIFICS`）。
@@ -148,7 +148,7 @@ function normalizeSpeakerName_(name, honorifics) {
 
 /**
  * 用途：由職事表快照（已套用事奉框覆寫）的 `slotsByPost` 取出事奉框的講員。
- *   **純函式。**
+ *   純函式。
  * Args:
  *   slotsByPost {Object<string,Object[]>} 快照的 `slotsByPost`。
  * Returns:
@@ -161,8 +161,8 @@ function speakerNameFromSlots_(slotsByPost) {
 }
 
 /**
- * 用途：在答案記錄內找出某個主日**最新**的一份（有效的、不是處理出錯的）。
- *   **純函式。**
+ * 用途：在答案記錄內找出某個主日最新的一份（有效的、不是處理出錯的）。
+ *   純函式。
  * Args:
  *   rows {Object[]} `SpeakerFormSubmissions` 的資料列。
  *   isoDate {string} 主日日期。
@@ -187,7 +187,7 @@ function pickLatestSpeakerAnswer_(rows, isoDate) {
 }
 
 /**
- * 用途：講員核對：表格填的講員與事奉框的講員不同時，給出警告。**純函式。**
+ * 用途：講員核對：表格填的講員與事奉框的講員不同時，給出警告。純函式。
  *   名字先正規化（去尊稱、去空白），正規化之後相同才不出警告。
  * Args:
  *   formSpeaker {string} 表格填的講員。
@@ -232,7 +232,7 @@ function speakerMismatchWarningForModel_(isoDate, slotsByPost) {
 }
 
 /**
- * 用途：由表單提交事件取出一份答案。**不拋「找不到題目」的錯**——找不到的題目
+ * 用途：由表單提交事件取出一份答案。不拋「找不到題目」的錯——找不到的題目
  *   記進 `missingQuestions`，由呼叫方照樣把這份答案記下來（結果 `ERROR`），
  *   不可以讓一份答案因為題目字眼對不上就憑空消失。
  * Args:
@@ -282,7 +282,7 @@ function extractSpeakerFormAnswers_(event, titles) {
 }
 
 /**
- * 用途：篩出某個主日的發佈記錄（不含自測發佈）。**純函式。**
+ * 用途：篩出某個主日的發佈記錄（不含自測發佈）。純函式。
  *   版本記錄列表與講員表格通知共用，「這個主日有沒有發佈過」只有一個定義。
  * Args:
  *   rows {Object[]} `PublishLog` 的資料列。
@@ -297,7 +297,7 @@ function filterPublishedRowsForDate_(rows, isoDate) {
 }
 
 /**
- * 用途：組出通知信的主旨、純文字與 HTML 內文。**純函式。**
+ * 用途：組出通知信的主旨、純文字與 HTML 內文。純函式。
  * Args:
  *   input {{churchName:string, subjectPattern:string, answer:Object, resultCode:string,
  *     resultDetail:string, special:string, mismatchText:string, published:boolean,
@@ -335,7 +335,7 @@ function buildSpeakerFormNotice_(input) {
 }
 
 /**
- * 用途：講員表格現況的檢查結果轉成一個檢測項目（狀態＋說明）。**純函式。**
+ * 用途：講員表格現況的檢查結果轉成一個檢測項目（狀態＋說明）。純函式。
  *   「上線前檢查」與「完成度自我檢測」共用，判斷只有一處。
  *
  *   紅燈＝一定會出問題（開不到、沒有限教會帳戶、觸發器不是剛好一個、資料夾不在
@@ -430,7 +430,7 @@ function currentSpeakerFormDateOptions_() {
 
 /**
  * 用途：收集講員表格現況（Config、表單設定、觸發器、資料夾），給檢測用。
- *   **唯讀。** 任何一項查不到都用 `null` 表示，不當成「正常」。
+ *   唯讀。 任何一項查不到都用 `null` 表示，不當成「正常」。
  * Args: （無）
  * Returns:
  *   {{created:boolean, formId:string, folderId:string, folderIsSharedDrive:?boolean,
@@ -450,7 +450,7 @@ function inspectSpeakerFormState_() {
 }
 
 /**
- * 用途：填寫介面「講員表格」區塊要顯示的現況。**唯讀**，而且不用 `FormApp`
+ * 用途：填寫介面「講員表格」區塊要顯示的現況。唯讀，而且不用 `FormApp`
  *   （所以 forms 範圍還沒授權時這一區塊也看得到）。
  * Args: （無）
  * Returns:
@@ -479,7 +479,7 @@ function speakerFormStatusForWebApp_() {
 /**
  * 用途：建立講員表格（一個長期使用的表格，不是每季一個）：檢查資料夾 →
  *   建立表單（只限教會帳戶）→ 搬進 Shared Drive 資料夾 → 把 ID 與連結寫進
- *   Config → 安裝**一個**表單提交觸發器。
+ *   Config → 安裝一個表單提交觸發器。
  *
  *   已經建立過的不會再建第二個（講員收藏的連結不可以換）。搬資料夾或裝
  *   觸發器失敗時，表單已經建立，所以 ID 與連結照樣寫進 Config（免得人手再按
@@ -596,7 +596,7 @@ function refreshSpeakerFormDatesForWebApp_() {
 
 /**
  * 用途：自動刷新日期選項（「建立本季週報」完成後與星期一觸發器內）。
- *   **不拋錯**：講員表格還沒建立就什麼都不做；刷新失敗只記 `ErrorLog`，不可以令
+ *   不拋錯：講員表格還沒建立就什麼都不做；刷新失敗只記 `ErrorLog`，不可以令
  *   外面真正的工作（建立週報、寄週報）失敗。
  * Args:
  *   source {string} 誰叫的（函式名），只記進 `ErrorLog`。
@@ -635,7 +635,7 @@ function refreshSpeakerFormDatesQuietly_(source) {
 // =====================================================================
 
 /**
- * 用途：講員表格的表單提交觸發器處理函式。**真正入口。**
+ * 用途：講員表格的表單提交觸發器處理函式。真正入口。
  *   用 `LockService` 鎖住整個處理過程（兩份答案同時到達不會互相踩）。
  * Args:
  *   e {Object} 表單提交事件（`e.response` 是 `FormResponse`）。
@@ -666,7 +666,7 @@ function onSpeakerFormSubmit_(e) {
  * 用途：處理一份講員表格答案：寫進週報（或決定不寫）、記進
  *   `SpeakerFormSubmissions`、寫 `AuditLog`、通知管理員。
  *
- *   **每一份答案都一定會被記下來**：處理過程出錯也記一行（結果 `ERROR`）並通知，
+ *   每一份答案都一定會被記下來：處理過程出錯也記一行（結果 `ERROR`）並通知，
  *   不可以讓一份答案憑空消失。
  * Args:
  *   e {Object} 表單提交事件。
@@ -725,7 +725,7 @@ function handleSpeakerFormSubmission_(e, todayIso) {
 
 /**
  * 用途：把答案裏的兩項內容（讀經經文、證道講題）寫進週報——見檔頭「三個已定的
- *   決定」。回傳處理結果，**不記** `SpeakerFormSubmissions`／`AuditLog`（那是呼叫方的事）。
+ *   決定」。回傳處理結果，不記 `SpeakerFormSubmissions`／`AuditLog`（那是呼叫方的事）。
  * Args:
  *   answer {Object} `extractSpeakerFormAnswers_()` 的輸出。
  *   todayIso {string} 今日，yyyy-MM-dd。
@@ -861,8 +861,8 @@ function speakerFormContentTabName_() {
 }
 
 /**
- * 用途：把答案通知管理員（`SPEAKER_FORM_NOTIFY_GROUPS` 組別）。**遵守
- *   `DRY_RUN`**：`TRUE` 時完全不呼叫 `MailApp`，但照樣寫 `SendLog`。
+ * 用途：把答案通知管理員（`SPEAKER_FORM_NOTIFY_GROUPS` 組別）。遵守
+ *   `DRY_RUN`：`TRUE` 時完全不呼叫 `MailApp`，但照樣寫 `SendLog`。
  *   組別內沒有任何收件人時不寄，也不報錯（只是沒有人要通知）。
  * Args:
  *   answer {Object} `extractSpeakerFormAnswers_()` 的輸出。

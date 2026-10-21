@@ -146,7 +146,7 @@ function publishConfig_() {
 }
 
 /**
- * 用途：由雲端硬碟檔案 ID 砌出「檢視」連結。**純函式。**
+ * 用途：由雲端硬碟檔案 ID 砌出「檢視」連結。純函式。
  *   `masterPdfLinks_()` 與 Word 最新版的連結共用這一個，網址格式只有一處。
  * Args:
  *   fileId {string} 檔案 ID。
@@ -159,7 +159,7 @@ function driveFileViewUrl_(fileId) {
 }
 
 /**
- * 用途：由雲端硬碟資料夾 ID 砌出「開啟資料夾」連結。**純函式。**
+ * 用途：由雲端硬碟資料夾 ID 砌出「開啟資料夾」連結。純函式。
  * Args:
  *   folderId {string} 資料夾 ID。
  * Returns:
@@ -391,7 +391,7 @@ function latestPublishLogRow_(rows) {
  *   一組一行咁列出。**純函式。**
  *
  *   ⚠️ 呢度**只做分組同排版**，一項都唔會自己判斷「有冇填」——判斷
- *   一律喺 `buildMissingList_()`（見檔頭嘅說明）。人數十二格合成一行
+ *   一律在 `buildMissingList_()`（見檔頭的說明）。人數十二格合成一行
  *   「N 格未填（上週崇拜人數由內容表輸入）」，不逐格列出。
  * Args:
  *   missing {Object[]} `model.missing`，每項 `{field, label, reason}`。

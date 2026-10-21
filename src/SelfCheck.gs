@@ -800,7 +800,7 @@ function selfCheckLogItems_() {
 
 /**
  * 用途：「講員表格」這一項檢測。判斷全部在 `buildSpeakerFormCheckItem_()`
- *   （與「上線前檢查」共用），這裏只負責收集現況。**唯讀。**
+ *   （與「上線前檢查」共用），這裏只負責收集現況。唯讀。
  * Args: （無）
  * Returns:
  *   {{label:string, status:string, message:string, detail:string[]}}

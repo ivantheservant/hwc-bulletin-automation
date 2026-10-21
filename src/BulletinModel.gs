@@ -132,9 +132,9 @@ function buildBulletinModel_(isoDate) {
 
   snapshot.slotsByPost = applyDutyOverridesToSlots_(snapshot.slotsByPost, buildDutyOverrideIndex_(overrides));
 
-  // ⚠️ 第二批階段 3：講員核對。表格填的講員只作核對，**不改事奉框**——跟事奉框
+  // ⚠️ 第二批階段 3：講員核對。表格填的講員只作核對，不改事奉框——跟事奉框
   //    （職事表值套用覆寫之後）不同就出警告，由人決定是否換講員。
-  //    一定要排在上面套用覆寫**之後**：核對的對象是「週報上實際會印的講員」。
+  //    一定要排在上面套用覆寫之後：核對的對象是「週報上實際會印的講員」。
   if (snapshot.found) {
     var speakerWarning = speakerMismatchWarningForModel_(isoDate, snapshot.slotsByPost);
     if (speakerWarning) warnings.push(speakerWarning);
@@ -603,7 +603,7 @@ function missingCountSummary_(missing) {
 }
 
 /**
- * 用途：取出一個主日職事表快照內 `FLOWER` 崗位的名字。**純函式。**
+ * 用途：取出一個主日職事表快照內 `FLOWER` 崗位的名字。純函式。
  *   `applyFlowerFromRoster_()`（帶入獻花）與填寫介面獻花欄位旁邊的提示
  *   （`model.flowerRoster`）共用這一個——兩邊各算一次就是兩個真相來源。
  *   一個崗位可以有多位（例如兩家人一齊獻花），用頓號串起來，次序照
@@ -637,7 +637,7 @@ function rosterFlowerName_(snap) {
  *   ⚠️ 第 1 條就是「人手輸入即覆寫」：這裏**不會**用職事表蓋走已填的值。
  *   要跟隨職事表就把那一格清空，下一次載入自然帶入。
  *
- *   ⚠️ 帶入的是**職事表的名字**（`rosterFlowerName_()`）。獻花崗位不在
+ *   ⚠️ 帶入的是職事表的名字（`rosterFlowerName_()`）。獻花崗位不在
  *   事奉框內（`PostDisplay` 兩頁都不顯示），所以沒有地方可以對它寫
  *   `DutyOverride`；要改人就直接改獻花那一格——那就是第 1 條。
  * Args:
