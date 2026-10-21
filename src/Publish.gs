@@ -37,7 +37,7 @@ var PUBLISH_ARCHIVE_NAME_PATTERN_ = '{{SERVICE_DATE}}_粵語堂週報_v{{VERSION
 /** `EmailTemplates` 入面發佈通知嗰個範本嘅鍵。 */
 var PUBLISH_TEMPLATE_ID_ = 'PUBLISH_NOTICE';
 
-/** `SendLog.STATUS` 入面代表「發佈通知」嗰個值（發佈加寄出）。 */
+/** `SendLog.STATUS` 裏面代表「發佈通知」（發佈加寄出）的值。 */
 var PUBLISH_SEND_STATUS_ = 'PUBLISH';
 
 /**
@@ -1506,7 +1506,7 @@ function runPublishFlow_(payload) {
     blob = Utilities.newBlob(bytes, 'application/pdf', String(p.pdfName || config.masterFileName));
   }
 
-  // ---- 只寄唔發佈：master 連結現時是哪一期；從未發佈過就拒絕 ----
+  // ---- 只寄出、不發佈：master 連結現時是哪一期；從未發佈過就拒絕 ----
   //
   // ⚠️ 第二批測試修正 G2：只寄出的通知信指向 master 連結，而 master 裏面是
   //    `PublishLog` 最新那一期，不一定是介面選中的主日。這裏讀一次，之後
