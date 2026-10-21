@@ -1090,11 +1090,13 @@ test('還原對話框內容：版本、逐項「現在 → 還原成」、未儲
 test('重設對話框內容：五點照指定字眼', function () {
   const t = loadSnapshotPanel();
   const lines = Array.from(t.api.resetLines(false));
+  // ⚠️ 第二批測試修正 G6：第 3 點原本寫「第三種欄位覆寫」（開發用語），幹事不會明白，
+  //    改為「在介面改過的內容表欄位（例如講題、讀經經文）」。不要改回去。
   assert.deepStrictEqual(lines, [
     '重設這一週會：',
     '1. 先自動存一個版本，之後可以在版本記錄還原；',
     '2. 這一週所有人手填的欄位改回建立時的預設值（例如序樂的範本預設值）；',
-    '3. 這一週的事奉框覆寫（包括上一週「下週事奉」改到這一週的）、第三種欄位覆寫全部停用（不刪行）；',
+    '3. 這一週的事奉框覆寫（包括上一週「下週事奉」改到這一週的）、在介面改過的內容表欄位（例如講題、讀經經文）全部停用（不刪行）；',
     '4. 如果本季已有內容表，由內容表重新匯入這一週；',
     '5. 職事表一格都不會改；已發佈的 PDF、已寄出的郵件、已產生的 Word 檔都不受影響。'
   ]);
@@ -1126,6 +1128,37 @@ test('接線：展開時才載入；載入週報後刷新；還原／重設走�
   assert.strictEqual(js.indexOf('confirm('.replace('confirm(', 'confirm(')) === -1 ? true : js.indexOf('window.confirm') === -1, true);
 });
 
+
+// =====================================================================
+// 第二批測試修正 G6：介面字眼
+// =====================================================================
+
+console.log('\n介面字眼（G6）');
+
+test('G6-1 填寫介面載入一週（真入口 apiLoadWeek）：待填說明用內容表分頁名稱，不出現工作表英文名，書面語', function () {
+  const env = makeEnv({});
+  const resp = env.sandbox.apiLoadWeek(D);
+  assert.strictEqual(resp.ok, true, JSON.stringify(resp.error));
+  const all = Array.from(resp.data.missingSplit.required).concat(Array.from(resp.data.missingSplit.optional));
+  const byField = {};
+  all.forEach(function (m) { byField[m.field] = m.reason; });
+  assert.strictEqual(byField.ANNOUNCEMENTS, '內容表「家事報告」分頁這一週沒有任何有效的行。');
+  assert.strictEqual(byField.PRAYERS, '內容表「代禱事項」分頁這一週沒有任何有效的行。');
+  assert.strictEqual(byField.FELLOWSHIPS, '內容表「團契聚會」分頁這一週沒有任何有效的行。');
+  all.forEach(function (m) {
+    assert.ok(!/Announcements|Prayers|Fellowships/.test(m.reason), m.reason);
+  });
+  assertWrittenChinese(assert, '待填說明', all.map(function (m) { return m.reason; }));
+});
+
+test('G6-2 重設對話框第 3 點不再用開發用語「第三種欄位覆寫」；Script.html 使用者字串也沒有', function () {
+  const t = loadSnapshotPanel();
+  const third = Array.from(t.api.resetLines(false))[3];
+  assert.ok(third.indexOf('在介面改過的內容表欄位（例如講題、讀經經文）') !== -1, third);
+  assert.strictEqual(third.indexOf('第三種'), -1, third);
+  const js = readSrc('src/ui/Script.html');
+  assert.strictEqual(js.indexOf("第三種欄位覆寫全部停用"), -1);
+});
 
 // =====================================================================
 // 第二批測試修正 G5：完成訊息不顯示內部版本 ID

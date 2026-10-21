@@ -509,14 +509,16 @@ function buildMissingList_(input) {
     });
   });
 
+  // 第二批測試修正 G6：待填說明是給幹事看的，用內容表的分頁名稱，不用
+  // 工作表英文名（Announcements／Prayers／Fellowships）。
   if (input.announcementCount === 0) {
-    add('ANNOUNCEMENTS', '家事報告', 'Announcements 工作表本週沒有任何有效的行。');
+    add('ANNOUNCEMENTS', '家事報告', '內容表「家事報告」分頁這一週沒有任何有效的行。');
   }
   if (input.prayerCount === 0) {
-    add('PRAYERS', '代禱事項', 'Prayers 工作表本週沒有任何有效的行。');
+    add('PRAYERS', '代禱事項', '內容表「代禱事項」分頁這一週沒有任何有效的行。');
   }
   if (input.fellowshipCount === 0) {
-    add('FELLOWSHIPS', '團契聚會', 'Fellowships 工作表本週沒有任何有效的行。');
+    add('FELLOWSHIPS', '團契聚會', '內容表「團契聚會」分頁這一週沒有任何有效的行。');
   }
 
   (input.dutyBoxPage1 || []).forEach(function (row) {

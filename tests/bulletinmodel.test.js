@@ -310,6 +310,21 @@ test('missing 每一項都有 field／label／reason 三個欄位', function () 
   });
 });
 
+test('G6 missing：家事報告／代禱事項／團契聚會的待填說明用內容表分頁名稱，不用工作表英文名', function () {
+  // 2028T2 第二批測試：待填說明出現「Fellowships 工作表本週沒有任何有效的行。」，幹事不知道是哪裏。
+  var model = assemble({ week: {} });
+  var reasonOf = {};
+  model.missing.forEach(function (m) { reasonOf[m.field] = m.reason; });
+  assert.strictEqual(reasonOf.ANNOUNCEMENTS, '內容表「家事報告」分頁這一週沒有任何有效的行。');
+  assert.strictEqual(reasonOf.PRAYERS, '內容表「代禱事項」分頁這一週沒有任何有效的行。');
+  assert.strictEqual(reasonOf.FELLOWSHIPS, '內容表「團契聚會」分頁這一週沒有任何有效的行。');
+  model.missing.forEach(function (m) {
+    ['Announcements', 'Prayers', 'Fellowships'].forEach(function (sheetName) {
+      assert.strictEqual(m.reason.indexOf(sheetName), -1, '待填說明不可以用工作表英文名：' + m.reason);
+    });
+  });
+});
+
 test('missing 的 label 用 BulletinWeeks 的中文標題', function () {
   var model = assemble({ week: {} });
   var sermon = model.missing.filter(function (m) { return m.field === 'SERMON_TITLE'; })[0];
