@@ -137,7 +137,8 @@ function makeFakeUtilities(options) {
  * 用途：造一個假的 `DriveApp`。
  * Args:
  *   options {{files:Object<string,Object>=, folders:Object<string,Object>=,
- *            rootAccessError:Error=, failList:boolean=, failUpdate:boolean=}=}
+ *            rootAccessError:Error=, failList:boolean=, failUpdate:boolean=,
+ *            failGet:boolean=, trashedIds:string[]=}=}
  *     `files` 是「檔案 ID → blob」；`folders` 是「資料夾 ID → 任意物件」
  *     （內容不重要，存在與否才重要）；`rootAccessError` 選填，提供時
  *     `getRootFolder()` 會拋出這個例外（模擬 `probeDriveAccess_()` 授權
@@ -282,6 +283,18 @@ function makeFakeDriveApp(options) {
           if (!optionalArgs || optionalArgs.supportsAllDrives !== true) {
             throw new Error('Drive.Files.get：缺少 supportsAllDrives');
           }
+          if (opts.failGet) throw new Error('假的 Drive.Files.get 失敗');
+          // 本系統自己建立的檔案：回所在資料夾，並模擬「已丟進垃圾桶」。
+          let made = null;
+          Object.keys(createdByFolder).forEach(function (fid) {
+            createdByFolder[fid].forEach(function (f) { if (f.id === fileId) made = f; });
+          });
+          if (made) {
+            return {
+              id: fileId, name: made['name'], parents: [made.folderId],
+              trashed: (opts.trashedIds || []).indexOf(fileId) !== -1
+            };
+          }
           if (!Object.prototype.hasOwnProperty.call(files, fileId)) {
             throw new Error('File not found: ' + fileId);
           }
@@ -294,6 +307,8 @@ function makeFakeDriveApp(options) {
     // 階段 1 起 Word 放在輸出資料夾下的季度子資料夾，「一共新建了幾份檔案」
     // 改看這一個（覆寫既有檔案不會新增）。
     listAllFiles: function () { return createdFiles.slice(); },
+    // 測試中途改變行為（例如先成功、之後 Drive 才出錯）。
+    setOption: function (name, value) { opts[name] = value; },
     createdFiles: createdFiles,
     createdFolders: createdFolders,
     updatedFiles: updatedFiles

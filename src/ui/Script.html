@@ -979,33 +979,53 @@
 
   // BEGIN word-file（測試會把這一段抽出來在假 DOM 上執行，請保持自足）
   /**
-   * 用途：畫出「雲端硬碟上這個主日的最新 Word」那一行（文字加連結）。
+   * 用途：畫出「雲端硬碟上這個主日的最新 Word」那一行：一條開啟最新檔案的
+   *   連結，加一條開啟所在資料夾的連結；從未產生過就只顯示一句文字。
    *
-   *   連結只接受 `https://drive.google.com/` 開頭的網址（後端由檔案 ID
-   *   砌出來的）；其他一律不畫成連結，只留文字。名稱與時間用
-   *   `textContent`，不經 `innerHTML`。
+   *   連結只接受 `https://drive.google.com/` 開頭的網址（後端由檔案／資料夾
+   *   ID 砌出來的）；其他一律不畫成連結。名稱與時間用 `textContent`，
+   *   不經 `innerHTML`。
    * Args:
-   *   wordFile {?Object} 後端的 `wordFile`（`{url, fileName, generatedAt}`）；
-   *     從未存過就是 `null`。
+   *   wordFile {?Object} 後端的 `wordFile`（`{url, folderUrl, fileName, generatedAt}`）；
+   *     從未產生過就是 `null`。
    * Returns:
    *   {void}
    */
   function renderWordFileInfo(wordFile) {
     var text = document.getElementById('wordFileInfoText');
     var link = document.getElementById('wordFileLink');
+    var folderLink = document.getElementById('wordFolderLink');
+    var drivePrefix = 'https://drive.google.com/';
+
+    function hideLink(a) {
+      a.classList.add('hidden');
+      a.removeAttribute('href');
+    }
+
     var url = wordFile ? String(wordFile.url || '') : '';
-    if (!wordFile || url.indexOf('https://drive.google.com/') !== 0) {
-      text.textContent = '雲端硬碟還沒有這個主日的 Word 檔。按「下載 Word」時會同時存一份。';
-      link.classList.add('hidden');
-      link.removeAttribute('href');
+    if (!wordFile || url.indexOf(drivePrefix) !== 0) {
+      text.textContent = '這一週還未產生過 Word 檔';
       link.textContent = '';
+      hideLink(link);
+      hideLink(folderLink);
       return;
     }
-    text.textContent = '雲端硬碟上的最新 Word'
-      + (wordFile.generatedAt ? '（' + wordFile.generatedAt + ' 產生）' : '') + '：';
-    link.textContent = String(wordFile.fileName || '開啟檔案');
+
+    text.textContent = '';
+    var name = String(wordFile.fileName || '');
+    var stamp = String(wordFile.generatedAt || '');
+    var detail = name + (stamp ? (name ? '，' : '') + '最後產生：' + stamp : '');
+    link.textContent = '開啟最新 Word 檔' + (detail ? '（' + detail + '）' : '');
     link.setAttribute('href', url);
     link.classList.remove('hidden');
+
+    var folderUrl = String(wordFile.folderUrl || '');
+    if (folderUrl.indexOf(drivePrefix) === 0) {
+      folderLink.setAttribute('href', folderUrl);
+      folderLink.classList.remove('hidden');
+    } else {
+      hideLink(folderLink);
+    }
   }
 
   /**

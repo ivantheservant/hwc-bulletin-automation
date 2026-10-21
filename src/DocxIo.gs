@@ -649,8 +649,9 @@ function findOrCreateChildFolder_(parentFolder, childName) {
  *   subFolderName {string=} 子資料夾名稱（通常是季度 ID）；空字串＝直接存
  *     在輸出資料夾本身。
  * Returns:
- *   {{fileId:string, fileName:string, url:string, folderName:string,
- *     replaced:boolean, duplicateCount:number}}
+ *   {{fileId:string, fileName:string, url:string, folderId:string,
+ *     folderName:string, replaced:boolean, duplicateCount:number}}
+ *     `folderId` 是檔案實際所在資料夾（季度子資料夾或輸出資料夾本身）。
  * Raises:
  *   Error 輸出資料夾空白或開不到、查不到同名檔案、Drive 進階服務出錯。
  */
@@ -670,7 +671,7 @@ function writeLatestOutputFile_(blob, folderId, name, subFolderName) {
   if (existing.length === 0) {
     var created = target.createFile(blob.setName(name));
     return {
-      fileId: created.getId(), fileName: name, url: created.getUrl(),
+      fileId: created.getId(), fileName: name, url: created.getUrl(), folderId: target.getId(),
       folderName: subName, replaced: false, duplicateCount: 0
     };
   }
@@ -678,7 +679,7 @@ function writeLatestOutputFile_(blob, folderId, name, subFolderName) {
   var fileId = existing[0];
   driveUpdateFileContent_(fileId, blob, name);
   return {
-    fileId: fileId, fileName: name, url: driveFileViewUrl_(fileId),
+    fileId: fileId, fileName: name, url: driveFileViewUrl_(fileId), folderId: target.getId(),
     folderName: subName, replaced: true, duplicateCount: existing.length - 1
   };
 }

@@ -750,6 +750,67 @@ function saveBulletinDocx_(isoDate, generated) {
 }
 
 /**
+ * 用途：產生（或沿用已產生好的）週報 Word，存成這個主日的最新版，並把檔案
+ *   ID 記進 `BulletinWeeks.DOC_ID`。**選單、整季批次、填寫介面「下載 Word」、
+ *   星期一郵件附件全部走這一支**，不各寫一套。
+ * Args:
+ *   isoDate {string} 主日日期，yyyy-MM-dd。
+ *   generated {Object=} 已經產生好的 `generateBulletinDocx_()` 結果；省略就在這裏產生。
+ *   audit {{action:string, notes:string}=} `recordBulletinGeneration_()` 的 AuditLog 代碼與備註。
+ * Returns:
+ *   {Object} 同 `saveBulletinDocx_()`，成功時另加 `recorded:boolean`
+ *     （`BulletinWeeks` 有沒有該主日那一行，沒有就記不下 `DOC_ID`）。
+ * Raises:
+ *   Error 同 `saveBulletinDocx_()`。
+ */
+function storeLatestBulletinDocx_(isoDate, generated, audit) {
+  var saved = saveBulletinDocx_(isoDate, generated);
+  if (!saved.ok) return saved;
+  var recorded = recordBulletinGeneration_(isoDate, saved.file.fileId, audit);
+  return Object.assign({}, saved, { recorded: recorded });
+}
+
+/**
+ * 用途：`storeLatestBulletinDocx_()` 的**不拋錯**版本，給「Word 已經產生、
+ *   存雲端只是附帶」的呼叫方用（填寫介面下載、郵件附件）：任何失敗都轉成一則
+ *   警告，不影響手上那一份檔案。
+ * Args:
+ *   isoDate {string} 主日日期，yyyy-MM-dd。
+ *   generated {Object} `generateBulletinDocx_()` 成功的結果。
+ *   audit {{action:string, notes:string}} AuditLog 代碼與備註。
+ * Returns:
+ *   {{wordFile:?Object, warning:?Object}} 成功時 `warning` 為 `null`；輸出資料夾
+ *     未設定、存檔失敗、`BulletinWeeks` 沒有該主日一行時有 `warning`
+ *     （`code` 是 `WORD_NOT_STORED`／`WORD_STORE_FAILED`／`WORD_NOT_RECORDED`）。
+ *     `wordFile` 形狀見 `buildWordFileInfo_()`。
+ */
+function tryStoreLatestBulletinDocx_(isoDate, generated, audit) {
+  if (!getConfig(CONFIG_KEYS.BULLETIN_OUTPUT_FOLDER_ID, '')) {
+    return { wordFile: null, warning: {
+      code: 'WORD_NOT_STORED',
+      message: '尚未設定輸出資料夾（Config 的 BULLETIN_OUTPUT_FOLDER_ID），雲端硬碟沒有留存最新版 Word。'
+    } };
+  }
+
+  try {
+    var stored = storeLatestBulletinDocx_(isoDate, generated, audit);
+    var wordFile = buildWordFileInfo_(stored.file.fileId, new Date(), isoDate, stored.file.folderId);
+    if (!stored.recorded) {
+      return { wordFile: wordFile, warning: {
+        code: 'WORD_NOT_RECORDED',
+        message: 'Word 已存到雲端硬碟，但 BulletinWeeks 沒有 ' + isoDate + ' 這一行，檔案 ID 未能記下來，重新載入後看不到連結。'
+      } };
+    }
+    return { wordFile: wordFile, warning: null };
+  } catch (err) {
+    return { wordFile: null, warning: {
+      code: 'WORD_STORE_FAILED',
+      message: 'Word 已產生，但存到雲端硬碟失敗：' + ((err && err.message) ? err.message : String(err))
+    } };
+  }
+}
+
+/**
  * 用途：產生週報 `.docx` 並存成一份**獨立的副本**（同名時加 `(2)`、`(3)`），
  *   **不碰**這個主日的「最新版」檔案。
  *
@@ -980,20 +1041,19 @@ function menuGenerateBulletinDocx_() {
     if (resp.getSelectedButton() !== ui.Button.OK) return;
 
     var isoDate = resp.getResponseText().trim() || defaultDate;
-    var result = saveBulletinDocx_(isoDate);
+    // 存成最新版並記下 DOC_ID——填寫介面的連結靠它。
+    var result = storeLatestBulletinDocx_(isoDate, null, {
+      action: 'BULLETIN_DOCX_MENU_SAVE',
+      notes: '選單「產生本週週報（Word）」更新了這個主日的最新 Word。'
+    });
 
     if (!result.ok) {
       ui.alert('未能產生週報', result.message || ('原因代碼：' + result.reason), ui.ButtonSet.OK);
       return;
     }
 
-    // 記下這一週「最新的 Word」是哪一個檔案——填寫介面的連結靠它。
-    var recorded = recordBulletinGeneration_(isoDate, result.file.fileId, {
-      action: 'BULLETIN_DOCX_MENU_SAVE',
-      notes: '選單「產生本週週報（Word）」更新了這個主日的最新 Word。'
-    });
     var lines = buildGenerateResultDialogLines_(isoDate, result);
-    if (!recorded) {
+    if (!result.recorded) {
       lines.push('');
       lines.push('⚠️ BulletinWeeks 沒有這個主日的資料列，檔案 ID 未能記下來（檔案本身已經存好）。');
     }

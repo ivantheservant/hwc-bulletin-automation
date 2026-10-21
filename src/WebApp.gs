@@ -945,7 +945,10 @@ function bulletinDocxForDownload_(isoDate) {
     err.code = result.reason || 'RENDER_FAILED';
     throw err;
   }
-  var stored = storeLatestWordFromWebApp_(isoDate, result);
+  var stored = tryStoreLatestBulletinDocx_(isoDate, result, {
+    action: 'BULLETIN_DOCX_WEBAPP_SAVE',
+    notes: '填寫介面「下載 Word」同時更新了這個主日的最新 Word。'
+  });
   return {
     fileName: result.fileName,
     base64: Utilities.base64Encode(result.blob.getBytes()),
@@ -955,58 +958,18 @@ function bulletinDocxForDownload_(isoDate) {
 }
 
 /**
- * 用途：把剛產生好的 Word 存成這個主日在雲端硬碟的最新版，並把檔案 ID 記進
- *   `BulletinWeeks.DOC_ID`。**不拋錯**——所有失敗都轉成一則警告。
- * Args:
- *   isoDate {string} 主日日期，yyyy-MM-dd。
- *   generated {Object} `generateBulletinDocx_()` 成功的結果。
- * Returns:
- *   {{wordFile:?Object, warning:?Object}} 成功時 `warning` 為 `null`；
- *     輸出資料夾未設定、存檔失敗、`BulletinWeeks` 沒有那一行時有 `warning`
- *     （`code` 是 `WORD_NOT_STORED`／`WORD_STORE_FAILED`／`WORD_NOT_RECORDED`）。
- */
-function storeLatestWordFromWebApp_(isoDate, generated) {
-  if (!getConfig(CONFIG_KEYS.BULLETIN_OUTPUT_FOLDER_ID, '')) {
-    return { wordFile: null, warning: {
-      code: 'WORD_NOT_STORED',
-      message: '尚未設定輸出資料夾（Config 的 BULLETIN_OUTPUT_FOLDER_ID），這次只下載到本機，雲端硬碟沒有留存最新版。'
-    } };
-  }
-
-  try {
-    var saved = saveBulletinDocx_(isoDate, generated);
-    var recorded = recordBulletinGeneration_(isoDate, saved.file.fileId, {
-      action: 'BULLETIN_DOCX_WEBAPP_SAVE',
-      notes: '填寫介面「下載 Word」同時更新了這個主日的最新 Word。'
-    });
-    var wordFile = buildWordFileInfo_(saved.file.fileId, new Date(), isoDate);
-    if (!recorded) {
-      return { wordFile: wordFile, warning: {
-        code: 'WORD_NOT_RECORDED',
-        message: 'Word 已存到雲端硬碟，但 BulletinWeeks 沒有 ' + isoDate + ' 這一行，檔案 ID 未能記下來，重新載入後看不到連結。'
-      } };
-    }
-    return { wordFile: wordFile, warning: null };
-  } catch (err) {
-    return { wordFile: null, warning: {
-      code: 'WORD_STORE_FAILED',
-      message: 'Word 已產生並下載，但存到雲端硬碟失敗：' + ((err && err.message) ? err.message : String(err))
-    } };
-  }
-}
-
-/**
  * 用途：組出填寫介面「最新 Word」那一行要用的資料。
  * Args:
  *   docId {*} `BulletinWeeks.DOC_ID`。
  *   generatedAt {*} `BulletinWeeks.LAST_GENERATED_AT`（`Date`）；不是 `Date`
  *     就當作時間未知。
  *   isoDate {string} 主日日期，用來還原檔名。
+ *   folderId {string=} 檔案所在資料夾 ID；未知就省略，資料夾連結便是空字串。
  * Returns:
- *   {?{fileId:string, url:string, fileName:string, generatedAt:string}}
+ *   {?{fileId:string, url:string, folderUrl:string, fileName:string, generatedAt:string}}
  *     `docId` 是空白（從未存過）回 `null`；`generatedAt` 未知時是空字串。
  */
-function buildWordFileInfo_(docId, generatedAt, isoDate) {
+function buildWordFileInfo_(docId, generatedAt, isoDate, folderId) {
   var id = String(docId === null || docId === undefined ? '' : docId).trim();
   if (!id) return null;
   var stamp = '';
@@ -1015,7 +978,32 @@ function buildWordFileInfo_(docId, generatedAt, isoDate) {
       generatedAt, getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland'), 'yyyy-MM-dd HH:mm'
     );
   }
-  return { fileId: id, url: driveFileViewUrl_(id), fileName: buildOutputFileName_(isoDate), generatedAt: stamp };
+  var folder = String(folderId || '').trim();
+  return {
+    fileId: id, url: driveFileViewUrl_(id),
+    folderUrl: folder ? driveFolderViewUrl_(folder) : '',
+    fileName: buildOutputFileName_(isoDate), generatedAt: stamp
+  };
+}
+
+/**
+ * 用途：載入某個主日時，由 `BulletinWeeks` 的 `DOC_ID` 組出「最新 Word」資料，
+ *   並向 Drive 查一次檔案所在的資料夾。
+ *
+ *   ⚠️ 檔案已被丟進垃圾桶 ⇒ 當作沒有（一條通往垃圾桶的連結比沒有連結更
+ *   誤導人）。查不到（進階服務出錯）⇒ 仍然顯示檔案連結，只是沒有資料夾連結。
+ * Args:
+ *   weekRow {Object} `BulletinWeeks` 該主日那一行；沒有就傳 `{}`。
+ *   isoDate {string} 主日日期。
+ * Returns:
+ *   {?Object} 見 `buildWordFileInfo_()`；從未產生過回 `null`。
+ */
+function wordFileInfoForWeek_(weekRow, isoDate) {
+  var docId = String((weekRow || {}).DOC_ID || '').trim();
+  if (!docId) return null;
+  var location = driveGetFileLocation_(docId);
+  if (location && location.trashed) return null;
+  return buildWordFileInfo_(docId, weekRow.LAST_GENERATED_AT, isoDate, location ? location.folderId : '');
 }
 
 /**
@@ -1546,7 +1534,7 @@ function loadWeekForWebApp_(isoDate) {
     // 季度的定義只應該有一處知道。
     quarterId: model.quarterId,
     // 這個主日在雲端硬碟的最新 Word（`BulletinWeeks.DOC_ID`）；從未存過是 `null`。
-    wordFile: buildWordFileInfo_(weekRow.DOC_ID, weekRow.LAST_GENERATED_AT, isoDate)
+    wordFile: wordFileInfoForWeek_(weekRow, isoDate)
   };
 }
 

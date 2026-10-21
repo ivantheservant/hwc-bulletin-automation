@@ -248,6 +248,7 @@ function makeWordEnv(o) {
   utilities.base64Encode = function (bytes) { return 'B64:' + String(bytes).length; };
   const env = makeFillEnv({
     withGrid: false,
+    emailTemplates: opts.emailTemplates,
     weekRows: opts.weekRows || [
       { SERVICE_DATE: D, QUARTER_ID: QUARTER_ID, WEEK_OF_MONTH: 1, STATUS: 'DRAFT', SERMON_TITLE: '講題一' },
       { SERVICE_DATE: D_NEXT, QUARTER_ID: QUARTER_ID, WEEK_OF_MONTH: 2, STATUS: 'DRAFT', SERMON_TITLE: '講題二' }
@@ -266,7 +267,7 @@ function makeWordEnv(o) {
       alert: function (title, body) { alerts.push({ title: title, body: body }); return 'OK'; }
     }
   });
-  return { sandbox: env.sandbox, drive: drive, alerts: alerts, sheets: env.sheets };
+  return { sandbox: env.sandbox, drive: drive, alerts: alerts, sheets: env.sheets, mail: env.mail };
 }
 
 function weekRowOf(env, iso) {
@@ -498,26 +499,42 @@ function loadWordFileRegion() {
   return { api: ctx.api, elements: elements };
 }
 
-test('renderWordFileInfo：有檔案 → 文字加連結（href、檔名、時間），用 textContent', function () {
+test('renderWordFileInfo：有檔案 → 兩條連結（最新 Word 檔、本季 Word 資料夾），文字照指定字眼，用 textContent', function () {
   const t = loadWordFileRegion();
-  t.api.render({ url: 'https://drive.google.com/file/d/ABC/view', fileName: '2027-11-07_粵語堂週報.docx', generatedAt: '2027-11-05 21:30' });
-  assert.strictEqual(t.elements.wordFileInfoText.textContent, '雲端硬碟上的最新 Word（2027-11-05 21:30 產生）：');
-  assert.strictEqual(t.elements.wordFileLink.textContent, '2027-11-07_粵語堂週報.docx');
+  t.api.render({
+    url: 'https://drive.google.com/file/d/ABC/view', folderUrl: 'https://drive.google.com/drive/folders/FOLD',
+    fileName: '2027-11-07_粵語堂週報.docx', generatedAt: '2027-11-05 21:30'
+  });
+  assert.strictEqual(t.elements.wordFileInfoText.textContent, '');
+  assert.strictEqual(t.elements.wordFileLink.textContent, '開啟最新 Word 檔（2027-11-07_粵語堂週報.docx，最後產生：2027-11-05 21:30）');
   assert.strictEqual(t.elements.wordFileLink.attrs.href, 'https://drive.google.com/file/d/ABC/view');
   assert.strictEqual(t.elements.wordFileLink.classes.has('hidden'), false);
+  assert.strictEqual(t.elements.wordFolderLink.attrs.href, 'https://drive.google.com/drive/folders/FOLD');
+  assert.strictEqual(t.elements.wordFolderLink.classes.has('hidden'), false);
 });
 
-test('renderWordFileInfo：沒有檔案、或網址不是 Drive → 只有文字，連結收起', function () {
+test('renderWordFileInfo：資料夾連結未知 → 只收起資料夾連結，最新檔連結照樣有', function () {
   const t = loadWordFileRegion();
-  t.api.render({ url: 'https://drive.google.com/file/d/ABC/view', fileName: 'a.docx', generatedAt: '' });
-  t.api.render(null);
-  assert.ok(t.elements.wordFileInfoText.textContent.indexOf('還沒有這個主日的 Word 檔') !== -1);
-  assert.strictEqual(t.elements.wordFileLink.classes.has('hidden'), true);
-  assert.strictEqual(t.elements.wordFileLink.attrs.href, undefined);
+  t.api.render({ url: 'https://drive.google.com/file/d/ABC/view', folderUrl: '', fileName: 'a.docx', generatedAt: '' });
+  assert.strictEqual(t.elements.wordFileLink.textContent, '開啟最新 Word 檔（a.docx）');
+  assert.strictEqual(t.elements.wordFileLink.classes.has('hidden'), false);
+  assert.strictEqual(t.elements.wordFolderLink.classes.has('hidden'), true);
+  assert.strictEqual(t.elements.wordFolderLink.attrs.href, undefined);
+});
 
-  t.api.render({ url: 'javascript:alert(1)', fileName: 'a.docx', generatedAt: '' });
-  assert.strictEqual(t.elements.wordFileLink.classes.has('hidden'), true, '不是 Drive 網址不畫連結');
+test('renderWordFileInfo：未產生過、或網址不是 Drive → 只顯示「這一週還未產生過 Word 檔」，兩條連結收起', function () {
+  const t = loadWordFileRegion();
+  t.api.render({ url: 'https://drive.google.com/file/d/ABC/view', folderUrl: 'https://drive.google.com/drive/folders/F', fileName: 'a.docx', generatedAt: '' });
+  t.api.render(null);
+  assert.strictEqual(t.elements.wordFileInfoText.textContent, '這一週還未產生過 Word 檔');
+  assert.strictEqual(t.elements.wordFileLink.classes.has('hidden'), true);
+  assert.strictEqual(t.elements.wordFolderLink.classes.has('hidden'), true);
   assert.strictEqual(t.elements.wordFileLink.attrs.href, undefined);
+  assert.strictEqual(t.elements.wordFolderLink.attrs.href, undefined);
+
+  t.api.render({ url: 'javascript:alert(1)', folderUrl: 'https://drive.google.com/drive/folders/F', fileName: 'a.docx', generatedAt: '' });
+  assert.strictEqual(t.elements.wordFileLink.classes.has('hidden'), true, '不是 Drive 網址不畫連結');
+  assert.strictEqual(t.elements.wordFolderLink.classes.has('hidden'), true);
 });
 
 test('downloadWordMessage：存雲端成功／失敗／沒有設定各說各話，下載本身一律先講已產生', function () {
@@ -541,7 +558,8 @@ test('接線：載入週報與下載完成都會更新連結；Index.html 有連
   assert.ok(dl.indexOf('renderWordFileInfo(resp.data.wordFile)') !== -1);
   assert.ok(dl.indexOf('downloadWordMessage(resp.data)') !== -1);
   const html = readSrc('src/ui/Index.html');
-  assert.ok(html.indexOf('id="wordFileLink"') !== -1 && html.indexOf('id="wordFileInfoText"') !== -1);
+  assert.ok(html.indexOf('id="wordFileLink"') !== -1 && html.indexOf('id="wordFileInfoText"') !== -1
+    && html.indexOf('id="wordFolderLink"') !== -1 && html.indexOf('開啟本季 Word 資料夾') !== -1);
 });
 
 console.log('\n演練不可以蓋走最新版 Word');
@@ -562,6 +580,103 @@ test('全季流程演練（真入口 runQuarterRehearsal_）：另存獨立副�
   assert.strictEqual(env.drive.createdFiles.length, 2, '演練另外存了一份副本');
   assert.notStrictEqual(summary.wordResult.file.fileId, latest.file.fileId);
   assert.strictEqual(env.drive.listFolderFiles(OUTPUT_FOLDER).length, 1, '副本在輸出資料夾本身，與季度子資料夾裏的最新版分開');
+});
+
+console.log('\n最新 Word：資料夾連結、垃圾桶、郵件附件');
+
+test('下載之後與重新載入都帶出「本季 Word 資料夾」連結（指向季度子資料夾）', function () {
+  const env = makeWordEnv();
+  const dl = env.sandbox.apiDownloadBulletinDocx(D);
+  const subId = env.drive.createdFolders[0].id;
+  assert.strictEqual(dl.data.wordFile.folderUrl, 'https://drive.google.com/drive/folders/' + subId);
+  const loaded = env.sandbox.apiLoadWeek(D);
+  assert.strictEqual(loaded.data.wordFile.folderUrl, 'https://drive.google.com/drive/folders/' + subId);
+});
+
+test('apiLoadWeek：檔案已被丟進垃圾桶 → 當作未產生過（不顯示通往垃圾桶的連結）', function () {
+  const env = makeWordEnv();
+  const dl = env.sandbox.apiDownloadBulletinDocx(D);
+  env.drive.setOption('trashedIds', [dl.data.wordFile.fileId]);
+  assert.strictEqual(env.sandbox.apiLoadWeek(D).data.wordFile, null);
+});
+
+test('apiLoadWeek：Drive 查不到檔案位置 → 仍然顯示檔案連結，只是沒有資料夾連結', function () {
+  const env = makeWordEnv();
+  env.sandbox.apiDownloadBulletinDocx(D);
+  env.drive.setOption('failGet', true);
+  const loaded = env.sandbox.apiLoadWeek(D);
+  assert.strictEqual(loaded.ok, true, JSON.stringify(loaded));
+  assert.ok(loaded.data.wordFile.url.indexOf('https://drive.google.com/file/d/') === 0);
+  assert.strictEqual(loaded.data.wordFile.folderUrl, '');
+});
+
+test('buildWordFileInfo_：DOC_ID 空白回 null；時間不是 Date 時 generatedAt 是空字串', function () {
+  const sb = makeWordEnv().sandbox;
+  assert.strictEqual(sb.buildWordFileInfo_('', new Date(), D, 'F'), null);
+  assert.strictEqual(sb.buildWordFileInfo_('   ', new Date(), D, 'F'), null);
+  const info = sb.buildWordFileInfo_('ID1', '不是日期', D, '');
+  assert.strictEqual(info.generatedAt, '');
+  assert.strictEqual(info.folderUrl, '');
+  assert.strictEqual(info.fileName, D + '_粵語堂週報.docx');
+});
+
+/** 真的寄出（DRY_RUN=FALSE）或試行（TRUE）用的環境：要有郵件範本與收件人。 */
+function makeSendEnv(dryRun, driveOptions) {
+  const probe = makeFillEnv({ withGrid: false }).sandbox;
+  return makeWordEnv({
+    config: { DRY_RUN: dryRun ? 'TRUE' : 'FALSE', SEND_GROUPS: 'ADMIN' },
+    emailTemplates: probe.seedEmailTemplatesRows_(),
+    driveOptions: driveOptions || {}
+  });
+}
+
+test('星期一寄出（真入口 sendBulletinForDate_，DRY_RUN=FALSE）：附件同時成為雲端最新版，DOC_ID 與 AuditLog 都有', function () {
+  const env = makeSendEnv(false);
+  const result = env.sandbox.sendBulletinForDate_(D, {});
+  assert.strictEqual(result.ok, true, JSON.stringify(result));
+  assert.strictEqual(result.attachment.ok, true);
+  assert.strictEqual(env.drive.createdFiles.length, 1, '郵件附件走同一支存檔，雲端有最新版');
+  assert.ok(String(weekRowOf(env, D).DOC_ID || '') !== '');
+  const audit = env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'BULLETIN_DOCX_EMAIL_SAVE'; });
+  assert.strictEqual(audit.length, 1);
+  // 之後在填寫介面按「下載 Word」更新的是同一個檔案
+  const dl = env.sandbox.apiDownloadBulletinDocx(D);
+  assert.strictEqual(dl.data.wordFile.fileId, env.drive.createdFiles[0].id);
+  assert.strictEqual(env.drive.createdFiles.length, 1);
+});
+
+test('試行寄送（DRY_RUN=TRUE）：只寫 SendLog，不碰雲端硬碟、不改 DOC_ID', function () {
+  const env = makeSendEnv(true);
+  const result = env.sandbox.sendBulletinForDate_(D, {});
+  assert.strictEqual(result.ok, true, JSON.stringify(result));
+  assert.strictEqual(result.dryRun, true);
+  assert.strictEqual(env.mail.calls.length, 0, 'DRY_RUN 不可以寄出任何郵件');
+  assert.ok(env.sandbox.readSheet('SendLog').length > 0, 'SendLog 有記錄');
+  assert.strictEqual(env.drive.createdFiles.length, 0);
+  assert.strictEqual(env.drive.createdFolders.length, 0);
+  assert.strictEqual(String(weekRowOf(env, D).DOC_ID || ''), '');
+});
+
+test('寄出時存雲端失敗 → 郵件照寄、附件照附，ErrorLog 記下原因', function () {
+  const env = makeSendEnv(false, { failUpdate: false, failList: true });
+  const result = env.sandbox.sendBulletinForDate_(D, {});
+  assert.strictEqual(result.ok, true, JSON.stringify(result));
+  assert.strictEqual(result.attachment.ok, true, '附件本身仍然可用');
+  assert.ok(result.attachment.storeWarning, '要帶出警告');
+  assert.strictEqual(result.attachment.storeWarning.code, 'WORD_STORE_FAILED');
+  assert.ok(env.mail.calls.length > 0, '郵件照樣寄出');
+  const errors = env.sandbox.readSheet('ErrorLog').filter(function (r) { return r.ERROR_CODE === 'WORD_STORE_FAILED'; });
+  assert.strictEqual(errors.length, 1);
+  assert.strictEqual(String(weekRowOf(env, D).DOC_ID || ''), '');
+});
+
+test('renderBulletinAttachment_：預覽（沒有 storeLatest 選項）不寫任何東西', function () {
+  const env = makeWordEnv();
+  const model = env.sandbox.buildBulletinModel_(D);
+  const attachment = env.sandbox.renderBulletinAttachment_(model);
+  assert.strictEqual(attachment.ok, true);
+  assert.strictEqual(env.drive.createdFiles.length, 0);
+  assert.strictEqual(env.drive.createdFolders.length, 0);
 });
 
 console.log('\n通過 ' + pass + ' 項，失敗 ' + fail + ' 項。');

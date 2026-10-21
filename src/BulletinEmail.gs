@@ -34,16 +34,24 @@
  *   範本 ID 未設定時維持第五輪的行為（`{ok:false, reason:'NO_TEMPLATE'}`），
  *   郵件照樣寄得出去、正文照樣是完整週報內容——附件一向是錦上添花，
  *   不可以因為附件產不出來就不寄信。
+ *
+ *   `options.storeLatest` 為真時，附件同時存成這個主日在雲端硬碟的最新版
+ *   （走 `tryStoreLatestBulletinDocx_()`，與選單、整季批次、填寫介面下載
+ *   同一條路），這樣「郵件附的」與「雲端最新版」永遠是同一份。預覽郵件
+ *   不傳這個選項，因此不會寫任何東西。
  * Args:
  *   model {Object} `buildBulletinModel_()` 的輸出。用 `model.templateId`
  *     決定要用平常主日、浸禮合堂還是堂慶合堂的 Word 範本。
+ *   options {{storeLatest:boolean=}=} 選填。
  * Returns:
  *   {{ok:boolean, blob:(Blob|undefined), fileName:(string|undefined),
- *     reason:(string|undefined), detail:(string|undefined)}}
+ *     reason:(string|undefined), detail:(string|undefined),
+ *     storeWarning:(Object|undefined)}}
  *     `ok:false` 時 `reason` 是 `'NO_TEMPLATE'`（Config 範本 ID 留空）
  *     或 `'RENDER_FAILED'`（產生過程出錯，`detail` 是原因）。
+ *     `storeWarning` 只在要求存最新版而失敗時出現，附件本身不受影響。
  */
-function renderBulletinAttachment_(model) {
+function renderBulletinAttachment_(model, options) {
   var template = resolveWordTemplate_(model && model.templateId);
   if (!template.fileId) {
     return { ok: false, reason: 'NO_TEMPLATE' };
@@ -57,7 +65,23 @@ function renderBulletinAttachment_(model) {
     if (!result.ok) {
       return { ok: false, reason: 'RENDER_FAILED', detail: result.message || result.reason };
     }
-    return { ok: true, blob: result.blob, fileName: result.fileName };
+    var attachment = { ok: true, blob: result.blob, fileName: result.fileName };
+    if (options && options.storeLatest === true) {
+      var stored = tryStoreLatestBulletinDocx_(model.isoDate, result, {
+        action: 'BULLETIN_DOCX_EMAIL_SAVE',
+        notes: '寄出週報郵件時，附件同時更新了這個主日的最新 Word。'
+      });
+      if (stored.warning) {
+        attachment.storeWarning = stored.warning;
+        appendErrorLog_({
+          source: ERROR_LOG_SOURCE.TRIGGER,
+          functionName: 'renderBulletinAttachment_',
+          errorCode: stored.warning.code,
+          message: stored.warning.message
+        });
+      }
+    }
+    return attachment;
   } catch (err) {
     return { ok: false, reason: 'RENDER_FAILED', detail: (err && err.message) ? err.message : String(err) };
   }

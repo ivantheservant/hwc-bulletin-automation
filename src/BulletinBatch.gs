@@ -173,14 +173,17 @@ function generateQuarterBulletinsBatch_(quarterId, options) {
     }
 
     try {
-      var result = saveBulletinDocx_(isoDate);
+      var result = storeLatestBulletinDocx_(isoDate, null, {
+        action: 'BULLETIN_BATCH_GENERATE_ONE',
+        notes: '「產生本季全部週報」批次產生的其中一份。'
+      });
       if (!result.ok) {
         failed++;
         results.push({ isoDate: isoDate, status: 'FAILED', message: result.message || ('原因代碼：' + result.reason) });
         continue;
       }
 
-      var recorded = recordBulletinGeneration_(isoDate, result.file.fileId);
+      var recorded = result.recorded;
       succeeded++;
       results.push({
         isoDate: isoDate, status: 'OK',

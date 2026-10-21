@@ -168,6 +168,28 @@ function driveCountFilesByNameInFolder_(folderId, fileName) {
   }
 }
 
+/**
+ * 用途：查一個檔案現時放在哪一個資料夾，以及有沒有被丟進垃圾桶。
+ *   填寫介面「開啟本季 Word 資料夾」靠它找出資料夾。
+ * Args:
+ *   fileId {string} 檔案 ID。
+ * Returns:
+ *   {?{trashed:boolean, folderId:string}} 查不到（進階服務未啟用、沒有權限、
+ *     檔案已被永久刪除）回 `null`，**不拋錯**；`folderId` 是第一個父資料夾，
+ *     沒有就是空字串。
+ */
+function driveGetFileLocation_(fileId) {
+  var id = String(fileId || '').trim();
+  if (!id) return null;
+  try {
+    var file = Drive.Files.get(id, driveSharedOptions_({ fields: 'id,trashed,parents' }));
+    var parents = (file && file.parents) ? file.parents : [];
+    return { trashed: Boolean(file && file.trashed), folderId: parents.length > 0 ? String(parents[0]) : '' };
+  } catch (err) {
+    return null;
+  }
+}
+
 /** Drive 資料夾的 MIME 類型。列出子項時用來分開「檔案」與「資料夾」。 */
 var DRIVE_FOLDER_MIME_TYPE_ = 'application/vnd.google-apps.folder';
 

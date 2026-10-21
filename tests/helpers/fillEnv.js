@@ -189,7 +189,7 @@ function makeFillGridSheet(sandbox, rows) {
  *            fellowshipDefaults:Object[]=, backupRows:Object[]=,
  *            announcements:Object[]=, withGrid:boolean=,
  *            ui:Object=, extraStubs:Object=, rosterAssignments:Object[]=,
- *            rosterPosts:Object[]=}=}
+ *            rosterPosts:Object[]=, emailTemplates:Object[]=}=}
  *     `rosterAssignments`／`rosterPosts` 是**額外**加進假職事表的指派與崗位
  *     （預設只有 CHAIR 一個崗位）。
  *     `ui` 覆寫 `getUi()` 回傳物件的方法；`extraStubs` 額外注入的全域替身
@@ -237,6 +237,8 @@ function makeFillEnv(options) {
   sheets.FillBackup = ownSheet('FILL_BACKUP', o.backupRows || []);
   sheets.Fellowships = ownSheet('FELLOWSHIPS', o.fellowships || []);
   sheets.Announcements = ownSheet('ANNOUNCEMENTS', o.announcements || []);
+  // 只在呼叫方要求時才 seed 郵件範本（寄信流程要用）；預設維持空白，不影響既有測試。
+  if (o.emailTemplates) sheets.EmailTemplates = ownSheet('EMAIL_TEMPLATES', o.emailTemplates);
   sheets.Recipients = ownSheet('RECIPIENTS', o.recipients || [
     { RECIPIENT_ID: 'R1', NAME: '假甲', EMAIL: 'admin@x.com', GROUP_NAME: 'ADMIN', ACTIVE: true, EFFECTIVE_FROM: '', EFFECTIVE_TO: '', NOTES: '' },
     { RECIPIENT_ID: 'R2', NAME: '假乙', EMAIL: 'worship@x.com', GROUP_NAME: 'WORSHIP', ACTIVE: true, EFFECTIVE_FROM: '', EFFECTIVE_TO: '', NOTES: '' }

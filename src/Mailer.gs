@@ -110,7 +110,8 @@ function sendBulletinForDate_(isoDate, options) {
     }
   }
 
-  var attachment = renderBulletinAttachment_(model);
+  // 真的寄出才把附件存成最新版；DRY_RUN 只寫 SendLog，不碰雲端硬碟。
+  var attachment = renderBulletinAttachment_(model, { storeLatest: !dryRun });
 
   var templateId = getConfig(CONFIG_KEYS.EMAIL_TEMPLATE_ID, 'TPL_WEEKLY_BULLETIN');
   var templateRows = readSheet(SHEETS.EMAIL_TEMPLATES);

@@ -159,6 +159,18 @@ function driveFileViewUrl_(fileId) {
 }
 
 /**
+ * 用途：由雲端硬碟資料夾 ID 砌出「開啟資料夾」連結。**純函式。**
+ * Args:
+ *   folderId {string} 資料夾 ID。
+ * Returns:
+ *   {string} `folderId` 是空就回空字串。
+ */
+function driveFolderViewUrl_(folderId) {
+  var id = String(folderId || '').trim();
+  return id ? ('https://drive.google.com/drive/folders/' + id) : '';
+}
+
+/**
  * 用途：由 master 檔案 ID 砌出三條連結。**純函式。**
  *
  *   三條各有用途：`view` 畀會眾撳、`preview` 畀網站直接嵌入 iframe、
