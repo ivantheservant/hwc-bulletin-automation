@@ -940,6 +940,11 @@ function restoreWeekSnapshotFromWebApp_(payload) {
     };
   }
 
+  // ⚠️ 第二批測試修正 G11：完成訊息的版本名稱在**任何寫入之前**算好。排在寫入
+  // 之後的話，時區設定錯令 formatDate 拋錯時，還原其實已經做完，介面卻顯示錯誤，
+  // 幹事會以為沒有還原而再做一次。
+  var versionLabel = restoreVersionLabel_(loaded.group);
+
   // ⚠️ 先存安全版本。存不到就一格都不寫——還原本身是一次大規模改動，
   // 揀錯版本要有得再還原回來。
   var safety = createWeekSnapshot_(isoDate, 'BEFORE_RESTORE');
@@ -960,13 +965,39 @@ function restoreWeekSnapshotFromWebApp_(payload) {
     lastSavedAt: canonicalSaveToken_(stamp),
     message: {
       type: 'success',
-      text: '已還原到版本「'
-        + weekSnapshotDisplayName_(loaded.group, getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland'))
-        + '」：週報欄位 ' + plan.fieldChanges.length
+      text: '已還原到版本「' + versionLabel + '」：週報欄位 ' + plan.fieldChanges.length
         + ' 格、事奉框覆寫 ' + dutyCount + ' 項、手動覆寫的欄位 ' + fieldOverrideCount
         + ' 項。還原前的現況已另存成一個版本，萬一揀錯可以再還原回來。'
     }
   };
+}
+
+/**
+ * 用途：還原完成訊息要用的版本名稱「時間（原因中文名）」。第二批測試修正 G11。
+ *
+ *   ⚠️ 只是顯示用的字眼，算不到（例如 Config 的 `SYS_TIMEZONE` 填錯，令
+ *   `Utilities.formatDate()` 拋錯）不可以令還原失敗：退回「（時間不明）（原因）」，
+ *   並把原因寫進 `ErrorLog`，不會靜靜吞掉。
+ * Args:
+ *   group {{createdAt:*, reason:string, snapshotId:string}} `groupWeekSnapshots_()` 的一項。
+ * Returns:
+ *   {string}
+ */
+function restoreVersionLabel_(group) {
+  try {
+    return weekSnapshotDisplayName_(group, getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland'));
+  } catch (err) {
+    // appendErrorLog_() 自己不會拋錯（寫不到就回 false）。
+    appendErrorLog_({
+      source: ERROR_LOG_SOURCE.SERVER,
+      functionName: 'restoreVersionLabel_',
+      errorCode: 'SNAPSHOT_LABEL_FAILED',
+      message: '還原完成訊息的版本時間算不到（版本「' + String((group || {}).snapshotId || '') + '」），'
+        + '已改寫「（時間不明）」：' + ((err && err.message) ? err.message : String(err)),
+      detail: buildErrorDetail_(err)
+    });
+    return '（時間不明）（' + weekSnapshotReasonLabel_((group || {}).reason) + '）';
+  }
 }
 
 /**

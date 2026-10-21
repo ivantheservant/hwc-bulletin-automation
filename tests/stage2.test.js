@@ -1223,5 +1223,67 @@ test('G5-3 weekSnapshotDisplayName_：時間讀不到寫「（時間不明）」
   assert.ok(readSrc('src/ui/Script.html').indexOf("diff.createdAt || '（時間不明）'") !== -1);
 });
 
+
+// =====================================================================
+// 第二批測試修正 G11：版本名稱算不到，不可以令「已經做完的還原」報錯
+// =====================================================================
+
+console.log('\n還原訊息的版本名稱在寫入之前算好（G11）');
+
+/**
+ * 在 fn 執行期間令「yyyy-MM-dd HH:mm」那一種格式化拋錯（模擬 SYS_TIMEZONE 填錯），
+ * 其他格式照常；完成後一定還原。
+ *
+ * ⚠️ fillEnv 的 Utilities 替身是各個環境共用的同一個物件，不還原的話會漏到之後的測試。
+ */
+function withBrokenDisplayFormat(env, fn) {
+  const utilities = env.sandbox.Utilities;
+  const realFormat = utilities.formatDate;
+  utilities.formatDate = function (date, tz, pattern) {
+    if (pattern === 'yyyy-MM-dd HH:mm') throw new Error('Invalid argument: timeZone');
+    return realFormat.apply(this, arguments);
+  };
+  try {
+    return fn();
+  } finally {
+    utilities.formatDate = realFormat;
+  }
+}
+
+test('G11-1 還原（真入口 restoreWeekSnapshotFromWebApp_）：顯示時間的 formatDate 拋錯 → 還原照樣成功，訊息寫「（時間不明）（填寫介面儲存）」，ErrorLog 有記錄', function () {
+  const env = makeHistoryEnv();
+  const target = versionsOf(env, D)[0];
+  const result = withBrokenDisplayFormat(env, function () {
+    return env.sandbox.restoreWeekSnapshotFromWebApp_({ isoDate: D, snapshotId: target.snapshotId });
+  });
+  assert.strictEqual(result.message.type, 'success', JSON.stringify(result.message));
+  assert.ok(result.message.text.indexOf('已還原到版本「（時間不明）（填寫介面儲存）」：') === 0, result.message.text);
+  assert.strictEqual(rowOf(env, D).PRELUDE, 'P1', '還原真的做完了');
+  assert.ok(result.safetySnapshotId, '安全版本照存');
+
+  const errors = env.sandbox.readSheet('ErrorLog').filter(function (r) { return r.ERROR_CODE === 'SNAPSHOT_LABEL_FAILED'; });
+  assert.strictEqual(errors.length, 1, '退回不可以靜靜吞掉');
+  assert.ok(errors[0].MESSAGE.indexOf('Invalid argument: timeZone') !== -1, errors[0].MESSAGE);
+});
+
+test('G11-2 經填寫介面 API（apiRestoreWeekSnapshot）同一情況 → 回 ok:true（舊版在全部寫入之後才拋錯，介面會顯示錯誤，幹事以為沒有還原）', function () {
+  const env = makeHistoryEnv();
+  const target = versionsOf(env, D)[0];
+  const resp = withBrokenDisplayFormat(env, function () {
+    return env.sandbox.apiRestoreWeekSnapshot({ isoDate: D, snapshotId: target.snapshotId });
+  });
+  assert.strictEqual(resp.ok, true, JSON.stringify(resp.error));
+  assert.strictEqual(rowOf(env, D).PRELUDE, 'P1');
+});
+
+test('G11-3 版本名稱排在任何寫入之前算（源碼次序：restoreVersionLabel_ 在 createWeekSnapshot_ 之前）', function () {
+  const js = readSrc('src/WeekSnapshots.gs');
+  const body = js.slice(js.indexOf('function restoreWeekSnapshotFromWebApp_('), js.indexOf('function restoreVersionLabel_('));
+  const labelAt = body.indexOf('restoreVersionLabel_(loaded.group)');
+  const firstWrite = body.indexOf("createWeekSnapshot_(isoDate, 'BEFORE_RESTORE')");
+  assert.ok(labelAt !== -1 && firstWrite !== -1);
+  assert.ok(labelAt < firstWrite, '版本名稱要在第一個寫入之前算好');
+});
+
 console.log('\n通過 ' + pass + ' 項，失敗 ' + fail + ' 項。');
 process.exit(fail === 0 ? 0 : 1);
