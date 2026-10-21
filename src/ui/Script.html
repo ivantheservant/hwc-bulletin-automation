@@ -63,7 +63,8 @@
     // R-002 至 R-008：發佈及匯出。`pdfBase64` 是使用者剛選的 PDF，
     // **刻意只放在記憶體、不寫任何本地儲存**——重新整理頁面就要重新選
     // 一次檔案，比起「以為上次選的還在、其實發佈了一個舊 PDF」安全得多。
-    publish: { pdfBase64: '', pdfName: '', panel: null, confirmButton: '' },
+    // `pdfIsoDate` 是揀那個 PDF 時畫面上的主日（G9）：換了主日就不可以拿它發佈。
+    publish: { pdfBase64: '', pdfName: '', pdfIsoDate: '', panel: null, confirmButton: '' },
     options: { programTemplateIds: [], recitationOptions: [], prayerBlockHeadingOptions: [], cantoneseSubColumnLabel: '主堂' }
   };
 
@@ -1961,17 +1962,18 @@
    *     的註解）。使用者自己在下拉選單切換主日則不傳，維持原本「換頁
    *     就清訊息」的行為。
    *
-   *   第二批測試修正 G3：發佈區塊的結果跟主日走，不跟 `keepMessage` 走——
-   *   換到另一個主日一律收起，同一個主日重新載入就保留（見
-   *   `clearPublishResultIfWeekChanged()`）。
+   *   第二批測試修正 G3／G9：發佈區塊的結果與已選的 PDF 跟主日走，不跟
+   *   `keepMessage` 走——換到另一個主日一律清走，同一個主日重新載入就保留（見
+   *   `resetPublishPanelIfWeekChanged()`）。
    * Returns:
    *   {void}
    */
   function loadWeek(isoDate, options) {
     var opts = options || {};
     if (!opts.keepMessage) hideMessage();
-    // G3：換到另一個主日就收起上一個主日的發佈／寄出結果；同一個主日保留。
-    clearPublishResultIfWeekChanged(state.isoDate, isoDate);
+    // G3／G9：換到另一個主日就收起上一個主日的發佈／寄出結果、清走已選的 PDF；
+    // 同一個主日保留。
+    resetPublishPanelIfWeekChanged(state.isoDate, isoDate);
     setLoaded(false);
     callServer('apiLoadWeek', [isoDate],
       function (resp) { onWeekLoaded(isoDate, resp); },
@@ -2465,11 +2467,16 @@
     });
   }
 
+  // BEGIN publish-run（測試會把這一段抽出來執行；用到的其他函式由測試提供替身）
   /**
-   * 用途：把使用者選的 PDF 讀成 base64 存進 `state.publish`。
+   * 用途：把使用者選的 PDF 讀成 base64 存進 `state.publish`，並記下揀檔時的主日。
    *
    *   ⚠️ `FileReader.readAsDataURL()` 回的是 `data:application/pdf;base64,xxx`，
    *   要把逗號之前那一截切走才是純 base64。
+   *
+   *   ⚠️ 第二批測試修正 G9：讀檔是非同步的。揀檔之後、讀完之前換了主日的話，
+   *   讀完那一刻畫面已經是另一週，這個 PDF 不屬於它——讀完時主日不同就丟棄，
+   *   不放進 `state.publish`。`runPublish()` 另外再核對 `pdfIsoDate` 一次。
    * Args:
    *   event {Event} `change` 事件。
    * Returns:
@@ -2479,8 +2486,10 @@
     var file = event.target.files && event.target.files[0];
     state.publish.pdfBase64 = '';
     state.publish.pdfName = '';
+    state.publish.pdfIsoDate = '';
     document.getElementById('publishPdfName').textContent = '未選擇';
     if (!file) return;
+    var chosenIsoDate = state.isoDate;
 
     var limitMb = (state.publish.panel && state.publish.panel.maxPdfMb) || 10;
     if (file.size > limitMb * 1024 * 1024) {
@@ -2494,10 +2503,13 @@
 
     var reader = new FileReader();
     reader.onload = function () {
+      // G9：讀完時已經換了主日 → 丟棄，畫面維持「未選擇」。
+      if (state.isoDate !== chosenIsoDate) return;
       var text = String(reader.result || '');
       var comma = text.indexOf(',');
       state.publish.pdfBase64 = comma === -1 ? '' : text.slice(comma + 1);
       state.publish.pdfName = file.name;
+      state.publish.pdfIsoDate = chosenIsoDate;
       document.getElementById('publishPdfName').textContent = file.name;
     };
     reader.onerror = function () {
@@ -2509,6 +2521,9 @@
   /**
    * 用途：撳「執行」。第一次呼叫不帶 `confirmed`，讓後端決定要不要出
    *   確認視窗。
+   *
+   *   第二批測試修正 G9：要發佈時，已選的 PDF 一定要是在目前這個主日揀的
+   *   （`state.publish.pdfIsoDate === state.isoDate`），否則拒絕，一個請求都不送。
    * Args:
    *   confirmed {boolean} 幹事是否已經勾了「仍然要發佈」那一格。
    * Returns:
@@ -2526,6 +2541,12 @@
     if (doPublish && !state.publish.pdfBase64) {
       showMessage('error', '勾選了「發佈到 master 連結」，但尚未選擇 PDF 檔案。'
         + '請先按「下載 Word」，用 Word 開啟核對，另存為 PDF，然後在這裏選那個 PDF。');
+      return;
+    }
+    if (doPublish && state.publish.pdfIsoDate !== state.isoDate) {
+      // G9：確認視窗是 modal，會蓋住訊息列，所以視窗內也寫一份。
+      showMessage('error', PUBLISH_PDF_WEEK_CHANGED_MESSAGE);
+      showPublishConfirmError(PUBLISH_PDF_WEEK_CHANGED_MESSAGE);
       return;
     }
 
@@ -2556,6 +2577,10 @@
       }
     });
   }
+
+  /** G9：已選的 PDF 是在另一個主日揀的，拒絕發佈時的提示。 */
+  var PUBLISH_PDF_WEEK_CHANGED_MESSAGE = '揀檔之後換了主日，請重新揀這一週的 PDF。';
+  // END publish-run
 
   /**
    * 用途：撳下去之後立即停用兩顆「執行／確認發佈」按鈕並改文字，成功或
@@ -2666,22 +2691,43 @@
   }
 
   /**
-   * 用途：第二批測試修正 G3：載入另一個主日時，收起上一個主日的發佈／寄出結果。
+   * 用途：清走已選的 PDF（記憶體內的內容、檔名、揀檔時的主日），檔案選擇框
+   *   清空，旁邊改回「未選擇」。
+   *
+   *   ⚠️ 檔案選擇框一定要清空：不清的話，再揀同一個檔案瀏覽器不會觸發
+   *   `change`，`onPublishPdfChosen()` 根本不會執行。
+   * Args: （無）
+   * Returns:
+   *   {void}
+   */
+  function clearChosenPublishPdf() {
+    state.publish.pdfBase64 = '';
+    state.publish.pdfName = '';
+    state.publish.pdfIsoDate = '';
+    document.getElementById('publishPdfInput').value = '';
+    document.getElementById('publishPdfName').textContent = '未選擇';
+  }
+
+  /**
+   * 用途：第二批測試修正 G3／G9：載入另一個主日時，收起上一個主日的發佈／寄出
+   *   結果，並清走已選的 PDF。
    *
    *   ⚠️ 發佈區塊標題寫著「主日：新的日期」，下面卻仍然掛著上一個主日的
-   *   「已記錄 1 個收件人」，幹事會以為新的那一週已經寄出。結果只屬於做那次
-   *   動作的主日，所以按日期判斷：日期不同就收起；同一個主日重新載入（例如
-   *   發佈、還原之後 `loadWeek(state.isoDate, {keepMessage:true})`）就保留，
-   *   免得剛顯示的結果被緊接的重新載入清走。
+   *   「已記錄 1 個收件人」，幹事會以為新的那一週已經寄出（G3）；已選的 PDF
+   *   也仍然在，勾發佈就會把上一週的 PDF 當成這一週發佈出去（G9）。兩者都只屬於
+   *   那一個主日，所以按日期判斷：日期不同就清走；同一個主日重新載入（例如
+   *   儲存、發佈、還原、重設之後 `loadWeek(state.isoDate, {keepMessage:true})`）
+   *   就保留，免得剛顯示的結果與剛揀的 PDF 被緊接的重新載入清走。
    * Args:
    *   previousIsoDate {?string} 目前畫面上的主日（`state.isoDate`；第一次載入是空）。
    *   nextIsoDate {string} 將要載入的主日。
    * Returns:
-   *   {boolean} 有沒有收起。
+   *   {boolean} 有沒有清走。
    */
-  function clearPublishResultIfWeekChanged(previousIsoDate, nextIsoDate) {
+  function resetPublishPanelIfWeekChanged(previousIsoDate, nextIsoDate) {
     if (String(previousIsoDate || '') === String(nextIsoDate || '')) return false;
     clearPublishResult();
+    clearChosenPublishPdf();
     return true;
   }
   // END publish-result

@@ -268,16 +268,52 @@ function makeResultBox() {
  * 抽出 publish-result、load-week 兩段，加上「下一個 →」的 stepWeek()，在假環境
  * 執行。callServer 的替身即時回應成功，並照 onWeekLoaded() 的做法更新 state.isoDate。
  */
-function loadPublishResultRegion(startIsoDate) {
+function loadPublishResultRegion(startIsoDate, options) {
+  const o = options || {};
   const js = readSrc('src/ui/Script.html');
   const box = makeResultBox();
-  const calls = { hideMessage: 0, server: [] };
+  const calls = { hideMessage: 0, server: [], messages: [], confirmErrors: [], readers: [] };
   const weeks = [{ isoDate: '2028-04-02' }, { isoDate: '2028-04-09' }, { isoDate: '2028-04-16' }];
+  // G9：發佈區塊用到的其他元素（檔案選擇框、檔名、兩個勾選、自訂電郵）。
+  const elements = {
+    publishResult: box,
+    publishPdfInput: { value: '' },
+    publishPdfName: { textContent: '未選擇' },
+    doPublishCheck: { checked: false },
+    doSendCheck: { checked: false },
+    publishCustomEmails: { value: '' }
+  };
+  /** 假 FileReader：`deferred` 時要測試自己呼叫 `finish()`，模擬讀檔比換週慢。 */
+  function FakeFileReader() {
+    const reader = this;
+    reader.result = null;
+    reader.readAsDataURL = function (file) {
+      reader.finish = function () {
+        reader.result = 'data:application/pdf;base64,' + file.__base64;
+        reader.onload();
+      };
+      calls.readers.push(reader);
+      if (!o.deferredRead) reader.finish();
+    };
+  }
   const ctx = {
-    state: { isoDate: startIsoDate, loaded: true },
-    document: { getElementById: function (id) { if (id !== 'publishResult') throw new Error('未預期的元素 ' + id); return box; } },
+    state: {
+      isoDate: startIsoDate, loaded: true,
+      publish: { pdfBase64: '', pdfName: '', pdfIsoDate: '', panel: { maxPdfMb: 10 }, confirmButton: '' }
+    },
+    document: {
+      getElementById: function (id) {
+        if (!elements[id]) throw new Error('未預期的元素 ' + id);
+        return elements[id];
+      }
+    },
+    FileReader: FakeFileReader,
     hideMessage: function () { calls.hideMessage++; },
-    showMessage: function () {},
+    showMessage: function (type, text) { calls.messages.push({ type: type, text: text }); },
+    showPublishConfirmError: function (text) { calls.confirmErrors.push(text); },
+    setPublishButtonsBusy: function () {},
+    selectedPublishGroups: function () { return ['IT']; },
+    onPublishDone: function () {},
     setLoaded: function () {},
     flatWeeksInOrder: function () { return weeks; },
     syncSelectorsTo: function () {},
@@ -291,8 +327,10 @@ function loadPublishResultRegion(startIsoDate) {
   vm.createContext(ctx);
   const step = js.slice(js.indexOf('function stepWeek('), js.indexOf('function onWeekSelectChanged('));
   vm.runInContext(extract(js, 'publish-result') + '\n' + extract(js, 'load-week') + '\n' + step
-    + '\nthis.api = { show: showPublishResult, clear: clearPublishResult, loadWeek: loadWeek, stepWeek: stepWeek };', ctx);
-  return { api: ctx.api, box: box, state: ctx.state, calls: calls };
+    + '\n' + extract(js, 'publish-run')
+    + '\nthis.api = { show: showPublishResult, clear: clearPublishResult, loadWeek: loadWeek, stepWeek: stepWeek,'
+    + ' choosePdf: onPublishPdfChosen, runPublish: runPublish, weekChangedMessage: PUBLISH_PDF_WEEK_CHANGED_MESSAGE };', ctx);
+  return { api: ctx.api, box: box, state: ctx.state, calls: calls, elements: elements };
 }
 
 const G3_RESULT = '⚠️ 模擬模式開啟中：已記錄 1 個收件人，但沒有真的寄出。\n\n（本次是在確認「仍然要寄出」之後執行的。）';
@@ -335,6 +373,99 @@ test('G3-3 錯誤結果（紅色）換週之後一併收起，紅色樣式也清
   const first = loadPublishResultRegion(null);
   assert.doesNotThrow(function () { first.api.loadWeek('2028-04-09'); });
   assert.strictEqual(first.box.classes.has('hidden'), true);
+});
+
+
+// =====================================================================
+// 第二批測試修正 G9：換週之後，已選的 PDF 不可以拿去發佈另一週
+// =====================================================================
+
+console.log('\n換週之後清走已選的 PDF（G9）');
+
+/** 模擬在檔案選擇框揀了一個 PDF。 */
+function pickPdf(t, name, base64) {
+  t.elements.publishPdfInput.value = 'C:\\fakepath\\' + name;
+  t.api.choosePdf({ target: { files: [{ name: name, size: 1000, __base64: base64 }], value: t.elements.publishPdfInput.value } });
+}
+
+/** 取出送去 apiRunPublish 的請求（沒有就是 undefined）。 */
+function publishCalls(t) {
+  return t.calls.server.filter(function (c) { return c.name === 'apiRunPublish'; });
+}
+
+test('G9-1 04-09 揀了 PDF 之後按「下一個 →」到 04-16（經 stepWeek → loadWeek）→ 已選的 PDF 清走、檔案選擇框清空、顯示「未選擇」；勾發佈按執行不會帶上一週的 PDF', function () {
+  const t = loadPublishResultRegion('2028-04-09');
+  pickPdf(t, '2028-04-09_週報.pdf', 'QUFBQQ==');
+  assert.strictEqual(t.state.publish.pdfBase64, 'QUFBQQ==', '前提：PDF 已讀入');
+  assert.strictEqual(t.state.publish.pdfIsoDate, '2028-04-09', '要記下揀檔時的主日');
+  assert.strictEqual(t.elements.publishPdfName.textContent, '2028-04-09_週報.pdf');
+
+  t.api.stepWeek(1);
+  assert.strictEqual(t.state.isoDate, '2028-04-16');
+  assert.strictEqual(t.state.publish.pdfBase64, '');
+  assert.strictEqual(t.state.publish.pdfName, '');
+  assert.strictEqual(t.state.publish.pdfIsoDate, '');
+  assert.strictEqual(t.elements.publishPdfInput.value, '', '不清空的話，再揀同一個檔案不會觸發 change');
+  assert.strictEqual(t.elements.publishPdfName.textContent, '未選擇');
+
+  t.elements.doPublishCheck.checked = true;
+  t.api.runPublish(false);
+  assert.strictEqual(publishCalls(t).length, 0, '一個發佈請求都不可以送出');
+  assert.ok(t.calls.messages.some(function (m) { return m.type === 'error' && m.text.indexOf('尚未選擇 PDF 檔案') !== -1; }),
+    JSON.stringify(t.calls.messages));
+});
+
+test('G9-2 同一主日重新載入（儲存、還原、重設、補抓之後 loadWeek(state.isoDate, {keepMessage:true})）→ 已選的 PDF 保留，可以照常發佈這一週', function () {
+  const t = loadPublishResultRegion('2028-04-09');
+  pickPdf(t, '2028-04-09_週報.pdf', 'QUFBQQ==');
+  t.api.loadWeek('2028-04-09', { keepMessage: true });
+  assert.strictEqual(t.state.publish.pdfBase64, 'QUFBQQ==');
+  assert.strictEqual(t.elements.publishPdfName.textContent, '2028-04-09_週報.pdf');
+
+  t.elements.doPublishCheck.checked = true;
+  t.api.runPublish(false);
+  const sent = publishCalls(t);
+  assert.strictEqual(sent.length, 1);
+  assert.strictEqual(sent[0].args[0].isoDate, '2028-04-09');
+  assert.strictEqual(sent[0].args[0].pdfBase64, 'QUFBQQ==');
+  assert.strictEqual(sent[0].args[0].doPublish, true);
+});
+
+test('G9-3 競態：揀檔之後、讀完之前換了主日 → 讀完時丟棄，畫面維持「未選擇」，發佈不會帶那個 PDF', function () {
+  const t = loadPublishResultRegion('2028-04-09', { deferredRead: true });
+  pickPdf(t, '2028-04-09_週報.pdf', 'QkJCQg==');
+  assert.strictEqual(t.calls.readers.length, 1, '前提：讀檔仍在進行');
+  t.api.stepWeek(1);
+  t.calls.readers[0].finish();
+
+  assert.strictEqual(t.state.isoDate, '2028-04-16');
+  assert.strictEqual(t.state.publish.pdfBase64, '', '換週之後才讀完的 PDF 不屬於這一週');
+  assert.strictEqual(t.elements.publishPdfName.textContent, '未選擇');
+  t.elements.doPublishCheck.checked = true;
+  t.api.runPublish(false);
+  assert.strictEqual(publishCalls(t).length, 0);
+});
+
+test('G9-4 第二道防線：state 裏面的 PDF 是另一個主日揀的 → runPublish 拒絕，訊息列與確認視窗都顯示「揀檔之後換了主日，請重新揀這一週的 PDF。」；只寄出不受影響', function () {
+  const t = loadPublishResultRegion('2028-04-16');
+  t.state.publish.pdfBase64 = 'Q0NDQw==';
+  t.state.publish.pdfName = '2028-04-09_週報.pdf';
+  t.state.publish.pdfIsoDate = '2028-04-09';
+
+  t.elements.doPublishCheck.checked = true;
+  t.api.runPublish(true);
+  assert.strictEqual(publishCalls(t).length, 0);
+  assert.strictEqual(t.api.weekChangedMessage, '揀檔之後換了主日，請重新揀這一週的 PDF。');
+  assert.ok(t.calls.messages.some(function (m) { return m.type === 'error' && m.text === '揀檔之後換了主日，請重新揀這一週的 PDF。'; }));
+  assert.deepStrictEqual(t.calls.confirmErrors, ['揀檔之後換了主日，請重新揀這一週的 PDF。'], '確認視窗是 modal，視窗內也要寫');
+
+  // 只寄出（不發佈）不用 PDF，不擋。
+  t.elements.doPublishCheck.checked = false;
+  t.elements.doSendCheck.checked = true;
+  t.api.runPublish(false);
+  const sent = publishCalls(t);
+  assert.strictEqual(sent.length, 1);
+  assert.strictEqual(sent[0].args[0].pdfBase64, '', '只寄出不送 PDF');
 });
 
 console.log('\n通過 ' + pass + ' 項，失敗 ' + fail + ' 項。');
