@@ -168,6 +168,47 @@ function driveCountFilesByNameInFolder_(folderId, fileName) {
   }
 }
 
+/** Drive 資料夾的 MIME 類型。列出子項時用來分開「檔案」與「資料夾」。 */
+var DRIVE_FOLDER_MIME_TYPE_ = 'application/vnd.google-apps.folder';
+
+/**
+ * 用途：在指定資料夾內，按名稱列出直屬子項的 ID（不計已刪除的），
+ *   可以指定只要「檔案」還是只要「資料夾」。
+ *
+ *   ⚠️ 與 `driveCountFilesByNameInFolder_()` 一樣，刻意不用 `DriveApp`
+ *   的 `getFilesByName()`／`getFoldersByName()`：後者在 Shared Drive 上
+ *   可能找不到，於是「已經有一份」永遠答「沒有」，結果每次都新建多一份。
+ * Args:
+ *   parentId {string} 父資料夾 ID。
+ *   name {string} 要查的名稱（完整比對）。
+ *   kind {string} `'folder'` 只要資料夾；其餘（包括 `'file'`）只要檔案。
+ * Returns:
+ *   {?string[]} 符合的 ID，最舊的排第一（按建立時間）；最多 20 個。
+ *     查不到（權限、服務未啟用）一律回 `null`。
+ *     ⚠️ `null` 與 `[]` **不可以**混為一談：`[]` 是「查過，沒有」，`null`
+ *     是「查不到」——呼叫方見到 `null` 就不要新建，否則會重複建立。
+ */
+function driveListChildrenByName_(parentId, name, kind) {
+  var parent = String(parentId || '').trim();
+  var childName = String(name || '');
+  if (!parent || !childName) return null;
+
+  try {
+    var escaped = childName.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    var result = Drive.Files.list(driveSharedOptions_({
+      includeItemsFromAllDrives: true,
+      q: "'" + parent + "' in parents and name = '" + escaped + "' and trashed = false and mimeType "
+        + (kind === 'folder' ? '=' : '!=') + " '" + DRIVE_FOLDER_MIME_TYPE_ + "'",
+      orderBy: 'createdTime',
+      pageSize: 20,
+      fields: 'files(id)'
+    }));
+    return ((result && result.files) ? result.files : []).map(function (f) { return f.id; });
+  } catch (err) {
+    return null;
+  }
+}
+
 /**
  * 用途：試探 Drive **進階服務**是否真係用得（唔淨係「個名存唔存在」）。
  *   一次最小、唯讀、冇副作用嘅呼叫（列 1 個檔案）。

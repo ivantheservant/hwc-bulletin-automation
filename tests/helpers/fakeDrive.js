@@ -137,15 +137,18 @@ function makeFakeUtilities(options) {
  * 用途：造一個假的 `DriveApp`。
  * Args:
  *   options {{files:Object<string,Object>=, folders:Object<string,Object>=,
- *            rootAccessError:Error=}=}
+ *            rootAccessError:Error=, failList:boolean=, failUpdate:boolean=}=}
  *     `files` 是「檔案 ID → blob」；`folders` 是「資料夾 ID → 任意物件」
  *     （內容不重要，存在與否才重要）；`rootAccessError` 選填，提供時
  *     `getRootFolder()` 會拋出這個例外（模擬 `probeDriveAccess_()` 授權
- *     不足的情況）。
+ *     不足的情況）；`failList`／`failUpdate` 讓進階服務的 `Files.list`／
+ *     `Files.update` 拋錯（模擬服務未啟用或沒有權限）。
  * Returns:
  *   {{DriveApp:Object, listFolderFiles:function(string):Object[],
- *     createdFiles:Object[]}}
- *     `listFolderFiles(folderId)` 讓測試查某個資料夾建了哪些檔案。
+ *     createdFiles:Object[], createdFolders:Object[], updatedFiles:Object[]}}
+ *     `listFolderFiles(folderId)` 讓測試查某個資料夾建了哪些檔案；
+ *     `createdFolders` 是 `createFolder()` 建的子資料夾（`{id, name, parentId}`）；
+ *     `updatedFiles` 是 `Drive.Files.update()` 覆寫過的檔案（`{id, name, blob}`）。
  */
 function makeFakeDriveApp(options) {
   const opts = options || {};
@@ -153,6 +156,9 @@ function makeFakeDriveApp(options) {
   const folders = opts.folders || {};
   const createdByFolder = {};
   const createdFiles = [];
+  const createdFolders = [];
+  const updatedFiles = [];
+  const FOLDER_MIME = 'application/vnd.google-apps.folder';
 
   function makeFileHandle(id, blob) {
     return {
@@ -167,7 +173,16 @@ function makeFakeDriveApp(options) {
     if (!createdByFolder[folderId]) createdByFolder[folderId] = [];
     return {
       getId: function () { return folderId; },
-      getName: function () { return 'FAKE_FOLDER_' + folderId; },
+      getName: function () {
+        const made = createdFolders.filter(function (f) { return f.id === folderId; })[0];
+        return made ? made.name : 'FAKE_FOLDER_' + folderId;
+      },
+      createFolder: function (name) {
+        const id = 'SUBFOLDER_' + folderId + '_' + (createdFolders.length + 1);
+        createdFolders.push({ id: id, name: name, parentId: folderId });
+        folders[id] = {};
+        return makeFolderHandle(id);
+      },
       getFilesByName: function (name) {
         const matches = createdByFolder[folderId].filter(function (f) { return f.name === name; });
         let i = 0;
@@ -229,15 +244,39 @@ function makeFakeDriveApp(options) {
           if (q.indexOf("title = '") !== -1) {
             throw new Error("Drive.Files.list：查詢用了 v2 的 title，v3 應該用 name");
           }
+          if (opts.failList) throw new Error('假的 Drive.Files.list 失敗');
           if (folderEnd === -1 || nameStart === -1) return { files: [] };
 
           const folderId = q.slice(q.indexOf("'") + 1, folderEnd);
           const afterName = q.slice(nameStart + nameKey.length);
           const wanted = afterName.slice(0, afterName.indexOf("'"));
+          // 子資料夾查詢：`mimeType = '…folder'`；列檔案：`mimeType != '…folder'`；
+          // 舊的「數同名檔案」查詢沒有 mimeType，維持只看檔案。
+          if (q.indexOf("mimeType = '" + FOLDER_MIME + "'") !== -1) {
+            return { files: createdFolders
+              .filter(function (f) { return f.parentId === folderId && f.name === wanted; })
+              .map(function (f) { return { id: f.id }; }) };
+          }
           const found = (createdByFolder[folderId] || [])
             .filter(function (f) { return f.name === wanted; })
             .map(function (f) { return { id: f.id }; });
           return { files: found };
+        },
+        update: function (resource, fileId, blob, optionalArgs) {
+          if (!optionalArgs || optionalArgs.supportsAllDrives !== true) {
+            throw new Error('Drive.Files.update：缺少 supportsAllDrives');
+          }
+          if (opts.failUpdate) throw new Error('假的 Drive.Files.update 失敗');
+          let record = null;
+          Object.keys(createdByFolder).forEach(function (fid) {
+            createdByFolder[fid].forEach(function (f) { if (f.id === fileId) record = f; });
+          });
+          if (!record) throw new Error('File not found: ' + fileId);
+          record.blob = blob;
+          // 用中括號存取：夾在引號之間的 `.name` 會被 scan-staged-secrets 誤判成網域。
+          if (resource && resource['name']) record['name'] = resource['name'];
+          updatedFiles.push({ id: fileId, name: record['name'], blob: blob });
+          return { id: fileId };
         },
         get: function (fileId, optionalArgs) {
           if (!optionalArgs || optionalArgs.supportsAllDrives !== true) {
@@ -252,7 +291,12 @@ function makeFakeDriveApp(options) {
       }
     },
     listFolderFiles: function (folderId) { return (createdByFolder[folderId] || []).slice(); },
-    createdFiles: createdFiles
+    // 階段 1 起 Word 放在輸出資料夾下的季度子資料夾，「一共新建了幾份檔案」
+    // 改看這一個（覆寫既有檔案不會新增）。
+    listAllFiles: function () { return createdFiles.slice(); },
+    createdFiles: createdFiles,
+    createdFolders: createdFolders,
+    updatedFiles: updatedFiles
   };
 }
 

@@ -146,6 +146,19 @@ function publishConfig_() {
 }
 
 /**
+ * 用途：由雲端硬碟檔案 ID 砌出「檢視」連結。**純函式。**
+ *   `masterPdfLinks_()` 與 Word 最新版的連結共用這一個，網址格式只有一處。
+ * Args:
+ *   fileId {string} 檔案 ID。
+ * Returns:
+ *   {string} `fileId` 是空就回空字串（顯示一條開不到的連結比不顯示更差）。
+ */
+function driveFileViewUrl_(fileId) {
+  var id = String(fileId || '').trim();
+  return id ? ('https://drive.google.com/file/d/' + id + '/view') : '';
+}
+
+/**
  * 用途：由 master 檔案 ID 砌出三條連結。**純函式。**
  *
  *   三條各有用途：`view` 畀會眾撳、`preview` 畀網站直接嵌入 iframe、
@@ -160,7 +173,7 @@ function masterPdfLinks_(fileId) {
   var id = String(fileId || '').trim();
   if (!id) return { view: '', preview: '', download: '' };
   return {
-    view: 'https://drive.google.com/file/d/' + id + '/view',
+    view: driveFileViewUrl_(id),
     preview: 'https://drive.google.com/file/d/' + id + '/preview',
     download: 'https://drive.google.com/uc?export=download&id=' + id
   };

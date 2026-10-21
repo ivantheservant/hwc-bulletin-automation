@@ -923,11 +923,17 @@ function savePublishPrefs_(prefs) {
 var PUBLISH_PREFS_KEY_ = 'PUBLISH_PANEL_PREFS';
 
 /**
- * 用途：`apiDownloadBulletinDocx()` 的 IO 層——產生 Word 檔並轉成 base64。
+ * 用途：`apiDownloadBulletinDocx()` 的 IO 層——產生 Word 檔並轉成 base64，
+ *   同時把它存成這個主日在雲端硬碟的「最新版」。
+ *
+ *   ⚠️ 存雲端失敗**不可以**令下載失敗：幹事要的是手上這份檔案。失敗改為
+ *   一則警告，由前端顯示；雲端沒有更新，`wordFile` 就是 `null`（前端會
+ *   沿用載入時顯示的舊連結，警告已經講明新版沒有存進去）。
  * Args:
  *   isoDate {string} 主日日期，yyyy-MM-dd。
  * Returns:
- *   {{fileName:string, base64:string, warnings:Object[]}}
+ *   {{fileName:string, base64:string, warnings:Object[], wordFile:?Object}}
+ *     `wordFile` 形狀見 `buildWordFileInfo_()`。
  * Raises:
  *   Error 如果職事表未設定、範本未設定，或者渲染失敗——訊息一律沿用
  *     `generateBulletinDocx_()` 已經組好那一句，不在這裏另寫。
@@ -939,11 +945,77 @@ function bulletinDocxForDownload_(isoDate) {
     err.code = result.reason || 'RENDER_FAILED';
     throw err;
   }
+  var stored = storeLatestWordFromWebApp_(isoDate, result);
   return {
     fileName: result.fileName,
     base64: Utilities.base64Encode(result.blob.getBytes()),
-    warnings: result.warnings || []
+    warnings: (result.warnings || []).concat(stored.warning ? [stored.warning] : []),
+    wordFile: stored.wordFile
   };
+}
+
+/**
+ * 用途：把剛產生好的 Word 存成這個主日在雲端硬碟的最新版，並把檔案 ID 記進
+ *   `BulletinWeeks.DOC_ID`。**不拋錯**——所有失敗都轉成一則警告。
+ * Args:
+ *   isoDate {string} 主日日期，yyyy-MM-dd。
+ *   generated {Object} `generateBulletinDocx_()` 成功的結果。
+ * Returns:
+ *   {{wordFile:?Object, warning:?Object}} 成功時 `warning` 為 `null`；
+ *     輸出資料夾未設定、存檔失敗、`BulletinWeeks` 沒有那一行時有 `warning`
+ *     （`code` 是 `WORD_NOT_STORED`／`WORD_STORE_FAILED`／`WORD_NOT_RECORDED`）。
+ */
+function storeLatestWordFromWebApp_(isoDate, generated) {
+  if (!getConfig(CONFIG_KEYS.BULLETIN_OUTPUT_FOLDER_ID, '')) {
+    return { wordFile: null, warning: {
+      code: 'WORD_NOT_STORED',
+      message: '尚未設定輸出資料夾（Config 的 BULLETIN_OUTPUT_FOLDER_ID），這次只下載到本機，雲端硬碟沒有留存最新版。'
+    } };
+  }
+
+  try {
+    var saved = saveBulletinDocx_(isoDate, generated);
+    var recorded = recordBulletinGeneration_(isoDate, saved.file.fileId, {
+      action: 'BULLETIN_DOCX_WEBAPP_SAVE',
+      notes: '填寫介面「下載 Word」同時更新了這個主日的最新 Word。'
+    });
+    var wordFile = buildWordFileInfo_(saved.file.fileId, new Date(), isoDate);
+    if (!recorded) {
+      return { wordFile: wordFile, warning: {
+        code: 'WORD_NOT_RECORDED',
+        message: 'Word 已存到雲端硬碟，但 BulletinWeeks 沒有 ' + isoDate + ' 這一行，檔案 ID 未能記下來，重新載入後看不到連結。'
+      } };
+    }
+    return { wordFile: wordFile, warning: null };
+  } catch (err) {
+    return { wordFile: null, warning: {
+      code: 'WORD_STORE_FAILED',
+      message: 'Word 已產生並下載，但存到雲端硬碟失敗：' + ((err && err.message) ? err.message : String(err))
+    } };
+  }
+}
+
+/**
+ * 用途：組出填寫介面「最新 Word」那一行要用的資料。
+ * Args:
+ *   docId {*} `BulletinWeeks.DOC_ID`。
+ *   generatedAt {*} `BulletinWeeks.LAST_GENERATED_AT`（`Date`）；不是 `Date`
+ *     就當作時間未知。
+ *   isoDate {string} 主日日期，用來還原檔名。
+ * Returns:
+ *   {?{fileId:string, url:string, fileName:string, generatedAt:string}}
+ *     `docId` 是空白（從未存過）回 `null`；`generatedAt` 未知時是空字串。
+ */
+function buildWordFileInfo_(docId, generatedAt, isoDate) {
+  var id = String(docId === null || docId === undefined ? '' : docId).trim();
+  if (!id) return null;
+  var stamp = '';
+  if (generatedAt instanceof Date && !isNaN(generatedAt.getTime())) {
+    stamp = Utilities.formatDate(
+      generatedAt, getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland'), 'yyyy-MM-dd HH:mm'
+    );
+  }
+  return { fileId: id, url: driveFileViewUrl_(id), fileName: buildOutputFileName_(isoDate), generatedAt: stamp };
 }
 
 /**
@@ -1363,7 +1435,11 @@ function pickDefaultWeekIsoDate_(entries, todayIso) {
  *     `{ isoDate, week:Object, lists:{announcements,prayers,fellowships,finance},
  *        lastSavedAt:string, readOnly:Object, missing:Object[],
  *        missingSplit:{required:Object[], optional:Object[], requiredCount:number},
- *        warnings:Object[], options:Object, rosterReloadMessage:Object }`
+ *        warnings:Object[], options:Object, rosterReloadMessage:Object,
+ *        wordFile:?Object }`
+ *     `readOnly.flowerRoster` 是職事表的獻花名字（獻花欄位旁邊的提示用）；
+ *     `wordFile` 是雲端硬碟上這個主日最新 Word 的資料，從未存過是 `null`
+ *     （形狀見 `buildWordFileInfo_()`）。
  *     `lastSavedAt` 經 `canonicalSaveToken_()` 正規化（見 WebAppSave.gs），
  *     前端只需要原樣存起來、儲存時原樣送回，不需要自己解析或轉換；
  *     `apiSaveWeek()` 比對樂觀鎖用的也是同一個函式，「從未儲存」在兩條
@@ -1430,6 +1506,9 @@ function loadWeekForWebApp_(isoDate) {
       // R-041：誦讀下拉旁邊顯示「目前自動值：主禱文」。由後端算好——
       // 月份分組是 Config 改得到的，前端不可以自己算一次。
       recitationAuto: model.recitationAuto || '',
+      // 階段 1：獻花欄位旁邊的提示。職事表的名字由後端算好（與帶入
+      // 獻花同一個 rosterFlowerName_()），前端只負責挑哪一句提示。
+      flowerRoster: model.flowerRoster || { thisWeek: '', nextWeek: '' },
       // ⚠️ 唯讀欄位清單由**伺服器**送過來，前端不再自己寫一份。
       //    第一輪自測之前這份清單在前端寫死，與後端那一份是兩件會分岔的
       //    東西；分岔的方向如果是「前端少列了一項」，那一欄就會變成看起來
@@ -1465,7 +1544,9 @@ function loadWeekForWebApp_(isoDate) {
     rosterGapBanner: rosterGapBannerForQuarter_(model.quarterId),
     // R-036：「補抓空白的事奉欄位」要知道補哪一季。前端不自己由日期推算季度——
     // 季度的定義只應該有一處知道。
-    quarterId: model.quarterId
+    quarterId: model.quarterId,
+    // 這個主日在雲端硬碟的最新 Word（`BulletinWeeks.DOC_ID`）；從未存過是 `null`。
+    wordFile: buildWordFileInfo_(weekRow.DOC_ID, weekRow.LAST_GENERATED_AT, isoDate)
   };
 }
 

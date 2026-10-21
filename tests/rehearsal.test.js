@@ -137,7 +137,7 @@ test('全部順利時：每個主日都有完整資訊，總數與逐日加總�
   assert.strictEqual(summary.totalMissing, summedMissing);
 
   assert.ok(summary.wordResult && summary.wordResult.file, '應該真的產生了一份 Word');
-  assert.strictEqual(env.drive.listFolderFiles(FAKE_FOLDER_ID).length, 1, '只應該產生第一個主日那一份，不是全部主日');
+  assert.strictEqual(env.drive.listAllFiles().length, 1, '只應該產生第一個主日那一份，不是全部主日');
 });
 
 test('唯讀為主：職事表分歧檢查不會寫 AuditLog、不會推進 BulletinWeeks 的快照版本', function () {

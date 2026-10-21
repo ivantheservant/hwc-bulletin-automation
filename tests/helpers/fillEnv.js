@@ -188,7 +188,10 @@ function makeFillGridSheet(sandbox, rows) {
  *            config:Object=, recipients:Object[]=, fellowships:Object[]=,
  *            fellowshipDefaults:Object[]=, backupRows:Object[]=,
  *            announcements:Object[]=, withGrid:boolean=,
- *            ui:Object=, extraStubs:Object=}=}
+ *            ui:Object=, extraStubs:Object=, rosterAssignments:Object[]=,
+ *            rosterPosts:Object[]=}=}
+ *     `rosterAssignments`／`rosterPosts` 是**額外**加進假職事表的指派與崗位
+ *     （預設只有 CHAIR 一個崗位）。
  *     `ui` 覆寫 `getUi()` 回傳物件的方法；`extraStubs` 額外注入的全域替身
  *     （例如 `PropertiesService`）。
  *     `withGrid` 預設 true；設成 false 代表格子表還未建立。
@@ -260,7 +263,7 @@ function makeFillEnv(options) {
         QuarterID: QUARTER_ID, VersionNo: 3, ServiceDate: iso, PostID: 'CHAIR',
         SlotIndex: 1, PersonID: 'P9001', PersonNameSnapshot: '陳大文', AssignSource: 'AUTO', Locked: false
       };
-    })),
+    }).concat(o.rosterAssignments || [])),
     RosterVersions: rosterSheet('VERSIONS', [{ QuarterID: QUARTER_ID, VersionNo: 3 }]),
     Quarters: rosterSheet('QUARTERS', [{ QuarterID: QUARTER_ID, Stage: 'OFFICIAL_SENT' }]),
     ServiceDates: rosterSheet('SERVICE_DATES', SERVICE_DATES.map(function (iso, i) {
@@ -273,7 +276,7 @@ function makeFillEnv(options) {
     NameMapping: rosterSheet('NAME_MAPPING', [{ PersonID: 'P9001', NameTC: '陳大文', Active: true }]),
     Posts: rosterSheet('POSTS', [
       { PostID: 'CHAIR', PostName_TC: '主席', SlotCount: 1, Frequency: 'WEEKLY', AutoGenerate: true, DisplayOrder: 10, Active: true, EmptyDisplay: 'PENDING' }
-    ])
+    ].concat(o.rosterPosts || []))
   };
 
   const insertedSheets = [];

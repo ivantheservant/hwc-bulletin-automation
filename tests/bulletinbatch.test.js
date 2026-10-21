@@ -168,7 +168,7 @@ test('1. 全部三個主日成功產生，回傳統計與 BulletinWeeks 記錄�
       w.SERVICE_DATE + ' 應該有 LAST_GENERATED_AT');
   });
 
-  assert.strictEqual(env.drive.listFolderFiles(FAKE_FOLDER_ID).length, 3, '應該產生了 3 個檔案');
+  assert.strictEqual(env.drive.listAllFiles().length, 3, '應該產生了 3 個檔案');
 
   const diagnostics = env.sandbox.readSheet('Diagnostics');
   assert.ok(diagnostics.some(function (r) { return r.REPORT_NAME === '本季週報產生'; }));
@@ -224,7 +224,7 @@ test('3. 其中一個主日已經有 LAST_GENERATED_AT → 跳過，不重新產
   assert.strictEqual(summary.skipped, 1);
   assert.strictEqual(summary.succeeded, 2);
   assert.strictEqual(summary.results[0].status, 'SKIPPED');
-  assert.strictEqual(env.drive.listFolderFiles(FAKE_FOLDER_ID).length, 2, '已經做過的那個主日不應該再產生一次新檔案');
+  assert.strictEqual(env.drive.listAllFiles().length, 2, '已經做過的那個主日不應該再產生一次新檔案');
 });
 
 // =====================================================================
@@ -265,7 +265,7 @@ test('4b. 處理完第一個主日之後才超過時間預算 → 只完成 1 �
   assert.strictEqual(summary.stoppedForTime, true);
   assert.strictEqual(summary.succeeded, 1);
   assert.strictEqual(summary.results.length, 1);
-  assert.strictEqual(env.drive.listFolderFiles(FAKE_FOLDER_ID).length, 1, '已完成的那一份不可以遺失');
+  assert.strictEqual(env.drive.listAllFiles().length, 1, '已完成的那一份不可以遺失');
 });
 
 // =====================================================================

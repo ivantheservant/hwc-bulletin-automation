@@ -21,8 +21,8 @@
  *     幹事每季真的要做的事、而且都是冪等／只增不改——跟真正操作完全
  *     一樣，這正是「演練」要驗證的東西。
  *   - 「產生 Word」只產生**第一個**主日，避免 13 份 Word 拖慢整個演練；
- *     產生的檔案是真檔案，會留在 `BULLETIN_OUTPUT_FOLDER_ID`，報告會
- *     明確提示「需要人手清理」。
+ *     產生的檔案是真檔案（獨立副本，不會蓋走該主日的最新版 Word），會留在
+ *     `BULLETIN_OUTPUT_FOLDER_ID`，報告會明確提示「需要人手清理」。
  *   - 全程不寫職事表一個位元。
  */
 
@@ -107,7 +107,8 @@ function runQuarterRehearsal_(quarterId) {
   var firstIsoDate = serviceDates.length > 0 ? serviceDates[0].isoDate : null;
   if (firstIsoDate) {
     var wordStep = runRehearsalStep_('5. 產生 Word（僅第一個主日：' + firstIsoDate + '）', function () {
-      var result = saveBulletinDocx_(firstIsoDate);
+      // 用獨立副本，不蓋走這個主日的「最新版」Word（可能已有人手修改）。
+      var result = saveBulletinDocxCopy_(firstIsoDate);
       if (!result.ok) throw new Error(result.message || ('原因代碼：' + result.reason));
       return result;
     }, timings, failedSteps);

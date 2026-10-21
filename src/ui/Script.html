@@ -35,6 +35,8 @@
     // 不同的欄位，並把它們的載入值當作 `baseWeek` 一併送去後端做三方比較。
     // ⚠️ 不可以拿 `state.week` 代替——`state.week` 在使用者打字時會跟著改。
     loadedWeek: {},
+    // 階段 1：後端算好的職事表獻花名字，獻花欄位旁邊的提示用。
+    flowerRoster: { thisWeek: '', nextWeek: '' },
     lists: { announcements: [], prayers: [], fellowships: [], finance: [] },
     // 第六輪：事奉框每一格目前的值，鍵是「崗位#位次」。儲存時整批送回
     // 伺服器，由 computeDutyOverridePlan_() 決定哪幾格真的需要寫
@@ -421,6 +423,10 @@
 
     // R-041：誦讀下拉旁邊的「目前自動值」。由後端算好——月份分組是
     // Config 改得到的，前端自己算一次就會有第二個真相來源。
+    // 階段 1：獻花欄位旁邊的職事表提示。輸入時的更新見下面的 input 監聽。
+    state.flowerRoster = readOnly.flowerRoster || { thisWeek: '', nextWeek: '' };
+    renderFlowerHints(state.flowerRoster);
+
     var autoHint = document.getElementById('recitationAutoHint');
     autoHint.textContent = readOnly.recitationAuto
       ? ('目前自動值：' + readOnly.recitationAuto)
@@ -920,6 +926,115 @@
     return week;
   }
 
+  // BEGIN flower-hint（測試會把這一段抽出來在假 DOM 上執行，請保持自足）
+  /**
+   * 用途：算出獻花欄位旁邊那一行灰色提示。**純函式。**
+   *   職事表的名字由後端算好（`readOnly.flowerRoster`，與「留空就帶入」
+   *   同一個 `rosterFlowerName_()`），這裏只負責按欄位現值挑哪一句，
+   *   不自己從職事表重算名字。
+   *     - 職事表沒有名字 → 不顯示提示；
+   *     - 欄位留空或與職事表相同 → 「職事表：X（留空就用職事表的名字）」；
+   *     - 欄位已改成別的 → 「已改，職事表是：X」。
+   * Args:
+   *   rosterName {string} 職事表 `FLOWER` 崗位的名字；沒有就傳空字串。
+   *   currentValue {string} 輸入框現時的值。
+   * Returns:
+   *   {string} 提示文字；不需要提示時回空字串。
+   */
+  function flowerHintText(rosterName, currentValue) {
+    var roster = String(rosterName === null || rosterName === undefined ? '' : rosterName).trim();
+    if (roster === '') return '';
+    var current = String(currentValue === null || currentValue === undefined ? '' : currentValue).trim();
+    if (current === '' || current === roster) {
+      return '職事表：' + roster + '（留空就用職事表的名字）';
+    }
+    return '已改，職事表是：' + roster;
+  }
+
+  /**
+   * 用途：按目前兩個獻花輸入框的值，重畫兩行提示（用 `textContent`，名字
+   *   是資料，不經 `innerHTML`）。
+   * Args:
+   *   flowerRoster {?Object} `{ thisWeek, nextWeek }`，後端算好的職事表名字；
+   *     沒有就當兩個都空白。
+   * Returns:
+   *   {void}
+   */
+  function renderFlowerHints(flowerRoster) {
+    var roster = flowerRoster || {};
+    var pairs = [
+      { field: 'FLOWER_THIS_WEEK', hintId: 'flowerThisHint', name: roster.thisWeek },
+      { field: 'FLOWER_NEXT_WEEK', hintId: 'flowerNextHint', name: roster.nextWeek }
+    ];
+    var inputs = document.querySelectorAll('[data-field]');
+    pairs.forEach(function (pair) {
+      var value = '';
+      for (var i = 0; i < inputs.length; i++) {
+        if (inputs[i].getAttribute('data-field') === pair.field) { value = inputs[i].value; break; }
+      }
+      document.getElementById(pair.hintId).textContent = flowerHintText(pair.name, value);
+    });
+  }
+  // END flower-hint
+
+  // BEGIN word-file（測試會把這一段抽出來在假 DOM 上執行，請保持自足）
+  /**
+   * 用途：畫出「雲端硬碟上這個主日的最新 Word」那一行（文字加連結）。
+   *
+   *   連結只接受 `https://drive.google.com/` 開頭的網址（後端由檔案 ID
+   *   砌出來的）；其他一律不畫成連結，只留文字。名稱與時間用
+   *   `textContent`，不經 `innerHTML`。
+   * Args:
+   *   wordFile {?Object} 後端的 `wordFile`（`{url, fileName, generatedAt}`）；
+   *     從未存過就是 `null`。
+   * Returns:
+   *   {void}
+   */
+  function renderWordFileInfo(wordFile) {
+    var text = document.getElementById('wordFileInfoText');
+    var link = document.getElementById('wordFileLink');
+    var url = wordFile ? String(wordFile.url || '') : '';
+    if (!wordFile || url.indexOf('https://drive.google.com/') !== 0) {
+      text.textContent = '雲端硬碟還沒有這個主日的 Word 檔。按「下載 Word」時會同時存一份。';
+      link.classList.add('hidden');
+      link.removeAttribute('href');
+      link.textContent = '';
+      return;
+    }
+    text.textContent = '雲端硬碟上的最新 Word'
+      + (wordFile.generatedAt ? '（' + wordFile.generatedAt + ' 產生）' : '') + '：';
+    link.textContent = String(wordFile.fileName || '開啟檔案');
+    link.setAttribute('href', url);
+    link.classList.remove('hidden');
+  }
+
+  /**
+   * 用途：「下載 Word」完成之後要顯示哪一句。**純函式。**
+   *   Word 已經下載成功，存雲端失敗只是附帶的警告（後端 `code` 以 `WORD_`
+   *   開頭），所以訊息類型是 `error` 但文字仍先講「已產生」。
+   * Args:
+   *   data {Object} `apiDownloadBulletinDocx()` 回傳的 `data`。
+   * Returns:
+   *   {{type:string, text:string}}
+   */
+  function downloadWordMessage(data) {
+    var base = '已產生 ' + data.fileName + '，請在瀏覽器的下載清單查看。';
+    var storeWarnings = (data.warnings || []).filter(function (w) {
+      return String(w && w.code || '').indexOf('WORD_') === 0;
+    });
+    if (storeWarnings.length > 0) {
+      return {
+        type: 'error',
+        text: base + '　⚠️ ' + storeWarnings.map(function (w) { return w.message; }).join('　')
+      };
+    }
+    return {
+      type: 'info',
+      text: base + (data.wordFile ? '　雲端硬碟上的最新版也已更新。' : '')
+    };
+  }
+  // END word-file
+
   // BEGIN week-diff
   /**
    * 用途：比對表單現值與載入時的值，算出儲存要送的 `week`（只含改過的欄位）
@@ -1321,6 +1436,7 @@
     renderConflictStat(data.rosterDiff);
     renderFillGridLink(data.fillGridUrl);
     renderPreviewLink(data.previewUrl);
+    renderWordFileInfo(data.wordFile);
     renderProgramPreview(data.readOnly.program);
     // R-011：一定要排在 applyWeekFieldsToForm() 之後——先填值，再把那幾個
     // 欄位設成唯讀，否則設定 readOnly 之後再寫值會看起來像可以編輯。
@@ -1982,7 +2098,9 @@
       if (!resp.ok) { showMessage('error', resp.error.message); return; }
       triggerBinaryDownload(resp.data.base64, resp.data.fileName,
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-      showMessage('info', '已產生 ' + resp.data.fileName + '，請在瀏覽器的下載清單查看。');
+      if (resp.data.wordFile) renderWordFileInfo(resp.data.wordFile);
+      var done = downloadWordMessage(resp.data);
+      showMessage(done.type, done.text);
     }, { busyText: '產生 Word 檔中…' });
   }
 
@@ -2317,6 +2435,10 @@
       var target = e.target;
       if (target && target.hasAttribute && target.hasAttribute('data-field')) {
         state.week[target.getAttribute('data-field')] = target.value;
+        var changedField = target.getAttribute('data-field');
+        if (changedField === 'FLOWER_THIS_WEEK' || changedField === 'FLOWER_NEXT_WEEK') {
+          renderFlowerHints(state.flowerRoster);
+        }
         schedulePreviewRefresh();
       }
     });

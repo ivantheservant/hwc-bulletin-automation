@@ -540,7 +540,7 @@ test('5e. 真正入口 saveBulletinDocx_()：寫入輸出資料夾，回傳檔�
   assert.strictEqual(result.ok, true);
   assert.strictEqual(result.file.fileName, '2027-11-07_粵語堂週報.docx');
   assert.ok(result.file.url.length > 0);
-  assert.strictEqual(env.drive.listFolderFiles(FAKE_FOLDER_ID).length, 1);
+  assert.strictEqual(env.drive.listAllFiles().length, 1);
 });
 
 test('5f. 真正入口：RENDER_BLOCK_IF_MISSING_FIELDS=TRUE 且有待填欄位 → 拒絕產生', function () {

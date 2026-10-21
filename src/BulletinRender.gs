@@ -648,6 +648,8 @@ function generateBulletinDocx_(isoDate) {
     ok: true,
     blob: rendered.blob,
     fileName: fileName,
+    // 存檔時決定子資料夾用（見 outputSubFolderName_()）。
+    quarterId: model.quarterId || '',
     templateLabel: template.label,
     stats: renderStats,
     residual: residual,
@@ -715,16 +717,52 @@ function buildResidualPlaceholderMessage_(fileName, templateLabel, residual) {
 
 /**
  * 用途：產生週報 `.docx` 並存到 Config `BULLETIN_OUTPUT_FOLDER_ID` 指定的
- *   輸出資料夾。供選單「產生本週週報（Word）」使用。
+ *   輸出資料夾。供選單「產生本週週報（Word）」、整季批次產生與填寫介面
+ *   「下載 Word」使用。
+ *
+ *   ⚠️ **每個主日只保留一份最新的檔案**：同名檔案已存在就原地覆寫（檔案
+ *   連結不變），不再加 `(2)`、`(3)`。Config `OUTPUT_GROUP_BY_QUARTER` 為
+ *   TRUE（預設）時放進以季度 ID 命名的子資料夾。見 `writeLatestOutputFile_()`。
+ * Args:
+ *   isoDate {string} 主日日期，yyyy-MM-dd。
+ *   generated {Object=} 已經由 `generateBulletinDocx_()` 產生好的結果；
+ *     省略就在這裏產生。傳入是為了「下載」與「存檔」共用同一個 blob，
+ *     不重複渲染一次。
+ * Returns:
+ *   {Object} `generateBulletinDocx_()` 的輸出，成功時另加
+ *     `file: {fileId, fileName, url, folderName, replaced, duplicateCount}`。
+ * Raises:
+ *   Error 同 `generateBulletinDocx_()`，另加輸出資料夾開不到、查不到同名
+ *     檔案的情況。
+ */
+function saveBulletinDocx_(isoDate, generated) {
+  var result = generated || generateBulletinDocx_(isoDate);
+  if (!result.ok) return result;
+
+  var written = writeLatestOutputFile_(
+    result.blob,
+    getConfig(CONFIG_KEYS.BULLETIN_OUTPUT_FOLDER_ID, ''),
+    result.fileName,
+    outputSubFolderName_(result.quarterId, getConfig(CONFIG_KEYS.OUTPUT_GROUP_BY_QUARTER, 'TRUE'))
+  );
+
+  return Object.assign({}, result, { file: written });
+}
+
+/**
+ * 用途：產生週報 `.docx` 並存成一份**獨立的副本**（同名時加 `(2)`、`(3)`），
+ *   **不碰**這個主日的「最新版」檔案。
+ *
+ *   給「全季流程演練」用：演練針對的是真實季度的第一個主日，如果用
+ *   `saveBulletinDocx_()` 就會把幹事可能已經人手修改過的最新版蓋掉。
  * Args:
  *   isoDate {string} 主日日期，yyyy-MM-dd。
  * Returns:
- *   {Object} `generateBulletinDocx_()` 的輸出，成功時另加
- *     `file: {fileId, fileName, url}`。
+ *   {Object} 同 `saveBulletinDocx_()`，`file` 只有 `{fileId, fileName, url}`。
  * Raises:
- *   Error 同 `generateBulletinDocx_()`，另加輸出資料夾開不到的情況。
+ *   Error 同 `saveBulletinDocx_()`。
  */
-function saveBulletinDocx_(isoDate) {
+function saveBulletinDocxCopy_(isoDate) {
   var result = generateBulletinDocx_(isoDate);
   if (!result.ok) return result;
 
@@ -735,6 +773,21 @@ function saveBulletinDocx_(isoDate) {
   );
 
   return Object.assign({}, result, { file: written });
+}
+
+/**
+ * 用途：決定 Word 檔要放進輸出資料夾下哪個子資料夾。**純函式。**
+ * Args:
+ *   quarterId {string} 這個主日所屬的季度 ID；未知就傳空字串。
+ *   groupSetting {*} Config `OUTPUT_GROUP_BY_QUARTER` 的值（可以是字串
+ *     'TRUE'／'FALSE' 或布林）。
+ * Returns:
+ *   {string} 子資料夾名稱；不分季度或季度未知時回空字串（＝直接存在
+ *     輸出資料夾本身）。
+ */
+function outputSubFolderName_(quarterId, groupSetting) {
+  if (normalizeBoolean_(groupSetting) !== true) return '';
+  return String(quarterId || '').trim();
 }
 
 /**
@@ -934,7 +987,16 @@ function menuGenerateBulletinDocx_() {
       return;
     }
 
+    // 記下這一週「最新的 Word」是哪一個檔案——填寫介面的連結靠它。
+    var recorded = recordBulletinGeneration_(isoDate, result.file.fileId, {
+      action: 'BULLETIN_DOCX_MENU_SAVE',
+      notes: '選單「產生本週週報（Word）」更新了這個主日的最新 Word。'
+    });
     var lines = buildGenerateResultDialogLines_(isoDate, result);
+    if (!recorded) {
+      lines.push('');
+      lines.push('⚠️ BulletinWeeks 沒有這個主日的資料列，檔案 ID 未能記下來（檔案本身已經存好）。');
+    }
     var residual = result.residual || { count: 0 };
     // 產出真的有殘留時，連對話框標題都要講明——標題是唯一一定看得到的
     // 部分，內文有機會被使用者一眼掃過去。
@@ -1015,6 +1077,14 @@ function buildGenerateResultDialogLines_(isoDate, result) {
   }
   lines.push('');
   lines.push('檔案：' + result.file.fileName);
+  if (result.file.folderName) lines.push('存放位置：輸出資料夾 ▸ ' + result.file.folderName);
+  lines.push(result.file.replaced
+    ? '這個主日原有的檔案已更新為最新版（連結不變，舊內容可在雲端硬碟的「版本記錄」找回）。'
+    : '這個主日第一次產生，已新建檔案。');
+  if ((result.file.duplicateCount || 0) > 0) {
+    lines.push('⚠️ 同一個資料夾內還有 ' + result.file.duplicateCount
+      + ' 份同名檔案，系統只更新最舊的一份；請人手整理多餘的檔案。');
+  }
   lines.push(result.file.url);
 
   return lines;

@@ -106,10 +106,14 @@ function buildBulletinModel_(isoDate) {
   //    Word 範本用的是 `FLOWER_THIS_WEEK`／`FLOWER_NEXT_WEEK` 這兩個週欄位，
   //    而它們一直是純人手欄位，跟已讀入的快照完全沒有接通。
   //
-  //    ⚠️ 覆寫用 `DutyOverride`（`POST_ID='FLOWER'`），**不是**
-  //    `FieldOverride`——它本質是崗位，不是內容。
   //    ⚠️ 「下週獻花」對應的是**下一個主日**，與 R-040 同一條規則。
   week = applyFlowerFromRoster_(week, snapshot, nextSnapshot);
+  // 填寫介面獻花欄位旁邊的提示要顯示「職事表的名字」，與上面帶入用同一個
+  // rosterFlowerName_()，不是另外再算一次（階段 1）。
+  var flowerRoster = {
+    thisWeek: rosterFlowerName_(snapshot),
+    nextWeek: rosterFlowerName_(nextSnapshot)
+  };
 
   var program = buildProgramTable_(week, snapshot);
   if (program.inferred && weekRows.length > 0 && Object.keys(week).length > 0) {
@@ -148,6 +152,7 @@ function buildBulletinModel_(isoDate) {
 
   return assembleBulletinModel_({
     isoDate: isoDate,
+    flowerRoster: flowerRoster,
     // R-040：下週事奉那一格寫的是**下一個主日**那一筆 DutyOverride，
     // 所以前端要知道它是哪一日。同一個推算只應該有一處。
     nextIsoDate: nextIsoDate,
@@ -246,6 +251,7 @@ function emptyBulletinModel_(isoDate, overrides) {
     // 第六輪新增：週報與職事表的比對結果（見 src/RosterDiff.gs）。
     rosterDiff: { isoDate: isoDate, rosterVersion: null, snapshotVersion: null, rows: [], conflictCount: 0, followedCount: 0 },
     flowers: { thisWeek: '', nextWeek: '' },
+    flowerRoster: { thisWeek: '', nextWeek: '' },
     announcements: [],
     prayerBlock: { heading: '', items: [] },
     finance: [],
@@ -333,6 +339,10 @@ function assembleBulletinModel_(input) {
   model.flowers = {
     thisWeek: String(week.FLOWER_THIS_WEEK || ''),
     nextWeek: String(week.FLOWER_NEXT_WEEK || '')
+  };
+  model.flowerRoster = {
+    thisWeek: String((input.flowerRoster || {}).thisWeek || ''),
+    nextWeek: String((input.flowerRoster || {}).nextWeek || '')
   };
 
   model.announcements = filterDatedRows_(input.announcementRows, input.targetDate)
@@ -585,6 +595,28 @@ function missingCountSummary_(missing) {
 }
 
 /**
+ * 用途：取出一個主日職事表快照內 `FLOWER` 崗位的名字。**純函式。**
+ *   `applyFlowerFromRoster_()`（帶入獻花）與填寫介面獻花欄位旁邊的提示
+ *   （`model.flowerRoster`）共用這一個——兩邊各算一次就是兩個真相來源。
+ *   一個崗位可以有多位（例如兩家人一齊獻花），用頓號串起來，次序照
+ *   職事表，不重新排序。
+ * Args:
+ *   snap {?Object} 某個主日的職事表快照；可以是 `null` 或 `found` 為假。
+ * Returns:
+ *   {string} 名字；快照缺失、沒有 `FLOWER` 崗位或名字全為空白時回空字串。
+ */
+function rosterFlowerName_(snap) {
+  if (!snap || !snap.found) return '';
+  var slots = (snap.slotsByPost || {}).FLOWER || [];
+  var names = slots.map(function (slot) {
+    var name = (slot.rosterName === undefined || slot.rosterName === null)
+      ? slot.personName : slot.rosterName;
+    return String(name || '').trim();
+  }).filter(function (n) { return n !== ''; });
+  return names.join('、');
+}
+
+/**
  * 用途：**R-042**——把職事表 `FLOWER` 崗位的值帶入獻花兩個週欄位。
  *   **純函式。**
  *
@@ -597,8 +629,9 @@ function missingCountSummary_(missing) {
  *   ⚠️ 第 1 條就是「人手輸入即覆寫」：這裏**不會**用職事表蓋走已填的值。
  *   要跟隨職事表就把那一格清空，下一次載入自然帶入。
  *
- *   ⚠️ 用的是**已經套過 `DutyOverride`** 的快照（呼叫方在上面已經套好），
- *   所以幹事在事奉框改過的獻花人選，這裏帶入的就是改過之後那一個。
+ *   ⚠️ 帶入的是**職事表的名字**（`rosterFlowerName_()`）。獻花崗位不在
+ *   事奉框內（`PostDisplay` 兩頁都不顯示），所以沒有地方可以對它寫
+ *   `DutyOverride`；要改人就直接改獻花那一格——那就是第 1 條。
  * Args:
  *   week {Object} `BulletinWeeks` 那一行。
  *   snapshot {Object} 這一個主日的職事表快照。
@@ -610,23 +643,10 @@ function applyFlowerFromRoster_(week, snapshot, nextSnapshot) {
   var out = {};
   Object.keys(week || {}).forEach(function (k) { out[k] = week[k]; });
 
-  function rosterFlowerName(snap) {
-    if (!snap || !snap.found) return '';
-    var slots = (snap.slotsByPost || {}).FLOWER || [];
-    var names = slots.map(function (slot) {
-      var name = (slot.rosterName === undefined || slot.rosterName === null)
-        ? slot.personName : slot.rosterName;
-      return String(name || '').trim();
-    }).filter(function (n) { return n !== ''; });
-    // 一個崗位可以有多位（例如兩家人一齊獻花）——用頓號串起來，
-    // 次序照職事表，不重新排序。
-    return names.join('、');
-  }
-
   function fill(key, snap) {
     var current = String(out[key] === null || out[key] === undefined ? '' : out[key]).trim();
     if (current !== '') return;              // ⚠️ 人手填過的一格都不動
-    var name = rosterFlowerName(snap);
+    var name = rosterFlowerName_(snap);
     if (name) out[key] = name;
   }
 

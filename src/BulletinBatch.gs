@@ -67,10 +67,17 @@ function bulletinAlreadyGenerated_(weekRow) {
  * Args:
  *   isoDate {string} 主日日期，yyyy-MM-dd。
  *   docId {string} 產生的 `.docx` 在雲端硬碟的檔案 ID。
+ *   audit {{action:string, notes:string}=} 選填，AuditLog 的動作代碼與備註；
+ *     省略就是批次產生那一組。選單與填寫介面存檔時各用自己的代碼，
+ *     事後查得出是哪條路徑更新了「最新 Word」。
  * Returns:
  *   {boolean} 是否成功寫回。
  */
-function recordBulletinGeneration_(isoDate, docId) {
+function recordBulletinGeneration_(isoDate, docId, audit) {
+  var auditInfo = audit || {
+    action: 'BULLETIN_BATCH_GENERATE_ONE',
+    notes: '「產生本季全部週報」批次產生的其中一份。'
+  };
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName(SHEETS.BULLETIN_WEEKS);
   if (!sheet) return false;
@@ -100,13 +107,14 @@ function recordBulletinGeneration_(isoDate, docId) {
     if (!rosterDateMatchesYMD_(cellDate, y, mo, d)) continue;
 
     var rowNo = i + 3;
+    var oldDocId = String(sheet.getRange(rowNo, docIdCol).getValue() || '');
     sheet.getRange(rowNo, docIdCol).setValue(sanitizeCellText_(docId));
     sheet.getRange(rowNo, lastGenCol).setValue(new Date());
 
     appendAuditLog_({
-      action: 'BULLETIN_BATCH_GENERATE_ONE', sheetName: SHEETS.BULLETIN_WEEKS,
-      rowKey: isoDate, field: 'DOC_ID', oldValue: '', newValue: docId,
-      notes: '「產生本季全部週報」批次產生的其中一份。'
+      action: auditInfo.action, sheetName: SHEETS.BULLETIN_WEEKS,
+      rowKey: isoDate, field: 'DOC_ID', oldValue: oldDocId, newValue: docId,
+      notes: auditInfo.notes
     });
     return true;
   }

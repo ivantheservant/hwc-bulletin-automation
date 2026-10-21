@@ -566,15 +566,35 @@ function uniqueOutputFileName_(folder, name, maxAttempts) {
  *   Error 如果 `folderId` 是空的，或資料夾開不到（訊息只含 ID 前 8 字元）。
  */
 function writeOutputFile_(blob, folderId, name) {
+  var folder = openOutputFolder_(folderId, 'writeOutputFile_');
+
+  var finalName = uniqueOutputFileName_(folder, name);
+  var file = folder.createFile(blob.setName(finalName));
+
+  return { fileId: file.getId(), fileName: finalName, url: file.getUrl() };
+}
+
+/**
+ * 用途：開啟輸出資料夾；ID 是空的或開不到就拋出講得明白的錯。
+ *   `writeOutputFile_()` 與 `writeLatestOutputFile_()` 共用，錯誤訊息只有
+ *   這一處。
+ * Args:
+ *   folderId {string} 輸出資料夾 ID（Config 的 `BULLETIN_OUTPUT_FOLDER_ID`）。
+ *   callerName {string} 呼叫方函式名，只用來組空 ID 的訊息。
+ * Returns:
+ *   {Folder}
+ * Raises:
+ *   Error 如果 `folderId` 是空的，或資料夾開不到（訊息只含 ID 前 8 字元）。
+ */
+function openOutputFolder_(folderId, callerName) {
   if (!folderId) {
     throw new Error(
-      'writeOutputFile_：輸出資料夾 ID 是空的。請先在 Config 填入 BULLETIN_OUTPUT_FOLDER_ID。'
+      callerName + '：輸出資料夾 ID 是空的。請先在 Config 填入 BULLETIN_OUTPUT_FOLDER_ID。'
     );
   }
 
-  var folder;
   try {
-    folder = DriveApp.getFolderById(folderId);
+    return DriveApp.getFolderById(folderId);
   } catch (err) {
     throw new Error(
       '無法開啟輸出資料夾（ID 開頭：' + maskFileId_(folderId) + '）：'
@@ -582,9 +602,83 @@ function writeOutputFile_(blob, folderId, name) {
       + '。請檢查 Config 的 BULLETIN_OUTPUT_FOLDER_ID，以及本帳戶有沒有該資料夾的編輯權限。'
     );
   }
+}
 
-  var finalName = uniqueOutputFileName_(folder, name);
-  var file = folder.createFile(blob.setName(finalName));
+/**
+ * 用途：在父資料夾內找指定名稱的子資料夾，找不到就建立。
+ *
+ *   ⚠️ 查詢失敗（`driveListChildrenByName_()` 回 `null`）時**拋錯，不建立**：
+ *   查不到不等於沒有，貿然建立會在同一處留下兩個同名子資料夾，之後
+ *   每一次都不知道該寫進哪一個。
+ * Args:
+ *   parentFolder {Folder} 父資料夾。
+ *   childName {string} 子資料夾名稱（例如季度 ID）。
+ * Returns:
+ *   {Folder} 已存在的（有多個同名時取最舊的一個）或剛建立的。
+ * Raises:
+ *   Error 如果查詢不到子資料夾是否存在。
+ */
+function findOrCreateChildFolder_(parentFolder, childName) {
+  var found = driveListChildrenByName_(parentFolder.getId(), childName, 'folder');
+  if (found === null) {
+    throw new Error(
+      '查不到輸出資料夾內有沒有「' + childName + '」子資料夾（Drive 進階服務未啟用或沒有權限）。'
+      + '為免建立兩個同名的子資料夾，這次沒有寫入任何檔案。'
+    );
+  }
+  if (found.length > 0) return DriveApp.getFolderById(found[0]);
+  return parentFolder.createFolder(childName);
+}
 
-  return { fileId: file.getId(), fileName: finalName, url: file.getUrl() };
+/**
+ * 用途：把週報 Word 存成「這個主日**唯一一份**最新版」：目標資料夾內已有
+ *   同名檔案就原地覆寫內容（檔案 ID 與連結不變），沒有才新建。
+ *
+ *   ⚠️ 與 `writeOutputFile_()` 的分別：後者同名時加 `(2)`、`(3)`，檔案越積越
+ *   多，幹事分不出哪一份是最新；這裏每個主日只有一份，連結永遠有效。
+ *   舊版內容靠 Drive 自己的「版本記錄」找回，系統不另存。
+ *
+ *   ⚠️ 查不到「有沒有同名檔案」（`null`）時**拋錯，不新建**，理由同
+ *   `findOrCreateChildFolder_()`。有多份同名檔案時只覆寫最舊的一份，
+ *   `duplicateCount` 回報多出來的份數，由呼叫方提醒人手整理——系統
+ *   不刪檔。
+ * Args:
+ *   blob {Blob} 要存的檔案。
+ *   folderId {string} 輸出資料夾 ID（Config 的 `BULLETIN_OUTPUT_FOLDER_ID`）。
+ *   name {string} 檔名（完整，不加序號）。
+ *   subFolderName {string=} 子資料夾名稱（通常是季度 ID）；空字串＝直接存
+ *     在輸出資料夾本身。
+ * Returns:
+ *   {{fileId:string, fileName:string, url:string, folderName:string,
+ *     replaced:boolean, duplicateCount:number}}
+ * Raises:
+ *   Error 輸出資料夾空白或開不到、查不到同名檔案、Drive 進階服務出錯。
+ */
+function writeLatestOutputFile_(blob, folderId, name, subFolderName) {
+  var root = openOutputFolder_(folderId, 'writeLatestOutputFile_');
+  var subName = String(subFolderName || '');
+  var target = subName ? findOrCreateChildFolder_(root, subName) : root;
+
+  var existing = driveListChildrenByName_(target.getId(), name, 'file');
+  if (existing === null) {
+    throw new Error(
+      '查不到輸出資料夾內有沒有同名的 Word 檔「' + name + '」（Drive 進階服務未啟用或沒有權限）。'
+      + '為免重複建立多一份，這次沒有寫入。'
+    );
+  }
+
+  if (existing.length === 0) {
+    var created = target.createFile(blob.setName(name));
+    return {
+      fileId: created.getId(), fileName: name, url: created.getUrl(),
+      folderName: subName, replaced: false, duplicateCount: 0
+    };
+  }
+
+  var fileId = existing[0];
+  driveUpdateFileContent_(fileId, blob, name);
+  return {
+    fileId: fileId, fileName: name, url: driveFileViewUrl_(fileId),
+    folderName: subName, replaced: true, duplicateCount: existing.length - 1
+  };
 }

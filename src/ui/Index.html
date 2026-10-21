@@ -232,9 +232,12 @@
       <div class="field-grid">
         <label>本週獻花
           <input type="text" data-field="FLOWER_THIS_WEEK">
+          <!-- 提示的職事表名字由後端算好；前端只挑哪一句（見 Script.html 的 flower-hint）。 -->
+          <span id="flowerThisHint" class="hint"></span>
         </label>
         <label>下週獻花
           <input type="text" data-field="FLOWER_NEXT_WEEK">
+          <span id="flowerNextHint" class="hint"></span>
         </label>
         <label>下週事奉標題
           <input type="text" data-field="NEXT_WEEK_HEADING">
@@ -377,6 +380,11 @@
       <div class="publish-row">
         <button id="downloadWordBtn" type="button" class="btn btn-secondary">下載 Word</button>
       </div>
+      <!-- 雲端硬碟上這個主日的最新 Word；文字與連結都由 Script.html 的 word-file 區段填。 -->
+      <p class="hint" id="wordFileInfo">
+        <span id="wordFileInfoText"></span>
+        <a id="wordFileLink" class="hidden" target="_blank" rel="noopener"></a>
+      </p>
 
       <div class="publish-block">
         <label class="publish-check">

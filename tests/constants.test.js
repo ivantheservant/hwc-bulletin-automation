@@ -177,13 +177,14 @@ test('BulletinWeeks：浸禮副框六欄的中文標題與機器鍵一一對應�
   assert.strictEqual(JSON.stringify(def.headers.slice(-8, -2)), JSON.stringify(expectedHeaders));
 });
 
-test('CONFIG_KEYS 剛好 107 個（與 DEFAULTS 一一對應）', function () {
+test('CONFIG_KEYS 剛好 108 個（與 DEFAULTS 一一對應）', function () {
   // 92 → 91：SEND_TARGET_OFFSET_DAYS 已廢棄（見 docs/已知bug類型.md 事故三十），
   // 已移出 CONFIG_KEYS／DEFAULTS，並加入 cleanupDeprecatedConfigKeys_() 的清單。
   // 2026-08-27 由 98 變 105：R-033 五個（PREVIEW_*）、R-032 兩個。
   // 同日再由 105 變 107：R-035 兩個（RETENTION_QUARTERS_VISIBLE、
   // CONTENT_SHEET_ARCHIVE_FOLDER_ID）。
-  assert.strictEqual(Object.keys(CONFIG_KEYS).length, 107);
+  // 第二批階段 1：+1（OUTPUT_GROUP_BY_QUARTER，Word 按季度分資料夾）。
+  assert.strictEqual(Object.keys(CONFIG_KEYS).length, 108);
 });
 
 test('這一輪新增的 Config 鍵 FINANCE_PERIOD_LABEL_PATTERN 有定義、有預設值', function () {
@@ -216,8 +217,8 @@ test('CONFIG_KEYS 每一個值都有對應的 DEFAULTS 項目（不會有「有�
   });
 });
 
-test('DEFAULTS 剛好 107 筆（105 ＋ R-035 兩個）', function () {
-  assert.strictEqual(DEFAULTS.length, 107);
+test('DEFAULTS 剛好 108 筆（105 ＋ R-035 兩個 ＋ 階段 1 一個）', function () {
+  assert.strictEqual(DEFAULTS.length, 108);
 });
 
 test('內容表那 10 個 Config 鍵齊備，而且 ID 類 seed 成空字串', function () {
