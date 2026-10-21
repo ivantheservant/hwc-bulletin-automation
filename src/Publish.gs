@@ -1760,10 +1760,14 @@ function runPublishFlowLocked_(payload, ctx) {
 /**
  * 用途：第二批測試修正 G22(b)：讀 SendLog 給只寄出的防重複用。
  *
- *   ⚠️ 不可以用 `readSheet()`：TIMESTAMP 欄的型別是 DATE，`readSheet()` 會正規化成當日
- *   零時，時分秒全部丟失，「30 秒之內」就永遠算不到。這裏直接讀儲存格的原值（寫入時是
- *   帶時分秒的 Date），欄位位置照 COLUMNS.SEND_LOG.keys，並核對第 2 行機器鍵。
+ *   直接讀儲存格的原值（寫入時是帶時分秒的 Date），欄位位置照 COLUMNS.SEND_LOG.keys，並核對
+ *   第 2 行機器鍵；只取防重複要用的六欄，其餘欄位有格式不對的格亦不會令寄出失敗。
  *   工作表不存在當作沒有記錄——寄出之後 writeSendLogRows_() 一樣寫不到，屆時會原樣拋錯。
+ *
+ *   G22 補充（改正）：G22(b) 第一版這裏寫「readSheet() 會把 TIMESTAMP 正規化成當日零時」，
+ *   不對。正式環境 readSheet() 的 DATE 欄經 normalizeDate_()，遇到 Date 原樣回傳，時分秒仍在；
+ *   丟失時分秒的是測試的假工作表（tests/helpers/fakeSpreadsheet.js 的 writeCellLikeSheets()
+ *   把 Date 存成 yyyy-MM-dd，為了跨 realm）。所以測時間窗要用假工作表的 keepDateTime。
  * Args: （無）
  * Returns:
  *   {Object[]} 每一行 `{TIMESTAMP, SERVICE_DATE, RECIPIENT_EMAIL, STATUS, DRY_RUN, BATCH_ID}`
@@ -1817,7 +1821,10 @@ function readSendLogRowsForDedup_() {
  *   {?{at:Date, secondsAgo:number, recipientCount:number, dryRun:boolean}} 最近那一批；
  *     不算重複回 `null`。
  * Raises:
- *   （無）
+ *   Error 任何一行 TIMESTAMP 是 Date 而 SERVICE_DATE 不是 Date、也不是 yyyy-MM-dd
+ *     （`normalizeDate_()` 拋出）；或者主日是這一期的一行，DRY_RUN 不是 TRUE／FALSE／是／否
+ *     （`normalizeBoolean_()` 拋出）。SendLog 是系統寫的，正常不會出現；出現的話只寄出會失敗並
+ *     講出那一格的值，不會靜靜略過防重複。
  */
 function findRecentNoticeBatch_(sendLogRows, noticeIsoDate, recipientEmails, nowMs, dedupSec) {
   var seconds = Number(dedupSec);

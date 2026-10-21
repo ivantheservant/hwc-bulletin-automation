@@ -1549,6 +1549,16 @@ test('G22-3 findRecentNoticeBatch_：全部 FAILED 的一批不算（一封都�
   assert.strictEqual(found.recipientCount, 1);
 });
 
+test('G22-5 改正 G22(b) 第一版的說法：正式環境 readSheet() 的 DATE 欄經 normalizeDate_()，Date 原樣回傳、時分秒仍在；丟時分秒的是假工作表（keepDateTime 之外）', function () {
+  const s = makeG22Env().sandbox;
+  const d = s.normalizeDate_('2027-11-07');   // sandbox 那一個 realm 的 Date
+  d.setHours(10, 4, 37);
+  const back = s.normalizeByType_(s.COLUMN_TYPES.DATE, d, { sheet: 'SendLog', key: 'TIMESTAMP', row: 3 });
+  assert.strictEqual(back.getTime(), d.getTime(), 'readSheet() 用的正規化不截時分秒');
+  const { toRealmSafeCellValue } = require('./helpers/fakeSpreadsheet');
+  assert.strictEqual(toRealmSafeCellValue(d), '2027-11-07', '假工作表平常會把 Date 存成日期字串（所以要 keepDateTime）');
+});
+
 test('G22-4 真正入口 apiRunPublish：發佈加寄出（IT）之後，30 秒內只寄出同一期、同一組 → 被擋（DUPLICATE_SEND），SendLog 只有發佈那一批', function () {
   // 上一次發佈要在「現在」之前，剛才那一次發佈才會成為 master 現時那一期（makeG2Env 的
   // PublishLog 日期在 2027 年，比測試執行的真實時間晚）。
