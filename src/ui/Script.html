@@ -360,24 +360,49 @@
   };
 
   /**
-   * 用途：第二批測試修正 G13：「伺服器沒有回應（api 名稱），」之後的一句（可能已經
+   * 用途：第二批測試修正 G13：連線錯誤時「伺服器沒有回應（api 名稱），」之後的一句（可能已經
    *   完成、重新載入了甚麼、要先看哪裏），按重新載入的種類分。每一個種類都要有一句
-   *   （測試逐個核對）。
+   *   （測試逐個核對）。G24：除了儲存，句子到「要先看哪裏」為止，結尾一律接
+   *   NO_RESPONSE_WAIT_ENDING（見 describeNoResponseFailure()）。
    */
   var NO_RESPONSE_CHECK_HINTS = {
     keepForm: '儲存可能已經完成，你的改動仍在畫面上。請再按一次「儲存」：如果系統說「這一週的資料在你載入之後被改過」，即是上一次已經存好，重新載入這一週就會見到。',
-    week: '這個動作可能已經完成。系統已重新載入這一個主日，請先看「最後儲存時間」和「版本記錄」，確認未完成才再做一次。',
+    week: '這個動作可能已經完成。系統已重新載入這一個主日，請先看「最後儲存時間」和「版本記錄」。',
     // G18／G22(a)：發佈加寄出（以及不知道這一次做甚麼）用這一句；只發佈、只寄出見
     // PUBLISH_NO_RESPONSE_HINTS。
-    publish: '這個動作可能已經完成。系統已重新載入頁頂「目前已發佈」，請先看它的主日、版本和發佈時間是否已經是剛才這一次；寄出不會在填寫介面留下記錄，請看試算表的 SendLog 有沒有剛才這一次的寄出記錄。兩樣都確認未完成才再做一次；已經發佈而未寄出的話，再做時只勾「寄出」。',
-    speakerForm: '這個動作可能已經完成。系統已重新載入講員表格的現況，請先看「講員表格」區塊，確認未完成才再做一次。',
-    quarterOps: '這個動作可能已經完成。系統已重新載入季度作業的現況，請先看「季度作業」區塊，確認未完成才再做一次。',
-    quarterImport: '這個動作可能已經完成。系統已重新載入這一個主日和季度作業的現況，請先看「季度作業」區塊，確認未完成才再做一次。'
+    publish: '這個動作可能已經完成。系統已重新載入頁頂「目前已發佈」，請先看它的主日、版本和發佈時間是否已經是剛才這一次；寄出不會在填寫介面留下記錄，請看試算表的 SendLog 有沒有剛才這一次的寄出記錄。',
+    speakerForm: '這個動作可能已經完成。系統已重新載入講員表格的現況，請先看「講員表格」區塊。',
+    quarterOps: '這個動作可能已經完成。系統已重新載入季度作業的現況，請先看「季度作業」區塊。',
+    quarterImport: '這個動作可能已經完成。系統已重新載入這一個主日和季度作業的現況，請先看「季度作業」區塊。'
   };
 
   /**
+   * 用途：第二批測試修正 G24：逾時那一句要寫「重新載入頁面之後看哪裏核對」，按種類分
+   *   （儲存另有自己的一句，不在這裏）。
+   */
+  var NO_RESPONSE_CHECK_WHERE = {
+    week: '「最後儲存時間」和「版本記錄」',
+    publish: '頁頂「目前已發佈」和試算表的 SendLog',
+    speakerForm: '「講員表格」區塊',
+    quarterOps: '「季度作業」區塊',
+    quarterImport: '「季度作業」區塊'
+  };
+
+  /**
+   * 用途：第二批測試修正 G24：連線錯誤時，寫入類（儲存除外）提示句的結尾。
+   *
+   *   以前結尾是「確認未完成才再做一次」，但連線斷了之後伺服器多數仍在處理（上限約 6 分鐘），
+   *   20 秒之後重新載入看不到結果，不等於沒有做；建立講員表格、建立內容表、建立本季週報、
+   *   寄出內容表連結這幾個沒有防重複，照提示再做就會重複。所以改叫人等 5 分鐘再核對。
+   */
+  var NO_RESPONSE_WAIT_ENDING = '如果仍未見到結果，伺服器可能仍在處理，請等 5 分鐘再重新載入核對，不要即時再做一次。';
+
+  /** 第二批測試修正 G24：儲存逾時的一句（連線錯誤用 NO_RESPONSE_CHECK_HINTS.keepForm）。 */
+  var KEEP_FORM_TIMEOUT_HINT = '伺服器可能仍在處理，你的改動仍在畫面上。請等一兩分鐘才再按「儲存」：如果系統說「這一週的資料在你載入之後被改過」，即是上一次已經存好，重新載入這一週就會見到。';
+
+  /**
    * 用途：第二批測試修正 G18／G22(a)：發佈（apiRunPublish）沒有回應時，按這一次做甚麼
-   *   選提示句（見 noResponseCheckHint()）。核對的地方按實情寫：
+   *   選提示句（見 noResponseHintParts()）。核對的地方按實情寫：
    *     發佈會改頁頂「目前已發佈」（主日、第幾版、發佈時間、由誰），「版本記錄」上方的
    *       發佈記錄亦多一版；不會改「最後儲存時間」。
    *     寄出（包括只寄出）只寫試算表的 SendLog（每個收件人一行，模擬模式亦寫）與 AuditLog，
@@ -385,29 +410,50 @@
    *   發佈加寄出用 NO_RESPONSE_CHECK_HINTS.publish。
    */
   var PUBLISH_NO_RESPONSE_HINTS = {
-    publishOnly: '這個動作可能已經完成。系統已重新載入頁頂「目前已發佈」，請先看它的主日、版本和發佈時間是否已經是剛才這一次（「版本記錄」上方的發佈記錄亦會多一版），確認未完成才再做一次。',
-    sendOnly: '這個動作可能已經完成。寄出不會在填寫介面留下記錄，請先看試算表的 SendLog 有沒有剛才這一次的寄出記錄（模擬模式亦會記錄），確認未寄出才再寄；不要即時再按一次，以免重複寄信。'
+    publishOnly: '這個動作可能已經完成。系統已重新載入頁頂「目前已發佈」，請先看它的主日、版本和發佈時間是否已經是剛才這一次（「版本記錄」上方的發佈記錄亦會多一版）。',
+    sendOnly: '這個動作可能已經完成。寄出不會在填寫介面留下記錄，請先看試算表的 SendLog 有沒有剛才這一次的寄出記錄（模擬模式亦會記錄）。',
+    // G24：只寄出的結尾（只寄出沒有重新載入甚麼，核對的是 SendLog；伺服器端防重複只有
+    // PUBLISH_DEDUP_SEC 秒，等 5 分鐘之後再寄就會再寄一封）。
+    sendOnlyEnding: '如果仍未見到記錄，伺服器可能仍在處理，請等 5 分鐘再看一次，不要即時再寄，以免重複寄信。',
+    // 發佈加寄出：發佈可能已經做了而寄出未做，再做時要避免多發佈一版。
+    bothNote: '已經發佈而未寄出的話，再做時只勾「寄出」。'
   };
 
   /**
-   * 用途：第二批測試修正 G18／G22(a)：寫入類動作沒有回應時，「伺服器沒有回應（…），」之後
-   *   的一句。發佈按 payload 的 doPublish／doSend 分（PUBLISH_NO_RESPONSE_HINTS），其餘按
-   *   種類（NO_RESPONSE_CHECK_HINTS）。
+   * 用途：第二批測試修正 G18／G22(a)／G24：寫入類動作（儲存除外）沒有回應時提示句的各部分。
+   *   發佈按 payload 的 doPublish／doSend 分（PUBLISH_NO_RESPONSE_HINTS），其餘按種類
+   *   （NO_RESPONSE_CHECK_HINTS、NO_RESPONSE_CHECK_WHERE）。
    * Args:
-   *   kind {string} writeActionRecoveryKind() 的結果。
+   *   kind {string} writeActionRecoveryKind() 的結果（不是 keepForm）。
    *   args {Array=} 呼叫伺服器時的參數；發佈用第一個（payload）。
    * Returns:
-   *   {string}
+   *   {{hint:string, where:string, ending:string, noRedo:string, note:string}}
+   *     hint：連線錯誤時「伺服器沒有回應（…），」之後到「要先看哪裏」為止；
+   *     where：逾時時「重新載入頁面，再看」之後的地方；ending：連線錯誤的結尾；
+   *     noRedo：逾時那一句「不要即時再…」；note：兩種都在最後加的一句（可以是空字串）。
    * Raises:
    *   （無）
    */
-  function noResponseCheckHint(kind, args) {
+  function noResponseHintParts(kind, args) {
+    var parts = {
+      hint: NO_RESPONSE_CHECK_HINTS[kind], where: NO_RESPONSE_CHECK_WHERE[kind] || '',
+      ending: NO_RESPONSE_WAIT_ENDING, noRedo: '不要即時再做一次', note: ''
+    };
     if (kind === 'publish') {
       var p = (args && args[0]) || {};
-      if (p.doPublish === true && p.doSend !== true) return PUBLISH_NO_RESPONSE_HINTS.publishOnly;
-      if (p.doSend === true && p.doPublish !== true) return PUBLISH_NO_RESPONSE_HINTS.sendOnly;
+      if (p.doPublish === true && p.doSend !== true) {
+        parts.hint = PUBLISH_NO_RESPONSE_HINTS.publishOnly;
+        parts.where = '頁頂「目前已發佈」';
+      } else if (p.doSend === true && p.doPublish !== true) {
+        parts.hint = PUBLISH_NO_RESPONSE_HINTS.sendOnly;
+        parts.where = '試算表的 SendLog';
+        parts.ending = PUBLISH_NO_RESPONSE_HINTS.sendOnlyEnding;
+        parts.noRedo = '不要即時再寄，以免重複寄信';
+      } else {
+        parts.note = PUBLISH_NO_RESPONSE_HINTS.bothNote;
+      }
     }
-    return NO_RESPONSE_CHECK_HINTS[kind];
+    return parts;
   }
 
   /**
@@ -420,8 +466,11 @@
    */
   var NO_RESPONSE_RELOAD_DELAY_MS = 20000;
 
-  /** 第二批測試修正 G13：寫入類動作沒有回應時，ErrorLog 的 CLIENT_ERROR 內容後面加的一句。 */
+  /** 第二批測試修正 G13：寫入類動作連線錯誤時，ErrorLog 的 CLIENT_ERROR 內容後面加的一句。 */
   var NO_RESPONSE_LOG_NOTE = '（連線錯誤，動作可能已完成）';
+
+  /** 第二批測試修正 G24：寫入類動作逾時時，ErrorLog 的 CLIENT_ERROR 內容後面加的一句。 */
+  var TIMEOUT_LOG_NOTE = '（逾時，動作可能仍在處理）';
 
   /**
    * 用途：第二批測試修正 G13：這個伺服器函式是不是寫入類；是的話回傳「沒有回應」
@@ -546,17 +595,37 @@
 
   /**
    * 用途：第二批測試修正 G13：寫入類動作「伺服器沒有回應」時給使用者看的一句。
+   *
+   *   G24：按情況分兩種。連線錯誤（例如 HTTP 502）：「伺服器沒有回應（…），這個動作可能
+   *   已經完成。……請先看〈地方〉。如果仍未見到結果，伺服器可能仍在處理，請等 5 分鐘再
+   *   重新載入核對，不要即時再做一次。」；callServer() 自己逾時：「伺服器在 N 秒內沒有
+   *   回應（…），伺服器可能仍在處理（最長約 6 分鐘）。請等 6 分鐘後重新載入頁面，再看
+   *   〈地方〉核對，不要即時再做一次；亦可請 IT 看 Apps Script 的「執行項目」。」。
+   *   儲存各有一句（NO_RESPONSE_CHECK_HINTS.keepForm、KEEP_FORM_TIMEOUT_HINT）。
    * Args:
    *   fnName {string} 伺服器函式名稱（寫在括號內，方便對照 ErrorLog）。
    *   kind {string} writeActionRecoveryKind() 的結果（必須是 NO_RESPONSE_CHECK_HINTS 的鍵）。
    *   args {Array=} 呼叫伺服器時的參數（G18：發佈按這一次做甚麼選句子）。
+   *   timedOut {boolean=} true 是 callServer() 自己的逾時；否則當作連線錯誤。
+   *   seconds {number=} 逾時秒數（serverCallTimeoutMs() 換算），逾時才用。
    * Returns:
    *   {string}
    * Raises:
    *   （無）
    */
-  function describeNoResponseFailure(fnName, kind, args) {
-    return '伺服器沒有回應（' + fnName + '），' + noResponseCheckHint(kind, args);
+  function describeNoResponseFailure(fnName, kind, args, timedOut, seconds) {
+    if (kind === 'keepForm') {
+      return timedOut
+        ? '伺服器在 ' + seconds + ' 秒內沒有回應（' + fnName + '），' + KEEP_FORM_TIMEOUT_HINT
+        : '伺服器沒有回應（' + fnName + '），' + NO_RESPONSE_CHECK_HINTS.keepForm;
+    }
+    var parts = noResponseHintParts(kind, args);
+    if (timedOut) {
+      return '伺服器在 ' + seconds + ' 秒內沒有回應（' + fnName + '），伺服器可能仍在處理（最長約 6 分鐘）。'
+        + '請等 6 分鐘後重新載入頁面，再看' + parts.where + '核對，' + parts.noRedo
+        + '；亦可請 IT 看 Apps Script 的「執行項目」。' + parts.note;
+    }
+    return '伺服器沒有回應（' + fnName + '），' + parts.hint + parts.ending + parts.note;
   }
 
   /**
@@ -660,10 +729,14 @@
       // 之後亦可能已經完成。訊息改講「可能已經完成」，等一會再重新載入給使用者核對。
       var recoveryKind = writeActionRecoveryKind(fnName);
       if (recoveryKind && isNoResponseFailure(err)) {
-        var noResponseMessage = describeNoResponseFailure(fnName, recoveryKind, args);
+        // G24：逾時與連線錯誤用不同的一句。
+        var timedOut = Boolean(err && err.timedOut === true);
+        var noResponseMessage = describeNoResponseFailure(fnName, recoveryKind, args, timedOut,
+          Math.round(serverCallTimeoutMs() / 1000));
         // 回報即時送出（不等那一段等候），ErrorLog 保留原本的錯誤內容。
         if (!opts.noReport) {
-          reportClientError_(describeServerFailure(fnName, err) + NO_RESPONSE_LOG_NOTE, stackSummary(err), fnName);
+          reportClientError_(describeServerFailure(fnName, err) + (timedOut ? TIMEOUT_LOG_NOTE : NO_RESPONSE_LOG_NOTE),
+            stackSummary(err), fnName);
         }
         var deliverNoResponse = function () {
           if (opts.onError) opts.onError(noResponseMessage, err);
@@ -690,8 +763,9 @@
     timer = setTimeout(function () {
       var timeout = describeCallTimeout(fnName, Math.round(serverCallTimeoutMs() / 1000));
       var timeoutErr = new Error(timeout.text);
-      // G13：逾時同樣是「沒有回應」，寫入類動作走同一條補救。
+      // G13：逾時同樣是「沒有回應」，寫入類動作走同一條補救。G24：帶 timedOut，句子另寫。
       timeoutErr.noResponse = true;
+      timeoutErr.timedOut = true;
       timeoutErr.showAsIs = timeout.showAsIs;
       fail(timeoutErr);
     }, serverCallTimeoutMs());

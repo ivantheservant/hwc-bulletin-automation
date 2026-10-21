@@ -292,13 +292,24 @@ const DIFF_OK = { ok: true, data: { createdAt: '2026-10-22 08:00', reasonLabel: 
 
 const EXPECTED_SAVE_MESSAGE = '伺服器沒有回應（apiSaveWeek），儲存可能已經完成，你的改動仍在畫面上。請再按一次「儲存」：如果系統說「這一週的資料在你載入之後被改過」，即是上一次已經存好，重新載入這一週就會見到。';
 
+// G24 改了以下幾句的結尾：不再叫人「確認未完成才再做一次」，改叫人等 5 分鐘再核對、不要即時再做。
+const WAIT_ENDING = '如果仍未見到結果，伺服器可能仍在處理，請等 5 分鐘再重新載入核對，不要即時再做一次。';
 const EXPECTED_SEND_ONLY_MESSAGE = '伺服器沒有回應（apiRunPublish），這個動作可能已經完成。寄出不會在填寫介面留下記錄，'
-  + '請先看試算表的 SendLog 有沒有剛才這一次的寄出記錄（模擬模式亦會記錄），確認未寄出才再寄；不要即時再按一次，以免重複寄信。';
+  + '請先看試算表的 SendLog 有沒有剛才這一次的寄出記錄（模擬模式亦會記錄）。'
+  + '如果仍未見到記錄，伺服器可能仍在處理，請等 5 分鐘再看一次，不要即時再寄，以免重複寄信。';
 const EXPECTED_PUBLISH_ONLY_MESSAGE = '伺服器沒有回應（apiRunPublish），這個動作可能已經完成。系統已重新載入頁頂「目前已發佈」，'
-  + '請先看它的主日、版本和發佈時間是否已經是剛才這一次（「版本記錄」上方的發佈記錄亦會多一版），確認未完成才再做一次。';
+  + '請先看它的主日、版本和發佈時間是否已經是剛才這一次（「版本記錄」上方的發佈記錄亦會多一版）。' + WAIT_ENDING;
 const EXPECTED_PUBLISH_AND_SEND_MESSAGE = '伺服器沒有回應（apiRunPublish），這個動作可能已經完成。系統已重新載入頁頂「目前已發佈」，'
   + '請先看它的主日、版本和發佈時間是否已經是剛才這一次；寄出不會在填寫介面留下記錄，請看試算表的 SendLog 有沒有剛才這一次的寄出記錄。'
-  + '兩樣都確認未完成才再做一次；已經發佈而未寄出的話，再做時只勾「寄出」。';
+  + WAIT_ENDING + '已經發佈而未寄出的話，再做時只勾「寄出」。';
+const EXPECTED_SAVE_TIMEOUT_MESSAGE = '伺服器在 120 秒內沒有回應（apiSaveWeek），伺服器可能仍在處理，你的改動仍在畫面上。'
+  + '請等一兩分鐘才再按「儲存」：如果系統說「這一週的資料在你載入之後被改過」，即是上一次已經存好，重新載入這一週就會見到。';
+
+/** G24：寫入類（儲存除外）逾時的一句。where 是重新載入頁面之後要看的地方。 */
+function expectedTimeoutMessage(fnName, where, noRedo, note) {
+  return '伺服器在 120 秒內沒有回應（' + fnName + '），伺服器可能仍在處理（最長約 6 分鐘）。請等 6 分鐘後重新載入頁面，再看'
+    + where + '核對，' + (noRedo || '不要即時再做一次') + '；亦可請 IT 看 Apps Script 的「執行項目」。' + (note || '');
+}
 
 /** 已選好這一週的 PDF、按「執行」，伺服器收到 HTTP 502，等候時間到。 */
 function publishWith502(ui, doPublish, doSend) {
@@ -314,18 +325,21 @@ function publishWith502(ui, doPublish, doSend) {
 }
 
 function expectedWeekMessage(fnName) {
-  return '伺服器沒有回應（' + fnName + '），這個動作可能已經完成。系統已重新載入這一個主日，請先看「最後儲存時間」和「版本記錄」，確認未完成才再做一次。';
+  return '伺服器沒有回應（' + fnName + '），這個動作可能已經完成。系統已重新載入這一個主日，請先看「最後儲存時間」和「版本記錄」。' + WAIT_ENDING;
 }
 
-/** 斷言：apiLogClientError 收到原本的錯誤內容，加上「（連線錯誤，動作可能已完成）」。 */
-function assertReportedAsNoResponse(ui, fnName, rawFragment) {
+/**
+ * 斷言：apiLogClientError 收到原本的錯誤內容，加上「（連線錯誤，動作可能已完成）」；
+ * G24：逾時（timedOut）加的是「（逾時，動作可能仍在處理）」。
+ */
+function assertReportedAsNoResponse(ui, fnName, rawFragment, timedOut) {
   const reports = ui.calls.filter(function (c) { return c.name === 'apiLogClientError'; });
   assert.strictEqual(reports.length, 1, '要即時回報一次 ErrorLog');
   const payload = reports[0].args[0];
   assert.strictEqual(payload.functionName, fnName);
   assert.ok(payload.message.indexOf('呼叫伺服器失敗（' + fnName + '）：') === 0, payload.message);
   assert.ok(payload.message.indexOf(rawFragment) !== -1, '要保留原本的錯誤內容：' + payload.message);
-  assert.ok(payload.message.endsWith('（連線錯誤，動作可能已完成）'), payload.message);
+  assert.ok(payload.message.endsWith(timedOut ? '（逾時，動作可能仍在處理）' : '（連線錯誤，動作可能已完成）'), payload.message);
 }
 
 // =====================================================================
@@ -492,7 +506,7 @@ test('G13-5 季度作業「建立本季空白週報」按「確定」→ apiRunC
   ui.click('confirmOkBtn');
   ui.take('apiRunCreateWeeks').fail(new Error(NETWORK_502));
   ui.timers.run(ui.delayMs);
-  const expected = '伺服器沒有回應（apiRunCreateWeeks），這個動作可能已經完成。系統已重新載入季度作業的現況，請先看「季度作業」區塊，確認未完成才再做一次。';
+  const expected = '伺服器沒有回應（apiRunCreateWeeks），這個動作可能已經完成。系統已重新載入季度作業的現況，請先看「季度作業」區塊。' + WAIT_ENDING;
   assert.strictEqual(ui.els.quarterOpsMessage.textContent, expected);
   assert.deepStrictEqual(ui.message(), { type: 'error', text: expected });
   assert.strictEqual(ui.log.quarterOpsPanel, 1);
@@ -505,7 +519,7 @@ test('G13-6 「建立講員表格」按「確定」→ apiCreateSpeakerForm 收�
   ui.click('confirmOkBtn');
   ui.take('apiCreateSpeakerForm').fail(new Error(NETWORK_502));
   ui.timers.run(ui.delayMs);
-  assert.deepStrictEqual(ui.message(), { type: 'error', text: '伺服器沒有回應（apiCreateSpeakerForm），這個動作可能已經完成。系統已重新載入講員表格的現況，請先看「講員表格」區塊，確認未完成才再做一次。' });
+  assert.deepStrictEqual(ui.message(), { type: 'error', text: '伺服器沒有回應（apiCreateSpeakerForm），這個動作可能已經完成。系統已重新載入講員表格的現況，請先看「講員表格」區塊。' + WAIT_ENDING });
   assert.strictEqual(ui.log.speakerStatus, 1);
   assert.strictEqual(ui.count('apiLoadWeek'), 0);
 });
@@ -530,20 +544,21 @@ test('G13-7 其他看來是連線問題的錯誤：Failed to fetch、timed out�
   });
 
   // callServer() 自己的逾時（120 秒內沒有回應）：寫入類同樣當作「沒有回應」。
+  // G24 改了預期：逾時用另一句（伺服器可能仍在處理、等 6 分鐘、執行項目）。
   const ui = makeUi();
   ui.click('resetWeekBtn');
   ui.click('confirmOkBtn');
   assert.strictEqual(ui.timers.run(120000), 1, '前提：逾時計時器是 120 秒');
-  assertReportedAsNoResponse(ui, 'apiResetWeek', '秒內沒有回應');
+  assertReportedAsNoResponse(ui, 'apiResetWeek', '秒內沒有回應', true);
   ui.timers.run(ui.delayMs);
-  assert.deepStrictEqual(ui.message(), { type: 'error', text: expectedWeekMessage('apiResetWeek') });
+  assert.deepStrictEqual(ui.message(), { type: 'error', text: expectedTimeoutMessage('apiResetWeek', '「最後儲存時間」和「版本記錄」') });
   assert.strictEqual(ui.count('apiLoadWeek'), 1);
 
   const save = makeUi();
   save.click('saveBtn');
   assert.strictEqual(save.timers.run(120000), 1);
-  assertReportedAsNoResponse(save, 'apiSaveWeek', '秒內沒有回應');
-  assert.deepStrictEqual(save.message(), { type: 'error', text: EXPECTED_SAVE_MESSAGE });
+  assertReportedAsNoResponse(save, 'apiSaveWeek', '秒內沒有回應', true);
+  assert.deepStrictEqual(save.message(), { type: 'error', text: EXPECTED_SAVE_TIMEOUT_MESSAGE });
   assert.strictEqual(save.count('apiLoadWeek'), 0);
   assert.strictEqual(save.els.saveBtn.disabled, false);
 });
@@ -991,11 +1006,81 @@ test('G18-2 只寄出 → 502 → 叫人看 SendLog、不要即時再按；發�
   assertWrittenChinese(assert, 'G18 發佈提示', [EXPECTED_SEND_ONLY_MESSAGE, EXPECTED_PUBLISH_ONLY_MESSAGE, EXPECTED_PUBLISH_AND_SEND_MESSAGE]);
 });
 
-test('G18-3 noResponseCheckHint()：不知道這一次做甚麼（沒有 payload）時用發佈加寄出那一句；其他種類不看 payload', function () {
+test('G18-3 describeNoResponseFailure()：不知道這一次做甚麼（沒有 payload）時用發佈加寄出那一句；其他種類不看 payload', function () {
   const ui = makeUi();
-  assert.strictEqual('伺服器沒有回應（apiRunPublish），' + ui.ctx.noResponseCheckHint('publish', []), EXPECTED_PUBLISH_AND_SEND_MESSAGE);
-  assert.strictEqual('伺服器沒有回應（apiRunPublish），' + ui.ctx.noResponseCheckHint('publish'), EXPECTED_PUBLISH_AND_SEND_MESSAGE);
-  assert.strictEqual(ui.ctx.noResponseCheckHint('week', [{ doPublish: true }]), ui.ctx.NO_RESPONSE_CHECK_HINTS.week);
+  assert.strictEqual(ui.ctx.describeNoResponseFailure('apiRunPublish', 'publish', []), EXPECTED_PUBLISH_AND_SEND_MESSAGE);
+  assert.strictEqual(ui.ctx.describeNoResponseFailure('apiRunPublish', 'publish'), EXPECTED_PUBLISH_AND_SEND_MESSAGE);
+  assert.strictEqual(ui.ctx.describeNoResponseFailure('apiResetWeek', 'week', [{ doPublish: true }]), expectedWeekMessage('apiResetWeek'));
+});
+
+// =====================================================================
+// G24：寫入類沒有回應的結尾，按連線錯誤與逾時分
+// =====================================================================
+
+console.log('\n寫入類沒有回應的結尾（G24）');
+
+test('G24-1 連線錯誤：每一個寫入種類（儲存除外）的句子都以「如果仍未見到結果……不要即時再做一次。」作結（只寄出改講再寄），不再有「確認未完成才再做一次」', function () {
+  const ui = makeUi();
+  ['week', 'publish', 'speakerForm', 'quarterOps', 'quarterImport'].forEach(function (kind) {
+    const text = ui.ctx.describeNoResponseFailure('apiX', kind, []);
+    assert.ok(text.indexOf('確認未完成才再做一次') === -1, kind + '：' + text);
+    assert.ok(text.indexOf(WAIT_ENDING) !== -1, kind + '：' + text);
+  });
+  assert.strictEqual(EXPECTED_SEND_ONLY_MESSAGE.indexOf('確認未'), -1);
+  const codeLines = readSrc('src/ui/Script.html').split('\n').filter(function (line) {
+    const t = line.trim();
+    return !(t.indexOf('*') === 0 || t.indexOf('//') === 0);
+  });
+  assert.strictEqual(codeLines.join('\n').indexOf('確認未完成才再做一次'), -1, 'Script.html 的程式碼內不再有這一句（註解講歷史除外）');
+  assertWrittenChinese(assert, 'G24 連線錯誤結尾', [WAIT_ENDING, EXPECTED_SEND_ONLY_MESSAGE, EXPECTED_PUBLISH_AND_SEND_MESSAGE]);
+});
+
+test('G24-2 逾時（120 秒）：建立講員表格、季度作業、只寄出、發佈加寄出都講「伺服器可能仍在處理（最長約 6 分鐘）……請等 6 分鐘後重新載入頁面……執行項目」；秒數跟 Config', function () {
+  const speaker = makeUi();
+  speaker.click('speakerFormCreateBtn');
+  speaker.click('confirmOkBtn');
+  speaker.take('apiCreateSpeakerForm');
+  speaker.timers.run(120000);
+  speaker.timers.run(speaker.delayMs);
+  assert.deepStrictEqual(speaker.message(), { type: 'error', text: expectedTimeoutMessage('apiCreateSpeakerForm', '「講員表格」區塊') });
+  assert.strictEqual(speaker.log.speakerStatus, 1, '照舊重新載入講員表格的現況');
+
+  const ops = makeUi();
+  ops.click('opCreateWeeksBtn');
+  ops.take('apiPreviewCreateWeeks').ok({ ok: true, data: { ok: true, title: '建立本季空白週報', lines: ['會新增 13 個主日。'] } });
+  ops.click('confirmOkBtn');
+  ops.take('apiRunCreateWeeks');
+  ops.timers.run(120000);
+  ops.timers.run(ops.delayMs);
+  assert.strictEqual(ops.els.quarterOpsMessage.textContent, expectedTimeoutMessage('apiRunCreateWeeks', '「季度作業」區塊'));
+
+  const send = makeUi();
+  send.els.doSendCheck.checked = true;
+  send.click('publishRunBtn');
+  send.take('apiRunPublish');
+  send.timers.run(120000);
+  send.timers.run(send.delayMs);
+  assert.deepStrictEqual(send.message(), { type: 'error', text: expectedTimeoutMessage('apiRunPublish', '試算表的 SendLog', '不要即時再寄，以免重複寄信') });
+
+  const both = makeUi();
+  assert.strictEqual(both.ctx.describeNoResponseFailure('apiRunPublish', 'publish', [{ doPublish: true, doSend: true }], true, 120),
+    expectedTimeoutMessage('apiRunPublish', '頁頂「目前已發佈」和試算表的 SendLog', null, '已經發佈而未寄出的話，再做時只勾「寄出」。'));
+  assert.ok(both.ctx.describeNoResponseFailure('apiResetWeek', 'week', [], true, 90).indexOf('伺服器在 90 秒內沒有回應（apiResetWeek）') === 0);
+  assertWrittenChinese(assert, 'G24 逾時', [expectedTimeoutMessage('apiCreateSpeakerForm', '「講員表格」區塊'), EXPECTED_SAVE_TIMEOUT_MESSAGE]);
+});
+
+test('G24-3 儲存：連線錯誤照舊即時再按（G23 之後第二次要等第一次寫完才讀，會回 STALE）；逾時講「伺服器可能仍在處理，請等一兩分鐘才再按「儲存」」', function () {
+  const conn = makeUi();
+  conn.click('saveBtn');
+  conn.take('apiSaveWeek').fail(new Error(NETWORK_502));
+  assert.deepStrictEqual(conn.message(), { type: 'error', text: EXPECTED_SAVE_MESSAGE });
+
+  const slow = makeUi();
+  slow.click('saveBtn');
+  slow.timers.run(120000);
+  assert.deepStrictEqual(slow.message(), { type: 'error', text: EXPECTED_SAVE_TIMEOUT_MESSAGE });
+  assert.strictEqual(slow.timers.pending(slow.delayMs), 0, '儲存照舊不等候、不重新載入');
+  assert.strictEqual(slow.els.saveBtn.disabled, false);
 });
 
 // =====================================================================
@@ -1062,16 +1147,16 @@ test('G17-3 按「下載 Word」（真正的 downloadWord()）120 秒沒有回�
   assertWrittenChinese(assert, 'G17 下載逾時', [EXPECTED_DOWNLOAD_TIMEOUT]);
 });
 
-test('G17-4 寫入類逾時照舊：「還原到這個版本」按確定之後 120 秒沒有回應 → 等候、重新載入、「可能已經完成」那一句；ErrorLog 記原本「可能已經做了」那一句加連線錯誤註記', function () {
+test('G17-4 寫入類逾時不跟讀取類：「還原到這個版本」按確定之後 120 秒沒有回應 → 等候、重新載入、寫入類逾時那一句（G24）；ErrorLog 記原本「可能已經做了」那一句加逾時註記', function () {
   const ui = makeUi();
   clickRestoreButton(ui, 'SNAP-1');
   ui.take('apiDiffWeekSnapshot').ok(DIFF_OK);
   ui.click('confirmOkBtn');
   ui.take('apiRestoreWeekSnapshot');
   ui.timers.run(120000);
-  assertReportedAsNoResponse(ui, 'apiRestoreWeekSnapshot', '這一次的動作可能已經做了、也可能沒有做');
+  assertReportedAsNoResponse(ui, 'apiRestoreWeekSnapshot', '這一次的動作可能已經做了、也可能沒有做', true);
   assert.strictEqual(ui.timers.run(ui.delayMs), 1, '寫入類照舊等候之後重新載入');
-  assert.deepStrictEqual(ui.message(), { type: 'error', text: expectedWeekMessage('apiRestoreWeekSnapshot') });
+  assert.deepStrictEqual(ui.message(), { type: 'error', text: expectedTimeoutMessage('apiRestoreWeekSnapshot', '「最後儲存時間」和「版本記錄」') });
   assert.deepStrictEqual(ui.take('apiLoadWeek').args, [D]);
 });
 
