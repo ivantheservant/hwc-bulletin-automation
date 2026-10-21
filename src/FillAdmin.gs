@@ -499,8 +499,7 @@ function protectedSheetNames_() {
  */
 function applySheetProtection_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var editors = getConfigTextList_(CONFIG_KEYS.PROTECTION_EDITOR_EMAILS, '')
-    .filter(function (e) { return e.indexOf('@') !== -1; });
+  var editors = sheetProtectionEditors_();
 
   var protectedCount = 0;
   var skipped = [];
@@ -509,14 +508,7 @@ function applySheetProtection_() {
     var sheet = ss.getSheetByName(name);
     if (!sheet) { skipped.push(name); return; }
 
-    // 先移走本系統之前設過的保護，避免重複疊加。
-    sheet.getProtections(SpreadsheetApp.ProtectionType.SHEET).forEach(function (p) {
-      if (p.canEdit()) p.remove();
-    });
-
-    var protection = sheet.protect().setDescription('週報系統：系統維護用工作表，請勿人手編輯');
-    protection.removeEditors(protection.getEditors());
-    if (editors.length > 0) protection.addEditors(editors);
+    protectSheetForSystem_(sheet, editors);
     protectedCount++;
   });
 
@@ -527,6 +519,116 @@ function applySheetProtection_() {
   });
 
   return { protectedCount: protectedCount, skipped: skipped, editors: editors };
+}
+
+/**
+ * 用途：受保護工作表的例外編輯者（Config `PROTECTION_EDITOR_EMAILS`，不合法的
+ *   電郵——沒有 `@`——濾走）。`applySheetProtection_()` 與初始化新建工作表的
+ *   保護共用。
+ * Args: （無）
+ * Returns:
+ *   {string[]}
+ */
+function sheetProtectionEditors_() {
+  return getConfigTextList_(CONFIG_KEYS.PROTECTION_EDITOR_EMAILS, '')
+    .filter(function (e) { return e.indexOf('@') !== -1; });
+}
+
+/**
+ * 用途：替一張工作表套用本系統的保護：先移走本系統之前設過的保護（避免重複
+ *   疊加），再設「只有擁有者與例外編輯者可以改」。選單「設定工作表保護」與
+ *   「初始化工作表」新建的表共用這一支，保護只有一套。
+ * Args:
+ *   sheet {Sheet} 要保護的工作表。
+ *   editors {string[]} 例外編輯者（`sheetProtectionEditors_()`）。
+ * Returns:
+ *   {void}
+ * Raises:
+ *   Error Google 拒絕設定保護時（例如沒有權限）原樣拋出。
+ */
+function protectSheetForSystem_(sheet, editors) {
+  sheet.getProtections(SpreadsheetApp.ProtectionType.SHEET).forEach(function (p) {
+    if (p.canEdit()) p.remove();
+  });
+
+  var protection = sheet.protect().setDescription('週報系統：系統維護用工作表，請勿人手編輯');
+  protection.removeEditors(protection.getEditors());
+  if ((editors || []).length > 0) protection.addEditors(editors);
+}
+
+/**
+ * 用途：第二批測試修正 G8：「初始化工作表」這一次**新建**的工作表，如果在
+ *   `protectedSheetNames_()` 之內，建立後即時套用同一套保護。**既有的表一張都
+ *   不動**（那些由選單「設定工作表保護」處理，幹事可能有理由暫時解除）。
+ *
+ *   ⚠️ 某一張設定失敗不會令初始化失敗——工作表已經建好，回「初始化失敗」是
+ *   講一句與事實相反的話。失敗的逐張記進 `ErrorLog`，並回傳給呼叫方顯示。
+ * Args:
+ *   ss {Spreadsheet} 週報試算表。
+ *   createdNames {string[]} 這一次初始化新建的工作表名稱。
+ * Returns:
+ *   {{protectedNames:string[], failed:{name:string, message:string}[]}}
+ */
+function protectNewlyCreatedSheets_(ss, createdNames) {
+  var wanted = protectedSheetNames_();
+  var targets = (createdNames || []).filter(function (name) { return wanted.indexOf(name) !== -1; });
+  var result = { protectedNames: [], failed: [] };
+  if (targets.length === 0) return result;
+
+  var editors = sheetProtectionEditors_();
+  targets.forEach(function (name) {
+    var sheet = ss.getSheetByName(name);
+    if (!sheet) {
+      result.failed.push({ name: name, message: '剛建立的工作表找不到。' });
+      return;
+    }
+    try {
+      protectSheetForSystem_(sheet, editors);
+      result.protectedNames.push(name);
+    } catch (err) {
+      var message = (err && err.message) ? err.message : String(err);
+      result.failed.push({ name: name, message: message });
+      appendErrorLog_({
+        source: ERROR_LOG_SOURCE.SERVER,
+        functionName: 'protectNewlyCreatedSheets_',
+        errorCode: 'SHEET_PROTECTION_FAILED',
+        message: '初始化工作表：新建的工作表「' + name + '」未能設定保護：' + message,
+        detail: buildErrorDetail_(err)
+      });
+    }
+  });
+
+  if (result.protectedNames.length > 0) {
+    appendAuditLog_({
+      action: 'APPLY_SHEET_PROTECTION', sheetName: '',
+      rowKey: '', field: 'PROTECTED_COUNT', oldValue: '', newValue: String(result.protectedNames.length),
+      notes: '初始化工作表：新建的工作表即時設定保護：' + result.protectedNames.join('、')
+        + '；例外編輯者 ' + editors.length + ' 人。'
+    });
+  }
+  return result;
+}
+
+/**
+ * 用途：把 `protectNewlyCreatedSheets_()` 的結果排成給人看的行。**純函式。**
+ *   初始化對話框與 `Diagnostics` 報告共用，兩邊講同一句。
+ * Args:
+ *   result {?{protectedNames:string[], failed:Object[]}}
+ * Returns:
+ *   {string[]} 這一次沒有新建任何受保護的表時回空陣列。
+ */
+function buildNewSheetProtectionLines_(result) {
+  var o = result || {};
+  var lines = [];
+  if ((o.protectedNames || []).length > 0) {
+    lines.push('新建的工作表已即時設定保護：' + o.protectedNames.join('、') + '。');
+  }
+  if ((o.failed || []).length > 0) {
+    lines.push('⚠️ 以下新建的工作表未能設定保護：' + o.failed.map(function (f) {
+      return f.name + '（' + f.message + '）';
+    }).join('、') + '。請按選單「' + APP_NAME + ' ▸ 季度填寫表 ▸ 設定工作表保護」補設。');
+  }
+  return lines;
 }
 
 // =====================================================================

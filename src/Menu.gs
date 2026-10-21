@@ -157,6 +157,13 @@ function menuInitializeAllSheets_() {
       lines.push('');
     }
 
+    // 第二批測試修正 G8：新建的受保護工作表已即時設定保護（或設定失敗要補設）。
+    var protectionLines = buildNewSheetProtectionLines_(summary.newSheetProtection);
+    if (protectionLines.length > 0) {
+      protectionLines.forEach(function (line) { lines.push(line); });
+      lines.push('');
+    }
+
     lines.push('詳情見 Diagnostics 工作表。');
     ui.alert('初始化完成', lines.join('\n'), ui.ButtonSet.OK);
   } catch (err) {

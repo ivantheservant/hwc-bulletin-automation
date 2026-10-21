@@ -432,6 +432,107 @@ test('removeTriggersByHandler_：只刪指定 handler 的觸發器', function ()
   assert.strictEqual(env.triggers.installed[0].getHandlerFunction(), 'weeklyBulletinSendTrigger_');
 });
 
+
+// =====================================================================
+// 第二批測試修正 G8：「初始化工作表」新建的受保護工作表即時設定保護
+// =====================================================================
+
+const { makeFakeSheet } = require('./helpers/fakeSpreadsheet');
+const { assertWrittenChinese } = require('./helpers/writtenChinese');
+
+/**
+ * 造一個「WeekSnapshots、SpeakerFormSubmissions（以及 removeNames 列出的表）
+ * 還未建立」的試算表——即 2028T2 測試 A0 之前的狀態。insertSheet 換成會記錄
+ * 保護的假工作表（fillEnv 原本的 insertSheet 造的是格子表，保護是空殼，測不出來）。
+ */
+function makeInitEnv(options) {
+  const o = options || {};
+  const alerts = [];
+  const env = makeFillEnv({
+    withGrid: false,
+    config: o.config || {},
+    ui: { alert: function (title, body) { alerts.push({ title: title, body: body }); return 'OK'; } }
+  });
+  ['WeekSnapshots', 'SpeakerFormSubmissions'].concat(o.removeNames || []).forEach(function (name) {
+    assert.ok(env.sheets[name], '前提：fillEnv 本來有 ' + name);
+    delete env.sheets[name];
+  });
+  const ss = env.sandbox.SpreadsheetApp.getActiveSpreadsheet();
+  const inserted = [];
+  ss.insertSheet = function (name) {
+    const sheet = makeFakeSheet([], [], []);
+    sheet.setName(name);
+    if (o.protectFailsFor === name) {
+      sheet.protect = function () { throw new Error('You do not have permission to protect this sheet.'); };
+    }
+    env.sheets[name] = sheet;
+    inserted.push(name);
+    return sheet;
+  };
+  return Object.assign({ alerts: alerts, inserted: inserted }, env);
+}
+
+test('G8-1 經選單「初始化工作表」（menuInitializeAllSheets_）建立 WeekSnapshots、SpeakerFormSubmissions → 兩張即時有保護，例外編輯者照 Config；對話框講明；上線前檢查不再列它們', function () {
+  const env = makeInitEnv({ config: { PROTECTION_EDITOR_EMAILS: 'it@x.com, 唔係電郵' } });
+  env.sandbox.menuInitializeAllSheets_();
+
+  assert.deepStrictEqual(env.inserted.slice().sort(), ['SpeakerFormSubmissions', 'WeekSnapshots']);
+  ['WeekSnapshots', 'SpeakerFormSubmissions'].forEach(function (name) {
+    const prot = env.sheets[name].__protections;
+    assert.strictEqual(prot.length, 1, name + ' 要有一個保護');
+    assert.strictEqual(prot[0].description, '週報系統：系統維護用工作表，請勿人手編輯');
+    assert.deepStrictEqual(Array.from(prot[0].editors), ['it@x.com'], '例外編輯者與「設定工作表保護」同一套');
+  });
+
+  assert.strictEqual(env.alerts.length, 1);
+  assert.strictEqual(env.alerts[0].title, '初始化完成');
+  assert.ok(env.alerts[0].body.indexOf('新建的工作表已即時設定保護：WeekSnapshots、SpeakerFormSubmissions。') !== -1, env.alerts[0].body);
+  assertWrittenChinese(assert, '初始化對話框（保護那一行）', env.sandbox.buildNewSheetProtectionLines_({
+    protectedNames: ['WeekSnapshots'], failed: [{ name: 'SpeakerFormSubmissions', message: 'x' }]
+  }));
+
+  const audit = env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'APPLY_SHEET_PROTECTION'; });
+  assert.strictEqual(audit.length, 1);
+  assert.ok(audit[0].NOTES.indexOf('WeekSnapshots、SpeakerFormSubmissions') !== -1, audit[0].NOTES);
+
+  const golive = env.sandbox.countProtectedSheets_();
+  assert.ok(golive.message.indexOf('WeekSnapshots') === -1 && golive.message.indexOf('SpeakerFormSubmissions') === -1, golive.message);
+});
+
+test('G8-2 只對新建的表：既有的受保護清單內的表（例如 Config）不動；新建但要人手填的表（Recipients）不加保護', function () {
+  const env = makeInitEnv({ removeNames: ['Recipients'] });
+  const configBefore = env.sheets.Config.__protections.length;
+  const summary = env.sandbox.initializeAllSheets();
+
+  assert.ok(env.inserted.indexOf('Recipients') !== -1, '前提：Recipients 這一次新建');
+  assert.strictEqual(env.sheets.Recipients.__protections.length, 0, 'Recipients 是幹事要維護的表，不可以受保護');
+  assert.strictEqual(env.sheets.Config.__protections.length, configBefore, '既有的表一張都不動');
+  assert.deepStrictEqual(Array.from(summary.newSheetProtection.protectedNames).sort(), ['SpeakerFormSubmissions', 'WeekSnapshots']);
+  assert.ok(Array.from(summary.sheetsCreated).indexOf('Recipients') !== -1);
+});
+
+test('G8-3 第二次初始化（沒有新建任何表）→ 不再動保護，對話框沒有保護那一行', function () {
+  const env = makeInitEnv();
+  env.sandbox.menuInitializeAllSheets_();
+  env.sandbox.menuInitializeAllSheets_();
+  assert.strictEqual(env.sheets.WeekSnapshots.__protections.length, 1, '不會疊加第二個保護');
+  assert.strictEqual(env.alerts[1].body.indexOf('即時設定保護'), -1, env.alerts[1].body);
+  assert.strictEqual(env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'APPLY_SHEET_PROTECTION'; }).length, 1);
+});
+
+test('G8-4 某一張設定保護失敗 → 初始化照樣完成，另一張照樣受保護；對話框講明要補設，ErrorLog 有記錄', function () {
+  const env = makeInitEnv({ protectFailsFor: 'SpeakerFormSubmissions' });
+  env.sandbox.menuInitializeAllSheets_();
+
+  assert.strictEqual(env.alerts[0].title, '初始化完成', '工作表已經建好，不可以回「初始化失敗」');
+  assert.strictEqual(env.sheets.WeekSnapshots.__protections.length, 1);
+  assert.ok(env.alerts[0].body.indexOf('⚠️ 以下新建的工作表未能設定保護：SpeakerFormSubmissions（') !== -1, env.alerts[0].body);
+  assert.ok(env.alerts[0].body.indexOf('設定工作表保護」補設') !== -1, env.alerts[0].body);
+  const errors = env.sandbox.readSheet('ErrorLog').filter(function (r) { return r.ERROR_CODE === 'SHEET_PROTECTION_FAILED'; });
+  assert.strictEqual(errors.length, 1);
+  assert.ok(errors[0].MESSAGE.indexOf('SpeakerFormSubmissions') !== -1);
+});
+
 // =====================================================================
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');

@@ -19,8 +19,12 @@
  *   Editor 直接執行。
  * Args: （無）
  * Returns:
- *   {{sheetsEnsured:number, configKeysAdded:number, seedRowsAdded:Object<string,number>}}
- *     本次執行的摘要。
+ *   {{sheetsEnsured:number, sheetsCreated:string[], configKeysAdded:number,
+ *     newSheetProtection:{protectedNames:string[], failed:Object[]},
+ *     seedRowsAdded:Object<string,number>}}
+ *     本次執行的摘要。`sheetsCreated` 是這一次新建的工作表；其中屬於
+ *     `protectedSheetNames_()` 的，建立後即時套用保護（`newSheetProtection`，
+ *     第二批測試修正 G8），既有的工作表不動。
  * Raises:
  *   Error 如果任何一步失敗（例如試算表被鎖定），錯誤會原樣往上拋，由呼叫方
  *     （menuInitializeAllSheets_()）決定如何呈現給使用者。
@@ -28,9 +32,13 @@
 function initializeAllSheets() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheetIds = Object.keys(SHEETS);
+  // 第二批測試修正 G8：記下這一次才新建的工作表，之後只對它們即時設定保護。
+  var createdSheetNames = [];
 
   sheetIds.forEach(function (id) {
+    var existed = Boolean(ss.getSheetByName(SHEETS[id]));
     ensureSheet_(ss, id);
+    if (!existed) createdSheetNames.push(SHEETS[id]);
   });
 
   writeReadmeContent_(ss);
@@ -51,8 +59,14 @@ function initializeAllSheets() {
     NUMBER_REGISTRY: seedNumberRegistry_()
   };
 
+  // ⚠️ 排在種 Config 預設值之後：例外編輯者讀 Config 的 PROTECTION_EDITOR_EMAILS，
+  //    全新試算表要先有 Config 才讀得到。只動新建的表，既有的一張都不碰。
+  var newSheetProtection = protectNewlyCreatedSheets_(ss, createdSheetNames);
+
   var summary = {
     sheetsEnsured: sheetIds.length,
+    sheetsCreated: createdSheetNames,
+    newSheetProtection: newSheetProtection,
     configKeysAdded: configKeysAdded,
     configKeysRemoved: deprecatedCleanup.removed,
     deprecatedConfigWarnings: deprecatedCleanup.warnings,
@@ -342,6 +356,10 @@ function writeInitializeDiagnosticsReport_(summary) {
   Object.keys(summary.seedRowsAdded).forEach(function (id) {
     lines.push(SHEETS[id] + ' 新增行數：' + summary.seedRowsAdded[id]);
   });
+  if ((summary.sheetsCreated || []).length > 0) {
+    lines.push('這一次新建的工作表：' + summary.sheetsCreated.join('、'));
+  }
+  buildNewSheetProtectionLines_(summary.newSheetProtection).forEach(function (line) { lines.push(line); });
 
   var warnings = getSheetUtilsTypeWarnings_();
   if (warnings.length > 0) {
