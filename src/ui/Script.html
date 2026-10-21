@@ -336,6 +336,7 @@
    *     apiDownloadBulletinDocx：Word 檔要經瀏覽器下載，沒有回應就是沒有收到檔案，要再按一次；
    *     apiSavePublishPrefs：只是記住勾選，失敗也不打擾使用者；
    *     apiLogClientError：回報錯誤本身。
+   *   後三個另列在 NOT_READ_ONLY_OUTSIDE_RECOVERY（G17：逾時訊息與讀取類不同）。
    *   新增一個會寫入的 api 函式時要在這裏加一行；tests/writeaction.test.js 把
    *   Script.html 用到的每一個 api 名稱分成寫入與讀取兩類，漏了分類會失敗。
    */
@@ -397,6 +398,81 @@
    */
   function writeActionRecoveryKind(fnName) {
     return Object.prototype.hasOwnProperty.call(WRITE_ACTION_RECOVERY, fnName) ? WRITE_ACTION_RECOVERY[fnName] : '';
+  }
+
+  /**
+   * 用途：第二批測試修正 G17：不在 WRITE_ACTION_RECOVERY 內、但不是純讀取的三個 api，
+   *   以及它們逾時時用哪一句（見 describeCallTimeout()）：
+   *     download：apiDownloadBulletinDocx。伺服器會把這一期的 Word 原地更新到雲端硬碟
+   *       （同一個檔案，連結不變）、記下檔案 ID 與 AuditLog，內容有變時存一個版本；但幹事
+   *       要的檔案經瀏覽器下載，沒有回應就是沒有收到。再按一次只會再原地更新同一個檔案。
+   *     quiet：apiSavePublishPrefs（記住勾選）、apiLogClientError（回報錯誤本身）。會寫入，
+   *       但失敗不打擾使用者，逾時照舊用「可能已經做了」那一句，只記 ErrorLog。
+   *   其餘不在 WRITE_ACTION_RECOVERY 內的 api 都是讀取類。
+   */
+  var NOT_READ_ONLY_OUTSIDE_RECOVERY = {
+    apiDownloadBulletinDocx: 'download',
+    apiSavePublishPrefs: 'quiet',
+    apiLogClientError: 'quiet'
+  };
+
+  /**
+   * 用途：第二批測試修正 G17：這個伺服器函式屬哪一類。
+   * Args:
+   *   fnName {string} 伺服器函式名稱。
+   * Returns:
+   *   {string} 'write'（WRITE_ACTION_RECOVERY 內）、'download'、'quiet'
+   *     （NOT_READ_ONLY_OUTSIDE_RECOVERY 內），其餘是 'read'。
+   * Raises:
+   *   （無）
+   */
+  function serverCallKind(fnName) {
+    if (writeActionRecoveryKind(fnName)) return 'write';
+    if (Object.prototype.hasOwnProperty.call(NOT_READ_ONLY_OUTSIDE_RECOVERY, fnName)) {
+      return NOT_READ_ONLY_OUTSIDE_RECOVERY[fnName];
+    }
+    return 'read';
+  }
+
+  /**
+   * 用途：第二批測試修正 G17：callServer() 自己逾時（serverCallTimeoutMs() 之內沒有回應）
+   *   的訊息，按 serverCallKind() 分。
+   *
+   *   以前一律講「這一次的動作可能已經做了、也可能沒有做」。唯讀的載入（例如講員表格現況）
+   *   逾時也這樣講，幹事會以為改了東西，所以讀取類改講「沒有改動任何東西」；下載 Word 講
+   *   沒有下載到。寫入類與 quiet 照舊（寫入類給使用者看的是 describeNoResponseFailure()，
+   *   這一句只記入 ErrorLog）。
+   * Args:
+   *   fnName {string} 伺服器函式名稱。
+   *   seconds {number} 逾時秒數（serverCallTimeoutMs() 換算）。
+   * Returns:
+   *   {{text:string, showAsIs:boolean}} `showAsIs` 是 true 時，訊息原樣顯示，不在前面加
+   *     「呼叫伺服器失敗（…）：」（讀取類與下載的一句已經寫了函式名稱）。
+   * Raises:
+   *   （無）
+   */
+  function describeCallTimeout(fnName, seconds) {
+    var kind = serverCallKind(fnName);
+    if (kind === 'read') {
+      return {
+        text: '伺服器在 ' + seconds + ' 秒內沒有回應（' + fnName + '）。'
+          + '這是讀取資料，沒有改動任何東西；請稍後重新載入頁面再試。',
+        showAsIs: true
+      };
+    }
+    if (kind === 'download') {
+      return {
+        text: '伺服器在 ' + seconds + ' 秒內沒有回應（' + fnName + '），Word 檔沒有下載到；'
+          + '請稍後再按一次「下載 Word」。伺服器可能已經更新了雲端硬碟上這一期的最新 Word，'
+          + '再按一次只會原地更新同一個檔案，不會多出一份。',
+        showAsIs: true
+      };
+    }
+    return {
+      text: '伺服器在 ' + seconds + ' 秒內沒有回應。這一次的動作可能已經做了、也可能沒有做，'
+        + '請先看試算表的 ErrorLog 與 Apps Script 的「執行項目」確認，不要直接再按一次。',
+      showAsIs: false
+    };
   }
 
   /**
@@ -498,6 +574,9 @@
    *   describeNoResponseFailure() 那一句，要等 NO_RESPONSE_RELOAD_DELAY_MS 之後才收到，
    *   之後自動重新載入（見 recoverAfterNoResponse()）；儲存（keepForm）例外，即時收到、
    *   不重新載入。其餘失敗照舊。
+   *   第二批測試修正 G17：這裏自己的逾時，訊息按 describeCallTimeout()：讀取類講「這是讀取
+   *   資料，沒有改動任何東西」，下載 Word 講沒有下載到，兩者原樣顯示並記入 ErrorLog，
+   *   不排重新載入。
    * Returns:
    *   {void}
    * Raises:
@@ -551,7 +630,9 @@
         recoverAfterNoResponse(recoveryKind, noResponseMessage, deliverNoResponse);
         return;
       }
-      var message = describeServerFailure(fnName, err);
+      // G17：讀取類與下載的逾時訊息已經寫了函式名稱，原樣顯示、原樣記入 ErrorLog。
+      var message = (err && err.noResponse === true && err.showAsIs === true)
+        ? err.message : describeServerFailure(fnName, err);
       if (opts.onError) opts.onError(message, err);
       else showMessage('error', message);
       if (!opts.noReport) {
@@ -560,11 +641,11 @@
     });
 
     timer = setTimeout(function () {
-      var timeoutErr = new Error('伺服器在 ' + Math.round(serverCallTimeoutMs() / 1000)
-        + ' 秒內沒有回應。這一次的動作可能已經做了、也可能沒有做，'
-        + '請先看試算表的 ErrorLog 與 Apps Script 的「執行項目」確認，不要直接再按一次。');
+      var timeout = describeCallTimeout(fnName, Math.round(serverCallTimeoutMs() / 1000));
+      var timeoutErr = new Error(timeout.text);
       // G13：逾時同樣是「沒有回應」，寫入類動作走同一條補救。
       timeoutErr.noResponse = true;
+      timeoutErr.showAsIs = timeout.showAsIs;
       fail(timeoutErr);
     }, serverCallTimeoutMs());
 

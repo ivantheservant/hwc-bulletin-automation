@@ -17,6 +17,9 @@
  * 第二批測試修正 G15：「重設這一週」與「還原到這個版本」對話框按「取消」，與季度作業
  * 一樣顯示「已取消，一格都沒有寫。」（同一個常數），而且一個寫入請求都不送。
  *
+ * 第二批測試修正 G17：讀取類動作逾時，訊息講「這是讀取資料，沒有改動任何東西」，不講
+ * 「動作可能已經做了」，不排重新載入；下載 Word 逾時講沒有下載到；寫入類照舊。
+ *
  * 執行方式：node tests/writeaction.test.js
  * 離開碼：0＝全部通過　1＝有測試失敗
  */
@@ -173,8 +176,10 @@ function between(js, from, to) {
  * buildSavePayload()）、發佈、季度作業、wireStaticEvents()。表單本身用 ctx.form 代替
  * （collectWeekFieldsFromForm() 的替身讀它）；其餘函式用記錄呼叫的替身。
  */
-function makeUi() {
+function makeUi(options) {
   const js = readSrc('src/ui/Script.html');
+  // G17：測試可以多抽幾段真正的程式碼（[開頭, 結尾] 兩個字串），蓋過下面的替身。
+  const extra = (options && options.extra) || [];
   const dom = makeFakeDom();
   const timers = makeFakeTimers();
   const calls = [];
@@ -237,7 +242,7 @@ function makeUi() {
     region(js, 'publish-result'),
     between(js, 'function wireStaticEvents(', 'function toggleQuarterOps('),
     between(js, 'function showQuarterOpsMessage(', 'function wireGlobalErrorHandlers(')
-  ].join('\n');
+  ].concat(extra.map(function (pair) { return between(js, pair[0], pair[1]); })).join('\n');
   vm.runInContext(code, ctx);
   dom.document.getElementById('confirmDialogBackdrop').classList.add('hidden');
   ctx.wireStaticEvents();
@@ -619,6 +624,124 @@ test('G15-4 對話框按「確定」照舊送出（取消那一句不會出現�
   ui.click('confirmOkBtn');
   assert.strictEqual(ui.count('apiResetWeek'), 1);
   assert.strictEqual(ui.message(), null);
+});
+
+// =====================================================================
+// G17：讀取類動作逾時，不可以講「動作可能已經做了」
+// =====================================================================
+
+console.log('\n讀取類動作逾時（G17）');
+
+/** G17：讀取類逾時的一句（秒數由 serverCallTimeoutMs() 計出來）。 */
+function expectedReadTimeout(fnName, seconds) {
+  return '伺服器在 ' + (seconds || 120) + ' 秒內沒有回應（' + fnName + '）。這是讀取資料，沒有改動任何東西；請稍後重新載入頁面再試。';
+}
+
+const EXPECTED_DOWNLOAD_TIMEOUT = '伺服器在 120 秒內沒有回應（apiDownloadBulletinDocx），Word 檔沒有下載到；請稍後再按一次「下載 Word」。'
+  + '伺服器可能已經更新了雲端硬碟上這一期的最新 Word，再按一次只會原地更新同一個檔案，不會多出一份。';
+
+/** 斷言：apiLogClientError 收到的就是畫面上那一句（照舊記錄），不加「連線錯誤」那一句。 */
+function assertReportedAsIs(ui, fnName, text) {
+  const reports = ui.calls.filter(function (c) { return c.name === 'apiLogClientError'; });
+  assert.strictEqual(reports.length, 1, '要回報一次 ErrorLog');
+  assert.strictEqual(reports[0].args[0].functionName, fnName);
+  assert.strictEqual(reports[0].args[0].message, text);
+}
+
+test('G17-1 講員表格現況（真正的 loadSpeakerFormStatus()，唯讀）120 秒沒有回應 → 區塊內寫「這是讀取資料，沒有改動任何東西」；不講「可能已經做了」；沒有排重新載入；ErrorLog 照舊記錄', function () {
+  const ui = makeUi({ extra: [['function loadSpeakerFormStatus(', 'function onSpeakerFormCreateClicked(']] });
+  ui.ctx.loadSpeakerFormStatus();
+  ui.take('apiGetSpeakerFormStatus');
+  assert.strictEqual(ui.timers.run(120000), 1, '前提：逾時計時器是 120 秒');
+
+  const expected = expectedReadTimeout('apiGetSpeakerFormStatus');
+  assert.strictEqual(ui.els.speakerFormStatus.textContent, '講員表格現況載入失敗：' + expected);
+  assert.ok(ui.els.speakerFormStatus.textContent.indexOf('可能已經') === -1);
+  assert.strictEqual(ui.timers.pending(ui.delayMs), 0, '讀取類不可以排重新載入');
+  assert.strictEqual(ui.count('apiLoadWeek'), 0);
+  assert.strictEqual(ui.count('apiGetSpeakerFormStatus'), 1, '不自動再載入講員表格現況');
+  assertReportedAsIs(ui, 'apiGetSpeakerFormStatus', expected);
+  assertWrittenChinese(assert, 'G17 讀取類逾時', [expected]);
+});
+
+test('G17-2 按「還原到這個版本」時看差異（apiDiffWeekSnapshot，唯讀）120 秒沒有回應 → 頁頂原樣顯示讀取那一句（不加「呼叫伺服器失敗」）；沒有送出還原、沒有排重新載入', function () {
+  const ui = makeUi();
+  clickRestoreButton(ui, 'SNAP-1');
+  ui.take('apiDiffWeekSnapshot');
+  ui.timers.run(120000);
+  const expected = expectedReadTimeout('apiDiffWeekSnapshot');
+  assert.deepStrictEqual(ui.message(), { type: 'error', text: expected });
+  assert.strictEqual(ui.count('apiRestoreWeekSnapshot'), 0);
+  assert.strictEqual(ui.timers.pending(ui.delayMs), 0);
+  assert.strictEqual(ui.count('apiLoadWeek'), 0);
+  assert.strictEqual(ui.ctx.state.inFlight, 0, '介面即時可以再用');
+  assertReportedAsIs(ui, 'apiDiffWeekSnapshot', expected);
+});
+
+test('G17-3 按「下載 Word」（真正的 downloadWord()）120 秒沒有回應 → Word 那一句：沒有下載到、再按一次、雲端硬碟可能已經更新；沒有排重新載入', function () {
+  const ui = makeUi({ extra: [['function downloadWord(', 'function triggerBinaryDownload(']] });
+  ui.click('downloadWordBtn');
+  ui.take('apiDownloadBulletinDocx');
+  ui.timers.run(120000);
+  assert.deepStrictEqual(ui.message(), { type: 'error', text: EXPECTED_DOWNLOAD_TIMEOUT });
+  assert.strictEqual(ui.timers.pending(ui.delayMs), 0);
+  assert.strictEqual(ui.count('apiLoadWeek'), 0);
+  assertReportedAsIs(ui, 'apiDownloadBulletinDocx', EXPECTED_DOWNLOAD_TIMEOUT);
+  assertWrittenChinese(assert, 'G17 下載逾時', [EXPECTED_DOWNLOAD_TIMEOUT]);
+});
+
+test('G17-4 寫入類逾時照舊：「還原到這個版本」按確定之後 120 秒沒有回應 → 等候、重新載入、「可能已經完成」那一句；ErrorLog 記原本「可能已經做了」那一句加連線錯誤註記', function () {
+  const ui = makeUi();
+  clickRestoreButton(ui, 'SNAP-1');
+  ui.take('apiDiffWeekSnapshot').ok(DIFF_OK);
+  ui.click('confirmOkBtn');
+  ui.take('apiRestoreWeekSnapshot');
+  ui.timers.run(120000);
+  assertReportedAsNoResponse(ui, 'apiRestoreWeekSnapshot', '這一次的動作可能已經做了、也可能沒有做');
+  assert.strictEqual(ui.timers.run(ui.delayMs), 1, '寫入類照舊等候之後重新載入');
+  assert.deepStrictEqual(ui.message(), { type: 'error', text: expectedWeekMessage('apiRestoreWeekSnapshot') });
+  assert.deepStrictEqual(ui.take('apiLoadWeek').args, [D]);
+});
+
+test('G17-5 分類：讀取類每一個都是 read、三個例外各有自己的一類、寫入類是 write；逾時秒數跟 Config（data-call-timeout-sec）走', function () {
+  const ui = makeUi();
+  const reads = [
+    'apiListWeeks', 'apiLoadWeek', 'apiPreviewProgram', 'apiPreviewContentImport', 'apiListWeekSnapshots',
+    'apiDiffWeekSnapshot', 'apiGetSpeakerFormStatus', 'apiGetRosterFetchCandidates', 'apiGetPublishStatus',
+    'apiGetQuarterOpsPanel', 'apiPreviewCreateWeeks', 'apiPreviewContentSheetBuild', 'apiPreviewContentSheetInvite',
+    'apiPreviewQuarterContentImport', 'apiQuarterMissingReport', 'apiRosterDiffReport', 'apiGoLiveReport',
+    'apiPublishRevisionsReport'
+  ];
+  reads.forEach(function (name) {
+    assert.strictEqual(ui.ctx.serverCallKind(name), 'read', name);
+    assert.strictEqual(ui.ctx.describeCallTimeout(name, 120).text, expectedReadTimeout(name), name);
+  });
+  assert.strictEqual(ui.ctx.serverCallKind('apiDownloadBulletinDocx'), 'download');
+  assert.strictEqual(ui.ctx.serverCallKind('apiSavePublishPrefs'), 'quiet');
+  assert.strictEqual(ui.ctx.serverCallKind('apiLogClientError'), 'quiet');
+  Object.keys(JSON.parse(JSON.stringify(ui.ctx.WRITE_ACTION_RECOVERY))).forEach(function (name) {
+    assert.strictEqual(ui.ctx.serverCallKind(name), 'write', name);
+    assert.ok(ui.ctx.describeCallTimeout(name, 120).text.indexOf('可能已經做了') !== -1, name);
+  });
+  ['apiSavePublishPrefs', 'apiLogClientError'].forEach(function (name) {
+    assert.strictEqual(ui.ctx.describeCallTimeout(name, 120).showAsIs, false, name + ' 照舊');
+  });
+
+  // 秒數由 serverCallTimeoutMs() 計出來，不是寫死 120。
+  const ui90 = makeUi({ extra: [['function loadSpeakerFormStatus(', 'function onSpeakerFormCreateClicked(']] });
+  ui90.dom.document.getElementById('app').setAttribute('data-call-timeout-sec', '90');
+  ui90.ctx.loadSpeakerFormStatus();
+  assert.strictEqual(ui90.timers.run(90000), 1, '逾時計時器跟 Config 改成 90 秒');
+  assert.strictEqual(ui90.els.speakerFormStatus.textContent, '講員表格現況載入失敗：' + expectedReadTimeout('apiGetSpeakerFormStatus', 90));
+});
+
+test('G17-6 讀取類遇到連線錯誤（HTTP 502）照舊即時顯示「呼叫伺服器失敗（…）」，不講「可能已經完成」、不排重新載入', function () {
+  const ui = makeUi({ extra: [['function loadSpeakerFormStatus(', 'function onSpeakerFormCreateClicked(']] });
+  ui.ctx.loadSpeakerFormStatus();
+  ui.take('apiGetSpeakerFormStatus').fail(new Error(NETWORK_502));
+  assert.strictEqual(ui.els.speakerFormStatus.textContent, '講員表格現況載入失敗：呼叫伺服器失敗（apiGetSpeakerFormStatus）：' + NETWORK_502);
+  assert.strictEqual(ui.timers.pending(ui.delayMs), 0);
+  assert.ok(ui.take('apiLogClientError').args[0].message.indexOf('可能已') === -1);
 });
 
 console.log('\n通過 ' + pass + ' 項，失敗 ' + fail + ' 項。');
