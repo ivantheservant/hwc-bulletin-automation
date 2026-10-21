@@ -463,6 +463,17 @@ function contentImportForWebApp_(isoDate, apply) {
     return { ok: false, scope: 'ONE_WEEK', lines: [], reason: result.reason, message: result.message };
   }
 
+  if (apply) {
+    // 與整季匯入（`WEBAPP_CONTENT_IMPORT_QUARTER`）同一做法：逐格記錄之外，再寫一行摘要。
+    appendAuditLog_({
+      action: 'WEBAPP_CONTENT_IMPORT_WEEK',
+      sheetName: SHEETS.CONTENT_SHEETS,
+      rowKey: isoDate,
+      newValue: '+' + result.plan.added + ' ~' + result.plan.updated + ' -' + result.plan.removed,
+      notes: '由填寫介面「重新匯入（只限這一個主日）」匯入 ' + isoDate + '（季度 ' + quarterId + '）。'
+    });
+  }
+
   var dryRun = normalizeBoolean_(getConfig(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
   return {
     ok: true,

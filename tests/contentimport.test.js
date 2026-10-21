@@ -790,6 +790,28 @@ test('23. 由真正入口跑一次整季匯入，不拋錯，而且真的寫入'
   assert.ok(titles.indexOf('匯入完成') !== -1, JSON.stringify(titles));
 });
 
+test('23c. 單週匯入（apiRunContentImport）寫一行 AuditLog 摘要；預覽不寫', function () {
+  const env = makeEnv({
+    content: { 宣召: [{ SERVICE_DATE: '2027-10-03', CALL_REF: '詩篇', CALL_TEXT: '經文', ACTIVE: 'TRUE' }] }
+  });
+  const summaries = function () {
+    return env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'WEBAPP_CONTENT_IMPORT_WEEK'; });
+  };
+
+  env.sandbox.apiPreviewContentImport('2027-10-03');
+  assert.strictEqual(summaries().length, 0, '預覽是唯讀，不可以寫摘要');
+
+  const resp = env.sandbox.apiRunContentImport('2027-10-03');
+  assert.strictEqual(resp.ok, true);
+  assert.strictEqual(resp.data.ok, true);
+  const rows = summaries();
+  assert.strictEqual(rows.length, 1);
+  assert.strictEqual(rows[0].ROW_KEY, '2027-10-03');
+  assert.ok(/^\+\d+ ~\d+ -\d+$/.test(rows[0].NEW_VALUE), rows[0].NEW_VALUE);
+  assert.ok(rows[0].NOTES.indexOf('2027T4') !== -1, rows[0].NOTES);
+  assertWrittenChinese(assert, 'AuditLog 摘要', rows[0].NOTES);
+});
+
 test('23b. 選單：使用者在確認對話框選「否」→ 一格都不會寫', function () {
   const env = makeEnv({
     uiConfirm: 'NO',

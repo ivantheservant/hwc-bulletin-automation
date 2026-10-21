@@ -101,12 +101,17 @@ function webAppWeekFieldKeys_() {
 }
 
 /**
- * 用途：填寫介面上每個 `BulletinWeeks` 欄位的中文名稱（與 `src/ui/Index.html`
- *   的標籤一致），`FIELD_CONFLICT` 的錯誤訊息要用。使用者看不懂機器鍵，
- *   訊息講「PRELUDE」等於沒有講。
+ * 用途：填寫介面上每個 `BulletinWeeks` 欄位的中文名稱，`FIELD_CONFLICT` 的
+ *   錯誤訊息要用。使用者看不懂機器鍵，訊息講「PRELUDE」等於沒有講。
  *
- *   ⚠️ 改了介面標籤要同步改這裡；`tests/webappsave.test.js` 有一條測試
- *   確保 `webAppWeekFieldKeys_()` 每一個鍵都有名稱。
+ *   名稱的來源只有三處，不另抄第二份：
+ *     - 宣召出處／宣召經文／人數統計日期／十二個人數欄：重用
+ *       `Constants.gs` 的 `CONTENT_SHEET_READONLY_LABELS`；
+ *     - 浸禮合堂副框六欄：重用 `baptismBoxFieldDefs_()` 的 `label`；
+ *     - 其餘欄位：下面這張短表（與 `src/ui/Index.html` 的標籤一致）。
+ *
+ *   ⚠️ 改了介面標籤要同步改這裡；`tests/webappsave.test.js` 有測試確保
+ *   `webAppWeekFieldKeys_()` 每一個鍵都有名稱，而且與上面兩個單一來源一致。
  * Args: （無）
  * Returns:
  *   {Object<string,string>} 機器鍵 → 中文名稱。
@@ -114,22 +119,18 @@ function webAppWeekFieldKeys_() {
 function webAppWeekFieldLabels_() {
   var labels = {
     PAGE_TITLE: '程序表大標題', PROGRAM_TEMPLATE_ID: '程序範本', PRELUDE: '序樂',
-    CALL_TEXT: '宣召經文', CALL_REF: '宣召出處', RECITATION_OVERRIDE: '誦讀（覆寫）',
+    RECITATION_OVERRIDE: '誦讀（覆寫）',
     HYMN_PRAISE: '詩歌頌讚', CHOIR_LABEL: '詩班項目名稱', CHOIR_TITLE: '詩班曲名',
     SCRIPTURE_REF: '讀經經文', SERMON_TITLE: '證道講題', RESPONSE_HYMN: '回應詩歌',
-    ATTENDANCE_HEADING: '人數表標題', ATTENDANCE_DATE: '人數統計日期',
+    ATTENDANCE_HEADING: '人數表標題',
     FLOWER_THIS_WEEK: '本週獻花', FLOWER_NEXT_WEEK: '下週獻花', NEXT_WEEK_HEADING: '下週事奉標題',
-    PRAYER_BLOCK_HEADING: '代禱區塊標題',
-    BAPTISM_OFFICIANT: '浸禮主禮', BAPTISM_MEMBERS: '受浸肢體',
-    MEMBERSHIP_OFFICIANT: '入會禮主禮', MEMBERSHIP_MEMBERS: '入會肢體',
-    CHILD_DEDICATION_OFFICIANT: '孩童奉獻禮主禮', CHILD_DEDICATION_CHILDREN: '奉獻孩童'
+    PRAYER_BLOCK_HEADING: '代禱區塊標題'
   };
-  var attGroups = { WORSHIP: '崇拜', PRAYER: '祈禱會', CHILD: '兒童' };
-  var attColumns = { ENG: '英語堂', CANE: '粵語堂（英）', CANN: '粵語堂（粵）', MAN: '國語堂' };
-  Object.keys(attGroups).forEach(function (g) {
-    Object.keys(attColumns).forEach(function (c) {
-      labels['ATT_' + c + '_' + g] = '人數統計：' + attGroups[g] + '・' + attColumns[c];
-    });
+  CONTENT_SHEET_READONLY_FIELDS.WEEK.forEach(function (key) {
+    labels[key] = CONTENT_SHEET_READONLY_LABELS[key] || key;
+  });
+  baptismBoxFieldDefs_().forEach(function (def) {
+    labels[def.key] = def.label;
   });
   return labels;
 }

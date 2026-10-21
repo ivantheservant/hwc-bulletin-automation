@@ -366,7 +366,8 @@ function latestPublishLogRow_(rows) {
  *   一組一行咁列出。**純函式。**
  *
  *   ⚠️ 呢度**只做分組同排版**，一項都唔會自己判斷「有冇填」——判斷
- *   一律喺 `buildMissingList_()`（見檔頭嘅說明）。
+ *   一律喺 `buildMissingList_()`（見檔頭嘅說明）。人數十二格合成一行
+ *   「N 格未填（上週崇拜人數由內容表輸入）」，不逐格列出。
  * Args:
  *   missing {Object[]} `model.missing`，每項 `{field, label, reason}`。
  * Returns:
@@ -382,18 +383,25 @@ function groupPublishMissing_(missing) {
     { label: '事奉人選', items: [] }
   ];
   var byLabel = {};
+  var attendanceCount = 0;
   groups.forEach(function (g) { byLabel[g.label] = g; });
 
   (missing || []).forEach(function (item) {
     var field = String((item || {}).field || '');
     var label = String((item || {}).label || field);
     if (field.indexOf('POST:') === 0) { byLabel['事奉人選'].items.push(label); return; }
-    if (field.indexOf('ATT_') === 0) { byLabel['人數'].items.push(label); return; }
+    if (field.indexOf('ATT_') === 0) { attendanceCount++; return; }
     if (field === 'ANNOUNCEMENTS') { byLabel['家事報告'].items.push('0 條'); return; }
     if (field === 'PRAYERS') { byLabel['代禱事項'].items.push('0 條'); return; }
     if (field === 'FELLOWSHIPS') { byLabel['團契聚會'].items.push('0 條'); return; }
     byLabel['程序'].items.push(label);
   });
+
+  // 上週崇拜人數的 12 格由內容表輸入，不是幹事要逐格填的東西：逐格列出只會
+  // 把確認視窗撐得很長，改成一行總數。
+  if (attendanceCount > 0) {
+    byLabel['人數'].items.push(attendanceCount + ' 格未填（上週崇拜人數由內容表輸入）');
+  }
 
   return groups.filter(function (g) { return g.items.length > 0; });
 }
@@ -1517,11 +1525,37 @@ function runPublishFlowLocked_(payload, ctx) {
       }
     } else {
       result.sent = sent;
+      // 只寄出沒有 `PUBLISH_BULLETIN` 那一行（沒有發佈），稽核紀錄要自己寫。
+      if (!doPublish) auditSendNoticeOnly_(isoDate, sent);
     }
   }
 
   result.lines = buildPublishResultLines_(result);
   return result;
+}
+
+/**
+ * 用途：「只寄出、不發佈」成功之後寫一行 AuditLog（`WEBAPP_SEND_NOTICE`），
+ *   記主日、收件組別、人數、是否 DRY_RUN。同時發佈的情況已有
+ *   `PUBLISH_BULLETIN` 那一行，不重複寫。
+ * Args:
+ *   isoDate {string} 主日日期，yyyy-MM-dd。
+ *   sent {{groups:string[], recipientCount:number, dryRun:boolean}}
+ *     `sendPublishNotice_()` 成功時的回傳值。
+ * Returns:
+ *   {void}
+ */
+function auditSendNoticeOnly_(isoDate, sent) {
+  var o = sent || {};
+  appendAuditLog_({
+    action: 'WEBAPP_SEND_NOTICE',
+    sheetName: SHEETS.BULLETIN_WEEKS,
+    rowKey: isoDate,
+    newValue: String(o.recipientCount || 0),
+    notes: '由填寫介面只寄出（不發佈）；組別：' + ((o.groups || []).join('、') || '（無）')
+      + '；收件人數：' + (o.recipientCount || 0)
+      + '；DRY_RUN=' + (o.dryRun ? 'TRUE' : 'FALSE') + '。'
+  });
 }
 
 /**

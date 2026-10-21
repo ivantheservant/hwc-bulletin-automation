@@ -44,6 +44,10 @@
     // map 的話，同一個崗位在兩框各有一格，後者會蓋走前者，而後端亦分不出
     // 應該用哪一個主日去寫。
     nextWeekDutyEdits: {},
+    // 換週保護：載入完成那一刻兩個事奉框各格的名字（鍵同上面兩個 edits map），
+    // 之後使用者有沒有改動，就是拿 edits map 與這兩份比。
+    loadedDutyNames: {},
+    loadedNextDutyNames: {},
     // 「由職事表重新取數」對話框目前列出的候選項目。
     fetchCandidates: [],
     // R-038：「季度作業」區塊的現況（季度、DRY_RUN、內容表）。
@@ -56,20 +60,6 @@
     publish: { pdfBase64: '', pdfName: '', panel: null, confirmButton: '' },
     options: { programTemplateIds: [], recitationOptions: [], prayerBlockHeadingOptions: [], cantoneseSubColumnLabel: '主堂' }
   };
-
-  /**
-   * 成功／資訊訊息至少顯示的時間（毫秒）。**不可以更短**——這類訊息
-   * 通常是使用者剛完成一個動作（儲存、重新讀取職事表）之後最想確認
-   * 「到底有沒有生效」的回饋。事故經過：`onSaveSuccess()` 顯示完訊息
-   * 後緊接著呼叫 `loadWeek()`，而 `loadWeek()` 開頭會呼叫
-   * `hideMessage()`——訊息顯示之後幾十毫秒就被自己清掉，使用者的視線
-   * 根本來不及從按鈕移到訊息橫幅，等於完全看不見（見
-   * docs/已知bug類型.md「成功訊息被緊接的重新載入清走」那一則事故）。
-   * 修法是 `loadWeek()` 加 `options.keepMessage`，但即使有這個開關，
-   * 訊息本身還是要停留夠久，人才看得清楚，所以 5 秒是下限，不是隨便
-   * 抓的數字。
-   */
-  var MESSAGE_MIN_VISIBLE_MS = 5000;
 
   var LIST_DEFS = {
     announcements: {
@@ -100,7 +90,6 @@
   };
 
   var previewTimer = null;
-  var messageAutoHideTimer = null;
 
   // =====================================================================
   // 小工具
@@ -117,13 +106,21 @@
     return node;
   }
 
+  // BEGIN message-bar
   /**
    * 顯示頂部訊息橫幅。`type` 是 `'success'`／`'info'`／`'error'` 其中一個
    * （對應 Style.html 的 `.message-bar.xxx`）。
    *
-   * 錯誤橫幅**不會自動消失**，右邊會加一個「×」讓使用者自己關掉——
-   * 錯誤如果自己淡出，使用者可能根本來不及看清楚發生了什麼事就消失了。
-   * 成功／資訊橫幅 5 秒後自動淡出。
+   * 三種訊息一律**常駐**，右邊都有一個「×」：保留到使用者按「×」、或者
+   * 開始做下一個動作（各動作開頭都會呼叫 `hideMessage()`）為止，不會自己
+   * 消失。事故經過：成功訊息原本幾秒後自己淡出，使用者的視線還沒有從按鈕
+   * 移到橫幅，訊息已經不見，等於沒有回饋（見 docs/已知bug類型.md「成功訊息
+   * 被緊接的重新載入清走」）。
+   * Args:
+   *   type {string} `'success'`／`'info'`／`'error'`。
+   *   text {string} 訊息內容（一律用 textContent 顯示）。
+   * Returns:
+   *   {void}
    */
   function showMessage(type, text) {
     var bar = document.getElementById('messageBar');
@@ -134,27 +131,26 @@
     textSpan.textContent = text;
     bar.appendChild(textSpan);
 
-    if (type === 'error') {
-      var closeBtn = el('button', 'message-bar-close');
-      closeBtn.type = 'button';
-      closeBtn.textContent = '×';
-      closeBtn.setAttribute('aria-label', '關閉');
-      closeBtn.addEventListener('click', hideMessage);
-      bar.appendChild(closeBtn);
-    }
+    var closeBtn = el('button', 'message-bar-close');
+    closeBtn.type = 'button';
+    closeBtn.textContent = '×';
+    closeBtn.setAttribute('aria-label', '關閉');
+    closeBtn.addEventListener('click', hideMessage);
+    bar.appendChild(closeBtn);
 
     bar.classList.remove('hidden');
-
-    if (messageAutoHideTimer) { clearTimeout(messageAutoHideTimer); messageAutoHideTimer = null; }
-    if (type !== 'error') {
-      messageAutoHideTimer = setTimeout(hideMessage, MESSAGE_MIN_VISIBLE_MS);
-    }
   }
 
+  /**
+   * 用途：收起頂部訊息橫幅（按「×」，或者各動作開始時呼叫）。
+   * Args: （無）
+   * Returns:
+   *   {void}
+   */
   function hideMessage() {
     document.getElementById('messageBar').classList.add('hidden');
-    if (messageAutoHideTimer) { clearTimeout(messageAutoHideTimer); messageAutoHideTimer = null; }
   }
+  // END message-bar
 
   /** `lastSavedAt` 一律是伺服器 canonicalSaveToken_() 正規化過的字串，前端直接顯示即可，不需要自己解析。 */
   function formatTimestamp(v) {
@@ -706,7 +702,9 @@
     if (!resp.ok) { showMessage('error', resp.error.message); return; }
     if (!resp.data.ok) { showMessage('error', resp.data.message); return; }
     showMessage('success', '匯入完成。' + resp.data.lines[2]);
-    loadWeek(state.isoDate);
+    loadWeek(state.isoDate, { keepMessage: true });
+    // 匯入會令這一週的待填數字改變：主日下拉的「待填 N 項」標籤一併刷新（與儲存之後同一做法）。
+    refreshWeekSelectorLabels();
   }
 
   /**
@@ -922,6 +920,7 @@
     return week;
   }
 
+  // BEGIN week-diff
   /**
    * 用途：比對表單現值與載入時的值，算出儲存要送的 `week`（只含改過的欄位）
    *   與 `baseWeek`（這些欄位載入時的值）。純函式，不碰 DOM、不碰 `state`。
@@ -949,6 +948,55 @@
     });
     return { week: week, baseWeek: baseWeek };
   }
+  // END week-diff
+
+  // BEGIN week-switch-guard（測試會把這一段連同 week-diff 抽出來在假環境上執行，請保持自足）
+  /**
+   * 用途：把事奉框的編輯表（鍵 `postId#slotIndex`）攤成「鍵 → 名字」，
+   *   好交給 `diffWeekFields()` 比對。
+   * Args:
+   *   edits {Object} `state.dutyEdits` 或 `state.nextWeekDutyEdits`。
+   * Returns:
+   *   {Object<string,string>}
+   */
+  function dutyNameMap(edits) {
+    var map = {};
+    Object.keys(edits || {}).forEach(function (key) { map[key] = edits[key].name; });
+    return map;
+  }
+
+  /**
+   * 用途：這一週的表單或事奉框有沒有**未儲存**的改動。三處都重用
+   *   `diffWeekFields()`（與「儲存」判斷改動用的是同一支），不另寫一套。
+   * Args: （無，讀 `state` 與表單）
+   * Returns:
+   *   {boolean}
+   */
+  function hasUnsavedWeekChanges() {
+    if (!state.loaded) return false;
+    var fields = diffWeekFields(collectWeekFieldsFromForm(), state.loadedWeek, CONTENT_SHEET_WEEK_FIELDS);
+    var duty = diffWeekFields(dutyNameMap(state.dutyEdits), state.loadedDutyNames, []);
+    var nextDuty = diffWeekFields(dutyNameMap(state.nextWeekDutyEdits), state.loadedNextDutyNames, []);
+    return Object.keys(fields.week).length + Object.keys(duty.week).length
+      + Object.keys(nextDuty.week).length > 0;
+  }
+
+  /**
+   * 用途：換週（下拉、上一個、下一個、換季）之前的保護：有未儲存的改動就先用
+   *   頁內對話框問一次，沒有就直接做。
+   * Args:
+   *   proceed {function():void} 確定要換週時做的事。
+   *   revert {function():void} 按取消時做的事（把下拉改回目前這一週）。
+   * Returns:
+   *   {void}
+   */
+  function confirmWeekChange(proceed, revert) {
+    if (!hasUnsavedWeekChanges()) { proceed(); return; }
+    openConfirmDialog('換週', ['這一週有未儲存的改動，換週會丟失這些改動。確定要換週嗎？'], function (accepted) {
+      if (accepted) proceed(); else revert();
+    });
+  }
+  // END week-switch-guard
 
   function populateSelectOptions(selectEl, options, labelFn) {
     selectEl.innerHTML = '';
@@ -1214,7 +1262,7 @@
    *   options {{keepMessage:boolean}=} 選填。`keepMessage:true` 時不清除
    *     目前顯示的訊息橫幅——`onSaveSuccess()` 剛顯示完「已儲存」之類的
    *     訊息、緊接著要呼叫這個函式重新整理畫面時要傳這個，否則訊息會
-   *     被下面第一行的 `hideMessage()` 立刻清走（見 MESSAGE_MIN_VISIBLE_MS
+   *     被下面第一行的 `hideMessage()` 立刻清走（見 showMessage()
    *     的註解）。使用者自己在下拉選單切換主日則不傳，維持原本「換頁
    *     就清訊息」的行為。
    * Returns:
@@ -1266,6 +1314,9 @@
     state.loadedWeek = collectWeekFieldsFromForm();
     renderAllLists();
     renderReadOnly(data.readOnly);
+    // 換週保護：兩個事奉框剛畫好、使用者還沒動過，這一刻的名字就是「載入時的值」。
+    state.loadedDutyNames = dutyNameMap(state.dutyEdits);
+    state.loadedNextDutyNames = dutyNameMap(state.nextWeekDutyEdits);
     renderStats(data.missingSplit, data.warnings, data.lastSavedAt);
     renderConflictStat(data.rosterDiff);
     renderFillGridLink(data.fillGridUrl);
@@ -1406,7 +1457,7 @@
    * 改動」）由伺服器的 buildSaveResultMessage_() 算好，前端不再自己
    * 砌字串。顯示完訊息之後呼叫 loadWeek() 重新整理畫面，**一定要傳
    * `{ keepMessage: true }`**，否則訊息會被 loadWeek() 開頭的
-   * hideMessage() 立刻清走（見 MESSAGE_MIN_VISIBLE_MS 的註解）。
+   * hideMessage() 立刻清走（見 showMessage() 的註解）。
    */
   function onSaveSuccess(resp) {
     setSaveButtonText('儲存');
@@ -2131,19 +2182,34 @@
       showMessage('info', step < 0 ? '已經是最早的一個主日。' : '已經是最後一個主日。');
       return;
     }
-    loadWeek(all[next].isoDate);
+    var target = all[next].isoDate;
+    confirmWeekChange(function () { loadWeek(target); }, function () { syncSelectorsTo(state.isoDate); });
   }
 
   /**
-   * 用途：季度下拉一改，就把主日下拉換成該季，並載入該季第一個主日。
+   * 用途：主日下拉一改，載入選中的那一週（有未儲存的改動先問一次）。
+   * Args:
+   *   isoDate {string} 下拉選中的主日。
+   * Returns:
+   *   {void}
+   */
+  function onWeekSelectChanged(isoDate) {
+    confirmWeekChange(function () { loadWeek(isoDate); }, function () { syncSelectorsTo(state.isoDate); });
+  }
+
+  /**
+   * 用途：季度下拉一改，就把主日下拉換成該季，並載入該季第一個主日
+   *   （有未儲存的改動先問一次；取消就把兩個下拉改回目前這一週）。
    * Returns:
    *   {void}
    */
   function onQuarterChanged() {
     var quarterId = document.getElementById('quarterSelect').value;
-    renderWeekOptionsForQuarter(quarterId, null);
-    var sel = document.getElementById('weekSelect');
-    if (sel.options.length > 0) loadWeek(sel.options[0].value);
+    confirmWeekChange(function () {
+      renderWeekOptionsForQuarter(quarterId, null);
+      var sel = document.getElementById('weekSelect');
+      if (sel.options.length > 0) loadWeek(sel.options[0].value);
+    }, function () { syncSelectorsTo(state.isoDate); });
   }
 
   // =====================================================================
@@ -2195,7 +2261,7 @@
   // =====================================================================
 
   function wireStaticEvents() {
-    document.getElementById('weekSelect').addEventListener('change', function (e) { loadWeek(e.target.value); });
+    document.getElementById('weekSelect').addEventListener('change', function (e) { onWeekSelectChanged(e.target.value); });
     document.getElementById('quarterSelect').addEventListener('change', onQuarterChanged);
     document.getElementById('showArchivedCheck').addEventListener('change', onShowArchivedChanged);
     document.getElementById('prevWeekBtn').addEventListener('click', function () { stepWeek(-1); });

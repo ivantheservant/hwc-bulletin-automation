@@ -676,9 +676,14 @@ test('11. 未填欄位全部列出，不截斷、不寫「等 N 項」', functio
   assert.ok(text.indexOf('…') === -1, '不可以用省略號截斷');
 
   // 每一項的中文標題都要出現在報告裏面。
-  const grouped = env.sandbox.groupPublishMissing_(env.sandbox.splitMissingList_(precheck.missing).required);
-  const total = grouped.reduce(function (sum, g) { return sum + g.items.length; }, 0);
-  assert.strictEqual(total, precheck.missingCount, '分組之後總數要跟原始清單一樣，一項都不可以掉');
+  const requiredList = env.sandbox.splitMissingList_(precheck.missing).required;
+  const grouped = env.sandbox.groupPublishMissing_(requiredList);
+  // 人數十二格合成一行「N 格未填」，其餘每一項各佔一行；N 加其餘項數要等於原始總數。
+  const attGroup = grouped.filter(function (g) { return g.label === '人數'; })[0];
+  const attInList = requiredList.filter(function (m) { return String(m.field).indexOf('ATT_') === 0; }).length;
+  const others = grouped.reduce(function (sum, g) { return sum + (g.label === '人數' ? 0 : g.items.length); }, 0);
+  assert.strictEqual(attInList > 0 ? attGroup.items.length : 0, attInList > 0 ? 1 : 0, '人數只佔一行');
+  assert.strictEqual(others + attInList, precheck.missingCount, '分組之後總數要跟原始清單一樣，一項都不可以掉');
   // F6：通常空白的另外列出，不計入數字，但一項都不可以消失。
   const optionalLabels = env.sandbox.splitMissingList_(precheck.missing).optional.map(function (m) { return m.label; });
   optionalLabels.forEach(function (label) {
@@ -700,6 +705,25 @@ test('11b. 未填欄位分組：人數、家事報告、代禱事項、事奉人
     ['程序', '人數', '家事報告', '代禱事項', '事奉人選']);
   deepEq(grouped[0].items, ['講題']);
   deepEq(grouped[2].items, ['0 條']);
+});
+
+test('11c. 人數十二格全部未填 → 一行：人數：12 格未填（上週崇拜人數由內容表輸入），不逐格列出', function () {
+  const env = makeEnv({});
+  const keys = [];
+  ['WORSHIP', 'PRAYER', 'CHILD'].forEach(function (g) {
+    ['ENG', 'CANE', 'CANN', 'MAN'].forEach(function (c) { keys.push('ATT_' + c + '_' + g); });
+  });
+  const missing = keys.map(function (k) { return { field: k, label: '英語堂崇拜人數' }; });
+  const grouped = env.sandbox.groupPublishMissing_(missing);
+  assert.strictEqual(grouped.length, 1);
+  deepEq(grouped[0].items, ['12 格未填（上週崇拜人數由內容表輸入）']);
+
+  const lines = env.sandbox.buildPublishPrecheckLines_({
+    isoDate: TARGET_DATE, missing: missing, missingCount: 12, dateIssues: []
+  }, false);
+  const text = lines.join('\n');
+  assert.ok(text.indexOf('　人數：12 格未填（上週崇拜人數由內容表輸入）') !== -1, text);
+  assert.strictEqual(text.indexOf('英語堂崇拜人數'), -1, '不可以逐格列出');
 });
 
 // =====================================================================
@@ -837,6 +861,37 @@ test('19. 只寄不發佈 → PublishLog 沒有新增', function () {
   assert.strictEqual(readPublishLog(env).length, before, '只寄出不可以令版本號往上跳');
   assert.strictEqual(env.drive.updateCalls.length, 0, 'master 檔案一下都不可以碰');
   assert.strictEqual(readSendLog(env).length, 2);
+});
+
+test('19b. 只寄出 → AuditLog 寫一行 WEBAPP_SEND_NOTICE（主日、組別、人數、DRY_RUN）；同時發佈則不重複寫', function () {
+  const env = makeCleanEnv({ config: { DRY_RUN: 'TRUE', PUBLISH_DEDUP_SEC: '0' } });
+  const audit = function () {
+    return env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'WEBAPP_SEND_NOTICE'; });
+  };
+
+  const result = env.sandbox.runPublishFlow_({
+    isoDate: TARGET_DATE, doPublish: false, doSend: true,
+    groups: ['CC', 'DB'], customEmails: '', confirmed: true
+  });
+  assert.strictEqual(result.ok, true, result.message);
+
+  const rows = audit();
+  assert.strictEqual(rows.length, 1);
+  assert.strictEqual(rows[0].ROW_KEY, TARGET_DATE);
+  assert.strictEqual(rows[0].NEW_VALUE, '2');
+  assert.ok(rows[0].NOTES.indexOf('CC、DB') !== -1, rows[0].NOTES);
+  assert.ok(rows[0].NOTES.indexOf('DRY_RUN=TRUE') !== -1, rows[0].NOTES);
+  assertWrittenChinese(assert, 'AuditLog 摘要', rows[0].NOTES);
+
+  // 兩個都做：PUBLISH_BULLETIN 已經記了，不另寫 WEBAPP_SEND_NOTICE。
+  const env2 = makeCleanEnv({ config: { DRY_RUN: 'TRUE', PUBLISH_DEDUP_SEC: '0' } });
+  const both = env2.sandbox.runPublishFlow_({
+    isoDate: TARGET_DATE, doPublish: true, doSend: true,
+    pdfBase64: PDF_BASE64, pdfName: '週報.pdf', groups: ['CC'], customEmails: '', confirmed: true
+  });
+  assert.strictEqual(both.ok, true, both.message);
+  assert.strictEqual(env2.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'WEBAPP_SEND_NOTICE'; }).length, 0);
+  assert.ok(env2.sandbox.readSheet('AuditLog').some(function (r) { return r.ACTION === 'PUBLISH_BULLETIN'; }));
 });
 
 test('20. 只寄不發佈、但從未發佈過 → 拒絕，訊息明確', function () {
