@@ -1982,8 +1982,9 @@ function fetchFromRosterForWebApp_(isoDate, selections) {
     cleared++;
   });
 
-  // G28：真的停用了才更新；一格都沒有停用就不動（與儲存的 F2 同一個道理）。
-  if (cleared > 0) touchWeekLastSavedAt_(isoDate, new Date());
+  // G28：真的停用了才更新；一格都沒有停用就不動（與儲存的 F2 同一個道理）。G28 補充：
+  // 上一週的「下週事奉」亦顯示這些名字，一併更新（見 touchWeeksShowingDuty_()）。
+  if (cleared > 0) touchWeeksShowingDuty_(isoDate, new Date());
 
   return {
     clearedCount: cleared,

@@ -957,6 +957,10 @@ function saveWeekFromWebAppLocked_(payload, isoDate, targetDate) {
     var newTimestamp = new Date();
     writeWeekCell_(weekRowInfo.__rowNo, 'LAST_SAVED_AT', newTimestamp);
     savedToken = canonicalSaveToken_(newTimestamp);
+    // G28 補充：事奉框的名字改了，顯示那些名字的另一週（本週事奉的上一週「下週事奉」、
+    // 下週事奉那一週的「本週事奉」）亦要更新，否則那一週較早載入的分頁儲存會蓋回去。
+    if (dutyPlanChangesNames_(dutyPlan)) touchWeeksShowingDuty_(isoDate, newTimestamp);
+    if (dutyPlanChangesNames_(nextDutyPlan)) touchWeeksShowingDuty_(nextIsoDate, newTimestamp);
   }
 
   auditEntries.forEach(function (entry) { appendAuditLog_(entry); });
@@ -1214,6 +1218,48 @@ function readRowsWithRowNo_(sheetName) {
   }
 
   return results;
+}
+
+/**
+ * 用途：第二批測試修正 G28 補充：某一個主日的事奉框覆寫改了之後，更新「畫面上顯示這一個主日
+ *   事奉」的兩個主日的 `LAST_SAVED_AT`：那一個主日（「本週事奉」）與前一個主日（「下週事奉」，
+ *   R-040）。
+ *
+ *   ⚠️ 為甚麼要兩個：前端每次儲存都把「本週事奉」與「下週事奉」兩個框的全部格送上來
+ *   （docs/待確認事項.md FF-17），而事奉框是兩方比較（送來的名字對職事表），不是三方比較。
+ *   任何一個顯示這些名字的分頁，只要是在改動之前載入的，儲存時就會把舊名字送回來、蓋走改動；
+ *   更新它的 `LAST_SAVED_AT` 才會令它收到 STALE。
+ * Args:
+ *   dutyIsoDate {string} 覆寫改了的那一個主日，yyyy-MM-dd。
+ *   stamp {Date} 新的時間。
+ * Returns:
+ *   {void}
+ * Raises:
+ *   Error 如果 `BulletinWeeks` 工作表不存在。
+ */
+function touchWeeksShowingDuty_(dutyIsoDate, stamp) {
+  touchWeekLastSavedAt_(dutyIsoDate, stamp);
+  var d = normalizeDate_(dutyIsoDate);
+  if (d) touchWeekLastSavedAt_(formatIsoDate_(addDays_(d, -7)), stamp);
+}
+
+/**
+ * 用途：第二批測試修正 G28 補充：一份事奉框覆寫計畫會不會改到畫面上的名字。純函式。
+ *   新增覆寫、停用覆寫、改名字或重新啟用算；只把覆寫對照的職事表值／版本更新到現在
+ *   （FF-17 那一種）不算——畫面上的名字不變，另一週的分頁送回來的名字亦一樣，不會蓋走甚麼。
+ * Args:
+ *   plan {?Object} `computeDutyOverridePlan_()` 形狀的計畫；`null`／`undefined` 當沒有。
+ * Returns:
+ *   {boolean}
+ * Raises:
+ *   （無）
+ */
+function dutyPlanChangesNames_(plan) {
+  if (!plan) return false;
+  if ((plan.appends || []).length > 0 || (plan.deactivations || []).length > 0) return true;
+  return (plan.updates || []).some(function (u) {
+    return (u.changes || []).some(function (c) { return c.field === 'OVERRIDE_NAME' || c.field === 'ACTIVE'; });
+  });
 }
 
 /**

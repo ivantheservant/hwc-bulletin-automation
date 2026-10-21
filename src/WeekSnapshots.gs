@@ -958,6 +958,8 @@ function restoreWeekSnapshotFromWebApp_(payload) {
 
   var stamp = new Date();
   writeWeekCell_(state.weekRow.__rowNo, 'LAST_SAVED_AT', stamp);
+  // 第二批測試修正 G28 補充：事奉框的名字改了，上一週的「下週事奉」亦顯示這些名字。
+  if (dutyPlanChangesNames_(plan.dutyPlan)) touchWeeksShowingDuty_(isoDate, stamp);
   entries.forEach(function (entry) { appendAuditLog_(entry); });
 
   refreshFillSnapshotAfterSave_(isoDate, plan.fieldChanges.map(function (c) {
@@ -1182,6 +1184,8 @@ function resetWeekFromWebApp_(isoDate, lastSavedAt) {
 
   var stamp = new Date();
   writeWeekCell_(state.weekRow.__rowNo, 'LAST_SAVED_AT', stamp);
+  // 第二批測試修正 G28 補充：事奉框的名字改了，上一週的「下週事奉」亦顯示這些名字。
+  if (dutyPlanChangesNames_(plan.dutyPlan)) touchWeeksShowingDuty_(isoDate, stamp);
 
   // 格子表要對齊最終的值（重設之後內容表可能又寫回了一些欄位），
   // 所以重讀一次才算差異。

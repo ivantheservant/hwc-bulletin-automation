@@ -868,6 +868,101 @@ test('G28-2 由職事表重新取數一格都沒有停用（勾選的格本來�
   assert.strictEqual(sb.canonicalSaveToken_(sb.readSheet('BulletinWeeks')[0].LAST_SAVED_AT), sb.canonicalSaveToken_('2026-10-02'), '沒有停用就不動');
 });
 
+/**
+ * G28 補充：三個連續主日（W-7、W、W+7），最後儲存時間都撥回舊日子，分頁都在任何改動之前載入。
+ */
+function makeThreeWeekEnv() {
+  const dates = ['2027-11-07', '2027-11-14', '2027-11-21'];
+  const env = makeFillEnv({
+    withGrid: false,
+    weekRows: dates.map(function (iso, i) {
+      return { SERVICE_DATE: iso, QUARTER_ID: QUARTER_ID, WEEK_OF_MONTH: i + 1, STATUS: 'DRAFT', LAST_SAVED_AT: '2026-10-01' };
+    }),
+    config: { PRELUDE_DEFAULT: '預設序樂' }
+  });
+  const sb = env.sandbox;
+  const tabs = {};
+  dates.forEach(function (iso) { tabs[iso] = sb.loadWeekForWebApp_(iso); });
+  return { sb: sb, before: dates[0], week: dates[1], after: dates[2], tabs: tabs };
+}
+
+/** 某一個分頁只改序樂，照前端那樣把兩個事奉框的全部格（它載入時的名字）一併送上來。 */
+function saveFromStaleTab(env, iso, chairName, nextChairName) {
+  const tab = env.tabs[iso];
+  const patch = { PRELUDE: iso + ' 改的序樂' };
+  return env.sb.apiSaveWeek({ isoDate: iso, lastSavedAt: tab.lastSavedAt, week: patch,
+    baseWeek: env.sb.baseWeekFor_(tab.week, patch),
+    dutyEdits: [{ postId: 'CHAIR', slotIndex: 1, name: chairName }],
+    nextWeekDutyEdits: [{ postId: 'CHAIR', slotIndex: 1, name: nextChairName }] });
+}
+
+function activeChairOn(sb, iso) {
+  const row = sb.readSheet('DutyOverride').filter(function (r) {
+    return r.POST_ID === 'CHAIR' && sb.formatIsoDate_(sb.normalizeDate_(r.SERVICE_DATE)) === iso;
+  })[0];
+  return row && row.ACTIVE === true ? row.OVERRIDE_NAME : null;
+}
+
+test('G28-3 W 的「下週事奉」把 W+7 的主席改成「下週主席」→ W+7 較早載入的分頁儲存（本週事奉仍是陳大文）→ STALE，W 的改動沒有被蓋走', function () {
+  const env = makeThreeWeekEnv();
+  const r = saveFromStaleTab(env, env.week, '陳大文', '下週主席');
+  assert.strictEqual(r.ok, true, JSON.stringify(r.error));
+  assert.strictEqual(activeChairOn(env.sb, env.after), '下週主席', '前提');
+  const stale = saveFromStaleTab(env, env.after, '陳大文', '陳大文');
+  assert.strictEqual(stale.ok, false);
+  assert.strictEqual(stale.error.code, 'STALE');
+  assert.strictEqual(activeChairOn(env.sb, env.after), '下週主席');
+});
+
+test('G28-4 W 的「本週事奉」把主席改成「臨時主席」→ W-7 較早載入的分頁儲存（下週事奉仍是陳大文）→ STALE；只更新對照基準不會令另一週 STALE', function () {
+  const env = makeThreeWeekEnv();
+  saveFromStaleTab(env, env.week, '臨時主席', '陳大文');
+  assert.strictEqual(activeChairOn(env.sb, env.week), '臨時主席', '前提');
+  const stale = saveFromStaleTab(env, env.before, '陳大文', '陳大文');
+  assert.strictEqual(stale.ok, false);
+  assert.strictEqual(stale.error.code, 'STALE');
+  assert.strictEqual(activeChairOn(env.sb, env.week), '臨時主席');
+
+  assert.strictEqual(env.sb.dutyPlanChangesNames_({ updates: [{ changes: [{ field: 'ROSTER_VERSION_AT_OVERRIDE' }] }], appends: [], deactivations: [] }), false);
+  assert.strictEqual(env.sb.dutyPlanChangesNames_({ updates: [{ changes: [{ field: 'OVERRIDE_NAME' }] }], appends: [], deactivations: [] }), true);
+  assert.strictEqual(env.sb.dutyPlanChangesNames_(null), false);
+});
+
+test('G28-5 W「由職事表重新取數」停用主席的覆寫 → W-7 較早載入的分頁儲存（下週事奉仍是舊覆寫名字）→ STALE，覆寫沒有復活', function () {
+  const env = makeThreeWeekEnv();
+  saveFromStaleTab(env, env.week, '臨時主席', '陳大文');
+  // W-7 在覆寫之後、取數之前載入。
+  const sb = env.sb;
+  const rowNo = sb.readBulletinWeekRowWithRowNo_(env.before).__rowNo;
+  sb.SpreadsheetApp.getActiveSpreadsheet().getSheetByName('BulletinWeeks')
+    .getRange(rowNo, sb.COLUMNS.BULLETIN_WEEKS.keys.indexOf('LAST_SAVED_AT') + 1).setValue('2026-10-02');
+  env.tabs[env.before] = sb.loadWeekForWebApp_(env.before);
+  const fetched = sb.apiFetchFromRoster(env.week, [{ postId: 'CHAIR', slotIndex: 1 }]);
+  assert.strictEqual(fetched.data.clearedCount, 1);
+  const stale = saveFromStaleTab(env, env.before, '陳大文', '臨時主席');
+  assert.strictEqual(stale.ok, false);
+  assert.strictEqual(stale.error.code, 'STALE');
+  assert.strictEqual(activeChairOn(sb, env.week), null, '覆寫沒有復活');
+});
+
+test('G28-6 「重設這一週」W 停用主席的覆寫 → W-7 較早載入的分頁儲存 → STALE，覆寫沒有復活（還原同一做法）', function () {
+  const env = makeThreeWeekEnv();
+  const sb = env.sb;
+  saveFromStaleTab(env, env.week, '臨時主席', '陳大文');
+  const rowNo = sb.readBulletinWeekRowWithRowNo_(env.before).__rowNo;
+  sb.SpreadsheetApp.getActiveSpreadsheet().getSheetByName('BulletinWeeks')
+    .getRange(rowNo, sb.COLUMNS.BULLETIN_WEEKS.keys.indexOf('LAST_SAVED_AT') + 1).setValue('2026-10-02');
+  env.tabs[env.before] = sb.loadWeekForWebApp_(env.before);
+  const reset = sb.apiResetWeek({ isoDate: env.week, lastSavedAt: sb.loadWeekForWebApp_(env.week).lastSavedAt });
+  assert.strictEqual(reset.ok, true, JSON.stringify(reset.error));
+  assert.strictEqual(activeChairOn(sb, env.week), null, '前提：重設停用了覆寫');
+  const stale = saveFromStaleTab(env, env.before, '陳大文', '臨時主席');
+  assert.strictEqual(stale.ok, false);
+  assert.strictEqual(stale.error.code, 'STALE');
+  assert.strictEqual(activeChairOn(sb, env.week), null);
+  assert.ok(readSrc('src/WeekSnapshots.gs').split('touchWeeksShowingDuty_(isoDate, stamp)').length - 1 === 2, '還原與重設兩處都有');
+});
+
 // =====================================================================
 // G15：重設與還原對話框按「取消」
 // =====================================================================
