@@ -533,9 +533,15 @@
    *   的訊息，按 serverCallKind() 分。
    *
    *   以前一律講「這一次的動作可能已經做了、也可能沒有做」。唯讀的載入（例如講員表格現況）
-   *   逾時也這樣講，幹事會以為改了東西，所以讀取類改講「沒有改動任何東西」；下載 Word 講
+   *   逾時也這樣講，幹事會以為改了東西，所以讀取類改講「沒有改動週報內容」；下載 Word 講
    *   沒有下載到。寫入類與 quiet 照舊（寫入類給使用者看的是 describeNoResponseFailure()，
    *   這一句只記入 ErrorLog）。
+   *
+   *   G17 補充：不講「沒有改動任何東西」，因為有幾個讀取類會順手寫系統記錄：
+   *   apiRosterDiffReport（checkRosterDiff_() 記 AuditLog ROSTER_FOLLOW、更新職事表快照版本）、
+   *   apiLoadWeek／apiQuarterMissingReport（程序範本 ID 留空時經 persistInferredTemplateId_()
+   *   寫回推算出來的 PROGRAM_TEMPLATE_ID）。這些都是可以重複做的系統記錄，重新載入是安全的，
+   *   但不是「一格都沒有寫」。
    * Args:
    *   fnName {string} 伺服器函式名稱。
    *   seconds {number} 逾時秒數（serverCallTimeoutMs() 換算）。
@@ -550,7 +556,7 @@
     if (kind === 'read') {
       return {
         text: '伺服器在 ' + seconds + ' 秒內沒有回應（' + fnName + '）。'
-          + '這是讀取資料，沒有改動任何東西；請稍後重新載入頁面再試。',
+          + '這是讀取資料，沒有改動週報內容；請稍後重新載入頁面再試。',
         showAsIs: true
       };
     }
@@ -770,7 +776,7 @@
    *   第二批測試修正 G26：HTTP 401／403（isSignInFailure()）不算沒有回應：即時顯示
    *   describeSignInFailure() 那一句（讀取類、寫入類都一樣），不等候、不重新載入。
    *   第二批測試修正 G17：這裏自己的逾時，訊息按 describeCallTimeout()：讀取類講「這是讀取
-   *   資料，沒有改動任何東西」，下載 Word 講沒有下載到，兩者原樣顯示並記入 ErrorLog，
+   *   資料，沒有改動週報內容」，下載 Word 講沒有下載到，兩者原樣顯示並記入 ErrorLog，
    *   不排重新載入。
    * Returns:
    *   {void}

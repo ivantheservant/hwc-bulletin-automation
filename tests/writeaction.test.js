@@ -17,7 +17,7 @@
  * 第二批測試修正 G15：「重設這一週」與「還原到這個版本」對話框按「取消」，與季度作業
  * 一樣顯示「已取消，一格都沒有寫。」（同一個常數），而且一個寫入請求都不送。
  *
- * 第二批測試修正 G17：讀取類動作逾時，訊息講「這是讀取資料，沒有改動任何東西」，不講
+ * 第二批測試修正 G17：讀取類動作逾時，訊息講「這是讀取資料，沒有改動週報內容」（G17 補充改字眼），不講
  * 「動作可能已經做了」，不排重新載入；下載 Word 逾時講沒有下載到；寫入類照舊。
  *
  * 之後各輪（每組測試的標題寫明）：G18／G22(a) 發佈的提示句、G19 取消字眼、G20「處理填寫表
@@ -1415,7 +1415,7 @@ console.log('\n讀取類動作逾時（G17）');
 
 /** G17：讀取類逾時的一句（秒數由 serverCallTimeoutMs() 計出來）。 */
 function expectedReadTimeout(fnName, seconds) {
-  return '伺服器在 ' + (seconds || 120) + ' 秒內沒有回應（' + fnName + '）。這是讀取資料，沒有改動任何東西；請稍後重新載入頁面再試。';
+  return '伺服器在 ' + (seconds || 120) + ' 秒內沒有回應（' + fnName + '）。這是讀取資料，沒有改動週報內容；請稍後重新載入頁面再試。';
 }
 
 const EXPECTED_DOWNLOAD_TIMEOUT = '伺服器在 120 秒內沒有回應（apiDownloadBulletinDocx），Word 檔沒有下載到；請稍後再按一次「下載 Word」。'
@@ -1429,7 +1429,7 @@ function assertReportedAsIs(ui, fnName, text) {
   assert.strictEqual(reports[0].args[0].message, text);
 }
 
-test('G17-1 講員表格現況（真正的 loadSpeakerFormStatus()，唯讀）120 秒沒有回應 → 區塊內寫「這是讀取資料，沒有改動任何東西」；不講「可能已經做了」；沒有排重新載入；ErrorLog 照舊記錄', function () {
+test('G17-1 講員表格現況（真正的 loadSpeakerFormStatus()，唯讀）120 秒沒有回應 → 區塊內寫「這是讀取資料，沒有改動週報內容」；不講「可能已經做了」；沒有排重新載入；ErrorLog 照舊記錄', function () {
   const ui = makeUi({ extra: [['function loadSpeakerFormStatus(', 'function onSpeakerFormCreateClicked(']] });
   ui.ctx.loadSpeakerFormStatus();
   ui.take('apiGetSpeakerFormStatus');
@@ -1514,6 +1514,19 @@ test('G17-5 分類：讀取類每一個都是 read、三個例外各有自己的
   ui90.ctx.loadSpeakerFormStatus();
   assert.strictEqual(ui90.timers.run(90000), 1, '逾時計時器跟 Config 改成 90 秒');
   assert.strictEqual(ui90.els.speakerFormStatus.textContent, '講員表格現況載入失敗：' + expectedReadTimeout('apiGetSpeakerFormStatus', 90));
+});
+
+test('G17-7 G17 補充：apiRosterDiffReport、apiLoadWeek、apiQuarterMissingReport 會順手寫系統記錄（ROSTER_FOLLOW、推算的程序範本 ID），所以讀取類那一句講「沒有改動週報內容」，不講「沒有改動任何東西」', function () {
+  const ui = makeUi();
+  ['apiRosterDiffReport', 'apiLoadWeek', 'apiQuarterMissingReport'].forEach(function (name) {
+    assert.strictEqual(ui.ctx.serverCallKind(name), 'read', name);
+    const text = ui.ctx.describeCallTimeout(name, 120).text;
+    assert.ok(text.indexOf('沒有改動週報內容') !== -1, text);
+    assert.strictEqual(text.indexOf('任何東西'), -1, text);
+  });
+  const gs = readSrc('src/RosterDiff.gs');
+  assert.ok(gs.indexOf("action: 'ROSTER_FOLLOW'") !== -1, '前提：差異報告會寫 AuditLog');
+  assert.ok(readSrc('src/BulletinModel.gs').indexOf('function persistInferredTemplateId_(') !== -1, '前提：載入會寫回推算的範本 ID');
 });
 
 test('G17-6 讀取類遇到連線錯誤（HTTP 502）照舊即時顯示「呼叫伺服器失敗（…）」，不講「可能已經完成」、不排重新載入', function () {
