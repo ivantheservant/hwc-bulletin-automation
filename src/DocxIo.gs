@@ -562,6 +562,8 @@ function uniqueOutputFileName_(folder, name, maxAttempts) {
  *     `uniqueOutputFileName_()`）。
  * Returns:
  *   {{fileId:string, fileName:string, url:string}}
+ *     `url` 一律是 `driveFileViewUrl_()` 的雲端硬碟檢視連結（第二批測試
+ *     修正 G4：`file.getUrl()` 對 .docx 會回「用 Google 文件開啟」的連結）。
  * Raises:
  *   Error 如果 `folderId` 是空的，或資料夾開不到（訊息只含 ID 前 8 字元）。
  */
@@ -571,7 +573,7 @@ function writeOutputFile_(blob, folderId, name) {
   var finalName = uniqueOutputFileName_(folder, name);
   var file = folder.createFile(blob.setName(finalName));
 
-  return { fileId: file.getId(), fileName: finalName, url: file.getUrl() };
+  return { fileId: file.getId(), fileName: finalName, url: driveFileViewUrl_(file.getId()) };
 }
 
 /**
@@ -642,6 +644,12 @@ function findOrCreateChildFolder_(parentFolder, childName) {
  *   `findOrCreateChildFolder_()`。有多份同名檔案時只覆寫最舊的一份，
  *   `duplicateCount` 回報多出來的份數，由呼叫方提醒人手整理——系統
  *   不刪檔。
+ *
+ *   ⚠️ 第二批測試修正 G4：新建與更新兩條路的 `url` 一律用
+ *   `driveFileViewUrl_()`（`https://drive.google.com/file/d/<id>/view`）。
+ *   新建的檔案 `getUrl()` 對 .docx 會回 `docs.google.com/document/…rtpof=true`
+ *   ——用 Google 文件開啟 Word 檔，正正是指南要求不要用來列印的那一種，而且
+ *   第一次與第二次產生的連結格式不同。
  * Args:
  *   blob {Blob} 要存的檔案。
  *   folderId {string} 輸出資料夾 ID（Config 的 `BULLETIN_OUTPUT_FOLDER_ID`）。
@@ -671,7 +679,7 @@ function writeLatestOutputFile_(blob, folderId, name, subFolderName) {
   if (existing.length === 0) {
     var created = target.createFile(blob.setName(name));
     return {
-      fileId: created.getId(), fileName: name, url: created.getUrl(), folderId: target.getId(),
+      fileId: created.getId(), fileName: name, url: driveFileViewUrl_(created.getId()), folderId: target.getId(),
       folderName: subName, replaced: false, duplicateCount: 0
     };
   }

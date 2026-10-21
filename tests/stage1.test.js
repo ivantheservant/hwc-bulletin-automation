@@ -633,5 +633,46 @@ test('renderBulletinAttachment_：預覽（沒有 storeLatest 選項）不寫任
   assert.strictEqual(env.drive.createdFolders.length, 0);
 });
 
+
+// =====================================================================
+// 第二批測試修正 G4：Word 連結一律用雲端硬碟檢視連結
+// =====================================================================
+
+console.log('\nWord 連結格式（G4）');
+
+test('G4-1 選單「產生本週週報（Word）」第一次（新建）與第二次（更新）：對話框連結都是 https://drive.google.com/file/d/<id>/view', function () {
+  const env = makeWordEnv();
+  env.sandbox.menuGenerateBulletinDocx_();
+  env.sandbox.menuGenerateBulletinDocx_();
+  const fileId = weekRowOf(env, D).DOC_ID;
+  const expected = 'https://drive.google.com/file/d/' + fileId + '/view';
+
+  assert.strictEqual(env.alerts.length, 2);
+  [0, 1].forEach(function (i) {
+    const lines = env.alerts[i].body.split('\n');
+    assert.strictEqual(lines[lines.length - 1], expected, '第 ' + (i + 1) + ' 次的連結：' + lines[lines.length - 1]);
+    // 假 Drive 的 getUrl() 回的是另一種格式（像真實 .docx 的「用 Google 文件開啟」），
+    // 有用到它就會在這裏現形。
+    assert.strictEqual(env.alerts[i].body.indexOf('drive.example.invalid'), -1, env.alerts[i].body);
+  });
+  assert.ok(env.alerts[0].body.indexOf('第一次產生，已新建檔案') !== -1, '前提：第一次走新建那一條路');
+  assert.ok(env.alerts[1].body.indexOf('已更新為最新版') !== -1, '前提：第二次走更新那一條路');
+});
+
+test('G4-2 saveBulletinDocx_ 新建與更新、saveBulletinDocxCopy_（演練副本）：回傳的 url 一律是 driveFileViewUrl_()', function () {
+  const env = makeWordEnv();
+  const created = env.sandbox.saveBulletinDocx_(D);
+  assert.strictEqual(created.file.replaced, false);
+  assert.strictEqual(created.file.url, 'https://drive.google.com/file/d/' + created.file.fileId + '/view');
+
+  const updated = env.sandbox.saveBulletinDocx_(D);
+  assert.strictEqual(updated.file.replaced, true);
+  assert.strictEqual(updated.file.url, created.file.url, '兩次產生的連結要一模一樣');
+
+  const copy = env.sandbox.saveBulletinDocxCopy_(D);
+  assert.notStrictEqual(copy.file.fileId, created.file.fileId, '前提：演練副本是另一個檔案');
+  assert.strictEqual(copy.file.url, 'https://drive.google.com/file/d/' + copy.file.fileId + '/view');
+});
+
 console.log('\n通過 ' + pass + ' 項，失敗 ' + fail + ' 項。');
 process.exit(fail === 0 ? 0 : 1);
