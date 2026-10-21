@@ -364,11 +364,48 @@
   var NO_RESPONSE_CHECK_HINTS = {
     keepForm: '儲存可能已經完成，你的改動仍在畫面上。請再按一次「儲存」：如果系統說「這一週的資料在你載入之後被改過」，即是上一次已經存好，重新載入這一週就會見到。',
     week: '這個動作可能已經完成。系統已重新載入這一個主日，請先看「最後儲存時間」和「版本記錄」，確認未完成才再做一次。',
-    publish: '這個動作可能已經完成。系統已重新載入這一個主日，請先看「最後儲存時間」和「版本記錄」，確認未完成才再做一次。',
+    // G18／G22(a)：發佈加寄出（以及不知道這一次做甚麼）用這一句；只發佈、只寄出見
+    // PUBLISH_NO_RESPONSE_HINTS。
+    publish: '這個動作可能已經完成。系統已重新載入頁頂「目前已發佈」，請先看它的主日、版本和發佈時間是否已經是剛才這一次；寄出不會在填寫介面留下記錄，請看試算表的 SendLog 有沒有剛才這一次的寄出記錄。兩樣都確認未完成才再做一次；已經發佈而未寄出的話，再做時只勾「寄出」。',
     speakerForm: '這個動作可能已經完成。系統已重新載入講員表格的現況，請先看「講員表格」區塊，確認未完成才再做一次。',
     quarterOps: '這個動作可能已經完成。系統已重新載入季度作業的現況，請先看「季度作業」區塊，確認未完成才再做一次。',
     quarterImport: '這個動作可能已經完成。系統已重新載入這一個主日和季度作業的現況，請先看「季度作業」區塊，確認未完成才再做一次。'
   };
+
+  /**
+   * 用途：第二批測試修正 G18／G22(a)：發佈（apiRunPublish）沒有回應時，按這一次做甚麼
+   *   選提示句（見 noResponseCheckHint()）。核對的地方按實情寫：
+   *     發佈會改頁頂「目前已發佈」（主日、第幾版、發佈時間、由誰），「版本記錄」上方的
+   *       發佈記錄亦多一版；不會改「最後儲存時間」。
+   *     寄出（包括只寄出）只寫試算表的 SendLog（每個收件人一行，模擬模式亦寫）與 AuditLog，
+   *       填寫介面沒有任何地方顯示；再寄一次就會再寄一封。
+   *   發佈加寄出用 NO_RESPONSE_CHECK_HINTS.publish。
+   */
+  var PUBLISH_NO_RESPONSE_HINTS = {
+    publishOnly: '這個動作可能已經完成。系統已重新載入頁頂「目前已發佈」，請先看它的主日、版本和發佈時間是否已經是剛才這一次（「版本記錄」上方的發佈記錄亦會多一版），確認未完成才再做一次。',
+    sendOnly: '這個動作可能已經完成。寄出不會在填寫介面留下記錄，請先看試算表的 SendLog 有沒有剛才這一次的寄出記錄（模擬模式亦會記錄），確認未寄出才再寄；不要即時再按一次，以免重複寄信。'
+  };
+
+  /**
+   * 用途：第二批測試修正 G18／G22(a)：寫入類動作沒有回應時，「伺服器沒有回應（…），」之後
+   *   的一句。發佈按 payload 的 doPublish／doSend 分（PUBLISH_NO_RESPONSE_HINTS），其餘按
+   *   種類（NO_RESPONSE_CHECK_HINTS）。
+   * Args:
+   *   kind {string} writeActionRecoveryKind() 的結果。
+   *   args {Array=} 呼叫伺服器時的參數；發佈用第一個（payload）。
+   * Returns:
+   *   {string}
+   * Raises:
+   *   （無）
+   */
+  function noResponseCheckHint(kind, args) {
+    if (kind === 'publish') {
+      var p = (args && args[0]) || {};
+      if (p.doPublish === true && p.doSend !== true) return PUBLISH_NO_RESPONSE_HINTS.publishOnly;
+      if (p.doSend === true && p.doPublish !== true) return PUBLISH_NO_RESPONSE_HINTS.sendOnly;
+    }
+    return NO_RESPONSE_CHECK_HINTS[kind];
+  }
 
   /**
    * 用途：第二批測試修正 G13：沒有回應之後，等多久才重新載入（毫秒）。
@@ -507,13 +544,14 @@
    * Args:
    *   fnName {string} 伺服器函式名稱（寫在括號內，方便對照 ErrorLog）。
    *   kind {string} writeActionRecoveryKind() 的結果（必須是 NO_RESPONSE_CHECK_HINTS 的鍵）。
+   *   args {Array=} 呼叫伺服器時的參數（G18：發佈按這一次做甚麼選句子）。
    * Returns:
    *   {string}
    * Raises:
    *   （無）
    */
-  function describeNoResponseFailure(fnName, kind) {
-    return '伺服器沒有回應（' + fnName + '），' + NO_RESPONSE_CHECK_HINTS[kind];
+  function describeNoResponseFailure(fnName, kind, args) {
+    return '伺服器沒有回應（' + fnName + '），' + noResponseCheckHint(kind, args);
   }
 
   /**
@@ -613,7 +651,7 @@
       // 之後亦可能已經完成。訊息改講「可能已經完成」，等一會再重新載入給使用者核對。
       var recoveryKind = writeActionRecoveryKind(fnName);
       if (recoveryKind && isNoResponseFailure(err)) {
-        var noResponseMessage = describeNoResponseFailure(fnName, recoveryKind);
+        var noResponseMessage = describeNoResponseFailure(fnName, recoveryKind, args);
         // 回報即時送出（不等那一段等候），ErrorLog 保留原本的錯誤內容。
         if (!opts.noReport) {
           reportClientError_(describeServerFailure(fnName, err) + NO_RESPONSE_LOG_NOTE, stackSummary(err), fnName);

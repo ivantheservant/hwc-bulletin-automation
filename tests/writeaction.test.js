@@ -289,6 +289,27 @@ const DIFF_OK = { ok: true, data: { createdAt: '2026-10-22 08:00', reasonLabel: 
 
 const EXPECTED_SAVE_MESSAGE = '伺服器沒有回應（apiSaveWeek），儲存可能已經完成，你的改動仍在畫面上。請再按一次「儲存」：如果系統說「這一週的資料在你載入之後被改過」，即是上一次已經存好，重新載入這一週就會見到。';
 
+const EXPECTED_SEND_ONLY_MESSAGE = '伺服器沒有回應（apiRunPublish），這個動作可能已經完成。寄出不會在填寫介面留下記錄，'
+  + '請先看試算表的 SendLog 有沒有剛才這一次的寄出記錄（模擬模式亦會記錄），確認未寄出才再寄；不要即時再按一次，以免重複寄信。';
+const EXPECTED_PUBLISH_ONLY_MESSAGE = '伺服器沒有回應（apiRunPublish），這個動作可能已經完成。系統已重新載入頁頂「目前已發佈」，'
+  + '請先看它的主日、版本和發佈時間是否已經是剛才這一次（「版本記錄」上方的發佈記錄亦會多一版），確認未完成才再做一次。';
+const EXPECTED_PUBLISH_AND_SEND_MESSAGE = '伺服器沒有回應（apiRunPublish），這個動作可能已經完成。系統已重新載入頁頂「目前已發佈」，'
+  + '請先看它的主日、版本和發佈時間是否已經是剛才這一次；寄出不會在填寫介面留下記錄，請看試算表的 SendLog 有沒有剛才這一次的寄出記錄。'
+  + '兩樣都確認未完成才再做一次；已經發佈而未寄出的話，再做時只勾「寄出」。';
+
+/** 已選好這一週的 PDF、按「執行」，伺服器收到 HTTP 502，等候時間到。 */
+function publishWith502(ui, doPublish, doSend) {
+  Object.assign(ui.ctx.state.publish, { pdfBase64: 'QUFB', pdfName: '週報.pdf', pdfIsoDate: D });
+  ui.els.doPublishCheck.checked = doPublish;
+  ui.els.doSendCheck.checked = doSend;
+  ui.click('publishRunBtn');
+  const call = ui.take('apiRunPublish');
+  assert.strictEqual(call.args[0].doPublish, doPublish);
+  assert.strictEqual(call.args[0].doSend, doSend);
+  call.fail(new Error(NETWORK_502));
+  assert.strictEqual(ui.timers.run(ui.delayMs), 1);
+}
+
 function expectedWeekMessage(fnName) {
   return '伺服器沒有回應（' + fnName + '），這個動作可能已經完成。系統已重新載入這一個主日，請先看「最後儲存時間」和「版本記錄」，確認未完成才再做一次。';
 }
@@ -400,7 +421,8 @@ test('G13-4 發佈區按「執行」（只寄出）→ apiRunPublish 收到 HTTP
   assert.strictEqual(ui.els.publishConfirmOkBtn.disabled, true);
 
   ui.timers.run(ui.delayMs);
-  const expected = expectedWeekMessage('apiRunPublish');
+  // G18／G22(a) 改了這一句的預期：只寄出不會改「最後儲存時間」與版本記錄，要叫人看 SendLog。
+  const expected = EXPECTED_SEND_ONLY_MESSAGE;
   assert.strictEqual(ui.els.publishConfirmError.textContent, expected, '發佈前檢查視窗內也要有（視窗會蓋住頁頂）');
   assert.strictEqual(ui.els.publishResult.textContent, expected);
   assert.deepStrictEqual(ui.message(), { type: 'error', text: expected });
@@ -624,6 +646,40 @@ test('G15-4 對話框按「確定」照舊送出（取消那一句不會出現�
   ui.click('confirmOkBtn');
   assert.strictEqual(ui.count('apiResetWeek'), 1);
   assert.strictEqual(ui.message(), null);
+});
+
+// =====================================================================
+// G18／G22(a)：發佈沒有回應，提示按這一次做甚麼寫核對的地方
+// =====================================================================
+
+console.log('\n發佈沒有回應的提示（G18／G22(a)）');
+
+test('G18-1 只發佈 → 502 → 叫人看頁頂「目前已發佈」，不再叫人看「最後儲存時間」（發佈不會改它）', function () {
+  const ui = makeUi();
+  publishWith502(ui, true, false);
+  assert.deepStrictEqual(ui.message(), { type: 'error', text: EXPECTED_PUBLISH_ONLY_MESSAGE });
+  assert.strictEqual(ui.els.publishResult.textContent, EXPECTED_PUBLISH_ONLY_MESSAGE);
+  assert.strictEqual(ui.log.publishPanel, 1, '頁頂「目前已發佈」要重新載入（句子講了已重新載入）');
+  assert.ok(EXPECTED_PUBLISH_ONLY_MESSAGE.indexOf('最後儲存時間') === -1);
+});
+
+test('G18-2 只寄出 → 502 → 叫人看 SendLog、不要即時再按；發佈加寄出 → 兩樣都講，並提示已發佈而未寄出的話只勾「寄出」', function () {
+  const send = makeUi();
+  publishWith502(send, false, true);
+  assert.deepStrictEqual(send.message(), { type: 'error', text: EXPECTED_SEND_ONLY_MESSAGE });
+
+  const both = makeUi();
+  publishWith502(both, true, true);
+  assert.deepStrictEqual(both.message(), { type: 'error', text: EXPECTED_PUBLISH_AND_SEND_MESSAGE });
+  assert.strictEqual(both.els.publishConfirmError.textContent, EXPECTED_PUBLISH_AND_SEND_MESSAGE, '發佈前檢查視窗內也要有');
+  assertWrittenChinese(assert, 'G18 發佈提示', [EXPECTED_SEND_ONLY_MESSAGE, EXPECTED_PUBLISH_ONLY_MESSAGE, EXPECTED_PUBLISH_AND_SEND_MESSAGE]);
+});
+
+test('G18-3 noResponseCheckHint()：不知道這一次做甚麼（沒有 payload）時用發佈加寄出那一句；其他種類不看 payload', function () {
+  const ui = makeUi();
+  assert.strictEqual('伺服器沒有回應（apiRunPublish），' + ui.ctx.noResponseCheckHint('publish', []), EXPECTED_PUBLISH_AND_SEND_MESSAGE);
+  assert.strictEqual('伺服器沒有回應（apiRunPublish），' + ui.ctx.noResponseCheckHint('publish'), EXPECTED_PUBLISH_AND_SEND_MESSAGE);
+  assert.strictEqual(ui.ctx.noResponseCheckHint('week', [{ doPublish: true }]), ui.ctx.NO_RESPONSE_CHECK_HINTS.week);
 });
 
 // =====================================================================
