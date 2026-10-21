@@ -238,5 +238,104 @@ test('onContentImportDone：成功訊息不被 loadWeek 清走，而且刷新主
   assert.ok(fn.indexOf('refreshWeekSelectorLabels()') !== -1);
 });
 
+
+// =====================================================================
+// 第二批測試修正 G3：換週之後，發佈區不可以仍然掛著上一週的結果
+// =====================================================================
+
+console.log('\n換週之後收起發佈區的結果（G3）');
+
+/** 有 classList.toggle 的最小假元素（showPublishResult 要用）。 */
+function makeResultBox() {
+  const classes = new Set(['publish-result', 'hidden']);
+  return {
+    textContent: '',
+    classes: classes,
+    classList: {
+      add: function (c) { classes.add(c); },
+      remove: function (c) { classes.delete(c); },
+      contains: function (c) { return classes.has(c); },
+      toggle: function (c, force) {
+        const on = force === undefined ? !classes.has(c) : Boolean(force);
+        if (on) classes.add(c); else classes.delete(c);
+        return on;
+      }
+    }
+  };
+}
+
+/**
+ * 抽出 publish-result、load-week 兩段，加上「下一個 →」的 stepWeek()，在假環境
+ * 執行。callServer 的替身即時回應成功，並照 onWeekLoaded() 的做法更新 state.isoDate。
+ */
+function loadPublishResultRegion(startIsoDate) {
+  const js = readSrc('src/ui/Script.html');
+  const box = makeResultBox();
+  const calls = { hideMessage: 0, server: [] };
+  const weeks = [{ isoDate: '2028-04-02' }, { isoDate: '2028-04-09' }, { isoDate: '2028-04-16' }];
+  const ctx = {
+    state: { isoDate: startIsoDate, loaded: true },
+    document: { getElementById: function (id) { if (id !== 'publishResult') throw new Error('未預期的元素 ' + id); return box; } },
+    hideMessage: function () { calls.hideMessage++; },
+    showMessage: function () {},
+    setLoaded: function () {},
+    flatWeeksInOrder: function () { return weeks; },
+    syncSelectorsTo: function () {},
+    confirmWeekChange: function (proceed) { proceed(); },
+    callServer: function (name, args, onOk) {
+      calls.server.push({ name: name, args: args });
+      onOk({ ok: true, data: {} });
+    },
+    onWeekLoaded: function (isoDate) { ctx.state.isoDate = isoDate; }
+  };
+  vm.createContext(ctx);
+  const step = js.slice(js.indexOf('function stepWeek('), js.indexOf('function onWeekSelectChanged('));
+  vm.runInContext(extract(js, 'publish-result') + '\n' + extract(js, 'load-week') + '\n' + step
+    + '\nthis.api = { show: showPublishResult, clear: clearPublishResult, loadWeek: loadWeek, stepWeek: stepWeek };', ctx);
+  return { api: ctx.api, box: box, state: ctx.state, calls: calls };
+}
+
+const G3_RESULT = '⚠️ 模擬模式開啟中：已記錄 1 個收件人，但沒有真的寄出。\n\n（本次是在確認「仍然要寄出」之後執行的。）';
+
+test('G3-1 04-09 只寄出之後按「下一個 →」到 04-16（經 stepWeek → loadWeek）→ #publishResult 清空並有 hidden', function () {
+  const t = loadPublishResultRegion('2028-04-09');
+  t.api.show(G3_RESULT, false);
+  assert.strictEqual(t.box.classes.has('hidden'), false, '前提：結果正在顯示');
+
+  t.api.stepWeek(1);
+  assert.strictEqual(t.calls.server.length, 1);
+  assert.strictEqual(t.calls.server[0].name, 'apiLoadWeek');
+  assert.strictEqual(t.calls.server[0].args[0], '2028-04-16');
+  assert.strictEqual(t.state.isoDate, '2028-04-16');
+  assert.strictEqual(t.box.classes.has('hidden'), true, '換到另一個主日要收起上一週的結果');
+  assert.strictEqual(t.box.textContent, '', '內容要清空，不可以只是收起');
+});
+
+test('G3-2 同一個主日重新載入（發佈、還原之後 loadWeek(state.isoDate, {keepMessage:true})）→ 結果保留', function () {
+  const t = loadPublishResultRegion('2028-04-09');
+  t.api.show(G3_RESULT, false);
+  t.api.loadWeek('2028-04-09', { keepMessage: true });
+  assert.strictEqual(t.box.classes.has('hidden'), false, '同一個主日重新載入不可以清走剛顯示的結果');
+  assert.strictEqual(t.box.textContent, G3_RESULT);
+  assert.strictEqual(t.calls.hideMessage, 0);
+
+  // 不帶 keepMessage 的同日重載（例如重新選同一個主日）一樣保留——結果跟主日走。
+  t.api.loadWeek('2028-04-09');
+  assert.strictEqual(t.box.classes.has('hidden'), false);
+});
+
+test('G3-3 錯誤結果（紅色）換週之後一併收起，紅色樣式也清走；第一次載入（沒有上一個主日）不會出錯', function () {
+  const t = loadPublishResultRegion('2028-04-16');
+  t.api.show('未能執行。', true);
+  assert.strictEqual(t.box.classes.has('is-error'), true);
+  t.api.loadWeek('2028-04-02');
+  assert.strictEqual(t.box.classes.has('hidden'), true);
+  assert.strictEqual(t.box.classes.has('is-error'), false);
+
+  const first = loadPublishResultRegion(null);
+  assert.doesNotThrow(function () { first.api.loadWeek('2028-04-09'); });
+  assert.strictEqual(first.box.classes.has('hidden'), true);
+});
+
 console.log('\n通過 ' + pass + ' 項，失敗 ' + fail + ' 項。');
 process.exit(fail === 0 ? 0 : 1);

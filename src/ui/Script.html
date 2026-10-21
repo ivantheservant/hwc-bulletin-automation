@@ -1949,6 +1949,7 @@
     });
   }
 
+  // BEGIN load-week（測試會把這一段抽出來執行；用到的其他函式由測試提供替身）
   /**
    * 用途：載入指定主日的完整資料。
    * Args:
@@ -1959,17 +1960,24 @@
    *     被下面第一行的 `hideMessage()` 立刻清走（見 showMessage()
    *     的註解）。使用者自己在下拉選單切換主日則不傳，維持原本「換頁
    *     就清訊息」的行為。
+   *
+   *   第二批測試修正 G3：發佈區塊的結果跟主日走，不跟 `keepMessage` 走——
+   *   換到另一個主日一律收起，同一個主日重新載入就保留（見
+   *   `clearPublishResultIfWeekChanged()`）。
    * Returns:
    *   {void}
    */
   function loadWeek(isoDate, options) {
     var opts = options || {};
     if (!opts.keepMessage) hideMessage();
+    // G3：換到另一個主日就收起上一個主日的發佈／寄出結果；同一個主日保留。
+    clearPublishResultIfWeekChanged(state.isoDate, isoDate);
     setLoaded(false);
     callServer('apiLoadWeek', [isoDate],
       function (resp) { onWeekLoaded(isoDate, resp); },
       { busyText: '載入中…', onError: function (message) { setLoaded(false); showMessage('error', message); } });
   }
+  // END load-week
 
   /**
    * 用途：一週載入成功之後，把伺服器資料放進 `state` 並渲染整個畫面。
@@ -2628,12 +2636,55 @@
     loadPublishPanel();
   }
 
+  // BEGIN publish-result（測試會把這一段連同 load-week 抽出來在假 DOM 上執行，請保持自足）
+  /**
+   * 用途：在發佈區塊下面顯示一次發佈／寄出的結果（或錯誤）。
+   * Args:
+   *   text {string} 要顯示的內容（多行用換行分隔，以 textContent 顯示）。
+   *   isError {boolean=} `true` 時用紅色樣式。
+   * Returns:
+   *   {void}
+   */
   function showPublishResult(text, isError) {
     var box = document.getElementById('publishResult');
     box.textContent = text;
     box.classList.remove('hidden');
     box.classList.toggle('is-error', isError === true);
   }
+
+  /**
+   * 用途：清空並收起發佈區塊的結果。
+   * Args: （無）
+   * Returns:
+   *   {void}
+   */
+  function clearPublishResult() {
+    var box = document.getElementById('publishResult');
+    box.textContent = '';
+    box.classList.add('hidden');
+    box.classList.remove('is-error');
+  }
+
+  /**
+   * 用途：第二批測試修正 G3：載入另一個主日時，收起上一個主日的發佈／寄出結果。
+   *
+   *   ⚠️ 發佈區塊標題寫著「主日：新的日期」，下面卻仍然掛著上一個主日的
+   *   「已記錄 1 個收件人」，幹事會以為新的那一週已經寄出。結果只屬於做那次
+   *   動作的主日，所以按日期判斷：日期不同就收起；同一個主日重新載入（例如
+   *   發佈、還原之後 `loadWeek(state.isoDate, {keepMessage:true})`）就保留，
+   *   免得剛顯示的結果被緊接的重新載入清走。
+   * Args:
+   *   previousIsoDate {?string} 目前畫面上的主日（`state.isoDate`；第一次載入是空）。
+   *   nextIsoDate {string} 將要載入的主日。
+   * Returns:
+   *   {boolean} 有沒有收起。
+   */
+  function clearPublishResultIfWeekChanged(previousIsoDate, nextIsoDate) {
+    if (String(previousIsoDate || '') === String(nextIsoDate || '')) return false;
+    clearPublishResult();
+    return true;
+  }
+  // END publish-result
 
   /**
    * 用途：打開發佈前檢查視窗。
