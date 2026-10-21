@@ -62,6 +62,10 @@ const SRC_DIR = path.join(REPO_ROOT, 'src');
  *   relPaths {string[]} 相對於 repo 根目錄的 .gs 檔案路徑，依序載入。
  *   extraGlobals {Object=} 選填，要在載入任何檔案「之前」就放進 context
  *     的假 GAS 全域物件（例如 Utilities、Session 的 stub）。
+ *     第二批測試修正 G23：沒有提供 LockService 的話，放一個「一定拿得到」的
+ *     假鎖（defaultFakeLockService()）——儲存（saveWeekFromWebApp_()）由那一輪起
+ *     要拿指令碼鎖，而很多舊測試的替身沒有 LockService。要測「拿不到鎖」的測試
+ *     自己傳一個進來。
  * Returns:
  *   {vm.Context} 執行完畢的 context，可以直接用屬性存取取出裡面定義的
  *     function／var（例如 context.normalizeBoolean_）。
@@ -69,7 +73,7 @@ const SRC_DIR = path.join(REPO_ROOT, 'src');
  *   Error 如果任何一個檔案不存在，或內容有語法錯誤（vm 會原樣拋出）。
  */
 function loadGasFiles(relPaths, extraGlobals) {
-  const sandbox = Object.assign({ console: console }, extraGlobals || {});
+  const sandbox = Object.assign({ console: console, LockService: defaultFakeLockService() }, extraGlobals || {});
   vm.createContext(sandbox);
 
   relPaths.forEach(function (relPath) {
@@ -106,7 +110,39 @@ function loadAllSrcFilesInOrder(extraGlobals, srcDir) {
   return loadGasFiles(relPaths, extraGlobals);
 }
 
+/**
+ * 用途：第二批測試修正 G23：測試替身沒有提供 LockService 時用的假鎖。tryLock 一定成功，
+ *   但會記住有沒有拿着鎖（`held`），而且拿着的時候再拿會失敗——同一個時間只可以有一個
+ *   人拿着，與真的指令碼鎖一樣，不會因為替身太寬鬆而令「忘記放鎖」測不出來。
+ * Args: （無）
+ * Returns:
+ *   {{getScriptLock:function():Object, held:function():boolean}}
+ * Raises:
+ *   （無）
+ */
+function defaultFakeLockService() {
+  let held = false;
+  const lock = {
+    tryLock: function () {
+      if (held) return false;
+      held = true;
+      return true;
+    },
+    waitLock: function () {
+      if (held) throw new Error('假鎖：已經有人拿着鎖。');
+      held = true;
+    },
+    hasLock: function () { return held; },
+    releaseLock: function () { held = false; }
+  };
+  return {
+    getScriptLock: function () { return lock; },
+    held: function () { return held; }
+  };
+}
+
 module.exports = {
+  defaultFakeLockService: defaultFakeLockService,
   loadGasFiles: loadGasFiles,
   loadAllSrcFilesInOrder: loadAllSrcFilesInOrder
 };

@@ -646,6 +646,108 @@ test('G13-11 後端（真正入口 apiSaveWeek）：同一份儲存 payload 送�
 });
 
 // =====================================================================
+// G23：apiSaveWeek 由讀取、比對到寫入 LAST_SAVED_AT 都在指令碼鎖之內
+// =====================================================================
+
+console.log('\n儲存要拿指令碼鎖（G23）');
+
+/** 一個可以儲存的主日（真正的工作表結構，經 makeFillEnv）。 */
+function makeSaveEnv(extraStubs) {
+  const iso = '2027-11-07';
+  const env = makeFillEnv({
+    withGrid: false,
+    weekRows: [{ SERVICE_DATE: iso, QUARTER_ID: QUARTER_ID, WEEK_OF_MONTH: 1, STATUS: 'DRAFT' }],
+    config: { PRELUDE_DEFAULT: '預設序樂' },
+    extraStubs: extraStubs
+  });
+  const sb = env.sandbox;
+  const loaded = sb.loadWeekForWebApp_(iso);
+  const patch = { PRELUDE: '新序樂' };
+  const payload = { isoDate: iso, lastSavedAt: loaded.lastSavedAt, week: patch, baseWeek: sb.baseWeekFor_(loaded.week, patch), dutyEdits: [] };
+  return { sb: sb, iso: iso, payload: payload };
+}
+
+/**
+ * 第一次儲存讀完、比對完樂觀鎖，正要存版本、寫欄位（trySnapshotWeek_() 那一刻）時，第二次
+ * 儲存送到伺服器——正正是連線錯誤之後即時再按「儲存」、第一次仍在跑的情況。
+ */
+function saveWithSecondDuringFirst(env) {
+  const sb = env.sb;
+  const original = sb.trySnapshotWeek_;
+  const seen = {};
+  sb.trySnapshotWeek_ = function () {
+    if (!seen.started) {
+      seen.started = true;
+      seen.lastSavedAtAtThatMoment = sb.readSheet('BulletinWeeks')[0].LAST_SAVED_AT;
+      seen.preludeAtThatMoment = sb.readSheet('BulletinWeeks')[0].PRELUDE;
+      seen.second = sb.apiSaveWeek(JSON.parse(JSON.stringify(env.payload)));
+    }
+    return original.apply(this, arguments);
+  };
+  seen.first = sb.apiSaveWeek(JSON.parse(JSON.stringify(env.payload)));
+  sb.trySnapshotWeek_ = original;
+  return seen;
+}
+
+function auditOf(sb, action) {
+  return sb.readSheet('AuditLog').filter(function (r) { return r.ACTION === action; });
+}
+
+test('G23-1 第一次儲存拿着鎖、未寫 LAST_SAVED_AT 時第二次儲存到達 → 第二次拿不到鎖，回清楚的一句，一格都沒有寫；第一次照常完成', function () {
+  const env = makeSaveEnv();
+  const seen = saveWithSecondDuringFirst(env);
+  assert.ok(!seen.lastSavedAtAtThatMoment, '前提：那一刻 LAST_SAVED_AT 仍未寫（沒有鎖的話第二次會通過樂觀鎖）');
+  assert.notStrictEqual(seen.preludeAtThatMoment, '新序樂', '前提：那一刻欄位仍未寫');
+  assert.strictEqual(seen.first.ok, true, JSON.stringify(seen.first.error));
+  assert.strictEqual(seen.second.ok, false);
+  assert.strictEqual(seen.second.error.code, 'LOCK_TIMEOUT');
+  assert.strictEqual(seen.second.error.message,
+    '另一個寫入動作（例如另一次儲存、匯入或發佈）正在執行中，30 秒內等不到，所以這一次一格都沒有寫。你的改動仍在畫面上，請稍等再按「儲存」。');
+  assert.strictEqual(auditOf(env.sb, 'WEBAPP_SAVE_WEEK').length, 1, 'AuditLog 只有第一次那一筆');
+  assert.strictEqual(auditOf(env.sb, 'WEEK_SNAPSHOT_CREATE').length, 1, '版本只存了一個');
+  assert.strictEqual(env.sb.readSheet('BulletinWeeks')[0].PRELUDE, '新序樂');
+  assert.strictEqual(env.sb.LockService.held(), false, '第一次完成之後放鎖');
+  assertWrittenChinese(assert, 'G23 拿不到鎖', [seen.second.error.message]);
+});
+
+test('G23-2 第二次等到鎖（第一次已經寫完）→ 回 STALE，一格都沒有再寫', function () {
+  const env = makeSaveEnv();
+  const first = env.sb.apiSaveWeek(JSON.parse(JSON.stringify(env.payload)));
+  assert.strictEqual(first.ok, true);
+  const auditAfterFirst = env.sb.readSheet('AuditLog').length;
+  const second = env.sb.apiSaveWeek(JSON.parse(JSON.stringify(env.payload)));
+  assert.strictEqual(second.ok, false);
+  assert.strictEqual(second.error.code, 'STALE');
+  assert.strictEqual(env.sb.readSheet('AuditLog').length, auditAfterFirst);
+  assert.strictEqual(env.sb.LockService.held(), false, 'STALE（鎖之內拋錯）之後一樣放鎖');
+  // 放了鎖，之後正常的儲存照樣做得到。
+  const loaded = env.sb.loadWeekForWebApp_(env.iso);
+  const patch = { PRELUDE: '再改一次' };
+  const third = env.sb.apiSaveWeek({ isoDate: env.iso, lastSavedAt: loaded.lastSavedAt, week: patch, baseWeek: env.sb.baseWeekFor_(loaded.week, patch), dutyEdits: [] });
+  assert.strictEqual(third.ok, true, JSON.stringify(third.error));
+});
+
+test('G23-3 對照（證明 G23-1 量得到）：鎖一定拿得到（等於沒有鎖）的話，同一時刻的第二次儲存通過樂觀鎖，AuditLog 與版本重複', function () {
+  const alwaysFree = { getScriptLock: function () { return { tryLock: function () { return true; }, releaseLock: function () {} }; } };
+  const env = makeSaveEnv({ LockService: alwaysFree });
+  const seen = saveWithSecondDuringFirst(env);
+  assert.strictEqual(seen.first.ok, true);
+  assert.strictEqual(seen.second.ok, true, '沒有鎖：第二次讀到舊的 LAST_SAVED_AT，照樣通過');
+  assert.strictEqual(auditOf(env.sb, 'WEBAPP_SAVE_WEEK').length, 2, '沒有鎖：AuditLog 重複');
+  assert.strictEqual(auditOf(env.sb, 'WEEK_SNAPSHOT_CREATE').length, 2, '沒有鎖：版本重複');
+});
+
+test('G23-4 只有一種鎖：儲存用的是指令碼鎖，等候時間與內容表匯入、講員表格相同（30 秒）', function () {
+  const env = makeSaveEnv();
+  assert.strictEqual(env.sb.SAVE_LOCK_WAIT_MS_, 30000);
+  const src = readSrc('src/WebAppSave.gs');
+  assert.ok(src.indexOf('LockService.getScriptLock()') !== -1);
+  assert.strictEqual(src.indexOf('getDocumentLock'), -1);
+  assert.strictEqual(src.indexOf('getUserLock'), -1);
+  assert.ok(readSrc('src/ContentImport.gs').indexOf('lock.tryLock(30000)') !== -1, '對照：內容表匯入等 30 秒');
+});
+
+// =====================================================================
 // G15：重設與還原對話框按「取消」
 // =====================================================================
 

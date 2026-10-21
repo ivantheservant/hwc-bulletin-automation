@@ -786,11 +786,19 @@ function assertContentSheetFieldsNotSubmitted_(payload) {
  *     `changedFieldCount` 等於 `auditEntries.length`，把覆寫記錄也算成欄位。
  *     `message` 是 `buildSaveResultMessage_()` 算好的文案，前端直接顯示，
  *     不再自己砌字串（前端沒有 Node 測試，文案分支放在這裡才測得到）。
+ *
+ *   第二批測試修正 G23：由讀取工作表、比對樂觀鎖，到寫入 `LAST_SAVED_AT` 與
+ *   `AuditLog`，全部在指令碼鎖（`LockService.getScriptLock()`）之內做
+ *   （`saveWeekFromWebAppLocked_()`）。以前樂觀鎖檢查與寫入 `LAST_SAVED_AT` 之間沒有鎖：
+ *   儲存遇到連線錯誤之後即時再按（FF-13 容許），而第一次仍在伺服器上跑的話，第二次讀到的
+ *   `LAST_SAVED_AT` 仍是舊值，兩次都通過，AuditLog、版本記錄、DutyOverride 的新行都會重複。
+ *   有鎖之後，第二次要等第一次寫完 `LAST_SAVED_AT` 才讀，於是回 STALE。
  * Raises:
  *   Error 如果 `payload.isoDate` 缺漏或格式不對；Error（`code:'STALE'`）
  *     如果樂觀鎖不符；Error（`code:'FIELD_CONFLICT'`）如果有欄位在載入之後
  *     已被別處改過；Error（`code:'CLIENT_OUTDATED'`）如果 payload 沒有
- *     `baseWeek`。這三種情況都**不會執行任何寫入**。
+ *     `baseWeek`；Error（`code:'LOCK_TIMEOUT'`）如果 `SAVE_LOCK_WAIT_MS_` 之內
+ *     拿不到指令碼鎖。這四種情況都**不會執行任何寫入**。
  */
 function saveWeekFromWebApp_(payload) {
   if (!payload || !payload.isoDate) {
@@ -807,6 +815,41 @@ function saveWeekFromWebApp_(payload) {
   // `assertContentSheetFieldsNotSubmitted_()`。
   assertContentSheetFieldsNotSubmitted_(payload);
 
+  // G23：讀取、比對、寫入全部在鎖之內。等候時間與內容表匯入、講員表格的 30 秒一致；
+  // 專案內只有這一種鎖（指令碼鎖），而拿着鎖的函式之間不會互相呼叫，不會死鎖。
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(SAVE_LOCK_WAIT_MS_)) {
+    var lockErr = new Error('另一個寫入動作（例如另一次儲存、匯入或發佈）正在執行中，'
+      + Math.round(SAVE_LOCK_WAIT_MS_ / 1000) + ' 秒內等不到，所以這一次一格都沒有寫。'
+      + '你的改動仍在畫面上，請稍等再按「儲存」。');
+    lockErr.code = 'LOCK_TIMEOUT';
+    throw lockErr;
+  }
+  try {
+    return saveWeekFromWebAppLocked_(payload, isoDate, targetDate);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** 第二批測試修正 G23：儲存等指令碼鎖最多等幾多毫秒（與 applyContentImport_()、onSpeakerFormSubmit_() 相同）。 */
+var SAVE_LOCK_WAIT_MS_ = 30000;
+
+/**
+ * 用途：第二批測試修正 G23：`saveWeekFromWebApp_()` 拿到指令碼鎖之後的那一段——讀現有
+ *   工作表狀態、比對樂觀鎖、套用計畫、寫 `LAST_SAVED_AT` 與 `AuditLog`。抽成獨立函式只為了
+ *   令 `try/finally` 只包住要鎖的那一段。只可以由 `saveWeekFromWebApp_()` 呼叫。
+ * Args:
+ *   payload {Object} 見本檔案檔頭的 payload 形狀說明（已經驗過 isoDate 與唯讀欄位）。
+ *   isoDate {string} 主日日期，yyyy-MM-dd。
+ *   targetDate {Date} 同一個主日的 `Date`。
+ * Returns:
+ *   {Object} 同 `saveWeekFromWebApp_()`。
+ * Raises:
+ *   Error 同 `saveWeekFromWebApp_()`（STALE、FIELD_CONFLICT、CLIENT_OUTDATED 都在任何寫入
+ *     之前拋出）。
+ */
+function saveWeekFromWebAppLocked_(payload, isoDate, targetDate) {
   var normalizedWeek = normalizeWeekPayloadForCompare_(payload.week);
   var normalizedBaseWeek = normalizeWeekPayloadForCompare_(payload.baseWeek);
 
