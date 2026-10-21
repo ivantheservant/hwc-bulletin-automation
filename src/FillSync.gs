@@ -359,6 +359,14 @@ function syncFillGrid_(quarterId) {
   var gridSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(fillGridSheetName_(quarterId));
   var settledEntries = [];
 
+  // 第二批階段 2：真的要寫回 `BulletinWeeks`（PUSH）的主日，寫之前各存一個版本。
+  // 同一個主日在 `SNAPSHOT_THROTTLE_MINUTES` 之內只存一次。
+  snapshotWeeksBeforeWrite_(
+    plan.cells.filter(function (c) { return c.status === FILL_SYNC_STATUS.PUSH; })
+      .map(function (c) { return c.isoDate; }),
+    'GRID_SYNC', { throttle: true }
+  );
+
   plan.cells.forEach(function (cell) {
     if (cell.status === FILL_SYNC_STATUS.CONFLICT) return;
 
@@ -698,6 +706,8 @@ function applyFillGridEdit_(sheet, range, quarterId) {
       var oldValue = fillGridCellText_((readBulletinWeekRowWithRowNo_(isoDate) || {})[def.key]);
       if (newValue === oldValue) continue;
 
+      // 第二批階段 2：真的要寫之前存一個版本（同一主日有時間限制，多格貼上也只存一次）。
+      snapshotWeeksBeforeWrite_([isoDate], 'GRID_EDIT', { throttle: true });
       writeBulletinWeekField_(isoDate, def.key, newValue);
       appendAuditLog_({
         action: 'FILL_GRID_EDIT', sheetName: SHEETS.BULLETIN_WEEKS,

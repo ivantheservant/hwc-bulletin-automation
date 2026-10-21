@@ -824,6 +824,32 @@ function saveWeekFromWebApp_(payload) {
     existingLists: existingLists
   });
 
+  // ⚠️ 第二批階段 2：版本記錄。**所有寫入之前**先把三種覆寫的計畫算好，
+  //    只有「這一次真的會改到該主日」才存一個版本（沒有任何改動的儲存不產生
+  //    版本，與不更新 `LAST_SAVED_AT` 同一個道理）。計畫算好之後直接交給下面
+  //    的套用步驟，不重算一次——算兩次就有「版本說會改、實際沒改」的機會。
+  var nextDate = addDays_(targetDate, 7);
+  var nextIsoDate = formatIsoDate_(nextDate);
+  var dutyPlan = planDutyEditsFromPayload_(isoDate, payload.dutyEdits);
+  var nextDutyPlan = planDutyEditsFromPayload_(nextIsoDate, payload.nextWeekDutyEdits);
+  // 這一週還沒有資料行時（防呆補行），欄位覆寫要等補行之後才算，維持原本的做法。
+  var fieldOverridePlan = weekRowInfo
+    ? planFieldOverridesFromPayload_(isoDate, normalizedWeek, weekRowInfo)
+    : undefined;
+
+  var snapshotWarnings = [];
+  var thisWeekWillChange = ops.weekChanges.length > 0
+    || dutyOverridePlanHasChanges_(dutyPlan) || fieldOverridePlanHasChanges_(fieldOverridePlan);
+  if (weekRowInfo && thisWeekWillChange) {
+    var thisSnapshot = trySnapshotWeek_(isoDate, 'WEBAPP_SAVE');
+    if (thisSnapshot.warning) snapshotWarnings.push(thisSnapshot.warning);
+  }
+  // 「下週事奉」改的是下一個主日那一筆覆寫，所以下一個主日也要有自己的版本。
+  if (dutyOverridePlanHasChanges_(nextDutyPlan)) {
+    var nextSnapshot = trySnapshotWeek_(nextIsoDate, 'WEBAPP_SAVE');
+    if (nextSnapshot.warning) snapshotWarnings.push(nextSnapshot.warning);
+  }
+
   var auditEntries = [];
 
   if (weekRowInfo) {
@@ -844,7 +870,7 @@ function saveWeekFromWebApp_(payload) {
   // 儲存——覆寫寫的是另一張表（`DutyOverride`），跟 `BulletinWeeks` 的
   // 樂觀鎖是同一次操作的一部分（所以在同一個 payload 內），但邏輯上是
   // 完全分開的一件事。
-  applyDutyEditsFromPayload_(isoDate, targetDate, payload.dutyEdits, auditEntries);
+  applyDutyEditsFromPayload_(isoDate, targetDate, payload.dutyEdits, auditEntries, dutyPlan);
 
   // ⚠️ R-040：下週事奉的覆寫寫的是**下一個主日**那一筆記錄，不是這一週的。
   //
@@ -857,9 +883,8 @@ function saveWeekFromWebApp_(payload) {
   //    事：第一個決定「讀邊一日的既有覆寫」，第二個決定「寫落去嗰格係邊一日」
   //    ——兩者不一致就會出現「讀 A 日、寫 B 日」，每儲存一次多一筆記錄，
   //    而外表完全正常。
-  var nextDate = addDays_(targetDate, 7);
-  applyDutyEditsFromPayload_(formatIsoDate_(nextDate), nextDate,
-    payload.nextWeekDutyEdits, auditEntries);
+  applyDutyEditsFromPayload_(nextIsoDate, nextDate,
+    payload.nextWeekDutyEdits, auditEntries, nextDutyPlan);
 
   // ⚠️ R-043／R-045：第三種模式的欄位覆寫。與事奉覆寫同一個道理——
   //    寫的是另一張表（`FieldOverride`），但屬於同一次儲存。
@@ -867,7 +892,7 @@ function saveWeekFromWebApp_(payload) {
   //    `applyWeekFieldChanges_()` 之後，工作表那一格已經係新值——用佢做
   //    來源值就永遠相等，一筆覆寫都唔會寫得出。
   applyFieldOverridesFromPayload_(isoDate, targetDate, normalizedWeek,
-    weekRowInfo || {}, auditEntries);
+    weekRowInfo || {}, auditEntries, fieldOverridePlan);
 
   // ⚠️ F2：完全沒有改動就不更新 `LAST_SAVED_AT`。`auditEntries` 是欄位、
   //    兩種事奉覆寫、第三種欄位覆寫共用的累積陣列，「有沒有改動」與
@@ -895,7 +920,9 @@ function saveWeekFromWebApp_(payload) {
   return {
     lastSavedAt: savedToken,
     changedFieldCount: auditEntries.length,
-    message: buildSaveResultMessage_(auditEntries.length)
+    // 版本記錄存不到時，訊息要講出來（這次改動不能用「還原」找回），
+    // 但儲存本身照樣成功。
+    message: appendSnapshotWarnings_(buildSaveResultMessage_(auditEntries.length), snapshotWarnings)
   };
 }
 
@@ -1116,10 +1143,12 @@ function auditValueToText_(v) {
  *   changes {Object[]} `computeFieldDiff_()` 的輸出。
  *   isoDate {string} 主日日期，`AuditLog.ROW_KEY` 用。
  *   auditEntriesOut {Object[]} 累積用的陣列，這個函式會往裡面 push。
+ *   action {string=} AuditLog 的動作代碼；省略就是 `WEBAPP_SAVE_WEEK`。
+ *     還原與重設共用這一支寫入，各自用自己的代碼（`WEEK_RESTORE`／`WEEK_RESET`）。
  * Returns:
  *   {void}
  */
-function applyWeekFieldChanges_(rowNo, changes, isoDate, auditEntriesOut) {
+function applyWeekFieldChanges_(rowNo, changes, isoDate, auditEntriesOut, action) {
   if (!changes || changes.length === 0) return;
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.BULLETIN_WEEKS);
   var keys = COLUMNS.BULLETIN_WEEKS.keys;
@@ -1131,7 +1160,7 @@ function applyWeekFieldChanges_(rowNo, changes, isoDate, auditEntriesOut) {
     setCellValueTextSafe_(sheet, COLUMNS.BULLETIN_WEEKS, rowNo, c.field,
       c.newValue === null || c.newValue === undefined ? '' : c.newValue);
     auditEntriesOut.push({
-      action: 'WEBAPP_SAVE_WEEK', sheetName: SHEETS.BULLETIN_WEEKS, rowKey: isoDate,
+      action: action || 'WEBAPP_SAVE_WEEK', sheetName: SHEETS.BULLETIN_WEEKS, rowKey: isoDate,
       field: c.field, oldValue: auditValueToText_(c.oldValue), newValue: auditValueToText_(c.newValue)
     });
   });
@@ -1263,10 +1292,33 @@ function applyListPlan_(sheetName, targetDate, isoDate, listType, plan, auditEnt
  *   normalizedWeek {Object} 這一次儲存要寫入的欄位值。
  *   weekBeforeSave {Object} **寫入之前**的 `BulletinWeeks` 那一行。
  *   auditEntriesOut {Object[]} 累積用的陣列。
+ *   plan {?Object=} 已經由 `planFieldOverridesFromPayload_()` 算好的計畫；
+ *     省略（`undefined`）就在這裏算；`null` 代表沒有東西要寫。
  * Returns:
  *   {void}
  */
-function applyFieldOverridesFromPayload_(isoDate, targetDate, normalizedWeek, weekBeforeSave, auditEntriesOut) {
+function applyFieldOverridesFromPayload_(isoDate, targetDate, normalizedWeek, weekBeforeSave, auditEntriesOut, plan) {
+  var effective = plan === undefined
+    ? planFieldOverridesFromPayload_(isoDate, normalizedWeek, weekBeforeSave)
+    : plan;
+  if (!effective) return;
+  applyFieldOverridePlan_(effective, targetDate, isoDate, getCallerEmail_(), auditEntriesOut);
+}
+
+/**
+ * 用途：算出 payload 內第三種模式那幾欄要對 `FieldOverride` 做什麼（**唯讀**，
+ *   不寫任何一格）。規則與注意事項見 `applyFieldOverridesFromPayload_()` 上面
+ *   那一大段說明——計算與套用分開，是為了讓儲存可以在寫入之前就知道「這一次
+ *   會不會動到這個主日」（版本記錄）。
+ * Args:
+ *   isoDate {string} 主日日期。
+ *   normalizedWeek {Object} 這一次儲存要寫入的欄位值。
+ *   weekBeforeSave {Object} **寫入之前**的 `BulletinWeeks` 那一行。
+ * Returns:
+ *   {?Object} `computeFieldOverridePlan_()` 的輸出；payload 完全沒有帶第三種
+ *     模式的欄位時回 `null`。
+ */
+function planFieldOverridesFromPayload_(isoDate, normalizedWeek, weekBeforeSave) {
   var draft = {};
   var touched = false;
   CONTENT_SHEET_OVERRIDABLE_FIELDS.forEach(function (key) {
@@ -1274,7 +1326,7 @@ function applyFieldOverridesFromPayload_(isoDate, targetDate, normalizedWeek, we
     draft[key] = normalizedWeek[key];
     touched = true;
   });
-  if (!touched) return;
+  if (!touched) return null;
 
   // ⚠️ 「來源值」＝內容表帶入嗰個值，**唔係** BulletinWeeks 現值。
   //    現值有機會已經係上一次嘅覆寫值（介面同格子表都會寫落去），
@@ -1291,8 +1343,7 @@ function applyFieldOverridesFromPayload_(isoDate, targetDate, normalizedWeek, we
     sourceValues[key] = existing ? existing.SOURCE_VALUE_AT_OVERRIDE : before[key];
   });
 
-  var plan = computeFieldOverridePlan_(draft, sourceValues, overrideIndex, isoDate);
-  applyFieldOverridePlan_(plan, targetDate, isoDate, getCallerEmail_(), auditEntriesOut);
+  return computeFieldOverridePlan_(draft, sourceValues, overrideIndex, isoDate);
 }
 
 /**
@@ -1314,23 +1365,40 @@ function applyFieldOverridesFromPayload_(isoDate, targetDate, normalizedWeek, we
  *   targetDate {Date} 同一個主日日期的 `Date` 形式（新增行要用）。
  *   dutyEdits {Object[]} 見本檔案檔頭的 payload 形狀說明。
  *   auditEntriesOut {Object[]} 累積 `AuditLog` 條目用的陣列。
+ *   plan {?Object=} 已經由 `planDutyEditsFromPayload_()` 算好的計畫；省略
+ *     （`undefined`）就在這裏算；`null` 代表沒有東西要寫。
  * Returns:
  *   {void}
  * Raises:
  *   Error 如果 `DutyOverride` 工作表不存在（`applyDutyOverridePlan_()`
  *     原樣拋出——有東西要寫卻沒有表可以寫，是必須講出來的結構問題）。
  */
-function applyDutyEditsFromPayload_(isoDate, targetDate, dutyEdits, auditEntriesOut) {
-  if (!dutyEdits || dutyEdits.length === 0) return;
-  if (!isoDate) return;
+function applyDutyEditsFromPayload_(isoDate, targetDate, dutyEdits, auditEntriesOut, plan) {
+  var effective = plan === undefined ? planDutyEditsFromPayload_(isoDate, dutyEdits) : plan;
+  if (!effective) return;
+  applyDutyOverridePlan_(effective, targetDate, isoDate, getCallerEmail_(), auditEntriesOut);
+}
+
+/**
+ * 用途：算出一批事奉框編輯要對 `DutyOverride` 做什麼（**唯讀**，不寫任何一格）。
+ *   計算與套用分開，是為了讓儲存可以在寫入之前就知道「這一次會不會動到這個
+ *   主日」（版本記錄）。
+ * Args:
+ *   isoDate {string} 主日日期，yyyy-MM-dd。
+ *   dutyEdits {Object[]} 見本檔案檔頭的 payload 形狀說明。
+ * Returns:
+ *   {?Object} `computeDutyOverridePlan_()` 的輸出；`dutyEdits` 缺漏或空陣列時
+ *     回 `null`（舊版前端不會帶這個欄位，不可以當成「全部被清空」）。
+ */
+function planDutyEditsFromPayload_(isoDate, dutyEdits) {
+  if (!dutyEdits || dutyEdits.length === 0) return null;
+  if (!isoDate) return null;
 
   var snapshot = readRosterSnapshot_(isoDate);
-  var plan = computeDutyOverridePlan_({
+  return computeDutyOverridePlan_({
     edits: dutyEdits,
     existingRows: readDutyOverrideRowsWithRowNo_(isoDate),
     rosterNameByKey: buildRosterNameByKey_(snapshot.slotsByPost),
     rosterVersion: snapshot.versionNo
   });
-
-  applyDutyOverridePlan_(plan, targetDate, isoDate, getCallerEmail_(), auditEntriesOut);
 }

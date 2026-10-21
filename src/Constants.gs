@@ -87,7 +87,9 @@ var SHEETS = Object.freeze({
   SELF_TEST_STATE: 'SelfTestState',
   SELF_TEST_REPORT: 'SelfTestReport',
   MONKEY_LOG: 'MonkeyLog',
-  MONKEY_STATE: 'MonkeyState'
+  MONKEY_STATE: 'MonkeyState',
+  // ---- 第二批階段 2：每週版本記錄（見 src/WeekSnapshots.gs）----
+  WEEK_SNAPSHOTS: 'WeekSnapshots'
 });
 
 /**
@@ -518,6 +520,34 @@ var COLUMNS = Object.freeze({
     // ⚠️ PATH_SO_FAR 用「步數:動作」的精簡格式（`1:CREATE_WEEKS,2:EDIT_FIELDS`），
     //    帶冒號與數字，不設純文字格式的話會被試算表當成時間（事故二十八）。
     textFormatColumns: ['SEED', 'RNG_STATE', 'PATH_SO_FAR']
+  },
+
+  // 第二批階段 2：每個主日的版本記錄，可以還原（見 src/WeekSnapshots.gs）。
+  //
+  // 內容：該主日 `BulletinWeeks` 那一行（全部欄位）、生效中的 `DutyOverride`
+  // 與 `FieldOverride`；四張清單（家事報告、代禱、團契、財政）只在 `SUMMARY`
+  // 記條數，不存內容——它們以內容表為準。
+  //
+  // ⚠️ `PAYLOAD_JSON` 單格上限 50000 字元，超過就分拆成多行（`SNAPSHOT_ID`
+  // 相同、`PART_NO` 遞增），做法與 `FillBackup` 完全相同、共用同一組分拆／
+  // 串回函式。每一個分段都重複寫 `SUMMARY` 等欄位，讀取時以第一個分段為準。
+  //
+  // ⚠️ 不刪行：舊版本一直保留，列表只顯示最新的幾個（Config
+  // `SNAPSHOT_LIST_LIMIT`）。`ACTIVE` 預留給日後「隱藏某個版本」，目前一律 TRUE。
+  WEEK_SNAPSHOTS: {
+    headers: [
+      '版本編號', '分段', '主日日期', '季度', '建立時間', '建立者', '原因', '摘要',
+      '內容', 'Word 檔案 ID', '有效'
+    ],
+    keys: [
+      'SNAPSHOT_ID', 'PART_NO', 'SERVICE_DATE', 'QUARTER_ID', 'CREATED_AT', 'CREATED_BY', 'REASON', 'SUMMARY',
+      'PAYLOAD_JSON', 'DOC_FILE_ID', 'ACTIVE'
+    ],
+    types: [
+      'TEXT', 'INT', 'DATE', 'TEXT', 'DATE', 'TEXT', 'TEXT', 'TEXT',
+      'TEXT', 'TEXT', 'BOOLEAN'
+    ],
+    textFormatColumns: ['SNAPSHOT_ID', 'PAYLOAD_JSON']
   }
 
 });
@@ -668,7 +698,10 @@ var CONFIG_KEYS = Object.freeze({
   DUPLICATE_PARAGRAPH_MIN_CHARS: 'DUPLICATE_PARAGRAPH_MIN_CHARS',
   // R-035：舊季度自動封存
   RETENTION_QUARTERS_VISIBLE: 'RETENTION_QUARTERS_VISIBLE',
-  CONTENT_SHEET_ARCHIVE_FOLDER_ID: 'CONTENT_SHEET_ARCHIVE_FOLDER_ID'
+  CONTENT_SHEET_ARCHIVE_FOLDER_ID: 'CONTENT_SHEET_ARCHIVE_FOLDER_ID',
+  // 第二批階段 2：每週版本記錄
+  SNAPSHOT_THROTTLE_MINUTES: 'SNAPSHOT_THROTTLE_MINUTES',
+  SNAPSHOT_LIST_LIMIT: 'SNAPSHOT_LIST_LIMIT'
 });
 
 // =====================================================================
@@ -825,7 +858,11 @@ var DEFAULTS = Object.freeze([
   { key: CONFIG_KEYS.RETENTION_QUARTERS_VISIBLE, value: '2', note: 'R-035：季度下拉預設顯示最近幾多季（2 ＝ 本季 ＋ 前一季）。更早的季度會被標記 ARCHIVED=TRUE、Fill_* 隱藏、內容表登記行 ACTIVE=FALSE。⚠️ 一格資料都不會刪——封存只是「預設不顯示」，撳「顯示已封存」就見得返，亦可以用選單「取消封存」完全還原' },
   { key: CONFIG_KEYS.CONTENT_SHEET_ARCHIVE_FOLDER_ID, value: '', note: 'R-035：封存時把內容表檔案搬去哪一個資料夾（Shared Drive 內的子資料夾 ID）。⚠️ 留空就只改 ContentSheets 那一行的 ACTIVE，不搬檔案，並在報告講明——搬檔案是 Drive 操作，設定未填就靜靜不搬而不講，下次找不到檔案會查半日' },
 
-  { key: CONFIG_KEYS.DUPLICATE_PARAGRAPH_MIN_CHARS, value: '25', note: 'R-032：重複段落偵測的最短長度（字元）。短過這個數的段落（例如「本週」「阿們」）重複是正常的，不當成問題' }
+  { key: CONFIG_KEYS.DUPLICATE_PARAGRAPH_MIN_CHARS, value: '25', note: 'R-032：重複段落偵測的最短長度（字元）。短過這個數的段落（例如「本週」「阿們」）重複是正常的，不當成問題' },
+
+  // ---- 第二批階段 2：每週版本記錄 ----
+  { key: CONFIG_KEYS.SNAPSHOT_THROTTLE_MINUTES, value: '15', note: '每週版本記錄：季度填寫表觸發器、手動同步與處理衝突的寫回，同一個主日在這個分鐘數之內只存一個版本，免得每改一格就多一個版本。其他動作（填寫介面儲存、內容表匯入、重設、還原等）每次都存。填 0 代表不限制' },
+  { key: CONFIG_KEYS.SNAPSHOT_LIST_LIMIT, value: '20', note: '每週版本記錄：填寫介面的「版本記錄」列表最多顯示最新幾個版本。舊版本不會刪除，只是列表不顯示' }
 ]);
 
 // =====================================================================
@@ -929,6 +966,35 @@ var RECIPIENT_GROUP = Object.freeze({
   TEST: 'TEST',
   IT: 'IT',
   WORSHIP: 'WORSHIP'
+});
+
+/**
+ * `WeekSnapshots.REASON` 允許的取值與中文名稱——**一處定義**。程式與介面一律
+ * 由這裏取，不另抄一份字眼。見 src/WeekSnapshots.gs。
+ *
+ * | 代碼 | 時機 |
+ * |---|---|
+ * | `WEBAPP_SAVE` | 填寫介面儲存（含「下週事奉」改到下一個主日的那一個） |
+ * | `CONTENT_IMPORT_WEEK` / `CONTENT_IMPORT_QUARTER` | 內容表匯入（單週／整季，每個受影響的主日各一個） |
+ * | `ROSTER_BACKFILL` / `ROSTER_FETCH` | 補抓空白事奉欄位／由職事表重新取數 |
+ * | `GRID_SYNC` / `GRID_EDIT` / `GRID_CONFLICT` | 季度填寫表的寫回（同一主日有時間限制，見 `SNAPSHOT_THROTTLE_MINUTES`） |
+ * | `BEFORE_RESET` / `BEFORE_RESTORE` | 重設這一週、還原到某個版本之前的安全版本 |
+ * | `SPEAKER_FORM` | 講員表格答案寫入之前 |
+ * | `WORD_GENERATED` | 產生 Word 之後（記下當時的內容與 Word 檔案 ID） |
+ */
+var WEEK_SNAPSHOT_REASONS = Object.freeze({
+  WEBAPP_SAVE: '填寫介面儲存',
+  CONTENT_IMPORT_WEEK: '內容表匯入（單一主日）',
+  CONTENT_IMPORT_QUARTER: '內容表匯入（整季）',
+  ROSTER_BACKFILL: '補抓空白的事奉欄位',
+  ROSTER_FETCH: '由職事表重新取數',
+  GRID_SYNC: '季度填寫表同步',
+  GRID_EDIT: '季度填寫表直接編輯',
+  GRID_CONFLICT: '處理填寫表衝突',
+  BEFORE_RESET: '重設這一週之前',
+  BEFORE_RESTORE: '還原之前',
+  SPEAKER_FORM: '講員表格',
+  WORD_GENERATED: '產生 Word 之後'
 });
 
 /**

@@ -816,18 +816,25 @@ function previewContentImport_(quarterId, options) {
  *
  *   ⚠️ 整個寫入包在 `LockService` 內：`Fill_*` 的同步觸發器同樣會寫
  *   `BulletinWeeks`，兩者撞在一起會互相覆蓋。
+ *
+ *   寫入之前，每個**真的會被改到**的主日各存一個版本（`WeekSnapshots`，
+ *   原因 `CONTENT_IMPORT_WEEK`／`CONTENT_IMPORT_QUARTER`）。存不到不阻止匯入，
+ *   但會在結果的 `snapshotWarnings` 講出來。
  * Args:
  *   quarterId {string} 季度 ID。
- *   options {{isoDate:string=}=} 同 `previewContentImport_()`。
+ *   options {{isoDate:string=, skipSnapshot:boolean=}=} 同 `previewContentImport_()`；
+ *     `skipSnapshot` 為真代表呼叫方已經自己存過版本（「重設這一週」），不再重複存。
  * Returns:
  *   {{ok:boolean, quarterId:string, scope:string, plan:(Object|undefined),
- *     fileUrl:(string|undefined), reason:(string|undefined), message:(string|undefined)}}
+ *     fileUrl:(string|undefined), reason:(string|undefined), message:(string|undefined),
+ *     snapshotWarnings:(string[]|undefined)}}
  * Raises:
  *   Error 如果拿不到鎖（30 秒內）——寧可失敗也不要與同步觸發器同時寫。
  */
 function applyContentImport_(quarterId, options) {
   var preview = previewContentImport_(quarterId, options);
   if (!preview.ok) return preview;
+  var skipSnapshot = Boolean(options && options.skipSnapshot === true);
 
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(30000)) {
@@ -838,6 +845,11 @@ function applyContentImport_(quarterId, options) {
   }
 
   try {
+    // ⚠️ 版本一定要在寫入**之前**存。
+    preview.snapshotWarnings = skipSnapshot ? [] : snapshotWeeksBeforeWrite_(
+      contentImportAffectedDates_(preview.plan),
+      preview.scope === 'ONE_WEEK' ? 'CONTENT_IMPORT_WEEK' : 'CONTENT_IMPORT_QUARTER'
+    );
     writeContentImportPlan_(preview.plan);
     updateContentSheetField_(preview.quarterId, 'LAST_IMPORTED_AT', new Date());
   } finally {
@@ -845,6 +857,25 @@ function applyContentImport_(quarterId, options) {
   }
 
   return preview;
+}
+
+/**
+ * 用途：找出一份匯入計畫會動到哪幾個主日的週報（填寫欄位或覆寫）。**純函式。**
+ *   只動到清單類分頁（家事報告等）的主日不算——那些以內容表為準，不在版本裏面。
+ * Args:
+ *   plan {Object} `computeContentImportPlan_()` 的輸出。
+ * Returns:
+ *   {string[]} 主日日期，由舊到新，沒有重複。
+ */
+function contentImportAffectedDates_(plan) {
+  var dates = {};
+  ((plan && plan.weekUpdates) || []).forEach(function (update) {
+    if (update.changes && update.changes.length > 0) dates[String(update.isoDate)] = true;
+  });
+  ((plan && plan.releases) || []).forEach(function (release) {
+    dates[String(release.isoDate)] = true;
+  });
+  return Object.keys(dates).sort();
 }
 
 /**
@@ -1067,6 +1098,11 @@ function buildContentImportDialogLines_(result, options) {
     if (plan.details.length > CONTENT_IMPORT_PREVIEW_ROWS_) {
       lines.push('　（共 ' + plan.details.length + ' 行，全份已寫入 Diagnostics 工作表。）');
     }
+  }
+
+  if ((result.snapshotWarnings || []).length > 0) {
+    lines.push('');
+    result.snapshotWarnings.forEach(function (w) { lines.push('⚠️ ' + w); });
   }
 
   if (opts.dryRun) {

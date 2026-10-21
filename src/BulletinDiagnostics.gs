@@ -86,18 +86,10 @@ function createBlankBulletinWeeks_(quarterId) {
   var dates = resolution.dates;
   var existingRows = readSheet(SHEETS.BULLETIN_WEEKS);
 
-  var templateConfig = {
-    baptismKeywords: getConfigTextList_(CONFIG_KEYS.TEMPLATE_KEYWORDS_BAPTISM, '浸禮'),
-    anniversaryKeywords: getConfigTextList_(CONFIG_KEYS.TEMPLATE_KEYWORDS_ANNIVERSARY, '堂慶,週年'),
-    templateDefault: getConfig(CONFIG_KEYS.TEMPLATE_DEFAULT, 'TPL_NORMAL')
-  };
-  var defaults = {
-    prelude: getConfig(CONFIG_KEYS.PRELUDE_DEFAULT, ''),
-    pageTitle: getConfig(CONFIG_KEYS.DEFAULT_PAGE_TITLE, '崇拜程序'),
-    attendanceHeading: getConfig(CONFIG_KEYS.DEFAULT_ATTENDANCE_HEADING, '上週主日崇拜人數'),
-    nextWeekHeading: getConfig(CONFIG_KEYS.DEFAULT_NEXT_WEEK_HEADING, '下週主日崇拜聚會事奉肢體'),
-    prayerBlockHeading: getConfig(CONFIG_KEYS.DEFAULT_PRAYER_BLOCK_HEADING, '代禱事項')
-  };
+  // 預設值與範本判斷設定跟「重設這一週」共用同一個定義（src/WeekSnapshots.gs）。
+  var settings = readBlankWeekSettings_();
+  var templateConfig = settings.templateConfig;
+  var defaults = settings.defaults;
 
   var newRows = [];
   var addedDates = [];
@@ -112,33 +104,15 @@ function createBlankBulletinWeeks_(quarterId) {
     // ⚠️ 職事表讀不到的時候 readRosterSnapshot_() 回一個空快照（不拋錯），
     //    所以下面那幾格自然會是空的——正是我們想要的「留空」。
     var snapshot = readRosterSnapshot_(isoDate);
-    var special = snapshot.special;
     var resolved = resolveProgramTemplateId_({}, snapshot, templateConfig);
-    var targetDate = normalizeDate_(isoDate);
     var rowRosterStatus = (snapshot && snapshot.found === true)
       ? ROSTER_STATUS.OK
       : rosterStatusForDate_(isoDate, resolution);
 
-    newRows.push({
-      SERVICE_DATE: targetDate,
-      // ⚠️ **一定要用呼叫方指定的季度，不可以用 `snapshot.quarterId`。**
-      //    快照那個值是職事表自己講這個日期屬於哪一季；兩者不一致時，
-      //    用快照那個＝把一行寫進另一個季度，而畫面上完全看不出來。
-      //    「決定處理哪一季」是呼叫方的事，職事表只負責答「這一天有沒有
-      //    資料」。見 docs/已知bug類型.md 事故四十一。
-      QUARTER_ID: quarterId,
-      WEEK_OF_MONTH: snapshot.weekOfMonth,
-      SPECIAL_TYPE: special ? special.title : '',
-      PAGE_TITLE: defaults.pageTitle,
-      PROGRAM_TEMPLATE_ID: resolved.templateId,
-      PRELUDE: defaults.prelude,
-      ATTENDANCE_HEADING: defaults.attendanceHeading,
-      ATTENDANCE_DATE: addDays_(targetDate, -7),
-      NEXT_WEEK_HEADING: defaults.nextWeekHeading,
-      PRAYER_BLOCK_HEADING: defaults.prayerBlockHeading,
-      STATUS: BULLETIN_WEEK_STATUS.DRAFT,
-      ROSTER_STATUS: rowRosterStatus
-    });
+    newRows.push(buildBlankWeekRow_({
+      isoDate: isoDate, quarterId: quarterId, snapshot: snapshot,
+      resolvedTemplateId: resolved.templateId, defaults: defaults, rosterStatus: rowRosterStatus
+    }));
     addedDates.push(isoDate);
   });
 

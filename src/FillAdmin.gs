@@ -456,6 +456,8 @@ function protectedSheetNames_() {
     SHEETS.PROGRAM_TEMPLATES, SHEETS.EMAIL_TEMPLATES, SHEETS.BULLETIN_WEEKS,
     SHEETS.FILL_SNAPSHOT, SHEETS.FILL_BACKUP, SHEETS.CONFLICT_NOTICE_LOG,
     SHEETS.DUTY_OVERRIDE,
+    // 每週版本記錄：全部由系統寫，人手改一行只會令還原出錯。
+    SHEETS.WEEK_SNAPSHOTS,
     // ContentSheets 只記「每季內容表指向哪一個檔案」，全部由系統寫；
     // 人手改一個檔案 ID 只會令匯入指去錯的檔案，所以一律受保護。
     SHEETS.CONTENT_SHEETS,

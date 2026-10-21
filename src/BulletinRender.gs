@@ -767,7 +767,15 @@ function storeLatestBulletinDocx_(isoDate, generated, audit) {
   var saved = saveBulletinDocx_(isoDate, generated);
   if (!saved.ok) return saved;
   var recorded = recordBulletinGeneration_(isoDate, saved.file.fileId, audit);
-  return Object.assign({}, saved, { recorded: recorded });
+  // 第二批階段 2：記下產生這份 Word 當下的內容與檔案 ID（版本記錄會附 Word 連結）。
+  // 內容與上一次產生時完全相同就不再多存一個；存不到不影響 Word 本身。
+  var snapshot = trySnapshotWeek_(isoDate, 'WORD_GENERATED', {
+    docFileId: saved.file.fileId, dedupeSameReason: true
+  });
+  return Object.assign({}, saved, {
+    recorded: recorded,
+    snapshotWarning: snapshot.warning
+  });
 }
 
 /**

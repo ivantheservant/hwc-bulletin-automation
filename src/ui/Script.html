@@ -37,6 +37,8 @@
     loadedWeek: {},
     // 階段 1：後端算好的職事表獻花名字，獻花欄位旁邊的提示用。
     flowerRoster: { thisWeek: '', nextWeek: '' },
+    // 階段 2：版本記錄區塊現時載入的是哪一個主日（null＝還沒載入或需要重新載入）。
+    snapshotsLoadedFor: null,
     lists: { announcements: [], prayers: [], fellowships: [], finance: [] },
     // 第六輪：事奉框每一格目前的值，鍵是「崗位#位次」。儲存時整批送回
     // 伺服器，由 computeDutyOverridePlan_() 決定哪幾格真的需要寫
@@ -977,6 +979,367 @@
   }
   // END flower-hint
 
+  // BEGIN snapshot-panel（測試會把這一段抽出來在假 DOM 上執行，請保持自足）
+  /**
+   * 用途：版本列表上方的一行：時間｜由誰｜原因。**純函式。**
+   * Args:
+   *   version {{createdAt:string, createdBy:string, reasonLabel:string}} 後端的一個版本。
+   * Returns:
+   *   {string}
+   */
+  function snapshotMetaText(version) {
+    return [version.createdAt || '（時間不明）', version.createdBy || '（未知使用者）', version.reasonLabel || '']
+      .join('｜');
+  }
+
+  /**
+   * 用途：差異表裏一個值怎樣顯示。**純函式。**
+   *   空白的欄位顯示「（空白）」，沒有覆寫的事奉框／欄位顯示「（沒有覆寫）」。
+   * Args:
+   *   kind {string} `FIELD`、`DUTY` 或 `FIELD_OVERRIDE`。
+   *   value {string} 後端給的值。
+   * Returns:
+   *   {string}
+   */
+  function snapshotValueText(kind, value) {
+    var text = String(value === null || value === undefined ? '' : value);
+    if (text !== '') return text;
+    return kind === 'FIELD' ? '（空白）' : '（沒有覆寫）';
+  }
+
+  /**
+   * 用途：只有 `https://drive.google.com/` 開頭的網址才畫成連結（後端由檔案 ID
+   *   砌出來的），其他一律不畫。**純函式。**
+   * Args:
+   *   url {string}
+   * Returns:
+   *   {boolean}
+   */
+  function isDriveUrl(url) {
+    return String(url || '').indexOf('https://drive.google.com/') === 0;
+  }
+
+  /**
+   * 用途：畫出版本列表。名稱、時間、摘要一律 `textContent`。
+   * Args:
+   *   list {Element} `<ul>`。
+   *   versions {Object[]} `apiListWeekSnapshots` 的 `versions`。
+   *   handlers {{onDiff:function(string):void, onRestore:function(string):void}}
+   * Returns:
+   *   {void}
+   */
+  function renderSnapshotList(list, versions, handlers) {
+    list.innerHTML = '';
+    versions.forEach(function (version) {
+      var item = el('li', 'snapshot-item');
+
+      var meta = el('div', 'snapshot-meta');
+      meta.textContent = snapshotMetaText(version);
+      item.appendChild(meta);
+
+      var summary = el('div', 'snapshot-summary');
+      summary.textContent = version.summary || '';
+      item.appendChild(summary);
+
+      if (isDriveUrl(version.docUrl)) {
+        var link = el('a', 'snapshot-doc-link');
+        link.textContent = '開啟 Word 檔';
+        link.setAttribute('href', version.docUrl);
+        link.setAttribute('target', '_blank');
+        link.setAttribute('rel', 'noopener');
+        item.appendChild(link);
+      }
+
+      var buttons = el('div', 'snapshot-buttons');
+      var diffBtn = el('button', 'btn btn-small');
+      diffBtn.type = 'button';
+      diffBtn.textContent = '看差異';
+      diffBtn.addEventListener('click', function () { handlers.onDiff(version.snapshotId); });
+      buttons.appendChild(diffBtn);
+      var restoreBtn = el('button', 'btn btn-small');
+      restoreBtn.type = 'button';
+      restoreBtn.textContent = '還原到這個版本';
+      restoreBtn.addEventListener('click', function () { handlers.onRestore(version.snapshotId); });
+      buttons.appendChild(restoreBtn);
+      item.appendChild(buttons);
+
+      list.appendChild(item);
+    });
+  }
+
+  /**
+   * 用途：畫出這個主日的發佈記錄（標明「已發佈」）。
+   * Args:
+   *   box {Element}
+   *   published {{versionNo:number, publishedAt:string, archiveUrl:string, forced:boolean}[]}
+   * Returns:
+   *   {void}
+   */
+  function renderPublishedList(box, published) {
+    box.innerHTML = '';
+    if (!published || published.length === 0) return;
+    var title = el('div', 'snapshot-published-title');
+    title.textContent = '已發佈';
+    box.appendChild(title);
+    published.forEach(function (row) {
+      var line = el('div', 'snapshot-published-row');
+      var text = el('span');
+      text.textContent = '第 ' + row.versionNo + ' 版｜' + (row.publishedAt || '（時間不明）')
+        + (row.forced ? '｜強制發佈' : '') + '｜';
+      line.appendChild(text);
+      if (isDriveUrl(row.archiveUrl)) {
+        var link = el('a');
+        link.textContent = '開啟存檔副本';
+        link.setAttribute('href', row.archiveUrl);
+        link.setAttribute('target', '_blank');
+        link.setAttribute('rel', 'noopener');
+        line.appendChild(link);
+      } else {
+        var none = el('span');
+        none.textContent = '（沒有存檔副本）';
+        line.appendChild(none);
+      }
+      box.appendChild(line);
+    });
+  }
+
+  /**
+   * 用途：畫出差異表。
+   * Args:
+   *   body {Element} `<tbody>`。
+   *   rows {{kind:string, label:string, snapshotValue:string, currentValue:string}[]}
+   * Returns:
+   *   {void}
+   */
+  function renderDiffRows(body, rows) {
+    body.innerHTML = '';
+    if (rows.length === 0) {
+      var tr = el('tr');
+      var td = el('td');
+      td.setAttribute('colspan', '3');
+      td.textContent = '這個版本與現在的內容一樣。';
+      tr.appendChild(td);
+      body.appendChild(tr);
+      return;
+    }
+    rows.forEach(function (row) {
+      var tr = el('tr');
+      [row.label, snapshotValueText(row.kind, row.snapshotValue), snapshotValueText(row.kind, row.currentValue)]
+        .forEach(function (text) {
+          var td = el('td');
+          td.textContent = text;
+          tr.appendChild(td);
+        });
+      body.appendChild(tr);
+    });
+  }
+
+  /**
+   * 用途：還原確認對話框的內容行。**純函式。**
+   * Args:
+   *   diff {{createdAt:string, reasonLabel:string, rows:Object[], noteLine:string}}
+   *     `apiDiffWeekSnapshot` 的結果。
+   *   hasUnsavedChanges {boolean} 表單或事奉框有沒有未儲存的改動。
+   * Returns:
+   *   {string[]}
+   */
+  function buildRestoreDialogLines(diff, hasUnsavedChanges) {
+    var lines = ['版本：' + (diff.createdAt || '（時間不明）') + '（' + diff.reasonLabel + '）', ''];
+    if (diff.rows.length === 0) {
+      lines.push('這個版本與現在的內容一樣，沒有東西需要還原。');
+    } else {
+      lines.push('還原會改動以下 ' + diff.rows.length + ' 項：');
+      diff.rows.slice(0, 30).forEach(function (row) {
+        lines.push('　' + row.label + '：現在「' + snapshotValueText(row.kind, row.currentValue)
+          + '」→ 還原成「' + snapshotValueText(row.kind, row.snapshotValue) + '」');
+      });
+      if (diff.rows.length > 30) {
+        lines.push('　（其餘 ' + (diff.rows.length - 30) + ' 項請先按「看差異」查看。）');
+      }
+    }
+    lines.push('');
+    if (hasUnsavedChanges) {
+      lines.push('這一週的表單有未儲存的改動，還原後會丟失這些改動。');
+      lines.push('');
+    }
+    lines.push(diff.noteLine);
+    return lines;
+  }
+
+  /**
+   * 用途：「重設這一週」確認對話框的內容行。**純函式。**
+   * Args:
+   *   hasUnsavedChanges {boolean} 表單或事奉框有沒有未儲存的改動。
+   * Returns:
+   *   {string[]}
+   */
+  function buildResetDialogLines(hasUnsavedChanges) {
+    var lines = [
+      '重設這一週會：',
+      '1. 先自動存一個版本，之後可以在版本記錄還原；',
+      '2. 這一週所有人手填的欄位改回建立時的預設值（例如序樂的範本預設值）；',
+      '3. 這一週的事奉框覆寫（包括上一週「下週事奉」改到這一週的）、第三種欄位覆寫全部停用（不刪行）；',
+      '4. 如果本季已有內容表，由內容表重新匯入這一週；',
+      '5. 職事表一格都不會改；已發佈的 PDF、已寄出的郵件、已產生的 Word 檔都不受影響。'
+    ];
+    if (hasUnsavedChanges) {
+      lines.push('');
+      lines.push('這一週的表單有未儲存的改動，重設後會丟失這些改動。');
+    }
+    return lines;
+  }
+  // END snapshot-panel
+
+  // =====================================================================
+  // 第二批階段 2：版本記錄（這一個主日）
+  //
+  // ⚠️ 版本列表、差異、還原、重設全部由伺服器算好——前端不自己比對欄位、
+  //    不自己決定哪些欄位會被還原（那是 planWeekSnapshotRestore_() 的事）。
+  // ⚠️ 確認一律用頁內對話框 openConfirmDialog()，不用瀏覽器原生確認視窗。
+  // =====================================================================
+
+  /**
+   * 用途：版本記錄區塊現時是不是展開。
+   * Returns:
+   *   {boolean}
+   */
+  function isSnapshotPanelOpen() {
+    return document.getElementById('snapshotPanel').open === true;
+  }
+
+  /**
+   * 用途：改寫版本記錄區塊的狀態行（載入中、共幾個版本、失敗原因）。
+   * Args:
+   *   text {string}
+   * Returns:
+   *   {void}
+   */
+  function setSnapshotStatus(text) {
+    document.getElementById('snapshotStatus').textContent = text;
+  }
+
+  /**
+   * 用途：向伺服器取這一個主日的版本記錄並畫出來。換週之後才回來的回應丟掉
+   *   （否則會把上一週的版本畫在這一週下面）。
+   * Returns:
+   *   {void}
+   */
+  function loadSnapshotPanel() {
+    if (!state.isoDate) return;
+    var requestedDate = state.isoDate;
+    setSnapshotStatus('載入版本記錄中…');
+    callServer('apiListWeekSnapshots', [requestedDate], function (resp) {
+      if (requestedDate !== state.isoDate) return;
+      if (!resp.ok) { setSnapshotStatus('版本記錄載入失敗：' + resp.error.message); return; }
+      var data = resp.data;
+      renderPublishedList(document.getElementById('snapshotPublished'), data.published);
+      renderSnapshotList(document.getElementById('snapshotList'), data.versions, {
+        onDiff: onSnapshotDiffClicked,
+        onRestore: onSnapshotRestoreClicked
+      });
+      if (data.versions.length === 0) {
+        setSnapshotStatus('這一個主日還沒有任何版本。');
+      } else if (data.totalCount > data.shownCount) {
+        setSnapshotStatus('共 ' + data.totalCount + ' 個版本，列表只顯示最新 ' + data.shownCount + ' 個；舊版本不會刪除。');
+      } else {
+        setSnapshotStatus('共 ' + data.totalCount + ' 個版本。');
+      }
+      state.snapshotsLoadedFor = requestedDate;
+    }, {
+      busy: 'preview',
+      onError: function (message) { setSnapshotStatus('版本記錄載入失敗：' + message); }
+    });
+  }
+
+  /**
+   * 用途：載入了新的一週（或儲存、還原、重設之後重新載入）時，讓版本記錄
+   *   區塊跟著更新：展開的就重新向伺服器取，摺疊的先清空，打開時才取。
+   * Returns:
+   *   {void}
+   */
+  function refreshSnapshotPanel() {
+    state.snapshotsLoadedFor = null;
+    document.getElementById('snapshotDiffBox').classList.add('hidden');
+    if (isSnapshotPanelOpen()) {
+      loadSnapshotPanel();
+      return;
+    }
+    renderSnapshotList(document.getElementById('snapshotList'), [], { onDiff: onSnapshotDiffClicked, onRestore: onSnapshotRestoreClicked });
+    renderPublishedList(document.getElementById('snapshotPublished'), []);
+    setSnapshotStatus('');
+  }
+
+  /**
+   * 用途：「看差異」——取得差異並顯示在區塊內的差異表。
+   * Args:
+   *   snapshotId {string}
+   * Returns:
+   *   {void}
+   */
+  function onSnapshotDiffClicked(snapshotId) {
+    if (!state.isoDate) return;
+    hideMessage();
+    callServer('apiDiffWeekSnapshot', [state.isoDate, snapshotId], function (resp) {
+      if (!resp.ok) { showMessage('error', resp.error.message); return; }
+      var diff = resp.data;
+      document.getElementById('snapshotDiffTitle').textContent =
+        '版本 ' + (diff.createdAt || '（時間不明）') + '（' + diff.reasonLabel + '）與現在的差異';
+      renderDiffRows(document.getElementById('snapshotDiffBody'), diff.rows);
+      document.getElementById('snapshotDiffBox').classList.remove('hidden');
+    }, { busyText: '比較中…' });
+  }
+
+  /**
+   * 用途：「還原到這個版本」——先取最新的差異，用頁內對話框給使用者確認，
+   *   確定之後才呼叫還原；成功就重新載入這一週。
+   * Args:
+   *   snapshotId {string}
+   * Returns:
+   *   {void}
+   */
+  function onSnapshotRestoreClicked(snapshotId) {
+    if (!state.isoDate) return;
+    hideMessage();
+    var isoDate = state.isoDate;
+    callServer('apiDiffWeekSnapshot', [isoDate, snapshotId], function (resp) {
+      if (!resp.ok) { showMessage('error', resp.error.message); return; }
+      var diff = resp.data;
+      openConfirmDialog('還原到這個版本', buildRestoreDialogLines(diff, hasUnsavedWeekChanges()), function (confirmed) {
+        if (!confirmed) return;
+        callServer('apiRestoreWeekSnapshot',
+          [{ isoDate: isoDate, snapshotId: snapshotId, lastSavedAt: diff.lastSavedAt }],
+          function (restored) {
+            if (!restored.ok) { showMessage('error', restored.error.message); return; }
+            showMessage(restored.data.message.type, restored.data.message.text);
+            loadWeek(isoDate, { keepMessage: true });
+            refreshWeekSelectorLabels();
+          }, { busyText: '還原中…' });
+      });
+    }, { busyText: '比較中…' });
+  }
+
+  /**
+   * 用途：「重設這一週…」——用頁內對話框列出會發生的五件事，確定之後才呼叫
+   *   重設；成功就重新載入這一週。
+   * Returns:
+   *   {void}
+   */
+  function onResetWeekClicked() {
+    if (!state.isoDate || !state.loaded) return;
+    hideMessage();
+    var isoDate = state.isoDate;
+    var lastSavedAt = state.lastSavedAt;
+    openConfirmDialog('重設這一週', buildResetDialogLines(hasUnsavedWeekChanges()), function (confirmed) {
+      if (!confirmed) return;
+      callServer('apiResetWeek', [{ isoDate: isoDate, lastSavedAt: lastSavedAt }], function (resp) {
+        if (!resp.ok) { showMessage('error', resp.error.message); return; }
+        showMessage(resp.data.message.type, resp.data.message.text);
+        loadWeek(isoDate, { keepMessage: true });
+        refreshWeekSelectorLabels();
+      }, { busyText: '重設中…' });
+    });
+  }
+
   // BEGIN word-file（測試會把這一段抽出來在假 DOM 上執行，請保持自足）
   /**
    * 用途：畫出「雲端硬碟上這個主日的最新 Word」那一行：一條開啟最新檔案的
@@ -1457,6 +1820,7 @@
     renderFillGridLink(data.fillGridUrl);
     renderPreviewLink(data.previewUrl);
     renderWordFileInfo(data.wordFile);
+    refreshSnapshotPanel();
     renderProgramPreview(data.readOnly.program);
     // R-011：一定要排在 applyWeekFieldsToForm() 之後——先填值，再把那幾個
     // 欄位設成唯讀，否則設定 readOnly 之後再寫值會看起來像可以編輯。
@@ -2437,6 +2801,11 @@
     wireQuarterOpsEvents();
     document.getElementById('publishRunBtn').addEventListener('click', function () { runPublish(false); });
     document.getElementById('downloadWordBtn').addEventListener('click', downloadWord);
+    // 階段 2：版本記錄（摺疊區塊打開時才向伺服器取）。
+    document.getElementById('snapshotPanel').addEventListener('toggle', function () {
+      if (isSnapshotPanelOpen() && state.isoDate && state.snapshotsLoadedFor !== state.isoDate) loadSnapshotPanel();
+    });
+    document.getElementById('resetWeekBtn').addEventListener('click', onResetWeekClicked);
     document.getElementById('confirmOkBtn').addEventListener('click', function () { settleConfirmDialog(true); });
     document.getElementById('confirmCancelBtn').addEventListener('click', function () { settleConfirmDialog(false); });
     document.addEventListener('keydown', onConfirmDialogKeydown);

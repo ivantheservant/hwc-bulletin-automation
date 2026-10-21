@@ -689,17 +689,88 @@ function apiPreviewProgram(isoDate, draftFields) {
  */
 function apiSaveWeek(payload) {
   return withApiResult_(function () {
-    var schema = checkSheetSchema_();
-    if (!schema.ok) {
-      var err = new Error(
-        '工作表結構落後於程式碼（' + buildSchemaMismatchSummary_(schema)
-        + '），請先在試算表撳「週報系統 ▸ 初始化工作表」。寧可拒絕儲存，也不要寫壞資料。'
-      );
-      err.code = 'SCHEMA_OUTDATED';
-      throw err;
-    }
+    assertSheetSchemaUpToDate_('儲存');
     return saveWeekFromWebApp_(payload);
   }, { functionName: 'apiSaveWeek', argsSummary: 'isoDate=' + (payload && payload.isoDate) });
+}
+
+/**
+ * 用途：工作表結構落後於程式碼時拒絕動作，不要寫壞資料。儲存、還原、重設
+ *   這幾個會寫入的入口共用同一個檢查與訊息。
+ * Args:
+ *   actionWord {string} 拒絕的是哪個動作（例如「儲存」），只用來組訊息。
+ * Returns:
+ *   {void}
+ * Raises:
+ *   Error（`code:'SCHEMA_OUTDATED'`）如果 `checkSheetSchema_()` 不通過。
+ */
+function assertSheetSchemaUpToDate_(actionWord) {
+  var schema = checkSheetSchema_();
+  if (schema.ok) return;
+  var err = new Error(
+    '工作表結構落後於程式碼（' + buildSchemaMismatchSummary_(schema)
+    + '），請先在試算表撳「週報系統 ▸ 初始化工作表」。寧可拒絕' + actionWord + '，也不要寫壞資料。'
+  );
+  err.code = 'SCHEMA_OUTDATED';
+  throw err;
+}
+
+/**
+ * 用途：前端呼叫，列出這一個主日的版本記錄與發佈記錄。**唯讀。**
+ * Args:
+ *   isoDate {string} 主日日期，yyyy-MM-dd。
+ * Returns:
+ *   {{ok:boolean, data:Object, error?:Object}} `data` 形狀見
+ *     `listWeekSnapshotsForWebApp_()`。
+ */
+function apiListWeekSnapshots(isoDate) {
+  return withApiResult_(function () { return listWeekSnapshotsForWebApp_(isoDate); },
+    { functionName: 'apiListWeekSnapshots', argsSummary: 'isoDate=' + isoDate });
+}
+
+/**
+ * 用途：前端呼叫，逐項列出某個版本與現在的差異。**唯讀。**
+ * Args:
+ *   isoDate {string} 主日日期。
+ *   snapshotId {string} 版本編號。
+ * Returns:
+ *   {{ok:boolean, data:Object, error?:Object}} `data` 形狀見
+ *     `diffWeekSnapshotForWebApp_()`。
+ */
+function apiDiffWeekSnapshot(isoDate, snapshotId) {
+  return withApiResult_(function () { return diffWeekSnapshotForWebApp_(isoDate, snapshotId); },
+    { functionName: 'apiDiffWeekSnapshot', argsSummary: 'isoDate=' + isoDate + ' snapshotId=' + snapshotId });
+}
+
+/**
+ * 用途：前端呼叫，還原到某個版本（寫入）。詳細行為見
+ *   `restoreWeekSnapshotFromWebApp_()`。工作表結構落後時拒絕，不寫任何一格。
+ * Args:
+ *   payload {{isoDate:string, snapshotId:string, lastSavedAt:string}}
+ * Returns:
+ *   {{ok:boolean, data:Object, error?:Object}}
+ */
+function apiRestoreWeekSnapshot(payload) {
+  return withApiResult_(function () {
+    assertSheetSchemaUpToDate_('還原');
+    return restoreWeekSnapshotFromWebApp_(payload);
+  }, { functionName: 'apiRestoreWeekSnapshot',
+    argsSummary: 'isoDate=' + (payload && payload.isoDate) + ' snapshotId=' + (payload && payload.snapshotId) });
+}
+
+/**
+ * 用途：前端呼叫，重設這一週（寫入）。詳細行為見 `resetWeekFromWebApp_()`。
+ *   工作表結構落後時拒絕，不寫任何一格。
+ * Args:
+ *   payload {{isoDate:string, lastSavedAt:string=}}
+ * Returns:
+ *   {{ok:boolean, data:Object, error?:Object}}
+ */
+function apiResetWeek(payload) {
+  return withApiResult_(function () {
+    assertSheetSchemaUpToDate_('重設');
+    return resetWeekFromWebApp_(payload && payload.isoDate, payload && payload.lastSavedAt);
+  }, { functionName: 'apiResetWeek', argsSummary: 'isoDate=' + (payload && payload.isoDate) });
 }
 
 /**
@@ -1814,11 +1885,18 @@ function fetchFromRosterForWebApp_(isoDate, selections) {
   });
 
   var cleared = 0;
+  var snapshotWarnings = [];
+  var snapshotTaken = false;
   picked.forEach(function (sel) {
     var key = dutyOverrideKey_(sel.postId, sel.slotIndex);
     var existing = existingByKey[key];
     if (!existing || existing.ACTIVE !== true) return;
 
+    // 第二批階段 2：第一次真的要停用之前存一個版本（只存一次）。
+    if (!snapshotTaken) {
+      snapshotTaken = true;
+      snapshotWarnings = snapshotWeeksBeforeWrite_([isoDate], 'ROSTER_FETCH');
+    }
     sheet.getRange(existing.__rowNo, activeCol).setValue(false);
     appendAuditLog_({
       action: 'FETCH_FROM_ROSTER',
@@ -1834,12 +1912,12 @@ function fetchFromRosterForWebApp_(isoDate, selections) {
 
   return {
     clearedCount: cleared,
-    message: {
+    message: appendSnapshotWarnings_({
       type: cleared > 0 ? 'success' : 'info',
       text: cleared > 0
         ? '已把 ' + cleared + ' 個欄位改回跟隨職事表；你原本的修改已清除（記錄仍然保留）。'
         : '勾選的欄位目前沒有生效中的人手覆寫，沒有做任何改動。'
-    }
+    }, snapshotWarnings)
   };
 }
 

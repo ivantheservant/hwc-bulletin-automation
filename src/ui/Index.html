@@ -305,6 +305,29 @@
       <div id="financeList" class="repeatable-list repeatable-list-finance"></div>
     </section>
 
+    <!-- 第二批階段 2：這一個主日的版本記錄（摺疊）。所有內容都由 Script.html 的
+         snapshot-panel 區段用 textContent 填，這裏只放骨架。 -->
+    <details class="panel snapshot-panel" id="snapshotPanel">
+      <summary>版本記錄（這一個主日）</summary>
+      <p class="hint">
+        每次儲存、匯入或同步之前，系統都會自動存一個版本；揀錯了可以還原到任何一個版本。
+        「產生 Word 之後」那幾行附的連結，開啟的是這個主日雲端硬碟上現時最新的 Word 檔。
+      </p>
+      <div id="snapshotStatus" class="hint"></div>
+      <div id="snapshotPublished" class="snapshot-published"></div>
+      <ul id="snapshotList" class="snapshot-list"></ul>
+      <div id="snapshotDiffBox" class="snapshot-diff hidden">
+        <h3 id="snapshotDiffTitle"></h3>
+        <table class="snapshot-diff-table">
+          <thead><tr><th>項目</th><th>這個版本的值</th><th>現在的值</th></tr></thead>
+          <tbody id="snapshotDiffBody"></tbody>
+        </table>
+      </div>
+      <div class="snapshot-actions">
+        <button id="resetWeekBtn" type="button" class="btn btn-small btn-danger">重設這一週…</button>
+      </div>
+    </details>
+
     <!--
       R-038：季度作業。
       ⚠️ 預設**摺疊**：這一組是一季做一次的事，不是每週做的事。

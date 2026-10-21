@@ -292,11 +292,21 @@ function backfillRosterForQuarter_(quarterId) {
   var expectedBlank = 0;
   var rowsTouched = 0;
   var auditNotes = [];
+  var snapshotWarnings = [];
 
   targets.forEach(function (target) {
     var isoDate = formatIsoDate_(normalizeDate_(target.row.SERVICE_DATE) || new Date());
     var derived = rosterDerivedValuesForDate_(isoDate, templateConfig);
     var touched = false;
+    var snapshotTaken = false;
+
+    // 第二批階段 2：這一行**第一次**要寫之前，先存一個版本（只有真的會寫才存，
+    // 一行只存一次）。
+    function snapshotBeforeFirstWrite() {
+      if (snapshotTaken) return;
+      snapshotTaken = true;
+      snapshotWarnings = snapshotWarnings.concat(snapshotWeeksBeforeWrite_([isoDate], 'ROSTER_BACKFILL'));
+    }
 
     fieldKeys.forEach(function (key) {
       var current = target.row[key];
@@ -314,6 +324,7 @@ function backfillRosterForQuarter_(quarterId) {
         return;
       }
 
+      snapshotBeforeFirstWrite();
       setCellValueTextSafe_(sheet, def, target.rowNo, key,
         typeof value === 'number' ? value : sanitizeCellText_(value));
       filled++;
@@ -324,6 +335,7 @@ function backfillRosterForQuarter_(quarterId) {
       ? ROSTER_STATUS.OK
       : rosterStatusForDate_(isoDate, resolution);
     if (String(target.row.ROSTER_STATUS || '') !== statusAfterRow) {
+      snapshotBeforeFirstWrite();
       setCellValueTextSafe_(sheet, def, target.rowNo, 'ROSTER_STATUS', statusAfterRow);
       touched = true;
     }

@@ -263,6 +263,15 @@ function resolveFillConflicts_(quarterId, decisions) {
   var unmatched = 0;
   var decisionList = decisions || [];
 
+  // 第二批階段 2：選用「填寫表的值」會寫回 `BulletinWeeks`，那些主日寫之前各存一個版本
+  // （同一主日有時間限制）。選用系統的值只是刷新格子表，不動 `BulletinWeeks`。
+  snapshotWeeksBeforeWrite_(
+    decisionList.filter(function (d) {
+      return d.choice === 'GRID' && byKey[fillSnapshotKey_(d.isoDate, d.fieldKey)];
+    }).map(function (d) { return d.isoDate; }),
+    'GRID_CONFLICT', { throttle: true }
+  );
+
   decisionList.forEach(function (decision) {
     var cell = byKey[fillSnapshotKey_(decision.isoDate, decision.fieldKey)];
     if (!cell) {
