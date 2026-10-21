@@ -483,3 +483,25 @@ function setCellValueTextSafe_(sheet, def, rowNo, fieldKey, value) {
   range.setValue(value);
   return true;
 }
+
+/**
+ * 用途：第二批測試修正 G23 補充：放指令碼鎖之前先 `SpreadsheetApp.flush()`，再放鎖。
+ *
+ *   Apps Script 會把試算表的寫入暫存起來，批次寫出；官方建議放鎖之前先 flush，否則下一個
+ *   拿到鎖的執行，有機會讀到上一個執行仍未寫出的舊值——鎖就白拿了。專案內四處拿指令碼鎖的
+ *   地方（儲存、內容表匯入、講員表格答案、發佈）一律經這裏放鎖。flush 拋錯時鎖照樣放，錯誤
+ *   原樣拋出（不吞掉）。
+ * Args:
+ *   lock {Lock} `LockService.getScriptLock()` 拿到、已經 `tryLock()` 成功的鎖。
+ * Returns:
+ *   {void}
+ * Raises:
+ *   Error `SpreadsheetApp.flush()` 拋出的錯誤（鎖已經放了）。
+ */
+function flushAndReleaseLock_(lock) {
+  try {
+    SpreadsheetApp.flush();
+  } finally {
+    lock.releaseLock();
+  }
+}

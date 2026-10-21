@@ -864,7 +864,8 @@ function applyContentImport_(quarterId, options) {
     writeContentImportPlan_(preview.plan);
     updateContentSheetField_(preview.quarterId, 'LAST_IMPORTED_AT', new Date());
   } finally {
-    lock.releaseLock();
+    // 第二批測試修正 G23 補充：放鎖之前先 flush（見 flushAndReleaseLock_()）。
+    flushAndReleaseLock_(lock);
   }
 
   return preview;

@@ -66,6 +66,9 @@ const SRC_DIR = path.join(REPO_ROOT, 'src');
  *     假鎖（defaultFakeLockService()）——儲存（saveWeekFromWebApp_()）由那一輪起
  *     要拿指令碼鎖，而很多舊測試的替身沒有 LockService。要測「拿不到鎖」的測試
  *     自己傳一個進來。
+ *     G23 補充：放鎖之前會 SpreadsheetApp.flush()（flushAndReleaseLock_()）。替身的
+ *     SpreadsheetApp 沒有 flush 的話，補一個甚麼都不做的 flush（真的 flush 只是把暫存
+ *     的寫入寫出，假工作表沒有暫存）。要核對「先 flush 後放鎖」的測試自己傳一個會記錄的。
  * Returns:
  *   {vm.Context} 執行完畢的 context，可以直接用屬性存取取出裡面定義的
  *     function／var（例如 context.normalizeBoolean_）。
@@ -74,6 +77,9 @@ const SRC_DIR = path.join(REPO_ROOT, 'src');
  */
 function loadGasFiles(relPaths, extraGlobals) {
   const sandbox = Object.assign({ console: console, LockService: defaultFakeLockService() }, extraGlobals || {});
+  if (sandbox.SpreadsheetApp && typeof sandbox.SpreadsheetApp.flush !== 'function') {
+    sandbox.SpreadsheetApp.flush = function () {};
+  }
   vm.createContext(sandbox);
 
   relPaths.forEach(function (relPath) {

@@ -815,8 +815,11 @@ function saveWeekFromWebApp_(payload) {
   // `assertContentSheetFieldsNotSubmitted_()`。
   assertContentSheetFieldsNotSubmitted_(payload);
 
-  // G23：讀取、比對、寫入全部在鎖之內。等候時間與內容表匯入、講員表格的 30 秒一致；
-  // 專案內只有這一種鎖（指令碼鎖），而拿着鎖的函式之間不會互相呼叫，不會死鎖。
+  // G23：讀取、比對、寫入全部在鎖之內。等候時間與內容表匯入、講員表格的 30 秒一致。
+  // 專案內只有這一種鎖（指令碼鎖）。儲存拿着鎖時不會叫其他拿鎖的函式；但要知道另有一條路
+  // 是拿着鎖再拿一次：講員表格答案（onSpeakerFormSubmit_() 拿鎖）→ applySpeakerFormAnswer_()
+  // → applyContentImport_() 再 tryLock。同一個執行之內 getScriptLock() 可不可以重入未有核實，
+  // 見 docs/待確認事項.md FF-23。
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(SAVE_LOCK_WAIT_MS_)) {
     var lockErr = new Error('另一個寫入動作（例如另一次儲存、匯入或發佈）正在執行中，'
@@ -828,7 +831,8 @@ function saveWeekFromWebApp_(payload) {
   try {
     return saveWeekFromWebAppLocked_(payload, isoDate, targetDate);
   } finally {
-    lock.releaseLock();
+    // G23 補充：放鎖之前先 flush（見 flushAndReleaseLock_()）。
+    flushAndReleaseLock_(lock);
   }
 }
 

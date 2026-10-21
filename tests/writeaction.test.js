@@ -756,6 +756,46 @@ test('G23-3 對照（證明 G23-1 量得到）：鎖一定拿得到（等於沒�
   assert.strictEqual(auditOf(env.sb, 'WEEK_SNAPSHOT_CREATE').length, 2, '沒有鎖：版本重複');
 });
 
+test('G23b-1 放鎖之前先 SpreadsheetApp.flush()：儲存（真正入口 apiSaveWeek）的次序是 tryLock → 寫入 → flush → releaseLock；STALE 時亦一樣', function () {
+  const events = [];
+  const recordingLock = { getScriptLock: function () {
+    return {
+      tryLock: function () { events.push('tryLock'); return true; },
+      releaseLock: function () { events.push('releaseLock'); }
+    };
+  } };
+  const env = makeSaveEnv({ LockService: recordingLock });
+  env.sb.SpreadsheetApp.flush = function () { events.push('flush'); };
+  const ok = env.sb.apiSaveWeek(JSON.parse(JSON.stringify(env.payload)));
+  assert.strictEqual(ok.ok, true, JSON.stringify(ok.error));
+  assert.deepStrictEqual(events, ['tryLock', 'flush', 'releaseLock']);
+  events.length = 0;
+  const stale = env.sb.apiSaveWeek(JSON.parse(JSON.stringify(env.payload)));
+  assert.strictEqual(stale.error.code, 'STALE');
+  assert.deepStrictEqual(events, ['tryLock', 'flush', 'releaseLock']);
+});
+
+test('G23b-2 專案內四處拿指令碼鎖（儲存、內容表匯入、講員表格答案、發佈）全部經 flushAndReleaseLock_() 放鎖；flush 拋錯時鎖照樣放', function () {
+  const files = fs.readdirSync(path.join(__dirname, '..', 'src')).filter(function (f) { return f.endsWith('.gs'); });
+  const takers = [];
+  files.forEach(function (f) {
+    const text = readSrc('src/' + f);
+    // SheetUtils.gs 只在 flushAndReleaseLock_() 的說明裏提到 getScriptLock()，本身不拿鎖。
+    if (f !== 'SheetUtils.gs' && text.indexOf('LockService.getScriptLock()') !== -1) {
+      takers.push(f);
+      assert.ok(text.indexOf('flushAndReleaseLock_(lock)') !== -1, f + ' 要經 flushAndReleaseLock_() 放鎖');
+    }
+    if (f !== 'SheetUtils.gs') assert.strictEqual(text.indexOf('.releaseLock()'), -1, f + ' 不可以直接 releaseLock()');
+  });
+  assert.deepStrictEqual(takers.sort(), ['ContentImport.gs', 'Publish.gs', 'SpeakerForm.gs', 'WebAppSave.gs']);
+
+  const env = makeSaveEnv();
+  let released = false;
+  env.sb.SpreadsheetApp.flush = function () { throw new Error('flush 失敗'); };
+  assert.throws(function () { env.sb.flushAndReleaseLock_({ releaseLock: function () { released = true; } }); }, /flush 失敗/);
+  assert.strictEqual(released, true);
+});
+
 test('G23-4 只有一種鎖：儲存用的是指令碼鎖，等候時間與內容表匯入、講員表格相同（30 秒）', function () {
   const env = makeSaveEnv();
   assert.strictEqual(env.sb.SAVE_LOCK_WAIT_MS_, 30000);
