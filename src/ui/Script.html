@@ -221,7 +221,8 @@
   /**
    * 用途：發出一個「會停用整個介面」的請求前呼叫。
    *
-   *   ⚠️ **只由 `callServer()` 呼叫**，不要在別處直接叫。它跟
+   *   ⚠️ 只由 `callServer()` 呼叫，不要在別處直接叫（唯一例外是它的補救
+   *   recoverAfterNoResponse()，同一支函式內成對呼叫，見第二批測試修正 G13）。它跟
    *   `endRequest()` 必須成對，而「成對」這件事以前靠每一個處理函式
    *   自己記得在最前面減一次——只要有一個分支提早 `return`，或者有
    *   一個呼叫忘了寫失敗處理，`inFlight` 就會卡住、介面永遠停用。
@@ -269,6 +270,7 @@
   //
   // 每一個呼叫都經這裏，就只有一處會寫漏。
 
+  // BEGIN call-server（測試會把這一段抽出來執行；用到的其他函式由測試提供替身）
   /**
    * 用途：讀出 Config `WEBAPP_CALL_TIMEOUT_SEC`（由 doGet 放進
    *   `#app` 的 data 屬性）。讀不到就用 120 秒。
@@ -314,6 +316,161 @@
   }
 
   /**
+   * 用途：第二批測試修正 G13：寫入類動作的清單，以及「伺服器沒有回應」之後要重新
+   *   載入哪些區塊。鍵是伺服器函式名稱，值是重新載入的種類：
+   *     week：重新載入這一個主日，並刷新主日下拉的標籤；
+   *     publish：同 week，另外重新載入頁頂「目前已發佈」；
+   *     speakerForm：重新載入「講員表格」區塊；
+   *     quarterOps：重新載入「季度作業」區塊；
+   *     quarterImport：同 quarterOps，另外重新載入這一個主日。
+   *   每一種重新載入的，就是該動作成功之後會刷新的區塊（發佈另加這一個主日，
+   *   版本記錄內有「已發佈」一段）。
+   *
+   *   刻意不在清單內的：讀取類（載入、預覽、差異、報告、現況），以及
+   *     apiDownloadBulletinDocx：Word 檔要經瀏覽器下載，沒有回應就是沒有收到檔案，要再按一次；
+   *     apiSavePublishPrefs：只是記住勾選，失敗也不打擾使用者；
+   *     apiLogClientError：回報錯誤本身。
+   *   新增一個會寫入的 api 函式時要在這裏加一行；tests/writeaction.test.js 把
+   *   Script.html 用到的每一個 api 名稱分成寫入與讀取兩類，漏了分類會失敗。
+   */
+  var WRITE_ACTION_RECOVERY = {
+    apiSaveWeek: 'week',
+    apiRestoreWeekSnapshot: 'week',
+    apiResetWeek: 'week',
+    apiRunContentImport: 'week',
+    apiFetchFromRoster: 'week',
+    apiBackfillRoster: 'week',
+    apiRunPublish: 'publish',
+    apiCreateSpeakerForm: 'speakerForm',
+    apiRefreshSpeakerFormDates: 'speakerForm',
+    apiRunCreateWeeks: 'quarterOps',
+    apiRunContentSheetBuild: 'quarterOps',
+    apiRunContentSheetInvite: 'quarterOps',
+    apiRunQuarterContentImport: 'quarterImport'
+  };
+
+  /**
+   * 用途：第二批測試修正 G13：「伺服器沒有回應」那一句的後半段（重新載入了甚麼、
+   *   要先看哪裏），按重新載入的種類分。每一個種類都要有一句（測試逐個核對）。
+   */
+  var NO_RESPONSE_CHECK_HINTS = {
+    week: '系統已重新載入這一個主日，請先看「最後儲存時間」和「版本記錄」，確認未完成才再做一次。',
+    publish: '系統已重新載入這一個主日，請先看「最後儲存時間」和「版本記錄」，確認未完成才再做一次。',
+    speakerForm: '系統已重新載入講員表格的現況，請先看「講員表格」區塊，確認未完成才再做一次。',
+    quarterOps: '系統已重新載入季度作業的現況，請先看「季度作業」區塊，確認未完成才再做一次。',
+    quarterImport: '系統已重新載入這一個主日和季度作業的現況，請先看「季度作業」區塊，確認未完成才再做一次。'
+  };
+
+  /**
+   * 用途：第二批測試修正 G13：沒有回應之後，等多久才重新載入（毫秒）。
+   *
+   *   伺服器在前端收到連線錯誤之後往往仍在處理：2026-10-22 那一次，前端在第 17 秒
+   *   收到 HTTP 502，伺服器在第 27.6 秒才完成還原。即時重新載入會讀到未完成的內容，
+   *   幹事看見「最後儲存時間」未變，就會再做一次，正正是要避免的事。等候期間介面
+   *   維持忙碌，不可以再按。暫時寫在這裏，是否改成 Config 見 docs/待確認事項.md FF-11。
+   */
+  var NO_RESPONSE_RELOAD_DELAY_MS = 20000;
+
+  /** 第二批測試修正 G13：寫入類動作沒有回應時，ErrorLog 的 CLIENT_ERROR 內容後面加的一句。 */
+  var NO_RESPONSE_LOG_NOTE = '（連線錯誤，動作可能已完成）';
+
+  /** 第二批測試修正 G13：看來是連線／傳輸問題的錯誤訊息（見 isNoResponseFailure()）。 */
+  var NO_RESPONSE_PATTERN = /NetworkError|HTTP\s*5\d\d|time(d)?\s*out|Failed to fetch|Connection failure/i;
+
+  /**
+   * 用途：第二批測試修正 G13：這個伺服器函式是不是寫入類；是的話回傳「沒有回應」
+   *   之後要重新載入的種類。
+   * Args:
+   *   fnName {string} 伺服器函式名稱。
+   * Returns:
+   *   {string} WRITE_ACTION_RECOVERY 的值；讀取類回空字串。
+   * Raises:
+   *   （無）
+   */
+  function writeActionRecoveryKind(fnName) {
+    return Object.prototype.hasOwnProperty.call(WRITE_ACTION_RECOVERY, fnName) ? WRITE_ACTION_RECOVERY[fnName] : '';
+  }
+
+  /**
+   * 用途：第二批測試修正 G13：判斷一個失敗看來是不是連線／傳輸問題（伺服器沒有回應），
+   *   而不是伺服器明確回傳的錯誤。
+   *
+   *   google.script.run 遇到 HTTP 502 之類的連線錯誤時，失敗處理收到的是瀏覽器那一邊
+   *   的錯誤（例如「NetworkError: Connection failure due to HTTP 502」），伺服器卻可能
+   *   仍在處理、之後亦可能已經完成。伺服器明確回傳的錯誤（例如 STALE、驗證失敗）經
+   *   withApiResult_() 變成 ok:false，由成功處理接收，不會來到這裏；來到失敗處理而又
+   *   有一句不屬於連線問題的訊息，是伺服器拋出的例外，照舊當作失敗。
+   * Args:
+   *   err {*} 失敗處理收到的錯誤；callServer() 自己的逾時錯誤帶 noResponse:true。
+   * Returns:
+   *   {boolean} 帶 noResponse:true、沒有任何訊息，或者訊息符合 NO_RESPONSE_PATTERN
+   *     （NetworkError、HTTP 5xx、timeout／timed out、Failed to fetch、Connection failure）
+   *     就是 true。
+   * Raises:
+   *   （無）
+   */
+  function isNoResponseFailure(err) {
+    if (err && err.noResponse === true) return true;
+    var raw = '';
+    if (typeof err === 'string') raw = err;
+    else if (err && typeof err.message === 'string') raw = err.message;
+    if (raw.trim() === '') return true;
+    return NO_RESPONSE_PATTERN.test(raw);
+  }
+
+  /**
+   * 用途：第二批測試修正 G13：寫入類動作「伺服器沒有回應」時給使用者看的一句。
+   * Args:
+   *   fnName {string} 伺服器函式名稱（寫在括號內，方便對照 ErrorLog）。
+   *   kind {string} writeActionRecoveryKind() 的結果（必須是 NO_RESPONSE_CHECK_HINTS 的鍵）。
+   * Returns:
+   *   {string}
+   * Raises:
+   *   （無）
+   */
+  function describeNoResponseFailure(fnName, kind) {
+    return '伺服器沒有回應（' + fnName + '），這個動作可能已經完成。' + NO_RESPONSE_CHECK_HINTS[kind];
+  }
+
+  /**
+   * 用途：第二批測試修正 G13：寫入類動作沒有回應之後的補救。先等
+   *   NO_RESPONSE_RELOAD_DELAY_MS（伺服器可能仍在處理），期間整個介面維持忙碌、
+   *   不可以再按；時間到才顯示訊息，並重新載入成功時會刷新的區塊。
+   *
+   *   重新載入這一個主日一律是同一個主日、帶 keepMessage：剛顯示的訊息要留着，
+   *   發佈區的結果與已選的 PDF 亦不會被換週清理清走（見
+   *   resetPublishPanelIfWeekChanged()）。主日用失敗那一刻畫面上的那一個；等候
+   *   期間介面停用，換不到另一週。
+   * Args:
+   *   kind {string} writeActionRecoveryKind() 的結果。
+   *   message {string} describeNoResponseFailure() 的結果。
+   *   deliver {function():void} 顯示訊息（呼叫點自訂的 onError，或者頁頂訊息列）。
+   * Returns:
+   *   {void}
+   * Raises:
+   *   （無）
+   */
+  function recoverAfterNoResponse(kind, message, deliver) {
+    var isoDate = state.isoDate;
+    beginRequest('伺服器沒有回應，等候 ' + Math.round(NO_RESPONSE_RELOAD_DELAY_MS / 1000)
+      + ' 秒讓伺服器完成，然後重新載入…');
+    setTimeout(function () {
+      endRequest();
+      deliver();
+      var reloadsQuarterOps = kind === 'quarterOps' || kind === 'quarterImport';
+      // 季度作業在頁面很下面，頁頂的訊息看不到，區塊內也寫一份（同 showQuarterOpsMessage()）。
+      if (reloadsQuarterOps) showQuarterOpsMessage('error', message);
+      if ((kind === 'week' || kind === 'publish' || kind === 'quarterImport') && isoDate) {
+        loadWeek(isoDate, { keepMessage: true });
+        refreshWeekSelectorLabels();
+      }
+      if (kind === 'publish') loadPublishPanel();
+      if (kind === 'speakerForm') loadSpeakerFormStatus();
+      if (reloadsQuarterOps) refreshQuarterOpsPanel();
+    }, NO_RESPONSE_RELOAD_DELAY_MS);
+  }
+
+  /**
    * 用途：**所有**伺服器呼叫的唯一入口。統一處理忙碌狀態、逾時、失敗顯示。
    * Args:
    *   fnName {string} 伺服器端的 api* 函式名稱。
@@ -327,8 +484,14 @@
    *     `onError`：自訂失敗處理；不提供就顯示紅色訊息列。
    *     `noReport`：不要把這次失敗回報去 ErrorLog（只有回報本身那一個
    *     呼叫要用，否則會無限遞迴）。
+   *   第二批測試修正 G13：寫入類（WRITE_ACTION_RECOVERY 內的）失敗而看來是沒有回應
+   *   （isNoResponseFailure()，包括這裏自己的逾時）時，`onError`／訊息列收到的是
+   *   describeNoResponseFailure() 那一句，要等 NO_RESPONSE_RELOAD_DELAY_MS 之後才收到，
+   *   之後自動重新載入（見 recoverAfterNoResponse()）。其餘失敗照舊。
    * Returns:
    *   {void}
+   * Raises:
+   *   （無）同步拋出的例外一律當作失敗處理。
    */
   function callServer(fnName, args, onOk, options) {
     var opts = options || {};
@@ -357,6 +520,21 @@
     }
 
     var fail = settle(function (err) {
+      // G13：寫入類動作沒有回應（例如 HTTP 502）不等於沒有做——伺服器可能仍在處理，
+      // 之後亦可能已經完成。訊息改講「可能已經完成」，等一會再重新載入給使用者核對。
+      var recoveryKind = writeActionRecoveryKind(fnName);
+      if (recoveryKind && isNoResponseFailure(err)) {
+        var noResponseMessage = describeNoResponseFailure(fnName, recoveryKind);
+        // 回報即時送出（不等那一段等候），ErrorLog 保留原本的錯誤內容。
+        if (!opts.noReport) {
+          reportClientError_(describeServerFailure(fnName, err) + NO_RESPONSE_LOG_NOTE, stackSummary(err), fnName);
+        }
+        recoverAfterNoResponse(recoveryKind, noResponseMessage, function () {
+          if (opts.onError) opts.onError(noResponseMessage, err);
+          else showMessage('error', noResponseMessage);
+        });
+        return;
+      }
       var message = describeServerFailure(fnName, err);
       if (opts.onError) opts.onError(message, err);
       else showMessage('error', message);
@@ -366,9 +544,12 @@
     });
 
     timer = setTimeout(function () {
-      fail(new Error('伺服器在 ' + Math.round(serverCallTimeoutMs() / 1000)
+      var timeoutErr = new Error('伺服器在 ' + Math.round(serverCallTimeoutMs() / 1000)
         + ' 秒內沒有回應。這一次的動作可能已經做了、也可能沒有做，'
-        + '請先看試算表的 ErrorLog 與 Apps Script 的「執行項目」確認，不要直接再按一次。'));
+        + '請先看試算表的 ErrorLog 與 Apps Script 的「執行項目」確認，不要直接再按一次。');
+      // G13：逾時同樣是「沒有回應」，寫入類動作走同一條補救。
+      timeoutErr.noResponse = true;
+      fail(timeoutErr);
     }, serverCallTimeoutMs());
 
     try {
@@ -400,6 +581,7 @@
       function () {},
       { busy: 'none', noReport: true, onError: function () {} });
   }
+  // END call-server
 
   // =====================================================================
   // 唯讀區塊
