@@ -909,12 +909,21 @@ function makeFillConflictUi(seconds) {
   const google = makeFakeGoogle(calls);
   let closed = 0;
   google.host = { close: function () { closed++; } };
-  dom.document.getElementsByName = function () { return []; };
+  // 每一行三個 radio（render() 用 innerHTML 畫，假 DOM 不會解析，這裏按名稱給固定的假元素）。
+  const radiosByName = {};
+  dom.document.getElementsByName = function (name) {
+    if (!radiosByName[name]) {
+      radiosByName[name] = ['GRID', 'SYSTEM', 'SKIP'].map(function (v) { return { value: v, checked: false, disabled: false }; });
+    }
+    return radiosByName[name];
+  };
   const ctx = { console: console, document: dom.document, google: google, setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout };
   vm.createContext(ctx);
   vm.runInContext(code, ctx);
   return {
     ctx: ctx, els: dom.elements, timers: timers, calls: calls, closed: function () { return closed; },
+    radios: function (i) { return dom.document.getElementsByName('c' + i); },
+    sent: function () { return calls.filter(function (x) { return x.name === 'apiResolveFillConflicts'; }).length; },
     submitAll: function (choice) {
       ctx.setAll(choice);
       ctx.submitDecisions();
@@ -969,6 +978,46 @@ test('G20-3 伺服器明確的失敗照舊：ok:false →「失敗：…」可�
   ui2.submitAll('GRID').fail(new Error('Exception: 你沒有權限編輯這個試算表。'));
   assert.strictEqual(ui2.els.status.textContent, '呼叫伺服器失敗（apiResolveFillConflicts）：Exception: 你沒有權限編輯這個試算表。');
   assert.strictEqual(ui2.els.confirmBtn.disabled, false);
+});
+
+test('G20b-1 「確定」→ 502（確定停用）→ 按「全部用系統」或改單一行 →「確定」不會重新啟用、選擇不變；再叫 submitDecisions() 亦不會再送', function () {
+  const ui = makeFillConflictUi();
+  ui.submitAll('GRID').fail(new Error(NETWORK_502));
+  assert.strictEqual(ui.els.confirmBtn.disabled, true, '前提');
+  ui.ctx.setAll('SYSTEM');
+  ui.ctx.onChoiceChange(0, 'SKIP');
+  assert.strictEqual(ui.els.confirmBtn.disabled, true, '「確定」不可以重新啟用');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(ui.ctx.decisions)), ['GRID'], '選擇不變');
+  assert.strictEqual(ui.els.setAllSystemBtn.disabled, true, '「全部用…」停用');
+  assert.ok(ui.radios(0).every(function (r) { return r.disabled === true; }), '選項停用');
+  ui.ctx.submitDecisions();
+  assert.strictEqual(ui.sent(), 1, '沒有再送');
+  assert.strictEqual(ui.els.status.textContent, FC_CONNECTION_MESSAGE, '訊息保留');
+});
+
+test('G20b-2 「處理中…」期間（未有回應）按「全部用…」或改選擇 →「確定」不會重新啟用、不會再送', function () {
+  const ui = makeFillConflictUi();
+  const call = ui.submitAll('GRID');
+  ui.ctx.setAll('SKIP');
+  assert.strictEqual(ui.els.confirmBtn.disabled, true);
+  ui.ctx.submitDecisions();
+  assert.strictEqual(ui.sent(), 1);
+  assert.strictEqual(call.args[1][0].choice, 'GRID', '送出的是按「確定」那一刻的選擇');
+});
+
+test('G20b-3 伺服器明確回失敗（ok:false）→ 解除：選項與「全部用…」恢復，可以改選擇再送；伺服器回成功 →「關閉」可按，選項仍然停用', function () {
+  const ui = makeFillConflictUi();
+  ui.submitAll('GRID').ok({ ok: false, error: { message: '送來 1 個選擇，但在季度 2027T4 找不到對應的衝突，請重新開啟對話框再試。' } });
+  assert.strictEqual(ui.els.setAllGridBtn.disabled, false);
+  assert.ok(ui.radios(0).every(function (r) { return r.disabled === false; }));
+  assert.strictEqual(ui.els.confirmBtn.disabled, false);
+  ui.submitAll('SYSTEM').ok({ ok: true, data: { message: '已套用：填寫表 0 格、系統 1 格；暫不處理 0 格（下次同步仍然會問）。' } });
+  assert.strictEqual(ui.sent(), 2);
+  assert.strictEqual(ui.els.confirmBtn.textContent, '關閉');
+  assert.strictEqual(ui.els.confirmBtn.disabled, false);
+  ui.ctx.setAll('GRID');
+  assert.strictEqual(ui.els.setAllGridBtn.disabled, true, '完成之後不可以再改');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(ui.ctx.decisions)), ['SYSTEM']);
 });
 
 test('G20-4 判斷「沒有回應」的一段：Script.html 與 FillConflict.html 一字不差（照搬，兩處註明要同步）', function () {

@@ -89,9 +89,9 @@
 
   <div class="toolbar">
     <span>整批設定：</span>
-    <button type="button" class="small" onclick="setAll('GRID')">全部用填寫表</button>
-    <button type="button" class="small" onclick="setAll('SYSTEM')">全部用系統</button>
-    <button type="button" class="small" onclick="setAll('SKIP')">全部暫不處理</button>
+    <button type="button" class="small" id="setAllGridBtn" onclick="setAll('GRID')">全部用填寫表</button>
+    <button type="button" class="small" id="setAllSystemBtn" onclick="setAll('SYSTEM')">全部用系統</button>
+    <button type="button" class="small" id="setAllSkipBtn" onclick="setAll('SKIP')">全部暫不處理</button>
   </div>
 
   <div class="table-wrap">
@@ -327,6 +327,28 @@
   // 每一項目前的選擇；null 代表這一行還沒有人選過。
   var decisions = CONFLICTS.map(function () { return null; });
 
+  // G20 補充：選擇已經送出（處理中、沒有回應、或者已經完成）。送出之後全部選項與「全部用…」
+  // 按鈕停用，updateSummary() 不可以把「確定」重新啟用；只有伺服器明確回失敗（或者登入狀態
+  // 有問題、請求沒有送到）才解除。resolveFillConflicts_() 沒有鎖，再送一次會再寫一次。
+  var submitted = false;
+
+  /**
+   * 用途：第二批測試修正 G20 補充：停用或恢復全部選項（radio）與三粒「全部用…」按鈕。
+   * Args:
+   *   locked {boolean} true 停用；false 恢復。
+   * Returns: {void}
+   * Raises: （無）
+   */
+  function setChoicesLocked(locked) {
+    ['setAllGridBtn', 'setAllSystemBtn', 'setAllSkipBtn'].forEach(function (id) {
+      document.getElementById(id).disabled = locked;
+    });
+    CONFLICTS.forEach(function (c, i) {
+      var radios = document.getElementsByName('c' + i);
+      for (var j = 0; j < radios.length; j++) radios[j].disabled = locked;
+    });
+  }
+
   /**
    * 用途：把文字轉成安全嵌入 HTML 的形式。
    * Args: text {*}
@@ -373,6 +395,7 @@
    * Returns: {void}
    */
   function onChoiceChange(index, choice) {
+    if (submitted) return;
     decisions[index] = choice;
     updateSummary();
   }
@@ -383,6 +406,7 @@
    * Returns: {void}
    */
   function setAll(choice) {
+    if (submitted) return;
     CONFLICTS.forEach(function (c, i) {
       decisions[i] = choice;
       var radios = document.getElementsByName('c' + i);
@@ -412,6 +436,8 @@
 
     var hint = document.getElementById('hint');
     var confirmBtn = document.getElementById('confirmBtn');
+    // G20 補充：送出之後「確定」由送出那一段管理，這裏不可以重新啟用。
+    if (submitted) return;
     if (unselected > 0) {
       hint.textContent = '尚有 ' + unselected + ' 行未選擇';
       hint.className = 'hint';
@@ -430,19 +456,31 @@
    * Returns: {void}
    */
   function submitDecisions() {
+    if (submitted) return;
     var payload = CONFLICTS.map(function (c, i) {
       return { isoDate: c.isoDate, fieldKey: c.fieldKey, choice: decisions[i] };
     });
 
+    // G20 補充：送出之後不可以再改選擇、不可以再送（見 submitted 的說明）。
+    submitted = true;
+    setChoicesLocked(true);
     document.getElementById('confirmBtn').disabled = true;
     document.getElementById('cancelBtn').disabled = true;
     document.getElementById('status').textContent = '處理中…';
+
+    // 伺服器明確回失敗：沒有寫入，可以改選擇再送。
+    function unlockAfterFailure() {
+      submitted = false;
+      setChoicesLocked(false);
+      document.getElementById('confirmBtn').disabled = false;
+      document.getElementById('cancelBtn').disabled = false;
+    }
 
     callServer('apiResolveFillConflicts', [QUARTER_ID, payload], function (resp) {
         document.getElementById('cancelBtn').disabled = false;
         if (!resp.ok) {
           document.getElementById('status').textContent = '失敗：' + resp.error.message;
-          document.getElementById('confirmBtn').disabled = false;
+          unlockAfterFailure();
           return;
         }
         // ⚠️ 訊息文字一律用伺服器回傳的 message（buildFillConflictResultMessage_()
@@ -459,8 +497,7 @@
         confirmBtn.onclick = function () { google.script.host.close(); };
       }, function (message) {
         document.getElementById('status').textContent = message;
-        document.getElementById('confirmBtn').disabled = false;
-        document.getElementById('cancelBtn').disabled = false;
+        unlockAfterFailure();
       }, function (message) {
         // G20：可能已經完成。「確定」維持停用（不可以即時再送一次），只可以按「取消」關閉，
         // 再開一次對話框核對。
