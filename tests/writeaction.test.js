@@ -413,7 +413,7 @@ test('G13-3 「重設這一週」按「確定」→ apiResetWeek 收到 HTTP 502
   assert.deepStrictEqual(ui.take('apiLoadWeek').args, [D]);
 });
 
-test('G13-4 發佈區按「執行」（只寄出）→ apiRunPublish 收到 HTTP 502：等候期間兩顆按鈕仍然停用；時間到視窗內、結果格、頁頂都出新訊息，重新載入同一主日與頁頂「目前已發佈」', function () {
+test('G13-4 發佈區按「執行」（只寄出）→ apiRunPublish 收到 HTTP 502：等候期間兩顆按鈕仍然停用；時間到視窗內、結果格、頁頂都出新訊息，重新載入頁頂「目前已發佈」（G21：不重新載入主日）', function () {
   const ui = makeUi();
   ui.els.doSendCheck.checked = true;
   ui.click('publishRunBtn');
@@ -431,10 +431,58 @@ test('G13-4 發佈區按「執行」（只寄出）→ apiRunPublish 收到 HTTP
   assert.deepStrictEqual(ui.message(), { type: 'error', text: expected });
   assert.strictEqual(ui.els.publishRunBtn.disabled, false, '時間到按鈕還原');
   assert.strictEqual(ui.log.publishPanel, 1, '要重新載入頁頂「目前已發佈」');
-  const reload = ui.take('apiLoadWeek');
-  assert.deepStrictEqual(reload.args, [D]);
-  reload.ok({ ok: true, data: {} });
-  assert.strictEqual(ui.els.publishResult.textContent, expected, '同一主日重新載入，結果格保留');
+  // G21 改了這一條的預期：以前會重新載入這一個主日，但發佈成功時從來不重新載入主日，
+  // 而重新載入會換走表單上未儲存的改動。不要改回去。
+  assert.strictEqual(ui.count('apiLoadWeek'), 0, '發佈沒有回應不重新載入主日');
+  assert.strictEqual(ui.log.selectorLabels, 0);
+  assert.strictEqual(ui.els.publishResult.textContent, expected, '結果格保留');
+});
+
+test('G21-1 表單有未儲存的改動 → 按「執行」發佈 → 502 → 20 秒之後只重新載入頁頂「目前已發佈」，不送 apiLoadWeek；畫面上的改動與未儲存的狀態保留', function () {
+  const ui = makeUi();
+  ui.ctx.form.PRELUDE = '新序樂';
+  assert.strictEqual(ui.ctx.hasUnsavedWeekChanges(), true, '前提：有未儲存的改動');
+  publishWith502(ui, true, false);
+  assert.strictEqual(ui.count('apiLoadWeek'), 0, '不可以重新載入主日');
+  assert.strictEqual(ui.log.publishPanel, 1);
+  assert.strictEqual(ui.ctx.form.PRELUDE, '新序樂');
+  assert.strictEqual(ui.ctx.hasUnsavedWeekChanges(), true, '仍然算是未儲存（換週會先問）');
+  assert.strictEqual(ui.ctx.state.inFlight, 0);
+});
+
+test('G21-2 版本記錄展開着 → 發佈沒有回應之後一併重新載入版本記錄（上方的「已發佈」一段）；收起着就不載入', function () {
+  const open = makeUi();
+  let snapshotLoads = 0;
+  open.ctx.isSnapshotPanelOpen = function () { return true; };
+  open.ctx.loadSnapshotPanel = function () { snapshotLoads++; };
+  publishWith502(open, true, false);
+  assert.strictEqual(snapshotLoads, 1);
+
+  const closed = makeUi();
+  let closedLoads = 0;
+  closed.ctx.loadSnapshotPanel = function () { closedLoads++; };
+  publishWith502(closed, true, false);
+  assert.strictEqual(closedLoads, 0);
+});
+
+test('G21-3 其他種類與成功時一致：還原、重設、匯入、補抓、由職事表重新取數、整季匯入成功時本來就重新載入主日，沒有回應亦重新載入；講員表格、季度作業不載入', function () {
+  const ui = makeUi();
+  const table = JSON.parse(JSON.stringify(ui.ctx.WRITE_ACTION_RECOVERY));
+  const reloadsWeek = Object.keys(table).filter(function (k) { return table[k] === 'week' || table[k] === 'quarterImport'; }).sort();
+  assert.deepStrictEqual(reloadsWeek, ['apiBackfillRoster', 'apiFetchFromRoster', 'apiResetWeek', 'apiRestoreWeekSnapshot',
+    'apiRunContentImport', 'apiRunQuarterContentImport']);
+  // 這六個成功處理都會叫 loadWeek()（逐個核對 Script.html 的成功路徑）。
+  const js = readSrc('src/ui/Script.html');
+  [['function onContentImportDone(', 'function applyBaptismPanelVisibility('],
+    ['function onSnapshotRestoreClicked(', 'function onResetWeekClicked('],
+    ['function onResetWeekClicked(', '// BEGIN speaker-form'],
+    ['function confirmFetchFromRoster(', 'function schedulePreviewRefresh('],
+    ['function backfillRoster(', 'function wireStaticEvents('],
+    ["previewApi: 'apiPreviewQuarterContentImport'", "document.getElementById('opMissingBtn')"]].forEach(function (pair) {
+    assert.ok(between(js, pair[0], pair[1]).indexOf('loadWeek(') !== -1, pair[0] + ' 成功時要重新載入主日');
+  });
+  const publishOk = between(js, 'function onPublishDone(', '// BEGIN publish-result');
+  assert.strictEqual(publishOk.indexOf('loadWeek('), -1, '發佈成功時不重新載入主日');
 });
 
 test('G13-5 季度作業「建立本季空白週報」按「確定」→ apiRunCreateWeeks 收到 HTTP 502 → 季度作業區塊內也有訊息，重新載入季度作業；不重新載入主日', function () {

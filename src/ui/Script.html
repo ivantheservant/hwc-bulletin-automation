@@ -321,12 +321,15 @@
    *     keepForm：只有儲存。不等候、不重新載入，表單上的改動與未儲存的狀態保留，
    *       「儲存」即時可以再按（見下面的說明）；
    *     week：重新載入這一個主日，並刷新主日下拉的標籤；
-   *     publish：同 week，另外重新載入頁頂「目前已發佈」；
+   *     publish：重新載入頁頂「目前已發佈」；版本記錄展開着的話一併重新載入（上方有
+   *       「已發佈」一段）。不重新載入這一個主日（G21）；
    *     speakerForm：重新載入「講員表格」區塊；
    *     quarterOps：重新載入「季度作業」區塊；
    *     quarterImport：同 quarterOps，另外重新載入這一個主日。
-   *   每一種重新載入的，就是該動作成功之後會刷新的區塊（發佈另加這一個主日，
-   *   版本記錄內有「已發佈」一段）。
+   *   每一種重新載入的，就是該動作成功之後會刷新的區塊。G21：重新載入這一個主日會換走
+   *   表單上未儲存的改動，所以只有成功時本來就會重新載入主日的種類才這樣做（還原、重設、
+   *   重新匯入、由職事表重新取數、補抓、整季匯入）；發佈成功時（onPublishDone()）從來
+   *   不重新載入主日，沒有回應時亦不可以。
    *
    *   儲存不重新載入（docs/待確認事項.md FF-13）：儲存其實沒有到達伺服器的話，重新
    *   載入會把幹事畫面上未儲存的改動換走；其實已經完成的話，再按一次「儲存」會被
@@ -585,11 +588,15 @@
       var reloadsQuarterOps = kind === 'quarterOps' || kind === 'quarterImport';
       // 季度作業在頁面很下面，頁頂的訊息看不到，區塊內也寫一份（同 showQuarterOpsMessage()）。
       if (reloadsQuarterOps) showQuarterOpsMessage('error', message);
-      if ((kind === 'week' || kind === 'publish' || kind === 'quarterImport') && isoDate) {
+      // G21：發佈不重新載入主日（表單上未儲存的改動要保留，與成功時一樣）。
+      if ((kind === 'week' || kind === 'quarterImport') && isoDate) {
         loadWeek(isoDate, { keepMessage: true });
         refreshWeekSelectorLabels();
       }
-      if (kind === 'publish') loadPublishPanel();
+      if (kind === 'publish') {
+        loadPublishPanel();
+        if (isSnapshotPanelOpen()) loadSnapshotPanel();
+      }
       if (kind === 'speakerForm') loadSpeakerFormStatus();
       if (reloadsQuarterOps) refreshQuarterOpsPanel();
     }, NO_RESPONSE_RELOAD_DELAY_MS);
