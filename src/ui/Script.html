@@ -420,9 +420,6 @@
   /** 第二批測試修正 G13：寫入類動作沒有回應時，ErrorLog 的 CLIENT_ERROR 內容後面加的一句。 */
   var NO_RESPONSE_LOG_NOTE = '（連線錯誤，動作可能已完成）';
 
-  /** 第二批測試修正 G13：看來是連線／傳輸問題的錯誤訊息（見 isNoResponseFailure()）。 */
-  var NO_RESPONSE_PATTERN = /NetworkError|HTTP\s*5\d\d|time(d)?\s*out|Failed to fetch|Connection failure/i;
-
   /**
    * 用途：第二批測試修正 G13：這個伺服器函式是不是寫入類；是的話回傳「沒有回應」
    *   之後要重新載入的種類。
@@ -512,6 +509,10 @@
     };
   }
 
+  // BEGIN no-response-detect（G20：ui/FillConflict.html 有一字不差的同一段，改這裏要同步改那裏；tests/writeaction.test.js 會核對）
+  /** 第二批測試修正 G13：看來是連線／傳輸問題的錯誤訊息（見 isNoResponseFailure()）。 */
+  var NO_RESPONSE_PATTERN = /NetworkError|HTTP\s*5\d\d|time(d)?\s*out|Failed to fetch|Connection failure/i;
+
   /**
    * 用途：第二批測試修正 G13：判斷一個失敗看來是不是連線／傳輸問題（伺服器沒有回應），
    *   而不是伺服器明確回傳的錯誤。
@@ -538,6 +539,7 @@
     if (raw.trim() === '') return true;
     return NO_RESPONSE_PATTERN.test(raw);
   }
+  // END no-response-detect
 
   /**
    * 用途：第二批測試修正 G13：寫入類動作「伺服器沒有回應」時給使用者看的一句。

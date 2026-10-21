@@ -715,6 +715,106 @@ test('G15-4 對話框按「確定」照舊送出（取消那一句不會出現�
 });
 
 // =====================================================================
+// G20：季度填寫表「處理填寫表衝突」對話框（src/ui/FillConflict.html）
+// =====================================================================
+
+console.log('\n處理填寫表衝突對話框沒有回應（G20）');
+
+/**
+ * 把 FillConflict.html 的 <script> 抽出來，三個樣板輸出標籤換成伺服器會給的值，在假 DOM
+ * 上真的執行。按鈕的 onclick 寫在 HTML 屬性上，測試直接叫同一個函式（setAll、submitDecisions）。
+ */
+function makeFillConflictUi(seconds) {
+  const html = readSrc('src/ui/FillConflict.html');
+  const start = html.indexOf('<script>') + '<script>'.length;
+  const code = html.slice(start, html.indexOf('</script>', start))
+    .replace('<' + '?!= JSON.stringify(quarterId) ?' + '>', JSON.stringify('2027T4'))
+    .replace('<' + '?!= conflictsJson ?' + '>', JSON.stringify([
+      { isoDate: '2027-10-03', fieldKey: 'PRELUDE', label: '序樂', snapshotValue: '舊', gridValue: '格子表', systemValue: '系統' }
+    ]))
+    .replace('<' + '?!= JSON.stringify(callTimeoutSec) ?' + '>', JSON.stringify(seconds || 120));
+  assert.strictEqual(code.indexOf('<' + '?'), -1, '樣板標籤要全部換走');
+  const dom = makeFakeDom();
+  const timers = makeFakeTimers();
+  const calls = [];
+  const google = makeFakeGoogle(calls);
+  let closed = 0;
+  google.host = { close: function () { closed++; } };
+  dom.document.getElementsByName = function () { return []; };
+  const ctx = { console: console, document: dom.document, google: google, setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout };
+  vm.createContext(ctx);
+  vm.runInContext(code, ctx);
+  return {
+    ctx: ctx, els: dom.elements, timers: timers, calls: calls, closed: function () { return closed; },
+    submitAll: function (choice) {
+      ctx.setAll(choice);
+      ctx.submitDecisions();
+      const c = calls.filter(function (x) { return x.name === 'apiResolveFillConflicts' && !x.taken; })[0];
+      assert.ok(c, '沒有送出 apiResolveFillConflicts');
+      c.taken = true;
+      return c;
+    }
+  };
+}
+
+const FC_MENU = '「週報系統 ▸ 季度填寫表 ▸ 處理填寫表衝突」';
+const FC_CONNECTION_MESSAGE = '伺服器沒有回應（apiResolveFillConflicts），這個動作可能已經完成。請按「取消」關閉這個視窗，再按選單'
+  + FC_MENU + '核對：已經套用的格不會再列出（選了「暫不處理」的格仍會列出）。如果仍然列出，伺服器可能仍在處理，'
+  + '請等 5 分鐘再開一次核對，不要即時再選一次。';
+function fcTimeoutMessage(seconds) {
+  return '伺服器在 ' + seconds + ' 秒內沒有回應（apiResolveFillConflicts），伺服器可能仍在處理（最長約 6 分鐘）。'
+    + '請按「取消」關閉這個視窗，等 6 分鐘後再按選單' + FC_MENU + '核對，不要即時再選一次；亦可請 IT 看 Apps Script 的「執行項目」。';
+}
+
+test('G20-1 對話框按「確定」→ apiResolveFillConflicts 收到 HTTP 502 → 講「可能已經完成」與怎樣核對；「確定」維持停用、只可以按「取消」；沒有自動重試', function () {
+  const ui = makeFillConflictUi();
+  const call = ui.submitAll('GRID');
+  assert.strictEqual(ui.els.confirmBtn.disabled, true, '送出時停用');
+  call.fail(new Error(NETWORK_502));
+  assert.strictEqual(ui.els.status.textContent, FC_CONNECTION_MESSAGE);
+  assert.strictEqual(ui.els.confirmBtn.disabled, true, '不可以即時再送一次');
+  assert.strictEqual(ui.els.cancelBtn.disabled, false, '可以按「取消」關閉');
+  assert.strictEqual(ui.calls.filter(function (c) { return c.name === 'apiResolveFillConflicts'; }).length, 1, '沒有自動重試');
+  assert.strictEqual(ui.closed(), 0, '不自動關閉，讓人看到訊息');
+  assertWrittenChinese(assert, 'G20 對話框訊息', [FC_CONNECTION_MESSAGE, fcTimeoutMessage(120)]);
+});
+
+test('G20-2 對話框自己的逾時（Config 的秒數）→ 逾時那一句（伺服器可能仍在處理、等 6 分鐘、執行項目）；逾時之後才回來的回應不理會', function () {
+  const ui = makeFillConflictUi(90);
+  const call = ui.submitAll('SYSTEM');
+  assert.strictEqual(ui.timers.run(90000), 1, '逾時計時器跟 Config 的秒數');
+  assert.strictEqual(ui.els.status.textContent, fcTimeoutMessage(90));
+  assert.strictEqual(ui.els.confirmBtn.disabled, true);
+  assert.strictEqual(ui.els.cancelBtn.disabled, false);
+  call.ok({ ok: true, data: { message: '已套用：填寫表 0 格、系統 1 格；暫不處理 0 格（下次同步仍然會問）。' } });
+  assert.strictEqual(ui.els.status.textContent, fcTimeoutMessage(90), '逾時之後才回來的回應被擋掉');
+});
+
+test('G20-3 伺服器明確的失敗照舊：ok:false →「失敗：…」可以再按；伺服器拋出的例外 →「呼叫伺服器失敗（…）：…」可以再按', function () {
+  const ui = makeFillConflictUi();
+  ui.submitAll('GRID').ok({ ok: false, error: { message: '送來 1 個選擇，但在季度 2027T4 找不到對應的衝突，請重新開啟對話框再試。' } });
+  assert.strictEqual(ui.els.status.textContent, '失敗：送來 1 個選擇，但在季度 2027T4 找不到對應的衝突，請重新開啟對話框再試。');
+  assert.strictEqual(ui.els.confirmBtn.disabled, false);
+
+  const ui2 = makeFillConflictUi();
+  ui2.submitAll('GRID').fail(new Error('Exception: 你沒有權限編輯這個試算表。'));
+  assert.strictEqual(ui2.els.status.textContent, '呼叫伺服器失敗（apiResolveFillConflicts）：Exception: 你沒有權限編輯這個試算表。');
+  assert.strictEqual(ui2.els.confirmBtn.disabled, false);
+});
+
+test('G20-4 判斷「沒有回應」的一段：Script.html 與 FillConflict.html 一字不差（照搬，兩處註明要同步）', function () {
+  function sharedBody(rel) {
+    const text = readSrc(rel);
+    const begin = text.indexOf('// BEGIN no-response-detect');
+    const end = text.indexOf('// END no-response-detect');
+    assert.ok(begin !== -1 && end > begin, rel + ' 找不到 no-response-detect 區段');
+    assert.ok(text.slice(begin, text.indexOf('\n', begin)).indexOf('同步') !== -1, rel + ' 的標記要註明同步');
+    return text.slice(text.indexOf('\n', begin) + 1, end);
+  }
+  assert.strictEqual(sharedBody('src/ui/FillConflict.html'), sharedBody('src/ui/Script.html'));
+});
+
+// =====================================================================
 // G18／G22(a)：發佈沒有回應，提示按這一次做甚麼寫核對的地方
 // =====================================================================
 

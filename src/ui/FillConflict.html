@@ -123,6 +123,38 @@
   var CONFLICTS = <?!= conflictsJson ?>;
   var CALL_TIMEOUT_SEC = <?!= JSON.stringify(callTimeoutSec) ?>;
 
+  // BEGIN no-response-detect（G20：照搬自 ui/Script.html，兩處要一字不差；這個對話框是另一個獨立頁面，共用不到那一份。改這裏要同步改那裏；tests/writeaction.test.js 會核對）
+  /** 第二批測試修正 G13：看來是連線／傳輸問題的錯誤訊息（見 isNoResponseFailure()）。 */
+  var NO_RESPONSE_PATTERN = /NetworkError|HTTP\s*5\d\d|time(d)?\s*out|Failed to fetch|Connection failure/i;
+
+  /**
+   * 用途：第二批測試修正 G13：判斷一個失敗看來是不是連線／傳輸問題（伺服器沒有回應），
+   *   而不是伺服器明確回傳的錯誤。
+   *
+   *   google.script.run 遇到 HTTP 502 之類的連線錯誤時，失敗處理收到的是瀏覽器那一邊
+   *   的錯誤（例如「NetworkError: Connection failure due to HTTP 502」），伺服器卻可能
+   *   仍在處理、之後亦可能已經完成。伺服器明確回傳的錯誤（例如 STALE、驗證失敗）經
+   *   withApiResult_() 變成 ok:false，由成功處理接收，不會來到這裏；來到失敗處理而又
+   *   有一句不屬於連線問題的訊息，是伺服器拋出的例外，照舊當作失敗。
+   * Args:
+   *   err {*} 失敗處理收到的錯誤；callServer() 自己的逾時錯誤帶 noResponse:true。
+   * Returns:
+   *   {boolean} 帶 noResponse:true、沒有任何訊息，或者訊息符合 NO_RESPONSE_PATTERN
+   *     （NetworkError、HTTP 5xx、timeout／timed out、Failed to fetch、Connection failure）
+   *     就是 true。
+   * Raises:
+   *   （無）
+   */
+  function isNoResponseFailure(err) {
+    if (err && err.noResponse === true) return true;
+    var raw = '';
+    if (typeof err === 'string') raw = err;
+    else if (err && typeof err.message === 'string') raw = err.message;
+    if (raw.trim() === '') return true;
+    return NO_RESPONSE_PATTERN.test(raw);
+  }
+  // END no-response-detect
+
   /**
    * 用途：這個對話框**唯一**的伺服器呼叫入口。
    *
@@ -138,10 +170,13 @@
    *   args {Array} 參數。
    *   onOk {function(*):void} 成功處理。
    *   onFail {function(string):void} 失敗處理，收到一句可以直接顯示的訊息。
+   *   onNoResponse {function(string):void} 第二批測試修正 G20：連線錯誤或逾時（伺服器沒有
+   *     回應，見 isNoResponseFailure()）時的處理，收到 describeNoResponse() 那一句。這個動作
+   *     可能已經完成，呼叫方不可以自動重試，亦不可以叫人即時再按。
    * Returns:
    *   {void}
    */
-  function callServer(fnName, args, onOk, onFail) {
+  function callServer(fnName, args, onOk, onFail, onNoResponse) {
     var settled = false;
     var timer = null;
 
@@ -154,16 +189,26 @@
       };
     }
 
+    var seconds = parseInt(CALL_TIMEOUT_SEC, 10);
+    if (!(seconds > 0)) seconds = 120;
+
     var fail = settle(function (err) {
+      // G20：連線錯誤（例如 HTTP 502）或逾時不等於沒有做，伺服器可能仍在處理、之後亦可能
+      // 已經完成（同 ui/Script.html 的 G13）。不自動重試。
+      if (isNoResponseFailure(err)) {
+        onNoResponse(describeNoResponse(fnName, err && err.timedOut === true, seconds));
+        return;
+      }
       var raw = (err && err.message) ? String(err.message) : String(err);
       if (raw.length > 300) raw = raw.slice(0, 300) + '…（訊息過長，完整內容請看 ErrorLog）';
       onFail('呼叫伺服器失敗（' + fnName + '）：' + raw);
     });
 
-    var seconds = parseInt(CALL_TIMEOUT_SEC, 10);
-    if (!(seconds > 0)) seconds = 120;
     timer = setTimeout(function () {
-      fail(new Error('伺服器在 ' + seconds + ' 秒內沒有回應。請看試算表的 ErrorLog 或 Apps Script 的「執行項目」。'));
+      var timeoutErr = new Error('伺服器在 ' + seconds + ' 秒內沒有回應。');
+      timeoutErr.noResponse = true;
+      timeoutErr.timedOut = true;
+      fail(timeoutErr);
     }, seconds * 1000);
 
     try {
@@ -174,6 +219,36 @@
     } catch (err) {
       fail(err);
     }
+  }
+
+  /** 第二批測試修正 G20：核對時要開的選單（與 src/Menu.gs 的選單名稱一致）。 */
+  var RESOLVE_MENU_PATH = '「週報系統 ▸ 季度填寫表 ▸ 處理填寫表衝突」';
+
+  /**
+   * 用途：第二批測試修正 G20：送出選擇之後伺服器沒有回應時的一句，按連線錯誤與逾時分。
+   *
+   *   核對的地方按這個動作的實際情況寫：選用填寫表的值會寫入 BulletinWeeks、選用系統的值
+   *   會改格子表那一格，兩者都會更新 FillSnapshot，所以已經套用的格，再開一次這個對話框
+   *   就不會再列出（全部處理完會講「目前沒有任何衝突」）；選了「暫不處理」的格本來就仍會
+   *   列出。即時再按「確定」可能令伺服器同時處理兩次，所以叫人關閉視窗、等一會再開。
+   * Args:
+   *   fnName {string} 伺服器函式名稱。
+   *   timedOut {boolean} true 是這個對話框自己的逾時；false 是連線錯誤。
+   *   seconds {number} 逾時秒數（Config WEBAPP_CALL_TIMEOUT_SEC）。
+   * Returns:
+   *   {string}
+   * Raises:
+   *   （無）
+   */
+  function describeNoResponse(fnName, timedOut, seconds) {
+    if (timedOut) {
+      return '伺服器在 ' + seconds + ' 秒內沒有回應（' + fnName + '），伺服器可能仍在處理（最長約 6 分鐘）。'
+        + '請按「取消」關閉這個視窗，等 6 分鐘後再按選單' + RESOLVE_MENU_PATH + '核對，不要即時再選一次；'
+        + '亦可請 IT 看 Apps Script 的「執行項目」。';
+    }
+    return '伺服器沒有回應（' + fnName + '），這個動作可能已經完成。請按「取消」關閉這個視窗，再按選單'
+      + RESOLVE_MENU_PATH + '核對：已經套用的格不會再列出（選了「暫不處理」的格仍會列出）。'
+      + '如果仍然列出，伺服器可能仍在處理，請等 5 分鐘再開一次核對，不要即時再選一次。';
   }
 
   // 每一項目前的選擇；null 代表這一行還沒有人選過。
@@ -312,6 +387,13 @@
       }, function (message) {
         document.getElementById('status').textContent = message;
         document.getElementById('confirmBtn').disabled = false;
+        document.getElementById('cancelBtn').disabled = false;
+      }, function (message) {
+        // G20：可能已經完成。「確定」維持停用（不可以即時再送一次），只可以按「取消」關閉，
+        // 再開一次對話框核對。
+        document.getElementById('status').textContent = message;
+        document.getElementById('hint').textContent = '';
+        document.getElementById('confirmBtn').disabled = true;
         document.getElementById('cancelBtn').disabled = false;
       });
   }
