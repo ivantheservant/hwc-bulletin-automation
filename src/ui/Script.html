@@ -733,7 +733,8 @@
       if (reloadsQuarterOps) showQuarterOpsMessage('error', message);
       // G21：發佈不重新載入主日（表單上未儲存的改動要保留，與成功時一樣）。
       if ((kind === 'week' || kind === 'quarterImport') && isoDate) {
-        loadWeek(isoDate, { keepMessage: true });
+        // G27：重新載入失敗時保留剛顯示的那一句。
+        loadWeek(isoDate, { keepMessage: true, failureNotice: message });
         refreshWeekSelectorLabels();
       }
       if (kind === 'publish') {
@@ -741,7 +742,7 @@
         if (isSnapshotPanelOpen()) loadSnapshotPanel();
       }
       if (kind === 'speakerForm') loadSpeakerFormStatus();
-      if (reloadsQuarterOps) refreshQuarterOpsPanel();
+      if (reloadsQuarterOps) refreshQuarterOpsPanel({ failureNotice: message });
     }, NO_RESPONSE_RELOAD_DELAY_MS);
   }
 
@@ -2502,6 +2503,11 @@
    *   第二批測試修正 G3／G9：發佈區塊的結果與已選的 PDF 跟主日走，不跟
    *   `keepMessage` 走——換到另一個主日一律清走，同一個主日重新載入就保留（見
    *   `resetPublishPanelIfWeekChanged()`）。
+   *
+   *   第二批測試修正 G27：`options.failureNotice` 是「沒有回應」之後自動重新載入時剛顯示的
+   *   那一句（見 recoverAfterNoResponse()）。重新載入本身失敗（連線錯誤，或者伺服器回
+   *   ok:false）時不可以用新的錯誤蓋走它，改為顯示那一句再加
+   *   RELOAD_AFTER_NO_RESPONSE_FAILED。
    * Returns:
    *   {void}
    * Raises:
@@ -2514,10 +2520,27 @@
     // 同一個主日保留。
     resetPublishPanelIfWeekChanged(state.isoDate, isoDate);
     setLoaded(false);
+    var notice = opts.failureNotice ? String(opts.failureNotice) : '';
     callServer('apiLoadWeek', [isoDate],
-      function (resp) { onWeekLoaded(isoDate, resp); },
-      { busyText: '載入中…', onError: function (message) { setLoaded(false); showMessage('error', message); } });
+      function (resp) {
+        if (notice && (!resp || !resp.ok)) {
+          setLoaded(false);
+          showMessage('error', notice + RELOAD_AFTER_NO_RESPONSE_FAILED);
+          return;
+        }
+        onWeekLoaded(isoDate, resp);
+      },
+      {
+        busyText: '載入中…',
+        onError: function (message) {
+          setLoaded(false);
+          showMessage('error', notice ? notice + RELOAD_AFTER_NO_RESPONSE_FAILED : message);
+        }
+      });
   }
+
+  /** 第二批測試修正 G27：沒有回應之後自動重新載入亦失敗時，在原本那一句後面加的一句。 */
+  var RELOAD_AFTER_NO_RESPONSE_FAILED = '重新載入亦失敗，請稍後按 F5 重新整理。';
   // END load-week
 
   /**
@@ -3757,14 +3780,31 @@
 
   /**
    * 用途：拿「季度作業」區塊的現況（季度、DRY_RUN、內容表有沒有建立）。
+   * Args:
+   *   options {{failureNotice:string}=} 第二批測試修正 G27：沒有回應之後自動重新載入時
+   *     剛顯示的那一句；重新載入失敗時保留它，再加 RELOAD_AFTER_NO_RESPONSE_FAILED。
    * Returns:
    *   {void}
+   * Raises:
+   *   （無）
    */
-  function refreshQuarterOpsPanel() {
+  function refreshQuarterOpsPanel(options) {
+    // G27：沒有回應之後自動重新載入（failureNotice）亦失敗時，保留原本那一句再加一句，
+    // 頁頂與「季度作業」區塊兩處都不可以被新的錯誤蓋走。
+    var notice = options && options.failureNotice ? String(options.failureNotice) : '';
+    function keepNotice() {
+      var text = notice + RELOAD_AFTER_NO_RESPONSE_FAILED;
+      showQuarterOpsMessage('error', text);
+      showMessage('error', text);
+    }
     callServer('apiGetQuarterOpsPanel', [state.quarterId || ''], function (resp) {
-      if (!resp.ok) { showQuarterOpsMessage('error', resp.error.message); return; }
+      if (!resp.ok) {
+        if (notice) keepNotice();
+        else showQuarterOpsMessage('error', resp.error.message);
+        return;
+      }
       renderQuarterOpsPanel(resp.data);
-    }, { busy: 'preview' });
+    }, notice ? { busy: 'preview', onError: keepNotice } : { busy: 'preview' });
   }
 
   /**

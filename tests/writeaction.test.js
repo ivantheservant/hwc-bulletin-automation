@@ -20,6 +20,10 @@
  * 第二批測試修正 G17：讀取類動作逾時，訊息講「這是讀取資料，沒有改動任何東西」，不講
  * 「動作可能已經做了」，不排重新載入；下載 Word 逾時講沒有下載到；寫入類照舊。
  *
+ * 之後各輪（每組測試的標題寫明）：G18／G22(a) 發佈的提示句、G19 取消字眼、G20「處理填寫表
+ * 衝突」對話框、G21 發佈不重新載入主日、G23 儲存的指令碼鎖、G24 連線錯誤與逾時兩種結尾、
+ * G25 等候期間對話框不可以再送、G26 HTTP 401／403、G27 重新載入亦失敗。
+ *
  * 執行方式：node tests/writeaction.test.js
  * 離開碼：0＝全部通過　1＝有測試失敗
  */
@@ -1158,6 +1162,50 @@ test('G26-4 「處理填寫表衝突」對話框 → HTTP 403 → 登入那一�
   ui.submitAll('GRID').fail(new Error('NetworkError: Connection failure due to HTTP 403'));
   assert.strictEqual(ui.els.status.textContent, signInMessage(403));
   assert.strictEqual(ui.els.confirmBtn.disabled, false);
+});
+
+// =====================================================================
+// G27：沒有回應之後自動重新載入亦失敗，不可以蓋走「可能已經完成」那一句
+// =====================================================================
+
+console.log('\n重新載入亦失敗（G27）');
+
+const RELOAD_FAILED = '重新載入亦失敗，請稍後按 F5 重新整理。';
+
+test('G27-1 還原 → 502 → 20 秒後重新載入（apiLoadWeek）亦 502 → 頁頂仍是原本那一句，後面加「重新載入亦失敗，請稍後按 F5 重新整理。」；伺服器回 ok:false 亦一樣', function () {
+  [function (call) { call.fail(new Error(NETWORK_502)); },
+    function (call) { call.ok({ ok: false, error: { message: '工作表結構落後於程式碼' } }); }].forEach(function (failReload, i) {
+    const ui = makeUi();
+    clickRestoreButton(ui, 'SNAP-1');
+    ui.take('apiDiffWeekSnapshot').ok(DIFF_OK);
+    ui.click('confirmOkBtn');
+    ui.take('apiRestoreWeekSnapshot').fail(new Error(NETWORK_502));
+    ui.timers.run(ui.delayMs);
+    failReload(ui.take('apiLoadWeek'));
+    assert.deepStrictEqual(ui.message(), { type: 'error', text: expectedWeekMessage('apiRestoreWeekSnapshot') + RELOAD_FAILED }, '第 ' + i + ' 種');
+  });
+  assertWrittenChinese(assert, 'G27', [RELOAD_FAILED]);
+});
+
+test('G27-2 季度作業 → 502 → 20 秒後重新載入季度作業的現況亦失敗 → 頁頂與「季度作業」區塊都保留原本那一句再加一句', function () {
+  const ui = makeUi({ extra: [['function refreshQuarterOpsPanel(', 'function renderQuarterOpsPanel(']] });
+  ui.click('opCreateWeeksBtn');
+  ui.take('apiPreviewCreateWeeks').ok({ ok: true, data: { ok: true, title: '建立本季空白週報', lines: ['會新增 13 個主日。'] } });
+  ui.click('confirmOkBtn');
+  ui.take('apiRunCreateWeeks').fail(new Error(NETWORK_502));
+  ui.timers.run(ui.delayMs);
+  ui.take('apiGetQuarterOpsPanel').fail(new Error(NETWORK_502));
+  const expected = '伺服器沒有回應（apiRunCreateWeeks），這個動作可能已經完成。系統已重新載入季度作業的現況，請先看「季度作業」區塊。'
+    + WAIT_ENDING + RELOAD_FAILED;
+  assert.strictEqual(ui.els.quarterOpsMessage.textContent, expected);
+  assert.deepStrictEqual(ui.message(), { type: 'error', text: expected });
+});
+
+test('G27-3 平常的載入失敗照舊（不是沒有回應之後的重新載入）：「呼叫伺服器失敗（apiLoadWeek）：…」', function () {
+  const ui = makeUi();
+  ui.ctx.loadWeek(D);
+  ui.take('apiLoadWeek').fail(new Error('Exception: 找不到這個主日。'));
+  assert.deepStrictEqual(ui.message(), { type: 'error', text: '呼叫伺服器失敗（apiLoadWeek）：Exception: 找不到這個主日。' });
 });
 
 // =====================================================================
