@@ -660,6 +660,53 @@ function attendanceMissingSummaryText_(count) {
 }
 
 /**
+ * 用途：把一段待填清單裏的人數各格合併成一項「人數：N 格未填（上週崇拜人數由內容表
+ *   輸入）」，其餘項目原樣、次序不變；合併那一項放在第一格人數原本的位置。純函式。
+ *
+ *   第二批測試修正 G14：填寫介面頂部「待填」面板（單一主日）原本逐格列出 12 格人數，
+ *   與寄出前檢查、本季待填清單（G7）不一致。判斷與字眼用 isAttendanceMissingItem_()
+ *   與 attendanceMissingSummaryText_()，與 G7 同一組函式。這裏只合併「顯示用」的
+ *   清單；待填項數（徽章、主日下拉、寄出前檢查的數字）照舊按格數計，呼叫方用原本
+ *   的清單數，不可以拿這裏的長度去數。
+ * Args:
+ *   items {Object[]} buildMissingList_() 輸出的其中一段（例如 splitMissingList_() 的
+ *     required 或 optional），每項 {field, label, reason, optional}。
+ * Returns:
+ *   {Object[]} 新陣列。人數那一項是 {field:'ATT_*', label:'人數', reason, optional,
+ *     cellCount}，cellCount 是它代表的格數；沒有人數項目時內容與輸入相同。
+ * Raises:
+ *   （無）
+ */
+function mergeAttendanceMissingItems_(items) {
+  var out = [];
+  var attendanceIndex = -1;
+  var attendanceCount = 0;
+  var attendanceOptional = false;
+  (items || []).forEach(function (item) {
+    if (!isAttendanceMissingItem_(item)) {
+      out.push(item);
+      return;
+    }
+    if (attendanceIndex === -1) {
+      attendanceIndex = out.length;
+      attendanceOptional = (item || {}).optional === true;
+      out.push(null);
+    }
+    attendanceCount++;
+  });
+  if (attendanceIndex !== -1) {
+    out[attendanceIndex] = {
+      field: 'ATT_*',
+      label: '人數',
+      reason: attendanceMissingSummaryText_(attendanceCount),
+      optional: attendanceOptional,
+      cellCount: attendanceCount
+    };
+  }
+  return out;
+}
+
+/**
  * 用途：取出一個主日職事表快照內 `FLOWER` 崗位的名字。純函式。
  *   `applyFlowerFromRoster_()`（帶入獻花）與填寫介面獻花欄位旁邊的提示
  *   （`model.flowerRoster`）共用這一個——兩邊各算一次就是兩個真相來源。

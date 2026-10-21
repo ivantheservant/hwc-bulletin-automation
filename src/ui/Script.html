@@ -2001,13 +2001,20 @@
 
   /**
    * 用途：更新頂部「待填／警告／最後儲存時間」三個標籤與待填清單面板。
+   *
+   *   第二批測試修正 G14：面板逐行顯示用伺服器合併好的 `panel`（人數各格合併成一行，
+   *   與寄出前檢查、本季待填清單一致）；徽章與面板標題的數字照舊數 `required`／
+   *   `optional`（按格數計，與寄出前檢查「未填欄位（N 項）」相同）。
    * Args:
-   *   missingSplit {{required:Object[], optional:Object[]}} 伺服器按
-   *     `splitMissingList_()` 分好的待填清單。
+   *   missingSplit {{required:Object[], optional:Object[],
+   *     panel:{required:Object[], optional:Object[]}}} 伺服器
+   *     `missingSplitForWebApp_()` 的結果。
    *   warnings {Object[]} 警告清單。
    *   lastSavedAt {string} 伺服器正規化過的最後儲存時間。
    * Returns:
    *   {void}
+   * Raises:
+   *   （無）
    */
   function renderStats(missingSplit, warnings, lastSavedAt) {
     // ⚠️ D-10：徽章那個數字**只數「一定要填」那一段**。
@@ -2017,7 +2024,7 @@
     //    F6：分成「一定要填」與「通常空白」由**伺服器**（`splitMissingList_()`）
     //    算好送來，這裏不再自己 filter——自己分一次就是第三份分類，
     //    日後兩邊判斷不同，同一週的數字就會在不同畫面對不上。
-    var split = missingSplit || { required: [], optional: [] };
+    var split = missingSplit || { required: [], optional: [], panel: { required: [], optional: [] } };
     var required = split.required || [];
     var optional = split.optional || [];
 
@@ -2025,7 +2032,8 @@
       + (optional.length > 0 ? '（另有 ' + optional.length + ' 項通常空白）' : '');
     document.getElementById('statWarnings').textContent = '警告 ' + (warnings ? warnings.length : 0) + ' 項';
     document.getElementById('statSaved').textContent = '最後儲存時間：' + formatTimestamp(lastSavedAt);
-    renderMissingPanel(required, optional);
+    // G14：面板的行用 panel（人數一行），數字用原本的清單（按格數計）。
+    renderMissingPanel(split.panel, required.length, optional.length);
     renderWarningsPanel(warnings);
   }
 
@@ -2085,12 +2093,28 @@
       + '</ul><div>本系統不會改動職事表。如果週報的版本才是正確的，請自行到職事表更正。</div>';
   }
 
-  function renderMissingPanel(required, optional) {
+  /**
+   * 用途：「待填 N 項」展開之後的清單面板，分「一定要填」與「通常空白」兩段。
+   *
+   *   第二批測試修正 G14：每一行來自伺服器合併好的清單（人數各格合併成一行
+   *   「人數：N 格未填（上週崇拜人數由內容表輸入）」，字眼由伺服器
+   *   attendanceMissingSummaryText_() 算好），標題括號內的數字由呼叫方按格數傳入，
+   *   不數行數。
+   * Args:
+   *   lists {{required:Object[], optional:Object[]}} 顯示用的兩段清單，每項 {label, reason}。
+   *   requiredCount {number} 一定要填的項數（按格數計）。
+   *   optionalCount {number} 通常空白的項數（按格數計）。
+   * Returns:
+   *   {void}
+   * Raises:
+   *   （無）
+   */
+  function renderMissingPanel(lists, requiredCount, optionalCount) {
     var panel = document.getElementById('missingPanel');
-    var req = required || [];
-    var opt = optional || [];
+    var req = lists.required || [];
+    var opt = lists.optional || [];
 
-    if (req.length === 0 && opt.length === 0) {
+    if (requiredCount === 0 && optionalCount === 0) {
       panel.innerHTML = '（目前沒有待填項目）';
       return;
     }
@@ -2104,14 +2128,14 @@
     var html = '';
     // ⚠️ D-10：兩段刻意都列出來。第二段不計入徽章，但**看得見**——
     //    「正常空白」與「漏填」本來就不是二元的，真的漏填了獻花也有可能。
-    if (req.length > 0) {
-      html += '<div><strong>一定要填（' + req.length + ' 項）：</strong></div>' + itemsHtml(req);
+    if (requiredCount > 0) {
+      html += '<div><strong>一定要填（' + requiredCount + ' 項）：</strong></div>' + itemsHtml(req);
     } else {
       html += '<div><strong>一定要填的都已經填好了。</strong></div>';
     }
-    if (opt.length > 0) {
+    if (optionalCount > 0) {
       html += '<div class="missing-optional-head"><strong>通常空白，有就填（'
-        + opt.length + ' 項）：</strong>這幾項不計入上面那個數字。</div>' + itemsHtml(opt);
+        + optionalCount + ' 項）：</strong>這幾項不計入上面那個數字。</div>' + itemsHtml(opt);
     }
     panel.innerHTML = html;
   }

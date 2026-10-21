@@ -1520,6 +1520,31 @@ function pickDefaultWeekIsoDate_(entries, todayIso) {
 // =====================================================================
 
 /**
+ * 用途：第二批測試修正 G14：填寫介面頂部「待填 N 項」徽章與展開的待填面板用的資料。
+ *   純函式。
+ *
+ *   required／optional／requiredCount 照舊是 splitMissingList_() 的結果（徽章的數字
+ *   照舊按格數計，與寄出前檢查「未填欄位（N 項）」、主日下拉的標籤相同）；panel 是
+ *   面板顯示用的清單，人數各格合併成一行（mergeAttendanceMissingItems_()，與寄出前
+ *   檢查、本季待填清單同一組函式）。兩者由同一份 missing 在同一處算出，不會對不上。
+ * Args:
+ *   missing {Object[]} buildMissingList_() 的輸出（model.missing）。
+ * Returns:
+ *   {{required:Object[], optional:Object[], requiredCount:number,
+ *     panel:{required:Object[], optional:Object[]}}}
+ * Raises:
+ *   （無）
+ */
+function missingSplitForWebApp_(missing) {
+  var split = splitMissingList_(missing);
+  split.panel = {
+    required: mergeAttendanceMissingItems_(split.required),
+    optional: mergeAttendanceMissingItems_(split.optional)
+  };
+  return split;
+}
+
+/**
  * 用途：`apiLoadWeek()` 的 IO 層。唯讀區塊（事奉框、下週事奉、特別主日、
  *   程序範本、職事表版本／是否正式發出）直接沿用 `buildBulletinModel_()`；
  *   可編輯欄位另外用**未經 BulletinModel 加工**的原始值讀出（幹事要看到
@@ -1530,7 +1555,8 @@ function pickDefaultWeekIsoDate_(entries, todayIso) {
  *   {Object} 形狀：
  *     `{ isoDate, week:Object, lists:{announcements,prayers,fellowships,finance},
  *        lastSavedAt:string, readOnly:Object, missing:Object[],
- *        missingSplit:{required:Object[], optional:Object[], requiredCount:number},
+ *        missingSplit:{required:Object[], optional:Object[], requiredCount:number,
+ *          panel:{required:Object[], optional:Object[]}},
  *        warnings:Object[], options:Object, rosterReloadMessage:Object,
  *        wordFile:?Object }`
  *     `readOnly.flowerRoster` 是職事表的獻花名字（獻花欄位旁邊的提示用）；
@@ -1617,7 +1643,8 @@ function loadWeekForWebApp_(isoDate) {
     missing: model.missing,
     // F6：頂部徽章與待填清單面板用的分類，由 `splitMissingList_()` 算好。
     // 前端不可以再自己 filter 一次 `optional`——那是第三份分類。
-    missingSplit: splitMissingList_(model.missing),
+    // G14：另附面板顯示用、人數合併成一行的清單（見 missingSplitForWebApp_()）。
+    missingSplit: missingSplitForWebApp_(model.missing),
     warnings: model.warnings,
     options: webAppFieldOptions_(),
     // 第六輪：週報與職事表的比對結果。前端用 `conflictCount` 顯示頂部

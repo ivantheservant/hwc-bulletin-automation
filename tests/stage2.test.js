@@ -1319,5 +1319,115 @@ test('G11-3 版本名稱排在任何寫入之前算（源碼次序：restoreVers
   assert.ok(labelAt < firstWrite, '版本名稱要在第一個寫入之前算好');
 });
 
+// =====================================================================
+// 第二批測試修正 G14：單週「待填」面板的人數合併成一行
+// =====================================================================
+
+console.log('\n單週待填面板的人數合併成一行（G14）');
+
+const ATT_KEYS = ['ATT_ENG_WORSHIP', 'ATT_CANE_WORSHIP', 'ATT_CANN_WORSHIP', 'ATT_MAN_WORSHIP',
+  'ATT_ENG_PRAYER', 'ATT_CANE_PRAYER', 'ATT_CANN_PRAYER', 'ATT_MAN_PRAYER',
+  'ATT_ENG_CHILD', 'ATT_CANE_CHILD', 'ATT_CANN_CHILD', 'ATT_MAN_CHILD'];
+
+/** 把 Script.html 的 renderStats()／renderMissingPanel()（連 escapeHtml()）抽出來，在假 DOM 上執行。 */
+function loadMissingPanel() {
+  const js = readSrc('src/ui/Script.html').replace(/\r\n/g, '\n');
+  const elements = {};
+  const ctx = {
+    document: {
+      getElementById: function (id) {
+        if (!elements[id]) elements[id] = { id: id, textContent: '', innerHTML: '' };
+        return elements[id];
+      }
+    },
+    formatTimestamp: function (v) { return v ? v : '（尚未儲存）'; },
+    renderWarningsPanel: function () {}
+  };
+  vm.createContext(ctx);
+  vm.runInContext(js.slice(js.indexOf('function escapeHtml('), js.indexOf('function el('))
+    + '\n' + js.slice(js.indexOf('function renderStats('), js.indexOf('function renderWarningsPanel('))
+    + '\n' + js.slice(js.indexOf('function renderMissingPanel('), js.indexOf('function populateWeekSelect('))
+    + '\nthis.api = { renderStats: renderStats };', ctx);
+  return { api: ctx.api, elements: elements };
+}
+
+function liTexts(html) {
+  return (html.match(/<li>[^<]*<\/li>/g) || []).map(function (s) { return s.slice(4, -5); });
+}
+
+test('G14-1 經 apiLoadWeek（人數 12 格全空）：面板清單的人數合併成一行「人數：12 格未填（上週崇拜人數由內容表輸入）」，放在第一格人數的位置；徽章用的清單與項數不變', function () {
+  const env = makeEnv({});
+  const sb = env.sandbox;
+  const resp = sb.apiLoadWeek(D);
+  assert.strictEqual(resp.ok, true, JSON.stringify(resp.error));
+  const split = plain(resp.data.missingSplit);
+  const raw = split.required;
+  assert.strictEqual(raw.filter(function (m) { return m.field.indexOf('ATT_') === 0; }).length, 12, '前提：12 格人數都未填');
+  assert.strictEqual(split.requiredCount, raw.length, '項數照舊按格數計');
+
+  const panel = split.panel.required;
+  assert.strictEqual(panel.length, raw.length - 12 + 1);
+  const firstAtt = raw.map(function (m) { return m.field; }).indexOf('ATT_ENG_WORSHIP');
+  assert.deepStrictEqual(panel[firstAtt], {
+    field: 'ATT_*', label: '人數', reason: sb.attendanceMissingSummaryText_(12), optional: false, cellCount: 12
+  });
+  assert.strictEqual(panel[firstAtt].reason, '12 格未填（上週崇拜人數由內容表輸入）');
+  assert.deepStrictEqual(panel.filter(function (m) { return m.label !== '人數'; }),
+    raw.filter(function (m) { return m.field.indexOf('ATT_') !== 0; }), '其餘項目原樣、次序不變');
+  assert.strictEqual(panel.filter(function (m) { return m.reason === '人數尚未填寫。'; }).length, 0);
+  assert.deepStrictEqual(split.panel.optional, split.optional, '通常空白那一段沒有人數，原樣');
+});
+
+test('G14-2 人數只填了 3 格 → 「9 格未填」；12 格都填了 → 面板沒有人數那一行', function () {
+  const partial = {};
+  ATT_KEYS.slice(0, 3).forEach(function (k, i) { partial[k] = 10 + i; });
+  const env = makeEnv({ week: partial });
+  const panel = plain(env.sandbox.apiLoadWeek(D).data.missingSplit.panel.required);
+  const att = panel.filter(function (m) { return m.label === '人數'; });
+  assert.strictEqual(att.length, 1);
+  assert.strictEqual(att[0].reason, '9 格未填（上週崇拜人數由內容表輸入）');
+  assert.strictEqual(att[0].cellCount, 9);
+
+  const full = {};
+  ATT_KEYS.forEach(function (k, i) { full[k] = 10 + i; });
+  const env2 = makeEnv({ week: full });
+  const split2 = plain(env2.sandbox.apiLoadWeek(D).data.missingSplit);
+  assert.strictEqual(split2.panel.required.filter(function (m) { return m.label === '人數'; }).length, 0);
+  assert.deepStrictEqual(split2.panel.required, split2.required);
+});
+
+test('G14-3 前端（apiLoadWeek 的回應 → 真正的 renderStats()）：面板只有一行人數，不再逐格列出；徽章「待填 N 項」與面板標題的 N 照舊按格數計，與寄出前檢查「未填欄位（N 項）」相同', function () {
+  const env = makeEnv({});
+  const sb = env.sandbox;
+  const data = sb.apiLoadWeek(D).data;
+  const ui = loadMissingPanel();
+  ui.api.renderStats(plain(data.missingSplit), [], data.lastSavedAt);
+
+  const n = data.missingSplit.required.length;
+  assert.strictEqual(ui.elements.statMissing.textContent, '待填 ' + n + ' 項（另有 1 項通常空白）');
+  const html = ui.elements.missingPanel.innerHTML;
+  assert.ok(html.indexOf('一定要填（' + n + ' 項）') !== -1, html);
+  const items = liTexts(html);
+  assert.strictEqual(items.filter(function (t) { return t === '人數：12 格未填（上週崇拜人數由內容表輸入）'; }).length, 1, items.join('\n'));
+  assert.strictEqual(items.filter(function (t) { return t.indexOf('人數尚未填寫') !== -1; }).length, 0, '不可以再逐格列出');
+  assert.strictEqual(items.length, n - 12 + 1 + 1, '一定要填（人數一行）加一項通常空白');
+
+  // 與寄出前檢查同一做法：數字按格數計，人數那一行字眼一字不差。
+  const precheck = Array.from(sb.buildPublishPrecheck_(D, false).lines);
+  assert.ok(precheck.indexOf('未填欄位（' + n + ' 項）（另有 1 項通常空白）') !== -1, precheck.join('\n'));
+  const precheckAtt = precheck.filter(function (l) { return l.indexOf('人數：') !== -1; })[0];
+  assert.strictEqual(precheckAtt.replace(/^　人數：/, ''), '12 格未填（上週崇拜人數由內容表輸入）');
+  assertWrittenChinese(assert, 'G14 面板', items);
+});
+
+test('G14-4 BulletinModel.gs 的合併只用 G7 那兩支函式，字眼不另寫一份', function () {
+  const model = readSrc('src/BulletinModel.gs');
+  const fn = model.slice(model.indexOf('function mergeAttendanceMissingItems_('), model.indexOf('function rosterFlowerName_('));
+  assert.ok(fn.indexOf('isAttendanceMissingItem_(') !== -1 && fn.indexOf('attendanceMissingSummaryText_(') !== -1);
+  assert.strictEqual(fn.indexOf('格未填'), -1);
+  const webapp = readSrc('src/WebApp.gs');
+  assert.ok(webapp.indexOf('missingSplit: missingSplitForWebApp_(model.missing)') !== -1);
+});
+
 console.log('\n通過 ' + pass + ' 項，失敗 ' + fail + ' 項。');
 process.exit(fail === 0 ? 0 : 1);
