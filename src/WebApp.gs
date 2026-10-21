@@ -682,7 +682,10 @@ function apiPreviewProgram(isoDate, draftFields) {
  * Args:
  *   payload {Object} 見 `src/WebAppSave.gs` 檔頭的 payload 形狀說明。
  * Returns:
- *   {{ok:boolean, data:{lastSavedAt:string, changedFieldCount:number, message:{type:string,text:string}}, error?:Object}}
+ *   {{ok:boolean, data:{lastSavedAt:string, changedFieldCount:number, sideRecordCount:number,
+ *     message:{type:string,text:string}}, error?:Object}}
+ *     `changedFieldCount` 是使用者改了幾個欄位，覆寫記錄等附帶記錄不計
+ *     （另計在 `sideRecordCount`，見 `countSaveChanges_()`）。
  *     樂觀鎖沒對上時 `error.code` 是 `'STALE'`；工作表結構落後於程式碼時
  *     `error.code` 是 `'SCHEMA_OUTDATED'`（見 `checkSheetSchema_()`），
  *     兩種情況都**不會執行任何寫入**。

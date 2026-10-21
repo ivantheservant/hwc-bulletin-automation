@@ -774,14 +774,18 @@ function assertContentSheetFieldsNotSubmitted_(payload) {
  * Args:
  *   payload {Object} 見本檔案檔頭的 payload 形狀說明。
  * Returns:
- *   {{lastSavedAt:string, changedFieldCount:number, message:{type:string,text:string}}}
+ *   {{lastSavedAt:string, changedFieldCount:number, sideRecordCount:number,
+ *     message:{type:string,text:string}}}
  *     `lastSavedAt` 是 `canonicalSaveToken_()` 正規化過的字串（不是
  *     `Date`）——前端拿到什麼就原樣存起來、下次儲存原樣送回即可，不需要
- *     自己再處理任何日期／時區轉換。`changedFieldCount` 保證等於這次
- *     實際寫入 `AuditLog` 的筆數（同一個真相來源：兩者都是
- *     `auditEntries.length`）。`message` 是 `buildSaveResultMessage_()`
- *     算好的文案，前端直接顯示，不再自己砌字串（前端沒有 Node 測試，
- *     文案分支放在這裡才測得到）。
+ *     自己再處理任何日期／時區轉換。`changedFieldCount` 是使用者這次改了
+ *     幾個欄位（週報欄位、事奉框與下週事奉的每一格各算一個），
+ *     `sideRecordCount` 是另外更新了幾筆附帶記錄（欄位覆寫、事奉框覆寫的
+ *     基準值）；兩個數字都由這次實際寫入 `AuditLog` 的條目數出來（同一個
+ *     真相來源：`auditEntries`，分類見 `countSaveChanges_()`）。G16 之前
+ *     `changedFieldCount` 等於 `auditEntries.length`，把覆寫記錄也算成欄位。
+ *     `message` 是 `buildSaveResultMessage_()` 算好的文案，前端直接顯示，
+ *     不再自己砌字串（前端沒有 Node 測試，文案分支放在這裡才測得到）。
  * Raises:
  *   Error 如果 `payload.isoDate` 缺漏或格式不對；Error（`code:'STALE'`）
  *     如果樂觀鎖不符；Error（`code:'FIELD_CONFLICT'`）如果有欄位在載入之後
@@ -896,8 +900,11 @@ function saveWeekFromWebApp_(payload) {
 
   // ⚠️ F2：完全沒有改動就不更新 `LAST_SAVED_AT`。`auditEntries` 是欄位、
   //    兩種事奉覆寫、第三種欄位覆寫共用的累積陣列，「有沒有改動」與
-  //    訊息裡的數字用同一個來源（`auditEntries.length`）。
+  //    訊息裡的數字用同一個來源（`auditEntries`）。
+  //    G16：「有沒有改動」看全部條目（附帶記錄亦是寫入）；訊息裡的數字只數
+  //    使用者改了的欄位，附帶記錄另外數（見 `countSaveChanges_()`）。
   var hasChanges = auditEntries.length > 0;
+  var counts = countSaveChanges_(auditEntries);
   var savedToken = canonicalSaveToken_(weekRowInfo ? weekRowInfo.LAST_SAVED_AT : null);
   if (hasChanges) {
     var newTimestamp = new Date();
@@ -919,11 +926,72 @@ function saveWeekFromWebApp_(payload) {
 
   return {
     lastSavedAt: savedToken,
-    changedFieldCount: auditEntries.length,
+    changedFieldCount: counts.fieldCount,
+    sideRecordCount: counts.sideRecordCount,
     // 版本記錄存不到時，訊息要講出來（這次改動不能用「還原」找回），
     // 但儲存本身照樣成功。
-    message: appendSnapshotWarnings_(buildSaveResultMessage_(auditEntries.length), snapshotWarnings)
+    message: appendSnapshotWarnings_(
+      buildSaveResultMessage_(counts.fieldCount, counts.sideRecordCount), snapshotWarnings)
   };
+}
+
+/**
+ * 用途：G16：把一次儲存累積的 `AuditLog` 條目分成「使用者改了的欄位」與
+ *   「附帶記錄」，數出完成訊息要用的兩個數字。純函式。
+ *
+ *   逐個動作代碼的判斷（新增動作代碼時要在這裏判斷一次，
+ *   tests/webappmessages.test.js 的 G16-6 會把儲存路徑內每一個動作代碼列出來核對）：
+ *     WEBAPP_SAVE_WEEK：週報欄位的一格，算一個欄位；
+ *     WEBAPP_SAVE_ANNOUNCEMENTS 等四張清單：清單的一格，算一個欄位（R-011 之後
+ *       儲存不再寫清單，保留只為了日後加回來時不會漏數）；
+ *     DUTY_OVERRIDE_SET：事奉框（或下週事奉）的一格。同一格可以有幾筆條目
+ *       （名字、覆寫時的職事表值、版本、ACTIVE），只算一個欄位；只有
+ *       `ROSTER_VALUE_AT_OVERRIDE`／`ROSTER_VERSION_AT_OVERRIDE` 改了而名字沒有改，
+ *       是把覆寫的對照基準更新到現在的職事表（前端每次儲存都送全部格），畫面上
+ *       的名字不變，算附帶記錄；
+ *     DUTY_OVERRIDE_CLEAR：取消覆寫，畫面上那一格改回職事表的名字，算一個欄位；
+ *       覆寫的名字本來就與現在的職事表相同（`displayUnchanged:true`）的話畫面不變，
+ *       算附帶記錄；
+ *     FIELD_OVERRIDE_SET／FIELD_OVERRIDE_CLEAR：內容表欄位的覆寫記錄。那一格本身
+ *       已經由 WEBAPP_SAVE_WEEK 算了一次，算附帶記錄；
+ *     其他（未知的動作代碼）：當作一個欄位。寧可多數一個，也不可以把真的寫入講成
+ *       「沒有偵測到任何改動」。
+ *   同一格的附帶記錄不另外再數（例如同一格事奉框名字與版本一齊改，只算一個欄位）。
+ * Args:
+ *   auditEntries {Object[]} 儲存時累積、準備寫入 `AuditLog` 的條目
+ *     （`action`、`sheetName`、`rowKey`、`field`，事奉框取消覆寫另有
+ *     `displayUnchanged`）。缺少或 `null` 當空陣列。
+ * Returns:
+ *   {{fieldCount:number, sideRecordCount:number}} `fieldCount` 是使用者改了幾個
+ *     欄位；`sideRecordCount` 是另外更新了幾筆附帶記錄（同一筆覆寫記錄的幾個
+ *     條目只算一筆）。
+ * Raises:
+ *   （無）
+ */
+function countSaveChanges_(auditEntries) {
+  var fieldKeys = {};
+  var sideKeys = {};
+  (auditEntries || []).forEach(function (entry) {
+    var e = entry || {};
+    var action = String(e.action || '');
+    var recordKey = String(e.sheetName || '') + '|' + String(e.rowKey || '');
+    var isField;
+    var key = recordKey;
+    if (action === 'FIELD_OVERRIDE_SET' || action === 'FIELD_OVERRIDE_CLEAR') {
+      isField = false;
+    } else if (action === 'DUTY_OVERRIDE_SET') {
+      isField = e.field === 'OVERRIDE_NAME' || e.field === 'ACTIVE';
+    } else if (action === 'DUTY_OVERRIDE_CLEAR') {
+      isField = e.displayUnchanged !== true;
+    } else {
+      isField = true;
+      key = recordKey + '|' + String(e.field || '');
+    }
+    if (isField) fieldKeys[key] = true;
+    else sideKeys[key] = true;
+  });
+  var sideRecordCount = Object.keys(sideKeys).filter(function (k) { return !fieldKeys[k]; }).length;
+  return { fieldCount: Object.keys(fieldKeys).length, sideRecordCount: sideRecordCount };
 }
 
 /**
@@ -1014,17 +1082,36 @@ function refreshFillSnapshotAfterSave_(isoDate, weekChanges) {
  *   前端自己砌字串）的理由：前端沒有 Node 測試，文案分支放在 `.gs`
  *   才測得到，也才能保證「有改動」跟「沒有改動」用的是完全不同的一句話
  *   （兩者共用同一句訊息，會讓使用者以為系統壞了）。
+ *
+ *   G16：欄位數是 0 而附帶記錄不是 0（例如只是取消一筆已經與內容表一致的覆寫，
+ *   或者把事奉框覆寫的對照基準更新到現在的職事表），工作表其實有寫入、最後儲存
+ *   時間亦已更新，不可以講「沒有偵測到任何改動」，改講欄位內容沒有改變、更新了
+ *   幾筆覆寫記錄。
  * Args:
- *   changedFieldCount {?number} 這次儲存實際寫入 `AuditLog` 的筆數；
- *     缺少或 `null`／`undefined` 一律當 `0` 處理，不拋錯。
+ *   changedFieldCount {?number} 使用者這次改了幾個欄位（`countSaveChanges_()` 的
+ *     `fieldCount`）；缺少或 `null`／`undefined` 一律當 `0` 處理，不拋錯。
+ *   sideRecordCount {?number=} 另外更新了幾筆附帶記錄（`countSaveChanges_()` 的
+ *     `sideRecordCount`）；缺少或 `null`／`undefined` 當 `0`。
  * Returns:
  *   {{type:('success'|'info'), text:string}} `changedFieldCount > 0` →
- *     `type:'success'`；否則 `type:'info'`。
+ *     `type:'success'`「已儲存，更新了 N 個欄位。」；欄位數是 0 而附帶記錄
+ *     不是 0 → `type:'success'`「已儲存。欄位內容沒有改變，只更新了 N 筆
+ *     覆寫記錄……」；兩者都是 0 → `type:'info'`。
+ * Raises:
+ *   （無）
  */
-function buildSaveResultMessage_(changedFieldCount) {
+function buildSaveResultMessage_(changedFieldCount, sideRecordCount) {
   var n = (changedFieldCount === null || changedFieldCount === undefined) ? 0 : changedFieldCount;
+  var side = (sideRecordCount === null || sideRecordCount === undefined) ? 0 : sideRecordCount;
   if (n > 0) {
     return { type: 'success', text: '已儲存，更新了 ' + n + ' 個欄位。' };
+  }
+  if (side > 0) {
+    return {
+      type: 'success',
+      text: '已儲存。欄位內容沒有改變，只更新了 ' + side + ' 筆覆寫記錄'
+        + '（例如取消已經與內容表或職事表相同的覆寫，或記下覆寫對照的職事表現值）。'
+    };
   }
   return { type: 'info', text: '沒有偵測到任何改動，工作表沒有變更。' };
 }

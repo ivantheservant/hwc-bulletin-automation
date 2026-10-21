@@ -192,8 +192,10 @@ function readDutyOverrideRows_(isoDate) {
  *   {{updates:{rowNo:number, changes:{field:string,oldValue:*,newValue:*}[],
  *      postId:string, slotIndex:number}[],
  *     appends:Object[], deactivations:{rowNo:number, postId:string,
- *      slotIndex:number, oldValue:string}[]}}
- *     `appends` 的元素不含 `SERVICE_DATE`（由呼叫方補上）。
+ *      slotIndex:number, oldValue:string, rosterName:string}[]}}
+ *     `appends` 的元素不含 `SERVICE_DATE`（由呼叫方補上）。`deactivations` 的
+ *     `rosterName` 是職事表現值（G16：取消覆寫之後畫面上那一格會不會變，
+ *     要拿它與 `oldValue` 比）。
  */
 function computeDutyOverridePlan_(input) {
   var edits = input.edits || [];
@@ -221,7 +223,7 @@ function computeDutyOverridePlan_(input) {
       if (existing && existing.ACTIVE === true) {
         deactivations.push({
           rowNo: existing.__rowNo, postId: edit.postId, slotIndex: slotIndex,
-          oldValue: String(existing.OVERRIDE_NAME || '')
+          oldValue: String(existing.OVERRIDE_NAME || ''), rosterName: rosterName
         });
       }
       return;
@@ -267,6 +269,11 @@ function computeDutyOverridePlan_(input) {
  *   工作表，並逐格累積 `AuditLog` 條目（呼叫方負責真正寫入）。
  *
  *   ⚠️ **不刪行**：取消覆寫一律是把 `ACTIVE` 改成 `FALSE`，記錄永遠保留。
+ *
+ *   G16：取消覆寫的條目另帶 `displayUnchanged`（不寫入 `AuditLog`，只給
+ *   `countSaveChanges_()` 用）：覆寫的名字本來就與現在的職事表相同，畫面上那一格
+ *   不會變，儲存訊息不把它算成使用者改了的欄位。計畫沒有 `rosterName`（其他呼叫方）
+ *   時一律是 `false`。
  * Args:
  *   plan {Object} `computeDutyOverridePlan_()` 的輸出。
  *   targetDate {Date} 主日日期（新增行要用）。
@@ -308,7 +315,9 @@ function applyDutyOverridePlan_(plan, targetDate, isoDate, actorEmail, auditEntr
       action: 'DUTY_OVERRIDE_CLEAR', sheetName: SHEETS.DUTY_OVERRIDE,
       rowKey: isoDate + '#' + deact.postId + '#' + deact.slotIndex,
       field: 'ACTIVE', oldValue: 'TRUE', newValue: 'FALSE',
-      notes: '取消人手覆寫（原值：' + deact.oldValue + '），改回跟隨職事表。記錄保留，不刪行。'
+      notes: '取消人手覆寫（原值：' + deact.oldValue + '），改回跟隨職事表。記錄保留，不刪行。',
+      displayUnchanged: deact.rosterName !== undefined && deact.rosterName !== null
+        && String(deact.oldValue || '').trim() === String(deact.rosterName).trim()
     });
   });
 

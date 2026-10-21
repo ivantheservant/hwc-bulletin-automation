@@ -301,10 +301,19 @@ test('真正入口：第一次儲存（lastSavedAt 皆空）→ 成功，仍然�
     }),
     '實際 ACTION：' + JSON.stringify(auditRows.map(function (r) { return r.ACTION; }))
   );
-  assert.strictEqual(
-    result.changedFieldCount, auditRows.length,
-    'changedFieldCount 一定要等於實際寫入 AuditLog 的筆數——只有一個真相來源，不可以一邊算一邊寫、兩者各數各的'
-  );
+  // ⚠️ G16 改了這一條的預期：以前斷言 changedFieldCount 等於 AuditLog 筆數，但講題、
+  //    讀經經文各多一筆 FIELD_OVERRIDE_SET（覆寫記錄），訊息就把四個欄位講成六個。
+  //    真相來源仍然只有一個（同一批 AuditLog 條目），只是分類之後才數：欄位數等於
+  //    WEBAPP_SAVE_WEEK 的筆數，覆寫記錄另計在 sideRecordCount。不要改回去。
+  const weekRows = auditRows.filter(function (r) { return r.ACTION === 'WEBAPP_SAVE_WEEK'; });
+  const overrideRows = auditRows.filter(function (r) { return r.ACTION === 'FIELD_OVERRIDE_SET'; });
+  assert.strictEqual(weekRows.length, 4, '前提：四個欄位各一筆');
+  assert.strictEqual(overrideRows.length, 2, '前提：講題、讀經經文各多一筆覆寫記錄');
+  assert.strictEqual(result.changedFieldCount, weekRows.length,
+    'changedFieldCount 是使用者改了幾個欄位，由同一批 AuditLog 條目數出來，覆寫記錄不計');
+  assert.strictEqual(result.sideRecordCount, overrideRows.length);
+  // 這個假環境沒有版本記錄要用的工作表，訊息後面會接「版本記錄未能存好」，所以只核對開頭。
+  assert.ok(result.message.text.indexOf('已儲存，更新了 4 個欄位。') === 0, result.message.text);
 });
 
 test('真正入口：樂觀鎖不符 → 拋 STALE 且完全沒有寫入動作', function () {

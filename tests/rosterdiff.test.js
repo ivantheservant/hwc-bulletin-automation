@@ -647,6 +647,72 @@ test('真正入口 getRosterFetchCandidates_()：沒有覆寫時清單是空的�
 });
 
 // =====================================================================
+// G16：事奉框的儲存訊息只數使用者改了的格（由真正入口 apiSaveWeek 叫下去）
+// =====================================================================
+
+/** 一筆由填寫介面覆寫過的主席（覆寫當時職事表是第 11 版）。 */
+function g16DutyOverrideRow(overrides) {
+  return Object.assign({
+    SERVICE_DATE: '2027-10-03', POST_ID: 'CHAIR', SLOT_INDEX: 1,
+    OVERRIDE_NAME: '李小明', ROSTER_VALUE_AT_OVERRIDE: '陳大文',
+    ROSTER_VERSION_AT_OVERRIDE: 11, OVERRIDE_AT: '', OVERRIDE_BY: '', REASON: '', ACTIVE: true, NOTES: ''
+  }, overrides || {});
+}
+
+/** 前端每次儲存都把事奉框全部格送上來（buildSavePayload()），這裏照樣送。 */
+function g16SaveDuty(env, name) {
+  const resp = env.sandbox.apiSaveWeek({
+    isoDate: env.isoDate, lastSavedAt: null, week: {}, baseWeek: {},
+    dutyEdits: [{ postId: 'CHAIR', slotIndex: 1, name: name }]
+  });
+  assert.strictEqual(resp.ok, true, JSON.stringify(resp.error));
+  return resp.data;
+}
+
+function g16DutyAudit(env) {
+  return JSON.parse(JSON.stringify(env.sandbox.readSheet('AuditLog')
+    .filter(function (r) { return r.ACTION.indexOf('DUTY_OVERRIDE_') === 0; })
+    .map(function (r) { return r.ACTION + ' ' + r.FIELD; })));
+}
+
+test('G16-7 真正入口 apiSaveWeek：改事奉框一格的名字（同時記下新的職事表版本，兩筆 AuditLog）→「已儲存，更新了 1 個欄位。」', function () {
+  const env = makeEnv({ rosterVersion: 12, snapshotVersion: 12, dutyOverrides: [g16DutyOverrideRow()] });
+  const data = g16SaveDuty(env, '王小華');
+  assert.deepStrictEqual(g16DutyAudit(env), ['DUTY_OVERRIDE_SET OVERRIDE_NAME', 'DUTY_OVERRIDE_SET ROSTER_VERSION_AT_OVERRIDE'],
+    '前提：同一格兩筆 AuditLog');
+  assert.strictEqual(data.changedFieldCount, 1);
+  assert.strictEqual(data.message.text, '已儲存，更新了 1 個欄位。');
+});
+
+test('G16-8 真正入口 apiSaveWeek：沒有改任何一格，但覆寫對照的職事表版本舊了（前端照送全部格）→ 不講「沒有偵測到任何改動」，講只更新了 1 筆覆寫記錄', function () {
+  const env = makeEnv({ rosterVersion: 12, snapshotVersion: 12, dutyOverrides: [g16DutyOverrideRow()] });
+  const data = g16SaveDuty(env, '李小明');
+  assert.deepStrictEqual(g16DutyAudit(env), ['DUTY_OVERRIDE_SET ROSTER_VERSION_AT_OVERRIDE'], '前提：只更新了對照基準');
+  assert.strictEqual(data.changedFieldCount, 0);
+  assert.strictEqual(data.sideRecordCount, 1);
+  assert.strictEqual(data.message.type, 'success');
+  assert.ok(data.message.text.indexOf('已儲存。欄位內容沒有改變，只更新了 1 筆覆寫記錄') === 0, data.message.text);
+});
+
+test('G16-9 真正入口 apiSaveWeek：覆寫的名字已經與現在的職事表相同，儲存時取消那一筆覆寫 → 畫面上那一格不變，算附帶記錄；名字本來不同的取消照樣算 1 個欄位', function () {
+  const same = makeEnv({
+    rosterVersion: 12, snapshotVersion: 12,
+    dutyOverrides: [g16DutyOverrideRow({ OVERRIDE_NAME: '陳大文', ROSTER_VALUE_AT_OVERRIDE: '張三' })]
+  });
+  const data = g16SaveDuty(same, '陳大文');
+  assert.deepStrictEqual(g16DutyAudit(same), ['DUTY_OVERRIDE_CLEAR ACTIVE']);
+  assert.strictEqual(data.changedFieldCount, 0);
+  assert.strictEqual(data.sideRecordCount, 1);
+  assert.ok(data.message.text.indexOf('只更新了 1 筆覆寫記錄') !== -1, data.message.text);
+
+  const differ = makeEnv({ rosterVersion: 12, snapshotVersion: 12, dutyOverrides: [g16DutyOverrideRow()] });
+  const back = g16SaveDuty(differ, '陳大文');
+  assert.deepStrictEqual(g16DutyAudit(differ), ['DUTY_OVERRIDE_CLEAR ACTIVE']);
+  assert.strictEqual(back.changedFieldCount, 1, '李小明改回陳大文：畫面上那一格變了');
+  assert.strictEqual(back.message.text, '已儲存，更新了 1 個欄位。');
+});
+
+// =====================================================================
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail === 0 ? 0 : 1);
