@@ -183,6 +183,7 @@ function baseStubs(o) {
  *   publishLog         `PublishLog` 既有資料列。
  *   weekFields         `BulletinWeeks` 目標主日那一行要補填的欄位。
  *   recipients         `Recipients` 資料列。
+ *   extraWeekRows      額外加進 `BulletinWeeks` 的行（例如另一季的主日）。
  *   masterFileMissing  master 檔案「開不到」（模擬被刪）。
  *   overwriteError     `Drive.Files.update()` 要拋的錯誤訊息。
  *   archiveError       存檔副本要拋的錯誤訊息。
@@ -215,7 +216,7 @@ function makeEnv(options) {
     const row = { SERVICE_DATE: iso, QUARTER_ID: QUARTER_ID, WEEK_OF_MONTH: (i % 4) + 1, STATUS: 'DRAFT' };
     if (iso === TARGET_DATE) Object.assign(row, o.weekFields || {});
     return row;
-  }));
+  }).concat(o.extraWeekRows || []));
 
   ownSheets.PublishLog = ownSheet('PUBLISH_LOG', o.publishLog || []);
   ownSheets.Recipients = ownSheet('RECIPIENTS', o.recipients === undefined ? [
@@ -937,7 +938,10 @@ test('22. DRY_RUN=TRUE → SendLog 有記錄，但一封都沒有真的寄', fun
   assert.strictEqual(logs.length, 2, '模擬也一定要留紀錄，否則試行等於甚麼都看不見');
   logs.forEach(function (row) {
     assert.strictEqual(row.DRY_RUN, true);
-    assert.strictEqual(row.STATUS, 'PUBLISH');
+    // ⚠️ 第二批測試修正 G2：這一條是「只寄出」，SendLog 狀態由 PUBLISH 改為
+    //    SEND_ONLY（發佈加寄出才記 PUBLISH），與 AuditLog 的
+    //    WEBAPP_SEND_NOTICE／PUBLISH_BULLETIN 一致。不是改壞，不要改回去。
+    assert.strictEqual(row.STATUS, 'SEND_ONLY');
   });
 });
 
@@ -1230,6 +1234,193 @@ test('F6 只有通常空白的欄位未填 → 不需要確認', function () {
   const precheck = env.sandbox.buildPublishPrecheck_(TARGET_DATE);
   assert.strictEqual(precheck.missingCount, 0);
   assert.strictEqual(precheck.needsConfirm, false, '只欠通常空白的欄位，不應該逼人勾確認方框');
+});
+
+
+// =====================================================================
+// 第二批測試修正 G2：只寄出時，通知信的日期跟 master 連結那一期走
+// =====================================================================
+
+const G2_SELECTED = '2028-04-09';
+const G2_MASTER_ISSUE = '2027-11-07';
+
+/**
+ * 2028T2 第二批測試 B3 的情境：選中 2028-04-09，master 連結現時是
+ * 2027-11-07（第 1 版）。BulletinWeeks 多一行 2028-04-09（2028T2）。
+ */
+function makeG2Env(extra) {
+  return makeCleanEnv(Object.assign({
+    todayIso: '2026-10-21',
+    config: { DRY_RUN: 'TRUE', PUBLISH_DEDUP_SEC: '0' },
+    extraWeekRows: [{ SERVICE_DATE: G2_SELECTED, QUARTER_ID: '2028T2', WEEK_OF_MONTH: 2, STATUS: 'DRAFT' }],
+    publishLog: [
+      {
+        SERVICE_DATE: '2027-10-31', VERSION_NO: 1, PUBLISHED_AT: '2027-10-30',
+        PUBLISHED_BY: 'tester@example.com', ARCHIVE_FILE_ID: 'OLD1', SENT: true,
+        SENT_GROUPS: 'CC,DB', MISSING_COUNT: 0, FORCED: false, FORCED_REASON: ''
+      },
+      {
+        SERVICE_DATE: G2_MASTER_ISSUE, VERSION_NO: 1, PUBLISHED_AT: '2027-11-06',
+        PUBLISHED_BY: 'tester@example.com', ARCHIVE_FILE_ID: 'OLD2', SENT: false,
+        SENT_GROUPS: '', MISSING_COUNT: 0, FORCED: false, FORCED_REASON: ''
+      }
+    ]
+  }, extra || {}));
+}
+
+const G2_WARNING = '⚠ 目前 master 連結是 2027-11-07（第 1 版）的週報，不是 2028-04-09；'
+  + '這次寄出的通知會指向 2027-11-07。要寄 2028-04-09 的週報，請先勾「發佈到 master 連結」。';
+
+test('G2-1 只寄出、選中 2028-04-09、PublishLog 最新是 2027-11-07（經 runPublishFlow_）→ 寄出前檢查有那一行 ⚠；確認之後主旨日期是 2027-11-07、SendLog 狀態 SEND_ONLY', function () {
+  const env = makeG2Env();
+  const payload = {
+    isoDate: G2_SELECTED, doPublish: false, doSend: true,
+    groups: ['IT'], customEmails: ''
+  };
+
+  // 第一次：未確認 → 一定出寄出前檢查，而且那一行提醒在裏面。
+  const first = env.sandbox.runPublishFlow_(Object.assign({}, payload, { confirmed: false }));
+  assert.strictEqual(first.ok, false);
+  assert.strictEqual(first.reason, 'NEEDS_CONFIRM');
+  assert.strictEqual(first.labels.title, '寄出前檢查');
+  assert.ok(first.lines.indexOf(G2_WARNING) !== -1, first.lines.join('\n'));
+  assert.strictEqual(first.lines.join('\n').indexOf('沒有發現任何問題'), -1, '有提醒就不可以同時講沒有問題');
+  assert.strictEqual(readSendLog(env).length, 0, '確認之前一行 SendLog 都不可以寫');
+  assertWrittenChinese(assert, 'G2 提醒', G2_WARNING);
+
+  // 第二次：確認之後真的寄出（DRY_RUN 只記錄）。
+  const done = env.sandbox.runPublishFlow_(Object.assign({}, payload, { confirmed: true }));
+  assert.strictEqual(done.ok, true, done.message);
+  const logs = readSendLog(env);
+  assert.strictEqual(logs.length, 1, 'IT 一組一個收件人');
+  logs.forEach(function (row) {
+    assert.ok(row.SUBJECT.indexOf('— ' + G2_MASTER_ISSUE) !== -1, '主旨日期要跟 master 那一期：' + row.SUBJECT);
+    assert.strictEqual(row.SUBJECT.indexOf(G2_SELECTED), -1, '主旨不可以寫選中的日期：' + row.SUBJECT);
+    assert.strictEqual(row.STATUS, 'SEND_ONLY');
+    assert.strictEqual(env.sandbox.formatIsoDate_(row.SERVICE_DATE), G2_MASTER_ISSUE, 'SendLog 的主日日期與主旨一致');
+    assert.ok(String(row.BODY_PREVIEW).indexOf(G2_MASTER_ISSUE + ' 主日') !== -1, '內文日期也要一致：' + row.BODY_PREVIEW);
+  });
+
+  // 結果訊息講明指向哪一期；AuditLog 仍以選中的主日為鍵，備註記下指向哪一期。
+  assert.ok(done.lines.indexOf('通知信指向 master 連結現時那一期：2027-11-07（第 1 版）。') !== -1, done.lines.join('\n'));
+  const audit = env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'WEBAPP_SEND_NOTICE'; });
+  assert.strictEqual(audit.length, 1);
+  assert.strictEqual(audit[0].ROW_KEY, G2_SELECTED);
+  assert.ok(audit[0].NOTES.indexOf('通知指向 master 連結現時那一期：2027-11-07（第 1 版）') !== -1, audit[0].NOTES);
+  assertWrittenChinese(assert, 'G2 結果訊息與 AuditLog', [done.lines.join('\n'), audit[0].NOTES]);
+  // master 一下都沒有碰、PublishLog 沒有新增。
+  assert.strictEqual(env.drive.updateCalls.length, 0);
+  assert.strictEqual(readPublishLog(env).length, 2);
+});
+
+test('G2-2 真寄（DRY_RUN=FALSE）只寄出：真的寄出的信主旨與內文都是 master 那一期', function () {
+  const env = makeG2Env({ config: { DRY_RUN: 'FALSE', PUBLISH_DEDUP_SEC: '0' } });
+  const done = env.sandbox.runPublishFlow_({
+    isoDate: G2_SELECTED, doPublish: false, doSend: true, groups: ['IT'], customEmails: '', confirmed: true
+  });
+  assert.strictEqual(done.ok, true, done.message);
+  assert.strictEqual(env.mails.length, 1);
+  assert.ok(env.mails[0].subject.indexOf('— ' + G2_MASTER_ISSUE) !== -1, env.mails[0].subject);
+  assert.ok(env.mails[0].body.indexOf(G2_MASTER_ISSUE + ' 主日') !== -1, env.mails[0].body);
+  assert.strictEqual((env.mails[0].subject + env.mails[0].body).indexOf(G2_SELECTED), -1);
+  assert.strictEqual(readSendLog(env)[0].STATUS, 'SEND_ONLY');
+});
+
+test('G2-3 發佈加寄出 ⇒ 行為不變：主旨是選中的主日、SendLog 狀態 PUBLISH、檢查沒有 master 那一行', function () {
+  const env = makeG2Env();
+  const payload = {
+    isoDate: TARGET_DATE, doPublish: true, doSend: true,
+    pdfBase64: PDF_BASE64, pdfName: '週報.pdf', groups: ['IT'], customEmails: ''
+  };
+  const first = env.sandbox.runPublishFlow_(Object.assign({}, payload, { confirmed: false }));
+  // 發佈時（DRY_RUN=TRUE）一定出視窗；那一行 master 提醒不可以出現。
+  assert.strictEqual(first.reason, 'NEEDS_CONFIRM');
+  assert.strictEqual(first.lines.join('\n').indexOf('目前 master 連結是'), -1, first.lines.join('\n'));
+
+  const done = env.sandbox.runPublishFlow_(Object.assign({}, payload, { confirmed: true }));
+  assert.strictEqual(done.ok, true, done.message);
+  const logs = readSendLog(env);
+  assert.strictEqual(logs.length, 1);
+  assert.ok(logs[0].SUBJECT.indexOf('— ' + TARGET_DATE) !== -1, logs[0].SUBJECT);
+  assert.strictEqual(logs[0].STATUS, 'PUBLISH');
+  assert.strictEqual(env.sandbox.formatIsoDate_(logs[0].SERVICE_DATE), TARGET_DATE);
+  assert.strictEqual(done.lines.join('\n').indexOf('通知信指向 master 連結現時那一期'), -1);
+  assert.strictEqual(env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'WEBAPP_SEND_NOTICE'; }).length, 0);
+});
+
+test('G2-4 只寄出、選中的主日就是 master 那一期 → 沒有那一行提醒，不需要確認；狀態仍是 SEND_ONLY', function () {
+  const env = makeG2Env({ todayIso: G2_MASTER_ISSUE });
+  const result = env.sandbox.runPublishFlow_({
+    isoDate: G2_MASTER_ISSUE, doPublish: false, doSend: true, groups: ['IT'], customEmails: '', confirmed: false
+  });
+  assert.strictEqual(result.ok, true, '沒有任何要確認的事項，不應該逼人勾方框：' + JSON.stringify(result.lines));
+  assert.strictEqual(result.precheck.masterIssueNotice, '');
+  const logs = readSendLog(env);
+  assert.strictEqual(logs[0].STATUS, 'SEND_ONLY');
+  assert.ok(logs[0].SUBJECT.indexOf('— ' + G2_MASTER_ISSUE) !== -1, logs[0].SUBJECT);
+});
+
+test('G2-5 只寄出、PublishLog 最新一行的主日日期讀不到 → 拒絕（MASTER_ISSUE_UNKNOWN），一封都不寄、SendLog 一行都不寫', function () {
+  const env = makeG2Env({
+    publishLog: [{
+      SERVICE_DATE: '', VERSION_NO: 1, PUBLISHED_AT: '2027-11-06',
+      PUBLISHED_BY: 'tester@example.com', ARCHIVE_FILE_ID: 'OLD', SENT: false,
+      SENT_GROUPS: '', MISSING_COUNT: 0, FORCED: false, FORCED_REASON: ''
+    }]
+  });
+  const result = env.sandbox.runPublishFlow_({
+    isoDate: G2_SELECTED, doPublish: false, doSend: true, groups: ['IT'], customEmails: '', confirmed: true
+  });
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(result.reason, 'MASTER_ISSUE_UNKNOWN');
+  assert.ok(result.message.indexOf('無法確定 master 連結現時是哪一期') !== -1, result.message);
+  assert.strictEqual(readSendLog(env).length, 0);
+  assert.strictEqual(env.mails.length, 0);
+});
+
+test('G2-6 只寄出、正式 master 而 PublishLog 只有自測的行 → 當成從未發佈（NEVER_PUBLISHED），不會寄一封指向正式 master 的通知', function () {
+  const env = makeG2Env({
+    publishLog: [{
+      SERVICE_DATE: '2030-01-06', VERSION_NO: 3, PUBLISHED_AT: '2027-11-06',
+      PUBLISHED_BY: 'tester@example.com', ARCHIVE_FILE_ID: 'SANDBOX', SENT: false,
+      SENT_GROUPS: '', MISSING_COUNT: 0, FORCED: false, FORCED_REASON: '',
+      MASTER_FILE_ID: 'SANDBOX_MASTER', IS_SELFTEST: true
+    }]
+  });
+  const result = env.sandbox.runPublishFlow_({
+    isoDate: G2_SELECTED, doPublish: false, doSend: true, groups: ['IT'], customEmails: '', confirmed: true
+  });
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(result.reason, 'NEVER_PUBLISHED');
+  assert.strictEqual(readSendLog(env).length, 0);
+});
+
+test('G2-7 不變量 I04 認得 SEND_ONLY：用 PUBLISH_SEND_GROUPS 重新預覽（不是週報的 SEND_GROUPS）', function () {
+  // SEND_GROUPS 刻意設成跟 PUBLISH_SEND_GROUPS 不同，漏認 SEND_ONLY 的話會用錯那一組而報假的落差。
+  const env = makeG2Env({ config: { DRY_RUN: 'TRUE', PUBLISH_DEDUP_SEC: '0', SEND_GROUPS: 'IT', PUBLISH_SEND_GROUPS: 'CC,DB' } });
+  const done = env.sandbox.runPublishFlow_({
+    isoDate: G2_SELECTED, doPublish: false, doSend: true, groups: ['CC', 'DB'], customEmails: '', confirmed: true
+  });
+  assert.strictEqual(done.ok, true, done.message);
+  assert.strictEqual(readSendLog(env).length, 2);
+
+  deepEq(env.sandbox.invariantSendGroupsForStatus_('SEND_ONLY'), ['CC', 'DB']);
+  deepEq(env.sandbox.invariantSendGroupsForStatus_('PUBLISH'), ['CC', 'DB']);
+  deepEq(env.sandbox.invariantSendGroupsForStatus_('SENT'), ['IT'], '對照：週報寄出用 SEND_GROUPS');
+
+  const i04 = env.sandbox.runInvariantI04_();
+  assert.strictEqual(i04.ok, true, JSON.stringify(i04));
+});
+
+test('G2-8 sendPublishNotice_ 漏傳 published／只寄出漏傳 masterIssue → 明確拋錯，不會靜靜寄出', function () {
+  const env = makeG2Env();
+  assert.throws(function () {
+    env.sandbox.sendPublishNotice_(G2_SELECTED, { groups: ['IT'], customEmails: '' });
+  }, /published/);
+  assert.throws(function () {
+    env.sandbox.sendPublishNotice_(G2_SELECTED, { groups: ['IT'], customEmails: '', published: false });
+  }, /masterIssue/);
+  assert.strictEqual(readSendLog(env).length, 0);
 });
 
 // =====================================================================

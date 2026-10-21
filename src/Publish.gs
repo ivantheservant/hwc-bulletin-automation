@@ -37,8 +37,18 @@ var PUBLISH_ARCHIVE_NAME_PATTERN_ = '{{SERVICE_DATE}}_粵語堂週報_v{{VERSION
 /** `EmailTemplates` 入面發佈通知嗰個範本嘅鍵。 */
 var PUBLISH_TEMPLATE_ID_ = 'PUBLISH_NOTICE';
 
-/** `SendLog.STATUS` 入面代表「發佈通知」嗰個值。 */
+/** `SendLog.STATUS` 入面代表「發佈通知」嗰個值（發佈加寄出）。 */
 var PUBLISH_SEND_STATUS_ = 'PUBLISH';
+
+/**
+ * `SendLog.STATUS`：只寄出、不發佈的通知（第二批測試修正 G2）。
+ *
+ * ⚠️ 與 `PUBLISH` 分開，令 `SendLog` 與 `AuditLog`（`WEBAPP_SEND_NOTICE`
+ * 對 `PUBLISH_BULLETIN`）講同一件事：這一次有沒有發佈。凡是由
+ * `SendLog.STATUS` 反推「這是發佈通知」的地方（目前只有不變量 I04 的
+ * `invariantSendGroupsForStatus_()`），兩個值都要認。
+ */
+var SEND_ONLY_SEND_STATUS_ = 'SEND_ONLY';
 
 /** 「我自己」呢個收件選項嘅鍵。刻意唔係 `Recipients` 嘅組別名。 */
 var PUBLISH_GROUP_SELF_ = 'SELF';
@@ -382,6 +392,60 @@ function latestPublishLogRow_(rows) {
   return best;
 }
 
+/**
+ * 用途：master 連結現時是哪一期——`PublishLog` 之中與目前 master 檔案
+ *   **同一類**（正式／自測）的最新一行。第二批測試修正 G2：只寄出時，
+ *   通知信的日期、寄出前檢查的提醒、「從未發佈過」的判斷，全部用這一支，
+ *   不各自再讀一次。
+ *
+ *   ⚠️ 用 `publishLogRowsOfKind_()` 而不是 `readOfficialPublishLogRows_()`：
+ *   自測機用沙盒 master 時，沙盒 master 裏面是自測那一期；正式 master
+ *   裏面是正式那一期。問的是「這一個 master 檔案現在是哪一期」，所以要跟
+ *   目前 master 同一類（與 `executePublish_()` 數版本號同一個判斷）。
+ * Args:
+ *   masterFileId {string} 目前生效的 master 檔案 ID（`publishConfig_().masterFileId`）。
+ * Returns:
+ *   {?{isoDate:string, versionNo:number}} 同一類一行都沒有回 `null`
+ *     （代表從未發佈過）。
+ * Raises:
+ *   Error（`code = 'MASTER_ISSUE_UNKNOWN'`）最新一行的主日日期讀不到——
+ *     不可以把空白當成一個日期寫進通知信（缺失不可以當成正常值）。
+ *   讀 `PublishLog` 失敗時的例外原樣拋出。
+ */
+function currentMasterPublishIssue_(masterFileId) {
+  var rows = readSheet(SHEETS.PUBLISH_LOG);
+  var latest = latestPublishLogRow_(publishLogRowsOfKind_(rows, isSelfTestMasterFileId_(masterFileId)));
+  if (!latest) return null;
+
+  var isoDate = publishRowIsoDate_(latest);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) {
+    var err = new Error('PublishLog 最新一行的主日日期讀不到（「' + isoDate + '」），'
+      + '無法確定 master 連結現時是哪一期，因此這一次沒有寄出。請檢查 PublishLog 那一行的「主日日期」。');
+    err.code = 'MASTER_ISSUE_UNKNOWN';
+    throw err;
+  }
+  return { isoDate: isoDate, versionNo: Number(latest.VERSION_NO || 0) };
+}
+
+/**
+ * 用途：只寄出時，選中的主日與 master 連結現時那一期不同，寄出前檢查要加的
+ *   那一行提醒。**純函式。**
+ * Args:
+ *   selectedIsoDate {string} 介面選中的主日。
+ *   masterIssue {?{isoDate:string, versionNo:number}} `currentMasterPublishIssue_()`
+ *     的回傳值；`null`（有發佈、或從未發佈）回空字串。
+ * Returns:
+ *   {string} 兩者相同、或沒有 `masterIssue` 回空字串。
+ */
+function buildMasterIssueMismatchLine_(selectedIsoDate, masterIssue) {
+  if (!masterIssue) return '';
+  var selected = String(selectedIsoDate || '').trim();
+  if (!selected || masterIssue.isoDate === selected) return '';
+  return '⚠ 目前 master 連結是 ' + masterIssue.isoDate + '（第 ' + masterIssue.versionNo + ' 版）的週報，不是 '
+    + selected + '；這次寄出的通知會指向 ' + masterIssue.isoDate + '。要寄 ' + selected
+    + ' 的週報，請先勾「發佈到 master 連結」。';
+}
+
 // =====================================================================
 // 發佈前檢查：未填欄位（R-006）
 // =====================================================================
@@ -609,6 +673,13 @@ function buildPublishPrecheckLines_(precheck, doPublish) {
     o.dateIssues.forEach(function (issue) { lines.push('　⚠ ' + issue.message); });
   }
 
+  // 第二批測試修正 G2：只寄出而選中的主日不是 master 現時那一期。
+  // 排在「沒有發現任何問題」之前，免得兩句互相矛盾。
+  if (o.masterIssueNotice) {
+    lines.push('');
+    lines.push(o.masterIssueNotice);
+  }
+
   if (lines.length === 1) lines.push('沒有發現任何問題。');
   return lines;
 }
@@ -620,14 +691,20 @@ function buildPublishPrecheckLines_(precheck, doPublish) {
  *   isoDate {string} 主日日期，yyyy-MM-dd。
  *   doPublish {boolean=} 這次有沒有發佈；`false`（只寄出）時標題改為
  *     「寄出前檢查」。省略當作 `true`。
+ *   options {{masterIssue:(?{isoDate:string, versionNo:number})}=} 選填。
+ *     第二批測試修正 G2：只寄出時由 `runPublishFlow_()` 傳入
+ *     `currentMasterPublishIssue_()` 的結果（同一次請求只讀一次）；選中的
+ *     主日與它不同時，檢查多一行提醒（`masterIssueNotice`）。這一行**不**
+ *     計入 `needsConfirm`／`forcedReason`（那兩個記的是資料本身的問題），
+ *     由呼叫方另外決定要不要出確認視窗。有發佈時不傳。
  * Returns:
  *   {{isoDate:string, missing:Object[], missingCount:number,
  *     dateIssues:Object[], needsConfirm:boolean, forcedReason:string,
- *     lines:string[]}}
+ *     masterIssueNotice:string, lines:string[]}}
  * Raises:
  *   Error 如果 `isoDate` 格式不對或者職事表讀取失敗（原樣拋出）。
  */
-function buildPublishPrecheck_(isoDate, doPublish) {
+function buildPublishPrecheck_(isoDate, doPublish, options) {
   var config = publishConfig_();
   var model = buildBulletinModel_(isoDate);
   var missing = (model && model.missing) ? model.missing : [];
@@ -650,7 +727,10 @@ function buildPublishPrecheck_(isoDate, doPublish) {
     missingCount: missingSummary.requiredCount,
     optionalCount: missingSummary.optionalCount,
     dateIssues: dateIssues,
-    needsConfirm: (missingSummary.requiredCount > 0 || dateIssues.length > 0)
+    needsConfirm: (missingSummary.requiredCount > 0 || dateIssues.length > 0),
+    masterIssueNotice: doPublish === false
+      ? buildMasterIssueMismatchLine_(isoDate, (options || {}).masterIssue || null)
+      : ''
   };
   precheck.forcedReason = buildForcedReasonSummary_(precheck);
   precheck.lines = buildPublishPrecheckLines_(precheck, doPublish);
@@ -1217,19 +1297,43 @@ function publishCurrentUserEmail_() {
 /**
  * 用途：寄出發佈通知。**真正入口**（由 `runPublishFlow_()` 呼叫）。
  *
- *   受 `DRY_RUN` 保護，寫 `SendLog`（`STATUS='PUBLISH'`）。
+ *   受 `DRY_RUN` 保護，寫 `SendLog`：發佈加寄出記 `STATUS='PUBLISH'`，
+ *   只寄出記 `STATUS='SEND_ONLY'`。
+ *
+ *   ⚠️ 第二批測試修正 G2：只寄出時 master 連結裏面是**現時那一期**，不一定
+ *   是介面選中的主日。通知信的 `{{ServiceDate}}`（主旨與內文）與
+ *   `SendLog.SERVICE_DATE` 一律用 `masterIssue.isoDate`，令信講的日期與連結
+ *   打開看到的那一期一致。
  * Args:
- *   isoDate {string} 主日日期，yyyy-MM-dd。
- *   options {{groups:string[], customEmails:string, blob:(Blob|null)}}
+ *   isoDate {string} 介面選中的主日，yyyy-MM-dd。
+ *   options {{groups:string[], customEmails:string, blob:(Blob|null),
+ *             published:boolean, masterIssue:(?{isoDate:string, versionNo:number})}}
  *     `blob` 係今次上載嘅 PDF；只寄唔發佈時係 `null`，嗰陣就算 Config
  *     叫附上 PDF 都冇嘢可以附（信入面照樣有 master 連結）。
+ *     `published` 一定要明確傳 `true`（今次有發佈）或 `false`（只寄出）。
+ *     `masterIssue` 只寄出時必填：`currentMasterPublishIssue_()` 的結果。
  * Returns:
  *   {{ok:boolean, dryRun:boolean, recipientCount:number, groups:string[],
- *     attached:boolean, reason:(string|undefined), message:(string|undefined)}}
+ *     attached:boolean, status:string, noticeIsoDate:string,
+ *     noticeVersionNo:(number|null),
+ *     reason:(string|undefined), message:(string|undefined)}}
+ * Raises:
+ *   Error `published` 不是 boolean，或只寄出而沒有 `masterIssue`——呼叫方
+ *     漏傳，不可以靜靜當成「有發佈」寄出一封日期可能錯的信。
  */
 function sendPublishNotice_(isoDate, options) {
   var o = options || {};
   var config = publishConfig_();
+
+  if (o.published !== true && o.published !== false) {
+    throw new Error('sendPublishNotice_：options.published 一定要明確傳 true 或 false。');
+  }
+  if (o.published === false && !(o.masterIssue && o.masterIssue.isoDate)) {
+    throw new Error('sendPublishNotice_：只寄出時一定要傳 options.masterIssue（master 連結現時那一期）。');
+  }
+  var sendStatus = o.published ? PUBLISH_SEND_STATUS_ : SEND_ONLY_SEND_STATUS_;
+  var noticeIsoDate = o.published ? isoDate : o.masterIssue.isoDate;
+  var noticeVersionNo = o.published ? null : Number(o.masterIssue.versionNo || 0);
 
   if (!config.masterFileId) {
     return {
@@ -1251,7 +1355,7 @@ function sendPublishNotice_(isoDate, options) {
   var template = findPublishEmailTemplate_();
   var vars = {
     ChurchName: config.churchName,
-    ServiceDate: isoDate,
+    ServiceDate: noticeIsoDate,
     MasterLink: links.view
   };
   var subject = renderEmailTemplate_(template.subject, vars, []);
@@ -1262,7 +1366,7 @@ function sendPublishNotice_(isoDate, options) {
 
   var sendLogRows = [];
   resolved.recipients.forEach(function (recipient) {
-    var status = PUBLISH_SEND_STATUS_;
+    var status = sendStatus;
     var errorMessage = '';
 
     if (!config.dryRun) {
@@ -1278,7 +1382,7 @@ function sendPublishNotice_(isoDate, options) {
 
     sendLogRows.push({
       TIMESTAMP: new Date(),
-      SERVICE_DATE: normalizeDate_(isoDate),
+      SERVICE_DATE: normalizeDate_(noticeIsoDate),
       RECIPIENT_EMAIL: sanitizeCellText_(recipient.email),
       SUBJECT: sanitizeCellText_(subject),
       STATUS: status,
@@ -1296,7 +1400,10 @@ function sendPublishNotice_(isoDate, options) {
     dryRun: config.dryRun,
     recipientCount: resolved.recipients.length,
     groups: (o.groups || []).slice(),
-    attached: attachments.length > 0
+    attached: attachments.length > 0,
+    status: sendStatus,
+    noticeIsoDate: noticeIsoDate,
+    noticeVersionNo: noticeVersionNo
   };
 }
 
@@ -1398,10 +1505,20 @@ function runPublishFlow_(payload) {
     blob = Utilities.newBlob(bytes, 'application/pdf', String(p.pdfName || config.masterFileName));
   }
 
-  // ---- 只寄唔發佈：從未發佈過就拒絕 ----
+  // ---- 只寄唔發佈：master 連結現時是哪一期；從未發佈過就拒絕 ----
+  //
+  // ⚠️ 第二批測試修正 G2：只寄出的通知信指向 master 連結，而 master 裏面是
+  //    `PublishLog` 最新那一期，不一定是介面選中的主日。這裏讀一次，之後
+  //    通知信的日期、寄出前檢查的提醒都用同一個結果，不各自再讀。
+  var masterIssue = null;
   if (doSend && !doPublish) {
-    var latest = latestPublishLogRow_(readSheet(SHEETS.PUBLISH_LOG));
-    if (!latest) {
+    try {
+      masterIssue = currentMasterPublishIssue_(publishConfig_().masterFileId);
+    } catch (issueErr) {
+      if (!issueErr || issueErr.code !== 'MASTER_ISSUE_UNKNOWN') throw issueErr;
+      return { ok: false, reason: 'MASTER_ISSUE_UNKNOWN', message: issueErr.message, lines: [] };
+    }
+    if (!masterIssue) {
       return {
         ok: false, reason: 'NEVER_PUBLISHED', lines: [],
         message: '從未發佈過任何一期，因此沒有已發佈的內容可以通知。請先發佈一次'
@@ -1411,7 +1528,7 @@ function runPublishFlow_(payload) {
   }
 
   // ---- 發佈前檢查（R-006／R-007）----
-  var precheck = buildPublishPrecheck_(isoDate, doPublish);
+  var precheck = buildPublishPrecheck_(isoDate, doPublish, { masterIssue: masterIssue });
 
   // ⚠️ 使用者測試模式的保險（prompt-pre-usertest 第 3 部分）：`DRY_RUN`
   // 只影響「寄出」，發佈本身一樣會真的覆寫 master 連結。測試期間這一點
@@ -1431,7 +1548,11 @@ function runPublishFlow_(payload) {
     ]);
   }
 
-  var needsConfirmDialog = precheck.needsConfirm || precheck.dryRunPublishNotice;
+  // 第二批測試修正 G2：只寄出而 master 不是選中那一期，一樣要出視窗、要勾
+  // 方框——否則那一行提醒根本沒有機會被看見。與 DRY_RUN 那一句同樣不計入
+  // `needsConfirm`／`forcedReason`。
+  var needsConfirmDialog = precheck.needsConfirm || precheck.dryRunPublishNotice
+    || Boolean(precheck.masterIssueNotice);
   if (needsConfirmDialog && p.confirmed !== true) {
     return {
       ok: false, reason: 'NEEDS_CONFIRM', precheck: precheck, lines: precheck.lines,
@@ -1463,7 +1584,7 @@ function runPublishFlow_(payload) {
     return runPublishFlowLocked_(p, {
       isoDate: isoDate, doPublish: doPublish, doSend: doSend,
       blob: blob, pdfSizeMb: pdfSizeMb, sentGroups: sentGroups,
-      precheck: precheck, result: result
+      precheck: precheck, result: result, masterIssue: masterIssue
     });
   } finally {
     lock.releaseLock();
@@ -1478,7 +1599,9 @@ function runPublishFlow_(payload) {
  * Args:
  *   payload {Object} 原本嘅 payload（要用 `groups`／`customEmails`）。
  *   ctx {{isoDate:string, doPublish:boolean, doSend:boolean, blob:(Blob|null),
- *        pdfSizeMb:number, sentGroups:string, precheck:Object, result:Object}}
+ *        pdfSizeMb:number, sentGroups:string, precheck:Object, result:Object,
+ *        masterIssue:(?{isoDate:string, versionNo:number})}}
+ *     `masterIssue` 只寄出時才有（`runPublishFlow_()` 已經讀好），發佈時是 `null`。
  * Returns:
  *   {Object} 同 `runPublishFlow_()`。
  */
@@ -1537,7 +1660,9 @@ function runPublishFlowLocked_(payload, ctx) {
     var sent = sendPublishNotice_(isoDate, {
       groups: p.groups || [],
       customEmails: p.customEmails || '',
-      blob: ctx.blob
+      blob: ctx.blob,
+      published: doPublish === true,
+      masterIssue: doPublish ? null : ctx.masterIssue
     });
     if (!sent.ok) {
       // ⚠️ 發佈已經成功嘅話，唔可以因為寄唔出就話成件事失敗——master
@@ -1563,9 +1688,13 @@ function runPublishFlowLocked_(payload, ctx) {
  * 用途：「只寄出、不發佈」成功之後寫一行 AuditLog（`WEBAPP_SEND_NOTICE`），
  *   記主日、收件組別、人數、是否 DRY_RUN。同時發佈的情況已有
  *   `PUBLISH_BULLETIN` 那一行，不重複寫。
+ *
+ *   第二批測試修正 G2：備註多記「通知指向 master 連結現時那一期」，日後查得到
+ *   這一封信實際講的是哪一期（`rowKey` 仍是介面選中的主日）。
  * Args:
- *   isoDate {string} 主日日期，yyyy-MM-dd。
- *   sent {{groups:string[], recipientCount:number, dryRun:boolean}}
+ *   isoDate {string} 介面選中的主日，yyyy-MM-dd。
+ *   sent {{groups:string[], recipientCount:number, dryRun:boolean,
+ *          noticeIsoDate:string, noticeVersionNo:(number|null)}}
  *     `sendPublishNotice_()` 成功時的回傳值。
  * Returns:
  *   {void}
@@ -1579,6 +1708,8 @@ function auditSendNoticeOnly_(isoDate, sent) {
     newValue: String(o.recipientCount || 0),
     notes: '由填寫介面只寄出（不發佈）；組別：' + ((o.groups || []).join('、') || '（無）')
       + '；收件人數：' + (o.recipientCount || 0)
+      + '；通知指向 master 連結現時那一期：' + (o.noticeIsoDate || '（不明）')
+      + (o.noticeVersionNo ? '（第 ' + o.noticeVersionNo + ' 版）' : '')
       + '；DRY_RUN=' + (o.dryRun ? 'TRUE' : 'FALSE') + '。'
   });
 }
@@ -1610,6 +1741,11 @@ function buildPublishResultLines_(result) {
     lines.push(o.sent.dryRun
       ? '⚠️ 模擬模式開啟中：已記錄 ' + o.sent.recipientCount + ' 個收件人，但沒有真的寄出。'
       : '已寄出：' + o.sent.recipientCount + ' 個收件人。');
+    // 第二批測試修正 G2：只寄出時講明通知信指向哪一期。
+    if (!o.published && o.sent.status === SEND_ONLY_SEND_STATUS_ && o.sent.noticeIsoDate) {
+      lines.push('通知信指向 master 連結現時那一期：' + o.sent.noticeIsoDate
+        + (o.sent.noticeVersionNo ? '（第 ' + o.sent.noticeVersionNo + ' 版）' : '') + '。');
+    }
     if (o.sent.attached) lines.push('通知信已附上這一次的 PDF。');
   } else if (o.sendError) {
     lines.push('⚠️ 寄出失敗：' + o.sendError);

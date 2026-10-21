@@ -729,6 +729,11 @@ var INVARIANT_SEND_BATCH_MS_ = 90000;
  *   ⚠️ 不同的寄出流程用不同的 Config 鍵（週報用 `SEND_GROUPS`、發佈通知
  *   用 `PUBLISH_SEND_GROUPS`、內容表邀請用 `CONTENT_SHEET_INVITE_GROUPS`），
  *   用錯一個，I04 就會報一個假的落差。
+ *
+ *   ⚠️ 第二批測試修正 G2：發佈通知有兩個狀態——發佈加寄出記 `PUBLISH`，
+ *   只寄出記 `SEND_ONLY`（`src/Publish.gs` 的 `PUBLISH_SEND_STATUS_`／
+ *   `SEND_ONLY_SEND_STATUS_`）。兩者是同一個寄出流程、同一組 Config 鍵；
+ *   漏認 `SEND_ONLY` 的話會跌落最後那一行，用週報的 `SEND_GROUPS` 去比。
  * Args:
  *   status {*} `SendLog.STATUS`。
  * Returns:
@@ -736,7 +741,9 @@ var INVARIANT_SEND_BATCH_MS_ = 90000;
  */
 function invariantSendGroupsForStatus_(status) {
   var text = String(status || '');
-  if (text === 'PUBLISH') return getConfigTextList_(CONFIG_KEYS.PUBLISH_SEND_GROUPS, 'CC,DB,ADMIN');
+  if (text === PUBLISH_SEND_STATUS_ || text === SEND_ONLY_SEND_STATUS_) {
+    return getConfigTextList_(CONFIG_KEYS.PUBLISH_SEND_GROUPS, 'CC,DB,ADMIN');
+  }
   if (text === 'CONTENT_SHEET_INVITE') return getConfigTextList_(CONFIG_KEYS.CONTENT_SHEET_INVITE_GROUPS, 'CC,DB,ADMIN,IT');
   if (text === 'FILL_INVITE') return getConfigTextList_(CONFIG_KEYS.FILL_INVITE_GROUPS, 'CC,DB,ADMIN,IT,WORSHIP');
   return getConfigTextList_(CONFIG_KEYS.SEND_GROUPS, 'CC,DB,ADMIN');
