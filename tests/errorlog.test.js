@@ -18,6 +18,7 @@
 const assert = require('assert');
 const { loadAllSrcFilesInOrder } = require('./helpers/loadGas');
 const { makeFakeSheet, makeFakeSpreadsheet } = require('./helpers/fakeSpreadsheet');
+const { assertWrittenChinese } = require('./helpers/writtenChinese');
 
 const CALLER_EMAIL = 'tester@x.com';
 
@@ -256,6 +257,27 @@ test('enrichAuthError_：err 不是 Error 物件（例如純字串）也不會�
     var message = sb.enrichAuthError_('you do not have permission to do that');
     assert.ok(message.indexOf('授權範圍問題') !== -1, message);
   });
+});
+
+test('G1 enrichAuthError_：指引改為按選單「週報系統 ▸ 重新授權（新增權限之後用）」或在編輯器揀 authorizeAllScopes，不再叫人「揀任何一個函式」', function () {
+  // 2028T2 第二批測試 E0：Google 逐項授權，執行 onOpen 不會出 forms 的授權畫面，
+  // 舊指引「揀任何一個函式」不成立。新指引要指向真正會要求全部範圍的兩個入口。
+  var sb = makeEnv();
+  var raw = 'You do not have permission to call FormApp.getActiveForm. Required permissions: '
+    + '(https://www.googleapis.com/auth/forms.currentonly || https://www.googleapis.com/auth/forms)';
+  var message = sb.enrichAuthError_(new Error(raw));
+
+  assert.ok(message.indexOf(raw) === 0, '原本的錯誤訊息要原樣保留在最前面：' + message);
+  assert.ok(message.indexOf('週報系統 ▸ 重新授權（新增權限之後用）') !== -1, '要寫明選單名稱：' + message);
+  assert.ok(message.indexOf('authorizeAllScopes') !== -1, '要寫明編輯器要揀的函式名稱：' + message);
+  assert.ok(message.indexOf('按 Allow') !== -1, message);
+  assert.ok(message.indexOf('任何一個') === -1, '舊指引「揀任何一個函式」不成立，不可以再出現：' + message);
+  // 選單名稱與指引共用同一個字串常數（一個真相來源）。
+  assert.ok(message.indexOf(sb.AUTHORIZE_MENU_LABEL_) !== -1);
+  assert.strictEqual(sb.AUTHORIZE_FUNCTION_NAME_, 'authorizeAllScopes');
+  assert.strictEqual(typeof sb[sb.AUTHORIZE_FUNCTION_NAME_], 'function', '指引提到的函式一定要真的存在');
+  // 指引本身（原錯誤之後那一段）一律書面語。
+  assertWrittenChinese(assert, 'enrichAuthError_ 指引', [message.slice(raw.length)]);
 });
 
 test('withApiResult_：拋出授權範圍錯誤時，回傳給前端的 error.message 也帶有指引', function () {

@@ -63,6 +63,9 @@ function onOpen() {
     .addItem('完成度自我檢測', 'menuRunSelfCheck_')
     .addItem('本季待填清單', 'menuShowQuarterMissingFieldsList_')
     .addItem('檢查授權範圍', 'menuCheckAuthorizationScopes_')
+    // 第二批測試修正 G1：Google 逐項授權，執行用不到新範圍的函式不會出
+    // 授權畫面；這一項一次過要求全部範圍（處理函式在 Authorize.gs）。
+    .addItem(AUTHORIZE_MENU_LABEL_, 'menuAuthorizeAllScopes_')
     .addSeparator()
     .addItem('從內容表匯入', 'menuImportFromContentSheet_')
     .addSubMenu(SpreadsheetApp.getUi().createMenu('內容表')

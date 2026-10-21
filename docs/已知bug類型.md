@@ -1032,6 +1032,19 @@ Apps Script 的授權令牌**只在使用者當初授權那一刻**問過「這�
   `rootAccessError` 選項模擬授權失敗）、`tests/helpers/fillEnv.js`
   補了假試算表的 `getName()`。
 
+### 後記（2026-10-21，第二批測試修正 G1）：「隨便執行一個函式」不再出授權畫面
+
+`appsscript.json` 加了 `forms` 範圍、部署之後，照舊指引在編輯器執行
+`onOpen`，沒有出授權畫面，「檢查授權範圍」仍然報 `FormApp` 未授權。
+原因是 Google 現在逐項授權：只會為那次執行真正用到、又未授權的範圍
+提示，`onOpen` 用不到表單。修法是加 `src/Authorize.gs`：編輯器入口
+`authorizeAllScopes()`（名稱不可以底線結尾，否則下拉看不到）與選單
+「週報系統 ▸ 重新授權（新增權限之後用）」，兩者都只呼叫
+`ScriptApp.requireAllScopes(ScriptApp.AuthMode.FULL)`；`enrichAuthError_()`
+的指引改為指向這兩個入口，選單名稱共用 `AUTHORIZE_MENU_LABEL_`。
+教訓：寫操作指引之前，要問「這一步在真實環境一定會觸發我要的效果嗎」，
+不要靠「以前是這樣」。
+
 ---
 
 ## 事故十八：`Utilities.unzip()`／`Utilities.zip()` 只認內容類型，跟檔案實際格式無關

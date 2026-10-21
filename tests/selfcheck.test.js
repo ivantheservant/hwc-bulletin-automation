@@ -796,6 +796,157 @@ test('20n. 新增項目排在既有項目之後（不打亂原有四大類的次
   assert.ok(lastOldIndex < firstNewIndex, '新項目應該排在既有項目（含紀錄類）之後');
 });
 
+
+// =====================================================================
+// 第二批測試修正 G1：重新授權（ScriptApp.requireAllScopes）
+// =====================================================================
+
+/**
+ * 造一個會記錄選單結構與對話框的假 UI，傳給 makeFillEnv 的 `ui` 選項。
+ * `store.top` 是 addToUi() 那一個選單；每個項目是 {label, fn}、{separator}
+ * 或 {sub}（子選單）。
+ */
+function recordingUi(store) {
+  store.alerts = store.alerts || [];
+  return {
+    createMenu: function (name) {
+      const menu = { name: name, items: [] };
+      const api = {
+        __menu: menu,
+        addItem: function (label, fn) { menu.items.push({ label: label, fn: fn }); return api; },
+        addSeparator: function () { menu.items.push({ separator: true }); return api; },
+        addSubMenu: function (sub) { menu.items.push({ sub: sub.__menu }); return api; },
+        addToUi: function () { store.top = menu; return api; }
+      };
+      return api;
+    },
+    alert: function (title, message) { store.alerts.push({ title: title, message: message }); return 'OK'; }
+  };
+}
+
+/** 在 sandbox 的假 ScriptApp 上補 requireAllScopes／AuthMode，記錄每次呼叫。 */
+function installRequireAllScopes(sandbox, behaviour) {
+  const calls = [];
+  sandbox.ScriptApp.AuthMode = { FULL: 'FULL_MODE', LIMITED: 'LIMITED_MODE', NONE: 'NONE_MODE' };
+  sandbox.ScriptApp.requireAllScopes = function (mode) {
+    calls.push(mode);
+    if (behaviour && behaviour.throwError) throw behaviour.throwError;
+  };
+  return calls;
+}
+
+test('G1 onOpen：選單有「重新授權（新增權限之後用）」→ menuAuthorizeAllScopes_，緊接在「檢查授權範圍」之後；選單引用的處理函式全部存在', function () {
+  const store = {};
+  const env = makeEnv({ fillEnvOptions: { ui: recordingUi(store) } });
+  env.sandbox.onOpen();
+
+  assert.ok(store.top, 'onOpen 要建立選單');
+  assert.strictEqual(store.top.name, '週報系統');
+  const items = store.top.items;
+  const checkIndex = items.findIndex(function (i) { return i.fn === 'menuCheckAuthorizationScopes_'; });
+  assert.ok(checkIndex !== -1);
+  assert.deepStrictEqual(
+    { label: items[checkIndex + 1].label, fn: items[checkIndex + 1].fn },
+    { label: '重新授權（新增權限之後用）', fn: 'menuAuthorizeAllScopes_' },
+    '「重新授權」要放在「檢查授權範圍」旁邊'
+  );
+
+  // 全部選單項目（包括子選單）引用的處理函式都要真的存在，否則按下去只會出
+  // 「找不到指令碼函式」。
+  const missing = [];
+  (function walk(menu) {
+    menu.items.forEach(function (i) {
+      if (i.sub) return walk(i.sub);
+      if (i.fn && typeof env.sandbox[i.fn] !== 'function') missing.push(i.label + ' → ' + i.fn);
+    });
+  })(store.top);
+  assert.deepStrictEqual(missing, []);
+});
+
+test('G1 menuAuthorizeAllScopes_：成功 → 呼叫 ScriptApp.requireAllScopes(AuthMode.FULL) 一次，對話框提示再按「檢查授權範圍」，不寫 ErrorLog', function () {
+  const store = {};
+  const env = makeEnv({ fillEnvOptions: { ui: recordingUi(store) } });
+  const calls = installRequireAllScopes(env.sandbox);
+
+  env.sandbox.menuAuthorizeAllScopes_();
+
+  assert.deepStrictEqual(calls, ['FULL_MODE'], '一定要用 AuthMode.FULL');
+  assert.strictEqual(store.alerts.length, 1);
+  assert.strictEqual(store.alerts[0].title, '重新授權');
+  assert.strictEqual(store.alerts[0].message, '全部授權範圍已核准。請再按「檢查授權範圍」確認。');
+  assert.strictEqual(env.sandbox.readSheet('ErrorLog').length, 0);
+});
+
+test('G1 menuAuthorizeAllScopes_：授權未完成（requireAllScopes 拋錯）→ 寫一筆 ErrorLog（MENU／menuAuthorizeAllScopes_），對話框顯示原因與指引，不會講「已核准」', function () {
+  const store = {};
+  const env = makeEnv({ fillEnvOptions: { ui: recordingUi(store) } });
+  const calls = installRequireAllScopes(env.sandbox, {
+    throwError: new Error('Authorization is required to perform that action.')
+  });
+
+  env.sandbox.menuAuthorizeAllScopes_();
+
+  assert.strictEqual(calls.length, 1);
+  assert.strictEqual(store.alerts.length, 1);
+  assert.strictEqual(store.alerts[0].title, '重新授權失敗');
+  assert.ok(store.alerts[0].message.indexOf('Authorization is required') !== -1, store.alerts[0].message);
+  assert.ok(store.alerts[0].message.indexOf('authorizeAllScopes') !== -1, store.alerts[0].message);
+  assert.ok(store.alerts[0].message.indexOf('已核准') === -1, '失敗時不可以講已核准：' + store.alerts[0].message);
+
+  const errors = env.sandbox.readSheet('ErrorLog');
+  assert.strictEqual(errors.length, 1);
+  assert.strictEqual(errors[0].SOURCE, 'MENU');
+  assert.strictEqual(errors[0].FUNCTION_NAME, 'menuAuthorizeAllScopes_');
+});
+
+test('G1 authorizeAllScopes：公開函式（名稱沒有底線結尾，編輯器下拉看得到），呼叫 requireAllScopes(FULL) 之後 Logger.log「全部授權範圍已核准。」；授權未完成時例外照樣拋出、不記「已核准」', function () {
+  const env = makeEnv({});
+  const logs = [];
+  env.sandbox.Logger = { log: function (m) { logs.push(m); } };
+
+  assert.strictEqual(typeof env.sandbox.authorizeAllScopes, 'function');
+  assert.ok(!/_$/.test('authorizeAllScopes'));
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'Authorize.gs'), 'utf8');
+  assert.ok(/\nfunction authorizeAllScopes\(\)/.test(src), 'src/Authorize.gs 要有頂層的 function authorizeAllScopes()');
+
+  const calls = installRequireAllScopes(env.sandbox);
+  env.sandbox.authorizeAllScopes();
+  assert.deepStrictEqual(calls, ['FULL_MODE']);
+  assert.deepStrictEqual(logs, ['全部授權範圍已核准。']);
+
+  const env2 = makeEnv({});
+  const logs2 = [];
+  env2.sandbox.Logger = { log: function (m) { logs2.push(m); } };
+  installRequireAllScopes(env2.sandbox, { throwError: new Error('Authorization is required to perform that action.') });
+  assert.throws(function () { env2.sandbox.authorizeAllScopes(); }, /Authorization is required/);
+  assert.deepStrictEqual(logs2, [], '授權未完成時不可以記「已核准」');
+});
+
+test('G1 menuCheckAuthorizationScopes_：FormApp 未授權 → 仍是六項探測，對話框的 FormApp 一行指向「重新授權」選單與 authorizeAllScopes', function () {
+  const store = {};
+  const formErr = new Error('You do not have permission to call FormApp.getActiveForm. Required permissions: '
+    + '(https://www.googleapis.com/auth/forms.currentonly || https://www.googleapis.com/auth/forms)');
+  const env = makeEnv({
+    fillEnvOptions: {
+      ui: recordingUi(store),
+      extraStubs: { FormApp: { getActiveForm: function () { throw formErr; } } }
+    }
+  });
+
+  const results = env.sandbox.checkAuthorizationScopes_();
+  assert.strictEqual(results.length, 6, '授權探測仍是六項');
+  const failed = results.filter(function (r) { return !r.ok; });
+  // ⚠️ sandbox 的陣列屬另一個 vm realm，先 Array.from 再比較。
+  assert.deepStrictEqual(Array.from(failed.map(function (r) { return r.item; })), ['FormApp（講員表格）']);
+
+  env.sandbox.menuCheckAuthorizationScopes_();
+  assert.strictEqual(store.alerts.length, 1);
+  const msg = store.alerts[0].message;
+  assert.ok(msg.indexOf('以下 1 項未授權或呼叫失敗') !== -1, msg);
+  assert.ok(msg.indexOf('週報系統 ▸ 重新授權（新增權限之後用）') !== -1, msg);
+  assert.ok(msg.indexOf('authorizeAllScopes') !== -1, msg);
+});
+
 // =====================================================================
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');

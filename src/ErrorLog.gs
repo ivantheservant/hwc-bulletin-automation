@@ -102,6 +102,13 @@ var AUTH_ERROR_KEYWORDS_ = ['permission', 'authorization', 'Required permissions
  *   仍然要等使用者重新走一次授權畫面**才會拿到新範圍。這個函式的
  *   訊息指引就是講給使用者聽：出現這個錯誤時要去哪裡重新授權，而不是
  *   把它當成程式壞了去查半天。
+ *
+ *   ⚠️ 第二批測試修正 G1：舊指引「在函式下拉選單揀任何一個函式，按執行」
+ *   不成立——Google 現在是逐項授權，只會為那個函式真正用到、又未授權的
+ *   範圍出授權畫面。指引改為按選單「重新授權」，或在編輯器揀
+ *   `authorizeAllScopes`（兩者都呼叫 `ScriptApp.requireAllScopes()`，見
+ *   `src/Authorize.gs`）。選單名稱與函式名稱讀 `AUTHORIZE_MENU_LABEL_`／
+ *   `AUTHORIZE_FUNCTION_NAME_`，與選單共用同一個字串。
  * Args:
  *   err {*} 被攔到的例外物件（或任意值）。
  * Returns:
@@ -115,8 +122,9 @@ function enrichAuthError_(err) {
   });
   if (!isAuthError) return message;
 
-  return message + '　⚠️ 這是授權範圍問題。請開啟 Apps Script 編輯器，在函式下拉選單揀任何一個'
-    + '函式，撳執行，完成授權畫面之後再試。若仍然失敗，需要重新部署網頁應用程式。';
+  return message + '　⚠️ 這是授權範圍問題。請按選單「' + APP_NAME + ' ▸ ' + AUTHORIZE_MENU_LABEL_ + '」，'
+    + '或在 Apps Script 編輯器的函式下拉揀 ' + AUTHORIZE_FUNCTION_NAME_ + ' 再按執行，'
+    + '在彈出的授權畫面按 Allow。若填寫介面仍然失敗，需要重新部署網頁應用程式。';
 }
 
 /**
