@@ -318,6 +318,8 @@
   /**
    * 用途：第二批測試修正 G13：寫入類動作的清單，以及「伺服器沒有回應」之後要重新
    *   載入哪些區塊。鍵是伺服器函式名稱，值是重新載入的種類：
+   *     keepForm：只有儲存。不等候、不重新載入，表單上的改動與未儲存的狀態保留，
+   *       「儲存」即時可以再按（見下面的說明）；
    *     week：重新載入這一個主日，並刷新主日下拉的標籤；
    *     publish：同 week，另外重新載入頁頂「目前已發佈」；
    *     speakerForm：重新載入「講員表格」區塊；
@@ -325,6 +327,10 @@
    *     quarterImport：同 quarterOps，另外重新載入這一個主日。
    *   每一種重新載入的，就是該動作成功之後會刷新的區塊（發佈另加這一個主日，
    *   版本記錄內有「已發佈」一段）。
+   *
+   *   儲存不重新載入（docs/待確認事項.md FF-13）：儲存其實沒有到達伺服器的話，重新
+   *   載入會把幹事畫面上未儲存的改動換走；其實已經完成的話，再按一次「儲存」會被
+   *   樂觀鎖擋下（STALE，「這一週的資料在你載入之後被改過」），不會重複寫入。
    *
    *   刻意不在清單內的：讀取類（載入、預覽、差異、報告、現況），以及
    *     apiDownloadBulletinDocx：Word 檔要經瀏覽器下載，沒有回應就是沒有收到檔案，要再按一次；
@@ -334,7 +340,7 @@
    *   Script.html 用到的每一個 api 名稱分成寫入與讀取兩類，漏了分類會失敗。
    */
   var WRITE_ACTION_RECOVERY = {
-    apiSaveWeek: 'week',
+    apiSaveWeek: 'keepForm',
     apiRestoreWeekSnapshot: 'week',
     apiResetWeek: 'week',
     apiRunContentImport: 'week',
@@ -350,15 +356,17 @@
   };
 
   /**
-   * 用途：第二批測試修正 G13：「伺服器沒有回應」那一句的後半段（重新載入了甚麼、
-   *   要先看哪裏），按重新載入的種類分。每一個種類都要有一句（測試逐個核對）。
+   * 用途：第二批測試修正 G13：「伺服器沒有回應（api 名稱），」之後的一句（可能已經
+   *   完成、重新載入了甚麼、要先看哪裏），按重新載入的種類分。每一個種類都要有一句
+   *   （測試逐個核對）。
    */
   var NO_RESPONSE_CHECK_HINTS = {
-    week: '系統已重新載入這一個主日，請先看「最後儲存時間」和「版本記錄」，確認未完成才再做一次。',
-    publish: '系統已重新載入這一個主日，請先看「最後儲存時間」和「版本記錄」，確認未完成才再做一次。',
-    speakerForm: '系統已重新載入講員表格的現況，請先看「講員表格」區塊，確認未完成才再做一次。',
-    quarterOps: '系統已重新載入季度作業的現況，請先看「季度作業」區塊，確認未完成才再做一次。',
-    quarterImport: '系統已重新載入這一個主日和季度作業的現況，請先看「季度作業」區塊，確認未完成才再做一次。'
+    keepForm: '儲存可能已經完成，你的改動仍在畫面上。請再按一次「儲存」：如果系統說「這一週的資料在你載入之後被改過」，即是上一次已經存好，重新載入這一週就會見到。',
+    week: '這個動作可能已經完成。系統已重新載入這一個主日，請先看「最後儲存時間」和「版本記錄」，確認未完成才再做一次。',
+    publish: '這個動作可能已經完成。系統已重新載入這一個主日，請先看「最後儲存時間」和「版本記錄」，確認未完成才再做一次。',
+    speakerForm: '這個動作可能已經完成。系統已重新載入講員表格的現況，請先看「講員表格」區塊，確認未完成才再做一次。',
+    quarterOps: '這個動作可能已經完成。系統已重新載入季度作業的現況，請先看「季度作業」區塊，確認未完成才再做一次。',
+    quarterImport: '這個動作可能已經完成。系統已重新載入這一個主日和季度作業的現況，請先看「季度作業」區塊，確認未完成才再做一次。'
   };
 
   /**
@@ -429,12 +437,13 @@
    *   （無）
    */
   function describeNoResponseFailure(fnName, kind) {
-    return '伺服器沒有回應（' + fnName + '），這個動作可能已經完成。' + NO_RESPONSE_CHECK_HINTS[kind];
+    return '伺服器沒有回應（' + fnName + '），' + NO_RESPONSE_CHECK_HINTS[kind];
   }
 
   /**
-   * 用途：第二批測試修正 G13：寫入類動作沒有回應之後的補救。先等
-   *   NO_RESPONSE_RELOAD_DELAY_MS（伺服器可能仍在處理），期間整個介面維持忙碌、
+   * 用途：第二批測試修正 G13：寫入類動作（儲存除外，見 WRITE_ACTION_RECOVERY）沒有
+   *   回應之後的補救。先等 NO_RESPONSE_RELOAD_DELAY_MS（伺服器可能仍在處理），
+   *   期間整個介面維持忙碌、
    *   不可以再按；時間到才顯示訊息，並重新載入成功時會刷新的區塊。
    *
    *   重新載入這一個主日一律是同一個主日、帶 keepMessage：剛顯示的訊息要留着，
@@ -487,7 +496,8 @@
    *   第二批測試修正 G13：寫入類（WRITE_ACTION_RECOVERY 內的）失敗而看來是沒有回應
    *   （isNoResponseFailure()，包括這裏自己的逾時）時，`onError`／訊息列收到的是
    *   describeNoResponseFailure() 那一句，要等 NO_RESPONSE_RELOAD_DELAY_MS 之後才收到，
-   *   之後自動重新載入（見 recoverAfterNoResponse()）。其餘失敗照舊。
+   *   之後自動重新載入（見 recoverAfterNoResponse()）；儲存（keepForm）例外，即時收到、
+   *   不重新載入。其餘失敗照舊。
    * Returns:
    *   {void}
    * Raises:
@@ -529,10 +539,16 @@
         if (!opts.noReport) {
           reportClientError_(describeServerFailure(fnName, err) + NO_RESPONSE_LOG_NOTE, stackSummary(err), fnName);
         }
-        recoverAfterNoResponse(recoveryKind, noResponseMessage, function () {
+        var deliverNoResponse = function () {
           if (opts.onError) opts.onError(noResponseMessage, err);
           else showMessage('error', noResponseMessage);
-        });
+        };
+        // 儲存：不等、不重新載入，表單上的改動留着讓幹事再按一次（FF-13）。
+        if (recoveryKind === 'keepForm') {
+          deliverNoResponse();
+          return;
+        }
+        recoverAfterNoResponse(recoveryKind, noResponseMessage, deliverNoResponse);
         return;
       }
       var message = describeServerFailure(fnName, err);

@@ -4,7 +4,10 @@
  *
  * 第二批測試修正 G13：寫入類動作遇到連線錯誤（例如 HTTP 502）時，訊息改講「這個動作
  * 可能已經完成」，等一會之後自動重新載入同一個主日（保留訊息、不觸發換週清理）。
- * 伺服器明確回傳的錯誤與讀取類動作的失敗照舊。
+ * 儲存例外（FF-13）：即時講「儲存可能已經完成，你的改動仍在畫面上」，不重新載入，
+ * 表單與未儲存的狀態保留；再按「儲存」時如果上一次其實已經存好，伺服器的樂觀鎖回
+ * STALE（後端那一條經真正入口 apiSaveWeek 驗證）。伺服器明確回傳的錯誤與讀取類動作
+ * 的失敗照舊。
  *
  * 前端函式用「BEGIN／END 標記」與函式名稱從 Script.html 抽出來，在假 DOM 上真的
  * 執行；google.script.run 用假替身，由測試決定成功或失敗。一律經真正入口：按鈕的
@@ -25,6 +28,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const { assertWrittenChinese } = require('./helpers/writtenChinese');
+const { makeFillEnv, QUARTER_ID } = require('./helpers/fillEnv');
 
 let pass = 0;
 let fail = 0;
@@ -165,7 +169,9 @@ function between(js, from, to) {
 /**
  * 建立一個「已載入 D、可以操作」的填寫介面。真正的程式碼包括：訊息列、忙碌狀態、
  * callServer() 與 G13 的補救、確認對話框、版本記錄的還原與重設、講員表格的建立、
- * loadWeek()、儲存、發佈、季度作業、wireStaticEvents()。其餘函式用記錄呼叫的替身。
+ * loadWeek()、未儲存改動的判斷（week-diff／week-switch-guard）、儲存（連
+ * buildSavePayload()）、發佈、季度作業、wireStaticEvents()。表單本身用 ctx.form 代替
+ * （collectWeekFieldsFromForm() 的替身讀它）；其餘函式用記錄呼叫的替身。
  */
 function makeUi() {
   const js = readSrc('src/ui/Script.html');
@@ -184,7 +190,8 @@ function makeUi() {
     escapeHtml: function (t) { return String(t); },
     state: {
       isoDate: D, showArchived: false, quarters: [], quarterId: '2028T2', lastSavedAt: '2026-10-22 09:00:00',
-      loaded: true, inFlight: 0, previewInFlight: 0, week: {}, loadedWeek: {}, snapshotsLoadedFor: null,
+      loaded: true, inFlight: 0, previewInFlight: 0, week: {}, loadedWeek: { PRELUDE: '' }, snapshotsLoadedFor: null,
+      dutyEdits: {}, nextWeekDutyEdits: {}, loadedDutyNames: {}, loadedNextDutyNames: {},
       speakerForm: null, fetchCandidates: [],
       quarterOps: { quarterId: '2028T2', dryRun: true },
       publish: { pdfBase64: '', pdfName: '', pdfIsoDate: '', panel: { maxPdfMb: 10 }, confirmButton: '' }
@@ -195,8 +202,10 @@ function makeUi() {
     loadPublishPanel: function () { log.publishPanel++; },
     loadSpeakerFormStatus: function () { log.speakerStatus++; },
     refreshQuarterOpsPanel: function () { log.quarterOpsPanel++; },
-    buildSavePayload: function () { return { isoDate: ctx.state.isoDate, lastSavedAt: ctx.state.lastSavedAt, week: { PRELUDE: '新序樂' }, baseWeek: { PRELUDE: '' } }; },
-    hasUnsavedWeekChanges: function () { return false; },
+    // 表單：測試直接改 ctx.form 等於幹事在畫面上打字。
+    form: { PRELUDE: '' },
+    collectWeekFieldsFromForm: function () { return Object.assign({}, ctx.form); },
+    CONTENT_SHEET_WEEK_FIELDS: [],
     selectedPublishGroups: function () { return ['ADMIN']; },
     openPublishConfirm: function () {},
     closePublishConfirm: function () {},
@@ -220,7 +229,9 @@ function makeUi() {
     region(js, 'speaker-form'),
     between(js, 'function onSpeakerFormCreateClicked(', 'function onSpeakerFormCopyClicked('),
     region(js, 'load-week'),
-    between(js, 'function setSaveButtonText(', 'function refreshWeekSelectorLabels('),
+    region(js, 'week-diff'),
+    region(js, 'week-switch-guard'),
+    between(js, 'function buildSavePayload(', 'function refreshWeekSelectorLabels('),
     region(js, 'publish-run'),
     between(js, 'function setPublishButtonsBusy(', '// BEGIN publish-result'),
     region(js, 'publish-result'),
@@ -271,6 +282,8 @@ function clickRestoreButton(ui, snapshotId) {
 
 const DIFF_OK = { ok: true, data: { createdAt: '2026-10-22 08:00', reasonLabel: '填寫介面儲存', rows: [], noteLine: '還原前會先自動存一個版本。', lastSavedAt: '2026-10-22 09:00:00' } };
 
+const EXPECTED_SAVE_MESSAGE = '伺服器沒有回應（apiSaveWeek），儲存可能已經完成，你的改動仍在畫面上。請再按一次「儲存」：如果系統說「這一週的資料在你載入之後被改過」，即是上一次已經存好，重新載入這一週就會見到。';
+
 function expectedWeekMessage(fnName) {
   return '伺服器沒有回應（' + fnName + '），這個動作可能已經完成。系統已重新載入這一個主日，請先看「最後儲存時間」和「版本記錄」，確認未完成才再做一次。';
 }
@@ -292,43 +305,45 @@ function assertReportedAsNoResponse(ui, fnName, rawFragment) {
 
 console.log('\n寫入類動作遇到連線錯誤（G13）');
 
-test('G13-1 按「儲存」→ apiSaveWeek 收到 HTTP 502：即時回報 ErrorLog；等候期間介面忙碌、不可以再按；時間到出新訊息，重新載入同一主日並保留訊息，發佈區不被換週清理', function () {
+test('G13-1 按「儲存」→ apiSaveWeek 收到 HTTP 502：即時出儲存那一句；不等候、不重新載入；畫面上的改動與未儲存的狀態保留，「儲存」即時可以再按；再按送出同一份 payload，伺服器回 STALE 就原句顯示', function () {
+  const ui = makeUi();
+  ui.ctx.form.PRELUDE = '新序樂';                       // 幹事在畫面上打了字
+  assert.strictEqual(ui.ctx.hasUnsavedWeekChanges(), true, '前提：有未儲存的改動');
+
+  ui.click('saveBtn');
+  const first = ui.take('apiSaveWeek');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(first.args[0].week)), { PRELUDE: '新序樂' });
+  first.fail(new Error(NETWORK_502));
+
+  assertReportedAsNoResponse(ui, 'apiSaveWeek', 'HTTP 502');
+  assert.deepStrictEqual(ui.message(), { type: 'error', text: EXPECTED_SAVE_MESSAGE }, '即時顯示，不等候');
+  assert.strictEqual(ui.timers.pending(ui.delayMs), 0, '不可以排重新載入');
+  assert.strictEqual(ui.count('apiLoadWeek'), 0, '不可以重新載入');
+  assert.strictEqual(ui.ctx.state.inFlight, 0);
+  assert.strictEqual(ui.els.saveBtn.disabled, false, '「儲存」要即時可以再按');
+  assert.strictEqual(ui.els.saveBtn.textContent, '儲存');
+  assert.strictEqual(ui.ctx.form.PRELUDE, '新序樂', '畫面上的改動保留');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(ui.ctx.state.loadedWeek)), { PRELUDE: '' }, '載入時的值不變（未儲存的狀態以它為準）');
+  assert.strictEqual(ui.ctx.hasUnsavedWeekChanges(), true, '仍然算是未儲存（換週會先問）');
+  assert.strictEqual(ui.ctx.state.lastSavedAt, '2026-10-22 09:00:00', '樂觀鎖用的時間不變，再按才擋得住重複寫入');
+
+  // 再按一次：送出同一份 payload（同一個 lastSavedAt、同一個 baseWeek）。
+  ui.click('saveBtn');
+  const second = ui.take('apiSaveWeek');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(second.args[0])), JSON.parse(JSON.stringify(first.args[0])));
+  const stale = '這一週的資料在你載入之後被改過（工作表上的最後儲存時間是 2026-10-22 09:00:30，你載入時是 2026-10-22 09:00:00）。請重新載入後再儲存，以免覆蓋別人的修改。';
+  second.ok({ ok: false, error: { code: 'STALE', message: stale } });
+  assert.deepStrictEqual(ui.message(), { type: 'error', text: stale });
+  assert.strictEqual(ui.count('apiLoadWeek'), 0);
+  assertWrittenChinese(assert, 'G13 儲存訊息', [EXPECTED_SAVE_MESSAGE]);
+});
+
+test('G13-2 還原對話框按「確定」→ apiRestoreWeekSnapshot 收到 HTTP 502（2026-10-22 的情況）：即時回報 ErrorLog；等候期間介面忙碌、不可以再按；時間到出新訊息，重新載入同一主日並保留訊息，發佈區不被換週清理', function () {
   const ui = makeUi();
   // 前提：發佈區有這一週的結果與已選的 PDF（G3／G9 的換週清理不可以清走）。
   ui.ctx.showPublishResult('已發佈第 3 版。', false);
   Object.assign(ui.ctx.state.publish, { pdfBase64: 'QUFB', pdfName: '週報.pdf', pdfIsoDate: D });
 
-  ui.click('saveBtn');
-  ui.take('apiSaveWeek').fail(new Error(NETWORK_502));
-
-  assertReportedAsNoResponse(ui, 'apiSaveWeek', 'HTTP 502');
-  assert.strictEqual(ui.message(), null, '等候期間還未講「已重新載入」');
-  assert.strictEqual(ui.ctx.state.inFlight, 1, '等候期間介面維持忙碌');
-  assert.strictEqual(ui.els.saveBtn.disabled, true, '等候期間不可以再按「儲存」');
-  assert.ok(ui.els.busyBarText.textContent.indexOf('伺服器沒有回應') === 0, ui.els.busyBarText.textContent);
-  assert.strictEqual(ui.count('apiLoadWeek'), 0, '未等完不可以重新載入');
-
-  // 再按一次「儲存」也不會送出（logic 層的防重複）。
-  ui.click('saveBtn');
-  assert.strictEqual(ui.count('apiSaveWeek'), 1);
-
-  assert.strictEqual(ui.timers.run(ui.delayMs), 1);
-  assert.deepStrictEqual(ui.message(), { type: 'error', text: expectedWeekMessage('apiSaveWeek') });
-  assert.strictEqual(ui.els.saveBtn.textContent, '儲存', '按鈕文字要改回「儲存」');
-  const reload = ui.take('apiLoadWeek');
-  assert.deepStrictEqual(reload.args, [D], '重新載入同一個主日');
-  reload.ok({ ok: true, data: {} });
-  assert.deepStrictEqual(ui.log.weekLoaded, [D]);
-  assert.strictEqual(ui.log.selectorLabels, 1, '主日下拉的標籤一併刷新');
-  assert.deepStrictEqual(ui.message(), { type: 'error', text: expectedWeekMessage('apiSaveWeek') }, '重新載入之後訊息要保留');
-  assert.strictEqual(ui.els.publishResult.classList.contains('hidden'), false, '同一主日重新載入，發佈結果保留');
-  assert.strictEqual(ui.ctx.state.publish.pdfBase64, 'QUFB', '同一主日重新載入，已選的 PDF 保留');
-  assert.strictEqual(ui.ctx.state.inFlight, 0);
-  assertWrittenChinese(assert, 'G13 訊息', [ui.message().text, ui.els.busyBarText.textContent]);
-});
-
-test('G13-2 還原對話框按「確定」→ apiRestoreWeekSnapshot 收到 HTTP 502（2026-10-22 的情況）→ 時間到出新訊息，重新載入同一主日', function () {
-  const ui = makeUi();
   clickRestoreButton(ui, 'SNAP-1');
   ui.take('apiDiffWeekSnapshot').ok(DIFF_OK);
   assert.strictEqual(ui.els.confirmDialogBackdrop.classList.contains('hidden'), false, '前提：確認對話框打開了');
@@ -338,13 +353,25 @@ test('G13-2 還原對話框按「確定」→ apiRestoreWeekSnapshot 收到 HTTP
   restore.fail(new Error(NETWORK_502));
 
   assertReportedAsNoResponse(ui, 'apiRestoreWeekSnapshot', 'NetworkError');
-  assert.strictEqual(ui.message(), null, '不可以再出「呼叫伺服器失敗」那一句');
-  ui.timers.run(ui.delayMs);
+  assert.strictEqual(ui.message(), null, '等候期間不可以出「呼叫伺服器失敗」，亦未講「已重新載入」');
+  assert.strictEqual(ui.ctx.state.inFlight, 1, '等候期間介面維持忙碌');
+  assert.strictEqual(ui.els.saveBtn.disabled, true, '等候期間不可以按其他會寫入的按鈕');
+  assert.strictEqual(ui.els.confirmOkBtn.disabled, true);
+  assert.ok(ui.els.busyBarText.textContent.indexOf('伺服器沒有回應') === 0, ui.els.busyBarText.textContent);
+  assert.strictEqual(ui.count('apiLoadWeek'), 0, '未等完不可以重新載入');
+
+  assert.strictEqual(ui.timers.run(ui.delayMs), 1);
   assert.deepStrictEqual(ui.message(), { type: 'error', text: expectedWeekMessage('apiRestoreWeekSnapshot') });
   const reload = ui.take('apiLoadWeek');
-  assert.deepStrictEqual(reload.args, [D]);
+  assert.deepStrictEqual(reload.args, [D], '重新載入同一個主日');
   reload.ok({ ok: true, data: {} });
-  assert.deepStrictEqual(ui.message(), { type: 'error', text: expectedWeekMessage('apiRestoreWeekSnapshot') });
+  assert.deepStrictEqual(ui.log.weekLoaded, [D]);
+  assert.strictEqual(ui.log.selectorLabels, 1, '主日下拉的標籤一併刷新');
+  assert.deepStrictEqual(ui.message(), { type: 'error', text: expectedWeekMessage('apiRestoreWeekSnapshot') }, '重新載入之後訊息要保留');
+  assert.strictEqual(ui.els.publishResult.classList.contains('hidden'), false, '同一主日重新載入，發佈結果保留');
+  assert.strictEqual(ui.ctx.state.publish.pdfBase64, 'QUFB', '同一主日重新載入，已選的 PDF 保留');
+  assert.strictEqual(ui.ctx.state.inFlight, 0);
+  assertWrittenChinese(assert, 'G13 訊息', [ui.message().text, ui.els.busyBarText.textContent]);
 });
 
 test('G13-3 「重設這一週」按「確定」→ apiResetWeek 收到 HTTP 502 → 同一做法', function () {
@@ -405,25 +432,42 @@ test('G13-6 「建立講員表格」按「確定」→ apiCreateSpeakerForm 收�
   assert.strictEqual(ui.count('apiLoadWeek'), 0);
 });
 
-test('G13-7 其他看來是連線問題的錯誤：Failed to fetch、timed out、HTTP 503、錯誤物件沒有訊息、callServer() 自己的逾時 → 全部走同一條補救', function () {
+test('G13-7 其他看來是連線問題的錯誤：Failed to fetch、timed out、HTTP 503、錯誤物件沒有訊息、callServer() 自己的逾時 → 重設走等候再重新載入；儲存即時出儲存那一句、不重新載入', function () {
   [new Error('TypeError: Failed to fetch'), new Error('Request timed out'), new Error('Connection failure due to HTTP 503'),
     new Error(''), undefined, {}].forEach(function (err, i) {
     const ui = makeUi();
-    ui.click('saveBtn');
-    ui.take('apiSaveWeek').fail(err);
+    ui.click('resetWeekBtn');
+    ui.click('confirmOkBtn');
+    ui.take('apiResetWeek').fail(err);
     assert.strictEqual(ui.timers.run(ui.delayMs), 1, '第 ' + i + ' 個要等候之後重新載入');
-    assert.deepStrictEqual(ui.message(), { type: 'error', text: expectedWeekMessage('apiSaveWeek') }, '第 ' + i + ' 個');
+    assert.deepStrictEqual(ui.message(), { type: 'error', text: expectedWeekMessage('apiResetWeek') }, '第 ' + i + ' 個');
     assert.strictEqual(ui.count('apiLoadWeek'), 1);
+
+    const save = makeUi();
+    save.click('saveBtn');
+    save.take('apiSaveWeek').fail(err);
+    assert.deepStrictEqual(save.message(), { type: 'error', text: EXPECTED_SAVE_MESSAGE }, '儲存第 ' + i + ' 個');
+    assert.strictEqual(save.timers.pending(save.delayMs), 0);
+    assert.strictEqual(save.count('apiLoadWeek'), 0);
   });
 
   // callServer() 自己的逾時（120 秒內沒有回應）：寫入類同樣當作「沒有回應」。
   const ui = makeUi();
-  ui.click('saveBtn');
+  ui.click('resetWeekBtn');
+  ui.click('confirmOkBtn');
   assert.strictEqual(ui.timers.run(120000), 1, '前提：逾時計時器是 120 秒');
-  assertReportedAsNoResponse(ui, 'apiSaveWeek', '秒內沒有回應');
+  assertReportedAsNoResponse(ui, 'apiResetWeek', '秒內沒有回應');
   ui.timers.run(ui.delayMs);
-  assert.deepStrictEqual(ui.message(), { type: 'error', text: expectedWeekMessage('apiSaveWeek') });
+  assert.deepStrictEqual(ui.message(), { type: 'error', text: expectedWeekMessage('apiResetWeek') });
   assert.strictEqual(ui.count('apiLoadWeek'), 1);
+
+  const save = makeUi();
+  save.click('saveBtn');
+  assert.strictEqual(save.timers.run(120000), 1);
+  assertReportedAsNoResponse(save, 'apiSaveWeek', '秒內沒有回應');
+  assert.deepStrictEqual(save.message(), { type: 'error', text: EXPECTED_SAVE_MESSAGE });
+  assert.strictEqual(save.count('apiLoadWeek'), 0);
+  assert.strictEqual(save.els.saveBtn.disabled, false);
 });
 
 test('G13-8 伺服器明確回傳的錯誤照舊：STALE（ok:false）原句顯示；伺服器拋出的例外仍是「呼叫伺服器失敗（…）」；兩者都不等候、不重新載入', function () {
@@ -494,6 +538,33 @@ test('G13-10 分類：Script.html 用到的每一個 api 名稱都分了寫入�
   assertWrittenChinese(assert, 'G13 提示句', Object.keys(hints).map(function (k) { return hints[k]; }));
   // 等候時間要比 2026-10-22 那一次多出的 10.6 秒長，亦要比 callServer() 的逾時短。
   assert.ok(ui.delayMs >= 15000 && ui.delayMs < 120000, String(ui.delayMs));
+});
+
+test('G13-11 後端（真正入口 apiSaveWeek）：同一份儲存 payload 送兩次，第二次回 STALE，訊息以「這一週的資料在你載入之後被改過」開頭（儲存那一句引用的就是它），而且一格都沒有再寫', function () {
+  const iso = '2027-11-07';
+  const env = makeFillEnv({
+    withGrid: false,
+    weekRows: [{ SERVICE_DATE: iso, QUARTER_ID: QUARTER_ID, WEEK_OF_MONTH: 1, STATUS: 'DRAFT' }],
+    config: { PRELUDE_DEFAULT: '預設序樂' }
+  });
+  const sb = env.sandbox;
+  const loaded = sb.loadWeekForWebApp_(iso);
+  const patch = { PRELUDE: '新序樂' };
+  const payload = { isoDate: iso, lastSavedAt: loaded.lastSavedAt, week: patch, baseWeek: sb.baseWeekFor_(loaded.week, patch), dutyEdits: [] };
+
+  const first = sb.apiSaveWeek(JSON.parse(JSON.stringify(payload)));
+  assert.strictEqual(first.ok, true, JSON.stringify(first.error));
+  const auditAfterFirst = sb.readSheet('AuditLog').length;
+  const weekAfterFirst = JSON.stringify(sb.readSheet('BulletinWeeks'));
+
+  // 前端收到 502、表單保留、幹事再按一次「儲存」：送出的是同一份 payload。
+  const second = sb.apiSaveWeek(JSON.parse(JSON.stringify(payload)));
+  assert.strictEqual(second.ok, false);
+  assert.strictEqual(second.error.code, 'STALE');
+  assert.ok(second.error.message.indexOf('這一週的資料在你載入之後被改過') === 0, second.error.message);
+  assert.ok(EXPECTED_SAVE_MESSAGE.indexOf('「這一週的資料在你載入之後被改過」') !== -1, '前端那一句引用的字眼要與伺服器的一致');
+  assert.strictEqual(sb.readSheet('AuditLog').length, auditAfterFirst, '第二次一格都沒有寫');
+  assert.strictEqual(JSON.stringify(sb.readSheet('BulletinWeeks')), weekAfterFirst);
 });
 
 // =====================================================================
