@@ -605,6 +605,33 @@ function missingCountSummary_(missing) {
 }
 
 /**
+ * 用途：判斷一項待填是不是「上週崇拜人數」12 格的其中一格。**純函式。**
+ *
+ *   第二批測試修正 G7：寄出前檢查（`groupPublishMissing_()`）與本季待填清單
+ *   （`buildQuarterMissingFieldsReportLines_()`）都把人數合併成一行，「哪些算
+ *   人數」只在這裏判斷一次，不各寫一套。
+ * Args:
+ *   item {?{field:string}} `buildMissingList_()` 輸出的一項。
+ * Returns:
+ *   {boolean}
+ */
+function isAttendanceMissingItem_(item) {
+  return String((item || {}).field || '').indexOf('ATT_') === 0;
+}
+
+/**
+ * 用途：人數合併成一行時的字眼「N 格未填（上週崇拜人數由內容表輸入）」。
+ *   **純函式。**寄出前檢查與本季待填清單共用，字眼只有一處。
+ * Args:
+ *   count {number} 未填的人數格數。
+ * Returns:
+ *   {string}
+ */
+function attendanceMissingSummaryText_(count) {
+  return Number(count || 0) + ' 格未填（上週崇拜人數由內容表輸入）';
+}
+
+/**
  * 用途：取出一個主日職事表快照內 `FLOWER` 崗位的名字。純函式。
  *   `applyFlowerFromRoster_()`（帶入獻花）與填寫介面獻花欄位旁邊的提示
  *   （`model.flowerRoster`）共用這一個——兩邊各算一次就是兩個真相來源。

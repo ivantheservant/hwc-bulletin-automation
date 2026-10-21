@@ -864,5 +864,76 @@ test('這一輪新增的使用者可見文字，一律書面語繁體中文', fu
 
 // =====================================================================
 
+
+// =====================================================================
+// 第二批測試修正 G7：本季待填清單的人數合併成一行
+// =====================================================================
+
+console.log('\n第二批測試修正 G7：本季待填清單的人數合併成一行');
+
+/** 造三個主日：人數全空、只欠 2 格、全部填齊。 */
+function makeAttendanceEnv() {
+  const boot = loadAllSrcFilesInOrder(baseStubs());
+  const attKeys = [];
+  boot.attendanceRowDefs_().forEach(function (def) { def.keys.forEach(function (k) { attKeys.push(k); }); });
+  assert.strictEqual(attKeys.length, 12, '前提：人數一共 12 格');
+  const partial = {};
+  attKeys.slice(0, 10).forEach(function (k) { partial[k] = 50; });
+  const full = {};
+  attKeys.forEach(function (k) { full[k] = 60; });
+  const weekRows = SERVICE_DATES.map(function (iso, i) {
+    const row = { SERVICE_DATE: iso, QUARTER_ID: QUARTER_ID, WEEK_OF_MONTH: (i % 4) + 1, STATUS: 'DRAFT' };
+    if (iso === SERVICE_DATES[1]) Object.assign(row, partial);
+    if (iso === SERVICE_DATES[2]) Object.assign(row, full);
+    return row;
+  });
+  return makeEnv({ weekRows: weekRows });
+}
+
+test('G7-1 經 quarterMissingFieldsReport_()：人數全空的主日只出一行「人數：12 格未填（上週崇拜人數由內容表輸入）」，不逐格列出', function () {
+  const env = makeAttendanceEnv();
+  const result = env.sandbox.quarterMissingFieldsReport_(QUARTER_ID);
+  assert.strictEqual(result.ok, true, result.message);
+  const lines = Array.from(result.lines);
+
+  const day = SERVICE_DATES[0];
+  const attLines = lines.filter(function (l) { return l.indexOf(day) === 0 && l.indexOf('人數') !== -1; });
+  assert.deepStrictEqual(attLines, [day + '　人數：12 格未填（上週崇拜人數由內容表輸入）']);
+  assert.strictEqual(lines.filter(function (l) { return l.indexOf('ATT_') !== -1; }).length, 0,
+    '不可以再逐格列出 ATT_ 欄位：' + lines.filter(function (l) { return l.indexOf('ATT_') !== -1; }).slice(0, 3).join(' / '));
+
+  // 其他真正要填的項目照樣逐項列出。
+  const dayLines = lines.filter(function (l) { return l.indexOf(day + '　') === 0; });
+  const nonAtt = env.sandbox.buildBulletinModel_(day).missing.filter(function (m) { return !env.sandbox.isAttendanceMissingItem_(m); });
+  assert.strictEqual(dayLines.length, nonAtt.length + 1, '非人數項目逐項一行，人數一行');
+  assert.ok(dayLines.some(function (l) { return l.indexOf('SERMON_TITLE') !== -1; }));
+  assertWrittenChinese(assert, '本季待填清單', lines);
+});
+
+test('G7-2 人數只欠 2 格 → 「2 格未填」；人數全部填齊 → 沒有人數那一行', function () {
+  const env = makeAttendanceEnv();
+  const lines = Array.from(env.sandbox.quarterMissingFieldsReport_(QUARTER_ID).lines);
+  assert.ok(lines.indexOf(SERVICE_DATES[1] + '　人數：2 格未填（上週崇拜人數由內容表輸入）') !== -1, lines.join('\n'));
+  assert.strictEqual(lines.filter(function (l) { return l.indexOf(SERVICE_DATES[2]) === 0 && l.indexOf('人數') !== -1; }).length, 0);
+});
+
+test('G7-3 與寄出前檢查同一支函式產生字眼：同一個主日，兩邊的人數字眼一字不差', function () {
+  const env = makeAttendanceEnv();
+  const day = SERVICE_DATES[0];
+  const reportLine = Array.from(env.sandbox.quarterMissingFieldsReport_(QUARTER_ID).lines)
+    .filter(function (l) { return l.indexOf(day + '　人數：') === 0; })[0];
+  const precheckLine = Array.from(env.sandbox.buildPublishPrecheck_(day, false).lines)
+    .filter(function (l) { return l.indexOf('人數：') !== -1; })[0];
+  assert.ok(reportLine && precheckLine, '兩邊都要有人數那一行');
+  assert.strictEqual(reportLine.slice((day + '　人數：').length), precheckLine.replace(/^　人數：/, ''));
+  assert.strictEqual(env.sandbox.attendanceMissingSummaryText_(12), '12 格未填（上週崇拜人數由內容表輸入）');
+  // 兩邊都經同一組函式，不各寫一套。
+  const selfCheckSrc = srcText('SelfCheck.gs');
+  const publishSrc = srcText('Publish.gs');
+  assert.ok(selfCheckSrc.indexOf('attendanceMissingSummaryText_(') !== -1 && publishSrc.indexOf('attendanceMissingSummaryText_(') !== -1);
+  assert.ok(selfCheckSrc.indexOf('isAttendanceMissingItem_(') !== -1 && publishSrc.indexOf('isAttendanceMissingItem_(') !== -1);
+  assert.strictEqual(publishSrc.indexOf("格未填（上週崇拜人數由內容表輸入）'"), -1, 'Publish.gs 不可以再自己寫一份字眼');
+});
+
 console.log('\n通過 ' + pass + ' 項，失敗 ' + fail + ' 項。');
 process.exit(fail === 0 ? 1 - 1 : 1);

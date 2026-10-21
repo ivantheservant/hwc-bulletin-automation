@@ -479,7 +479,8 @@ function groupPublishMissing_(missing) {
     var field = String((item || {}).field || '');
     var label = String((item || {}).label || field);
     if (field.indexOf('POST:') === 0) { byLabel['事奉人選'].items.push(label); return; }
-    if (field.indexOf('ATT_') === 0) { attendanceCount++; return; }
+    // 「哪些算人數」與合併後的字眼，與本季待填清單共用同一組函式（G7）。
+    if (isAttendanceMissingItem_(item)) { attendanceCount++; return; }
     if (field === 'ANNOUNCEMENTS') { byLabel['家事報告'].items.push('0 條'); return; }
     if (field === 'PRAYERS') { byLabel['代禱事項'].items.push('0 條'); return; }
     if (field === 'FELLOWSHIPS') { byLabel['團契聚會'].items.push('0 條'); return; }
@@ -489,7 +490,7 @@ function groupPublishMissing_(missing) {
   // 上週崇拜人數的 12 格由內容表輸入，不是幹事要逐格填的東西：逐格列出只會
   // 把確認視窗撐得很長，改成一行總數。
   if (attendanceCount > 0) {
-    byLabel['人數'].items.push(attendanceCount + ' 格未填（上週崇拜人數由內容表輸入）');
+    byLabel['人數'].items.push(attendanceMissingSummaryText_(attendanceCount));
   }
 
   return groups.filter(function (g) { return g.items.length > 0; });

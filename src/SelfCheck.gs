@@ -964,11 +964,17 @@ function buildSelfCheckReportLines_(summary) {
 
 /**
  * 用途：組出「本季待填清單」報告的內容行——**完整**逐欄位明細（每個
- *   欄位一行），供「完成度自我檢測」報告的精簡彙總被截斷時，Ivan 另外
+ *   欄位一行；人數 12 格例外，每個主日合併成一行「人數：N 格未填（上週
+ *   崇拜人數由內容表輸入）」），供「完成度自我檢測」報告的精簡彙總被截斷時，Ivan 另外
  *   撳這個選單查完整清單。自己先截斷到 `DIAGNOSTICS_MAX_ROWS`，不倚賴
  *   `writeDiagnosticsReport_()` 的通用截斷訊息——理由同
  *   `buildRosterQuarterReportLines_()`（`src/RosterDiagnostics.gs`）：
  *   這裡要準確講「尚有幾多項」，不是幾多行。
+ *
+ *   ⚠️ 第二批測試修正 G7：2028T2 一季 243 行，其中每個主日 12 行是人數
+ *   （由內容表輸入，不是幹事逐格填），真正要填的項目被淹沒。人數合併成一行，
+ *   字眼與判斷用 `attendanceMissingSummaryText_()`／`isAttendanceMissingItem_()`，
+ *   與寄出前檢查同一組函式；合併那一行排在該主日第一格人數原本的位置。
  * Args:
  *   quarterId {string} 季度 ID。
  *   sourceLabel {string} 這個季度 ID 的來源說明（人手輸入或
@@ -994,11 +1000,25 @@ function buildQuarterMissingFieldsReportLines_(quarterId, sourceLabel) {
   var itemLines = [];
   serviceDates.forEach(function (sd) {
     try {
+      var attendanceCount = 0;
+      var attendanceLineIndex = -1;
       (buildBulletinModel_(sd.isoDate).missing || []).forEach(function (m) {
+        if (isAttendanceMissingItem_(m)) {
+          // G7：人數只佔一行，先留位置，數完再寫字眼。
+          if (attendanceLineIndex === -1) {
+            attendanceLineIndex = itemLines.length;
+            itemLines.push('');
+          }
+          attendanceCount++;
+          return;
+        }
         // F6：完整列出，通常空白的標明出來（不計入「本季待填欄位總數」）。
         itemLines.push(sd.isoDate + '　' + m.label + '（' + m.field + '）'
           + (m.optional === true ? '　〔通常空白〕' : ''));
       });
+      if (attendanceLineIndex !== -1) {
+        itemLines[attendanceLineIndex] = sd.isoDate + '　人數：' + attendanceMissingSummaryText_(attendanceCount);
+      }
     } catch (perDateErr) {
       itemLines.push(sd.isoDate + '　（無法計算：' + ((perDateErr && perDateErr.message) ? perDateErr.message : String(perDateErr)) + '）');
     }

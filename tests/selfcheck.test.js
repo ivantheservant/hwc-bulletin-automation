@@ -548,7 +548,11 @@ test('19h. SELFCHECK_MAX_ROWS 填大過 DIAGNOSTICS_MAX_ROWS → 取較小值並
 });
 
 test('19i. 由真正入口（選單函式 menuShowQuarterMissingFieldsList_）跑「本季待填清單」→ 報告產生、遵守 DIAGNOSTICS_MAX_ROWS', function () {
-  const env = makeManySundaysEnv({ sundayCount: 25, uiPromptButton: 'OK', uiPromptText: '' });
+  // ⚠️ 第二批測試修正 G7：本季待填清單的人數 12 格每個主日合併成一行，一個全空白
+  //    的主日由 20 行變成 9 行（8 項非人數 ＋ 1 行人數）。原本 25 個主日（500 行）
+  //    才逼得出截斷，現在 25 個主日只有 225 行，所以改用 50 個主日（450 行）。
+  //    要鎖的仍然是「總行數不超過上限」與「顯示 ＋ 隱藏 === 全部」。不是改壞。
+  const env = makeManySundaysEnv({ sundayCount: 50, uiPromptButton: 'OK', uiPromptText: '' });
   assert.doesNotThrow(function () { env.sandbox.menuShowQuarterMissingFieldsList_(); });
 
   const rows = env.sandbox.readSheet('Diagnostics').filter(function (r) { return r.REPORT_NAME === '本季待填清單'; });
@@ -565,7 +569,7 @@ test('19i. 由真正入口（選單函式 menuShowQuarterMissingFieldsList_）�
 
   const shownItems = rows.filter(function (r) { return /^\d{4}-\d{2}-\d{2}　/.test(String(r.CONTENT || '')); }).length;
   const hidden = Number(m[1]);
-  assert.strictEqual(shownItems + hidden, 500, '顯示 ' + shownItems + ' ＋ 隱藏 ' + hidden + ' 應該等於 500 項待填');
+  assert.strictEqual(shownItems + hidden, 450, '顯示 ' + shownItems + ' ＋ 隱藏 ' + hidden + ' 應該等於 450 行（50 個主日 × 9）');
   assert.strictEqual(rows.length, 380, '總行數應該剛好用盡 DIAGNOSTICS_MAX_ROWS');
 });
 
