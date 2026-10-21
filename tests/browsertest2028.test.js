@@ -418,7 +418,8 @@ test('F9-8 兩處原本的 window.confirm 都改了；執行 API 一定排在確
   const importFn = js.slice(js.indexOf('function onContentImportPreviewed('), js.indexOf('function onContentImportDone('));
   assert.ok(importFn.indexOf('openConfirmDialog(') !== -1);
   assert.ok(importFn.indexOf("callServer('apiRunContentImport'") > importFn.indexOf('openConfirmDialog('));
-  assert.ok(importFn.indexOf('已取消，沒有寫入任何資料。') !== -1, '取消時的訊息保留');
+  // G19 改了這一條的預期：取消時改用共用常數（FF-14），字眼與重設、還原、季度作業相同。
+  assert.ok(importFn.indexOf("showMessage('info', CANCELLED_NOTHING_WRITTEN_MESSAGE)") !== -1, '取消時用共用常數');
 
   const opFn = js.slice(js.indexOf('function runQuarterOp('), js.indexOf('function runQuarterReport('));
   assert.ok(opFn.indexOf('openConfirmDialog(') !== -1);

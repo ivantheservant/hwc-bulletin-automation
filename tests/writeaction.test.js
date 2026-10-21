@@ -241,7 +241,10 @@ function makeUi(options) {
     between(js, 'function setPublishButtonsBusy(', '// BEGIN publish-result'),
     region(js, 'publish-result'),
     between(js, 'function wireStaticEvents(', 'function toggleQuarterOps('),
-    between(js, 'function showQuarterOpsMessage(', 'function wireGlobalErrorHandlers(')
+    between(js, 'function showQuarterOpsMessage(', 'function wireGlobalErrorHandlers('),
+    // G19：兩個對話框的「取消」（wireStaticEvents() 接上的是真正的函式）。
+    between(js, 'function closeFetchDialog(', 'function confirmFetchFromRoster('),
+    between(js, 'function openPublishConfirm(', 'function downloadWord(')
   ].concat(extra.map(function (pair) { return between(js, pair[0], pair[1]); })).join('\n');
   vm.runInContext(code, ctx);
   dom.document.getElementById('confirmDialogBackdrop').classList.add('hidden');
@@ -638,6 +641,69 @@ test('G15-3 與季度作業同一個常數：季度作業按「取消」顯示�
   assert.strictEqual(ui.ctx.CANCELLED_NOTHING_WRITTEN_MESSAGE, CANCELLED);
   const js = readSrc('src/ui/Script.html');
   assert.strictEqual(js.split(CANCELLED).length - 1, 1, '字眼只可以在常數那一處');
+});
+
+test('G19-1 「重新匯入（只限這一個主日）」→ 對話框按「取消」→「已取消，一格都沒有寫。」（以前是「已取消，沒有寫入任何資料。」），沒有送出 apiRunContentImport', function () {
+  const ui = makeUi({ extra: [['function startContentImport(', 'function applyBaptismPanelVisibility(']] });
+  ui.ctx.startContentImport();
+  ui.take('apiPreviewContentImport').ok({ ok: true, data: { ok: true, summary: { added: 1, updated: 0, removed: 0 }, lines: ['會新增 1 項。'] } });
+  assert.strictEqual(ui.els.confirmDialogBackdrop.classList.contains('hidden'), false, '前提：確認對話框打開了');
+  ui.click('confirmCancelBtn');
+  assert.deepStrictEqual(ui.message(), { type: 'info', text: CANCELLED });
+  assert.strictEqual(ui.count('apiRunContentImport'), 0);
+});
+
+test('G19-2 「建立講員表格」→ 對話框按「取消」或 Esc → 同一句（以前甚麼都不顯示），沒有送出 apiCreateSpeakerForm', function () {
+  const ui = makeUi();
+  ui.click('speakerFormCreateBtn');
+  ui.click('confirmCancelBtn');
+  assert.deepStrictEqual(ui.message(), { type: 'info', text: CANCELLED });
+  assert.strictEqual(ui.count('apiCreateSpeakerForm'), 0);
+
+  const ui2 = makeUi();
+  ui2.click('speakerFormCreateBtn');
+  ui2.dom.docListeners.keydown({ key: 'Escape' });
+  assert.deepStrictEqual(ui2.message(), { type: 'info', text: CANCELLED });
+  assert.strictEqual(ui2.count('apiCreateSpeakerForm'), 0);
+});
+
+test('G19-3 「由職事表重新取數」對話框、發佈前檢查視窗按「取消」→ 同一句，對話框關閉，沒有送出寫入請求', function () {
+  const ui = makeUi();
+  const fetchDialog = ui.dom.document.getElementById('fetchDialogBackdrop');
+  fetchDialog.classList.remove('hidden');
+  ui.click('fetchCancelBtn');
+  assert.strictEqual(fetchDialog.classList.contains('hidden'), true);
+  assert.deepStrictEqual(ui.message(), { type: 'info', text: CANCELLED });
+  assert.strictEqual(ui.count('apiFetchFromRoster'), 0);
+
+  const pub = makeUi();
+  pub.ctx.openPublishConfirm(['未填欄位（3 項）'], { title: '發佈前檢查', checkbox: '仍然要發佈', confirmButton: '確認發佈' });
+  assert.strictEqual(pub.els.publishConfirmBackdrop.classList.contains('hidden'), false, '前提：視窗打開了');
+  pub.click('publishConfirmCancelBtn');
+  assert.strictEqual(pub.els.publishConfirmBackdrop.classList.contains('hidden'), true);
+  assert.deepStrictEqual(pub.message(), { type: 'info', text: CANCELLED });
+  assert.strictEqual(pub.count('apiRunPublish'), 0);
+});
+
+test('G19-4 Script.html 內每一個 openConfirmDialog() 的取消分支：會寫入的都用 CANCELLED_NOTHING_WRITTEN_MESSAGE；只有換週例外（不是寫入）', function () {
+  const js = readSrc('src/ui/Script.html');
+  const titles = [];
+  // 註解內的「openConfirmDialog()」與函式定義本身不算呼叫。
+  const re = /openConfirmDialog\((?!\))([^,]+),/g;
+  let m;
+  while ((m = re.exec(js)) !== null) {
+    if (js.slice(m.index - 9, m.index) === 'function ') continue;
+    const callback = js.slice(m.index, js.indexOf('callServer(', m.index) === -1 ? m.index + 400 : js.indexOf('callServer(', m.index));
+    titles.push(m[1].trim());
+    if (m[1].indexOf("'換週'") !== -1) {
+      assert.ok(callback.indexOf('CANCELLED_NOTHING_WRITTEN_MESSAGE') === -1, '換週不是寫入，不用「一格都沒有寫」');
+      continue;
+    }
+    assert.ok(callback.indexOf('CANCELLED_NOTHING_WRITTEN_MESSAGE') !== -1, m[1] + ' 的取消分支要用共用常數');
+  }
+  assert.deepStrictEqual(titles, ["'由內容表匯入'", "'還原到這個版本'", "'重設這一週'", "'建立講員表格'", "'換週'", "data.title || '季度作業'"],
+    '對話框有增減：先檢查取消分支，再更新這裏');
+  assert.strictEqual(js.indexOf('已取消，沒有寫入任何資料。'), -1, '舊字眼不再出現');
 });
 
 test('G15-4 對話框按「確定」照舊送出（取消那一句不會出現）', function () {

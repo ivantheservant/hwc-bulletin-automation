@@ -925,6 +925,8 @@
   /**
    * 用途：第二批測試修正 G15：會改資料的確認對話框按「取消」（或 Esc）之後顯示的一句。
    *   重設這一週、還原到這個版本、季度作業共用這一個，字眼只有一處。
+   *   G19：由內容表匯入（只限這一個主日）、建立講員表格、由職事表重新取數、發佈前檢查
+   *   視窗亦用這一句。換週的確認不是寫入，按取消只把下拉改回，不用這一句。
    */
   var CANCELLED_NOTHING_WRITTEN_MESSAGE = '已取消，一格都沒有寫。';
 
@@ -1025,7 +1027,7 @@
     var confirmLines = resp.data.lines.concat(['', '確定要匯入嗎？']);
     openConfirmDialog('由內容表匯入', confirmLines, function (accepted) {
       if (!accepted) {
-        showMessage('info', '已取消，沒有寫入任何資料。');
+        showMessage('info', CANCELLED_NOTHING_WRITTEN_MESSAGE);
         return;
       }
       callServer('apiRunContentImport', [state.isoDate], onContentImportDone, { busyText: '匯入中…' });
@@ -1833,7 +1835,11 @@
   function onSpeakerFormCreateClicked() {
     hideMessage();
     openConfirmDialog('建立講員表格', buildSpeakerFormCreateDialogLines(), function (confirmed) {
-      if (!confirmed) return;
+      if (!confirmed) {
+        // G19：與其他會寫入的確認對話框同一句。
+        showMessage('info', CANCELLED_NOTHING_WRITTEN_MESSAGE);
+        return;
+      }
       callServer('apiCreateSpeakerForm', [], function (resp) {
         if (!resp.ok) { showMessage('error', resp.error.message); return; }
         var result = resp.data;
@@ -2653,6 +2659,20 @@
   }
 
   /**
+   * 用途：第二批測試修正 G19：「由職事表重新取數」對話框按「取消」——關閉對話框，顯示
+   *   與其他會寫入的確認對話框同一句。按「確定」之後關閉對話框的是 confirmFetchFromRoster()，
+   *   不經這裏。
+   * Returns:
+   *   {void}
+   * Raises:
+   *   （無）
+   */
+  function cancelFetchFromRoster() {
+    closeFetchDialog();
+    showMessage('info', CANCELLED_NOTHING_WRITTEN_MESSAGE);
+  }
+
+  /**
    * 用途：撳對話框的「確定」——把勾選的欄位送去伺服器，改回跟隨職事表。
    * Returns:
    *   {void}
@@ -3136,6 +3156,20 @@
   }
 
   /**
+   * 用途：第二批測試修正 G19：發佈前檢查視窗按「取消」——關閉視窗，顯示與其他會寫入的
+   *   確認對話框同一句（沒有發佈、沒有寄出）。成功之後關閉視窗的是 onPublishDone()，
+   *   不經這裏。
+   * Returns:
+   *   {void}
+   * Raises:
+   *   （無）
+   */
+  function cancelPublishConfirm() {
+    closePublishConfirm();
+    showMessage('info', CANCELLED_NOTHING_WRITTEN_MESSAGE);
+  }
+
+  /**
    * 用途：下載這一期的 Word 檔（R-005）。
    *
    *   後端回 base64，前端還原成 Blob 再觸發下載——Apps Script 的
@@ -3451,7 +3485,7 @@
     });
 
     document.getElementById('fetchFromRosterBtn').addEventListener('click', openFetchFromRosterDialog);
-    document.getElementById('fetchCancelBtn').addEventListener('click', closeFetchDialog);
+    document.getElementById('fetchCancelBtn').addEventListener('click', cancelFetchFromRoster);
     document.getElementById('fetchConfirmBtn').addEventListener('click', confirmFetchFromRoster);
     document.getElementById('fetchSelectAllBtn').addEventListener('click', function () { setAllFetchCheckboxes(true); });
     document.getElementById('fetchSelectNoneBtn').addEventListener('click', function () { setAllFetchCheckboxes(false); });
@@ -3481,7 +3515,7 @@
     document.getElementById('confirmOkBtn').addEventListener('click', function () { settleConfirmDialog(true); });
     document.getElementById('confirmCancelBtn').addEventListener('click', function () { settleConfirmDialog(false); });
     document.addEventListener('keydown', onConfirmDialogKeydown);
-    document.getElementById('publishConfirmCancelBtn').addEventListener('click', closePublishConfirm);
+    document.getElementById('publishConfirmCancelBtn').addEventListener('click', cancelPublishConfirm);
     document.getElementById('publishConfirmOkBtn').addEventListener('click', function () { runPublish(true); });
     // 勾了那一格才可以撳「確認發佈」——R-006／R-007 明文要求。
     document.getElementById('publishForcedCheck').addEventListener('change', function (e) {
