@@ -1423,6 +1423,53 @@ test('G2-8 sendPublishNotice_ 漏傳 published／只寄出漏傳 masterIssue →
   assert.strictEqual(readSendLog(env).length, 0);
 });
 
+
+// =====================================================================
+// 第二批測試修正 G10：版本號讀不到時不寫「第 0 版」
+// =====================================================================
+
+test('G10-1 只寄出、master 那一行的版本號空白（經 runPublishFlow_）→ 提醒、結果訊息、主旨、AuditLog 都不寫「第 0 版」，只寫日期', function () {
+  const env = makeG2Env({
+    publishLog: [{
+      SERVICE_DATE: G2_MASTER_ISSUE, VERSION_NO: '', PUBLISHED_AT: '2027-11-06',
+      PUBLISHED_BY: 'tester@example.com', ARCHIVE_FILE_ID: 'OLD', SENT: false,
+      SENT_GROUPS: '', MISSING_COUNT: 0, FORCED: false, FORCED_REASON: ''
+    }]
+  });
+  const payload = { isoDate: G2_SELECTED, doPublish: false, doSend: true, groups: ['IT'], customEmails: '' };
+
+  const first = env.sandbox.runPublishFlow_(Object.assign({}, payload, { confirmed: false }));
+  assert.strictEqual(first.reason, 'NEEDS_CONFIRM');
+  const expectedWarning = '⚠ 目前 master 連結是 2027-11-07 的週報，不是 2028-04-09；'
+    + '這次寄出的通知會指向 2027-11-07。要寄 2028-04-09 的週報，請先勾「發佈到 master 連結」。';
+  assert.ok(first.lines.indexOf(expectedWarning) !== -1, first.lines.join('\n'));
+
+  const done = env.sandbox.runPublishFlow_(Object.assign({}, payload, { confirmed: true }));
+  assert.strictEqual(done.ok, true, done.message);
+  assert.ok(done.lines.indexOf('通知信指向 master 連結現時那一期：2027-11-07。') !== -1, done.lines.join('\n'));
+  assert.strictEqual(done.sent.noticeVersionNo, null, '讀不到就是 null，不是 0');
+
+  const audit = env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'WEBAPP_SEND_NOTICE'; })[0];
+  const subject = readSendLog(env)[0].SUBJECT;
+  const everything = [first.lines.join('\n'), done.lines.join('\n'), subject, audit.NOTES].join('\n');
+  assert.strictEqual(everything.indexOf('第 0 版'), -1, everything);
+  assert.strictEqual(everything.indexOf('第 null 版'), -1);
+  assert.strictEqual(everything.indexOf('第  版'), -1);
+  assert.ok(subject.indexOf('— ' + G2_MASTER_ISSUE) !== -1, subject);
+});
+
+test('G10-2 normalizePublishVersionNo_／publishVersionSuffix_：只有正整數才寫「（第 N 版）」', function () {
+  const sb = makeG2Env().sandbox;
+  [[1, 1], [3, 3], ['2', 2], [' 4 ', 4]].forEach(function (pair) {
+    assert.strictEqual(sb.normalizePublishVersionNo_(pair[0]), pair[1], JSON.stringify(pair[0]));
+  });
+  ['', '  ', 0, -1, 1.5, 'abc', null, undefined, true, NaN].forEach(function (v) {
+    assert.strictEqual(sb.normalizePublishVersionNo_(v), null, '應該是 null：' + String(v));
+    assert.strictEqual(sb.publishVersionSuffix_(v), '');
+  });
+  assert.strictEqual(sb.publishVersionSuffix_(2), '（第 2 版）');
+});
+
 // =====================================================================
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');

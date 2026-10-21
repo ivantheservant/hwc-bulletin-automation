@@ -405,8 +405,9 @@ function latestPublishLogRow_(rows) {
  * Args:
  *   masterFileId {string} 目前生效的 master 檔案 ID（`publishConfig_().masterFileId`）。
  * Returns:
- *   {?{isoDate:string, versionNo:number}} 同一類一行都沒有回 `null`
- *     （代表從未發佈過）。
+ *   {?{isoDate:string, versionNo:(number|null)}} 同一類一行都沒有回 `null`
+ *     （代表從未發佈過）。`versionNo` 不是正整數（例如空白）時是 `null`，
+ *     不會變成 0（第二批測試修正 G10）。
  * Raises:
  *   Error（`code = 'MASTER_ISSUE_UNKNOWN'`）最新一行的主日日期讀不到——
  *     不可以把空白當成一個日期寫進通知信（缺失不可以當成正常值）。
@@ -424,7 +425,38 @@ function currentMasterPublishIssue_(masterFileId) {
     err.code = 'MASTER_ISSUE_UNKNOWN';
     throw err;
   }
-  return { isoDate: isoDate, versionNo: Number(latest.VERSION_NO || 0) };
+  return { isoDate: isoDate, versionNo: normalizePublishVersionNo_(latest.VERSION_NO) };
+}
+
+/**
+ * 用途：把 `PublishLog.VERSION_NO` 正規化成正整數。純函式。
+ *
+ *   ⚠️ 第二批測試修正 G10：舊寫法 `Number(x || 0)` 把空白變成 0，提醒那一行就寫
+ *   「第 0 版」——缺失被當成正常值（已知 bug 類型第 2 類）。空白、0、負數、小數、
+ *   文字、布林值一律回 `null`，由顯示那一邊決定不寫版本號。
+ * Args:
+ *   value {*} 工作表讀出來的版本號。
+ * Returns:
+ *   {?number} 正整數；不是正整數回 `null`。
+ */
+function normalizePublishVersionNo_(value) {
+  if (typeof value !== 'number' && typeof value !== 'string') return null;
+  if (typeof value === 'string' && value.trim() === '') return null;
+  var n = Number(value);
+  return (isFinite(n) && n > 0 && Math.floor(n) === n) ? n : null;
+}
+
+/**
+ * 用途：版本號的顯示字眼「（第 N 版）」。純函式。只寄出的提醒、結果訊息與
+ *   `AuditLog` 備註共用，版本號讀不到時三處一致地不寫。
+ * Args:
+ *   versionNo {*} 版本號（任何值，經 `normalizePublishVersionNo_()`）。
+ * Returns:
+ *   {string} 版本號不是正整數回空字串。
+ */
+function publishVersionSuffix_(versionNo) {
+  var n = normalizePublishVersionNo_(versionNo);
+  return n === null ? '' : '（第 ' + n + ' 版）';
 }
 
 /**
@@ -432,8 +464,9 @@ function currentMasterPublishIssue_(masterFileId) {
  *   那一行提醒。**純函式。**
  * Args:
  *   selectedIsoDate {string} 介面選中的主日。
- *   masterIssue {?{isoDate:string, versionNo:number}} `currentMasterPublishIssue_()`
- *     的回傳值；`null`（有發佈、或從未發佈）回空字串。
+ *   masterIssue {?{isoDate:string, versionNo:(number|null)}} `currentMasterPublishIssue_()`
+ *     的回傳值；`null`（有發佈、或從未發佈）回空字串。版本號讀不到時不寫
+ *     「（第 N 版）」（G10）。
  * Returns:
  *   {string} 兩者相同、或沒有 `masterIssue` 回空字串。
  */
@@ -441,7 +474,9 @@ function buildMasterIssueMismatchLine_(selectedIsoDate, masterIssue) {
   if (!masterIssue) return '';
   var selected = String(selectedIsoDate || '').trim();
   if (!selected || masterIssue.isoDate === selected) return '';
-  return '⚠ 目前 master 連結是 ' + masterIssue.isoDate + '（第 ' + masterIssue.versionNo + ' 版）的週報，不是 '
+  // 有版本號：「2027-11-07（第 1 版）的週報」；沒有：「2027-11-07 的週報」。
+  var versionSuffix = publishVersionSuffix_(masterIssue.versionNo);
+  return '⚠ 目前 master 連結是 ' + masterIssue.isoDate + (versionSuffix || ' ') + '的週報，不是 '
     + selected + '；這次寄出的通知會指向 ' + masterIssue.isoDate + '。要寄 ' + selected
     + ' 的週報，請先勾「發佈到 master 連結」。';
 }
@@ -692,7 +727,7 @@ function buildPublishPrecheckLines_(precheck, doPublish) {
  *   isoDate {string} 主日日期，yyyy-MM-dd。
  *   doPublish {boolean=} 這次有沒有發佈；`false`（只寄出）時標題改為
  *     「寄出前檢查」。省略當作 `true`。
- *   options {{masterIssue:(?{isoDate:string, versionNo:number})}=} 選填。
+ *   options {{masterIssue:(?{isoDate:string, versionNo:(number|null)})}=} 選填。
  *     第二批測試修正 G2：只寄出時由 `runPublishFlow_()` 傳入
  *     `currentMasterPublishIssue_()` 的結果（同一次請求只讀一次）；選中的
  *     主日與它不同時，檢查多一行提醒（`masterIssueNotice`）。這一行**不**
@@ -1308,7 +1343,7 @@ function publishCurrentUserEmail_() {
  * Args:
  *   isoDate {string} 介面選中的主日，yyyy-MM-dd。
  *   options {{groups:string[], customEmails:string, blob:(Blob|null),
- *             published:boolean, masterIssue:(?{isoDate:string, versionNo:number})}}
+ *             published:boolean, masterIssue:(?{isoDate:string, versionNo:(number|null)})}}
  *     `blob` 係今次上載嘅 PDF；只寄唔發佈時係 `null`，嗰陣就算 Config
  *     叫附上 PDF 都冇嘢可以附（信入面照樣有 master 連結）。
  *     `published` 一定要明確傳 `true`（今次有發佈）或 `false`（只寄出）。
@@ -1334,7 +1369,8 @@ function sendPublishNotice_(isoDate, options) {
   }
   var sendStatus = o.published ? PUBLISH_SEND_STATUS_ : SEND_ONLY_SEND_STATUS_;
   var noticeIsoDate = o.published ? isoDate : o.masterIssue.isoDate;
-  var noticeVersionNo = o.published ? null : Number(o.masterIssue.versionNo || 0);
+  // G10：版本號讀不到就是 null，不可以變成 0。
+  var noticeVersionNo = o.published ? null : normalizePublishVersionNo_(o.masterIssue.versionNo);
 
   if (!config.masterFileId) {
     return {
@@ -1601,7 +1637,7 @@ function runPublishFlow_(payload) {
  *   payload {Object} 原本嘅 payload（要用 `groups`／`customEmails`）。
  *   ctx {{isoDate:string, doPublish:boolean, doSend:boolean, blob:(Blob|null),
  *        pdfSizeMb:number, sentGroups:string, precheck:Object, result:Object,
- *        masterIssue:(?{isoDate:string, versionNo:number})}}
+ *        masterIssue:(?{isoDate:string, versionNo:(number|null)})}}
  *     `masterIssue` 只寄出時才有（`runPublishFlow_()` 已經讀好），發佈時是 `null`。
  * Returns:
  *   {Object} 同 `runPublishFlow_()`。
@@ -1710,7 +1746,7 @@ function auditSendNoticeOnly_(isoDate, sent) {
     notes: '由填寫介面只寄出（不發佈）；組別：' + ((o.groups || []).join('、') || '（無）')
       + '；收件人數：' + (o.recipientCount || 0)
       + '；通知指向 master 連結現時那一期：' + (o.noticeIsoDate || '（不明）')
-      + (o.noticeVersionNo ? '（第 ' + o.noticeVersionNo + ' 版）' : '')
+      + publishVersionSuffix_(o.noticeVersionNo)
       + '；DRY_RUN=' + (o.dryRun ? 'TRUE' : 'FALSE') + '。'
   });
 }
@@ -1745,7 +1781,7 @@ function buildPublishResultLines_(result) {
     // 第二批測試修正 G2：只寄出時講明通知信指向哪一期。
     if (!o.published && o.sent.status === SEND_ONLY_SEND_STATUS_ && o.sent.noticeIsoDate) {
       lines.push('通知信指向 master 連結現時那一期：' + o.sent.noticeIsoDate
-        + (o.sent.noticeVersionNo ? '（第 ' + o.sent.noticeVersionNo + ' 版）' : '') + '。');
+        + publishVersionSuffix_(o.sent.noticeVersionNo) + '。');
     }
     if (o.sent.attached) lines.push('通知信已附上這一次的 PDF。');
   } else if (o.sendError) {
