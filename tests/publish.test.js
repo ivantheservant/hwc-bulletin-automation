@@ -207,6 +207,10 @@ function makeEnv(options) {
 
   const ownSheets = {};
   Object.keys(boot.SHEETS).forEach(function (id) { ownSheets[boot.SHEETS[id]] = ownSheet(id, []); });
+  // G22(b)：SendLog 的 TIMESTAMP 要保留時分秒（真的 Sheets 會保留），才測得到「幾秒之內」。
+  if (o.sendLogKeepsTime) {
+    ownSheets.SendLog = makeFakeSheet(boot.COLUMNS.SEND_LOG.headers, boot.COLUMNS.SEND_LOG.keys, [], { keepDateTime: true });
+  }
 
   ownSheets.Config = ownSheet('CONFIG', Object.keys(cfg).map(function (k) {
     return { KEY: k, VALUE: cfg[k], NOTE: '', EDITABLE: true };
@@ -1468,6 +1472,79 @@ test('G10-2 normalizePublishVersionNo_／publishVersionSuffix_：只有正整數
     assert.strictEqual(sb.publishVersionSuffix_(v), '');
   });
   assert.strictEqual(sb.publishVersionSuffix_(2), '（第 2 版）');
+});
+
+// =====================================================================
+// G22(b)：只寄出的防重複（同一期、同一組收件人，PUBLISH_DEDUP_SEC 秒之內）
+// =====================================================================
+
+const G22_DEDUP_SEC = '30';
+const G22_PAYLOAD = { isoDate: G2_SELECTED, doPublish: false, doSend: true, groups: ['IT'], customEmails: '', confirmed: true };
+
+function makeG22Env() {
+  return makeG2Env({ config: { DRY_RUN: 'TRUE', PUBLISH_DEDUP_SEC: G22_DEDUP_SEC }, sendLogKeepsTime: true });
+}
+
+test('G22-1 真正入口 apiRunPublish：只寄出同一份 payload 連續兩次 → 第二次被擋（DUPLICATE_SEND，講明剛才已經寄出、這次沒有再寄）；SendLog 只有一行、AuditLog 只有一次寄出', function () {
+  const env = makeG22Env();
+  const first = env.sandbox.apiRunPublish(Object.assign({}, G22_PAYLOAD));
+  assert.strictEqual(first.ok, true, JSON.stringify(first.error));
+  assert.strictEqual(first.data.ok, true, first.data.message);
+  assert.strictEqual(readSendLog(env).length, 1, '前提：IT 一組一個收件人');
+
+  // 連線斷了、幹事再按一次：送出的是同一份 payload。
+  const second = env.sandbox.apiRunPublish(Object.assign({}, G22_PAYLOAD));
+  assert.strictEqual(second.ok, true, JSON.stringify(second.error));
+  assert.strictEqual(second.data.ok, false);
+  assert.strictEqual(second.data.reason, 'DUPLICATE_SEND');
+  assert.ok(second.data.message.indexOf('剛才已經寄出過這一期（' + G2_MASTER_ISSUE + '）的通知（') === 0, second.data.message);
+  assert.ok(second.data.message.indexOf('1 個收件人，模擬模式只有記錄），為免重複，這次沒有再寄。') !== -1, second.data.message);
+  assert.ok(second.data.message.indexOf('請 ' + G22_DEDUP_SEC + ' 秒之後再按') !== -1, '時窗跟 Config：' + second.data.message);
+  assert.strictEqual(readSendLog(env).length, 1, 'SendLog 只有一行');
+  const audit = env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'WEBAPP_SEND_NOTICE'; });
+  assert.strictEqual(audit.length, 1);
+  assertWrittenChinese(assert, 'G22 防重複訊息', second.data.message);
+});
+
+test('G22-2 不算重複：收件人不同（改寄另一組）照寄；上一次在時窗之外（時間撥前 Config 秒數加一秒）照寄', function () {
+  const env = makeG22Env();
+  env.sandbox.apiRunPublish(Object.assign({}, G22_PAYLOAD));
+  const other = env.sandbox.apiRunPublish(Object.assign({}, G22_PAYLOAD, { groups: ['CC'] }));
+  assert.strictEqual(other.data.ok, true, other.data.message);
+  assert.strictEqual(readSendLog(env).length, 2);
+
+  const later = makeG22Env();
+  later.sandbox.apiRunPublish(Object.assign({}, G22_PAYLOAD));
+  // 不等真時間：把那一行的時間撥前 PUBLISH_DEDUP_SEC + 1 秒（由 Config 現值算，見 bug class 115）。
+  // 用儲存格原值的建構子造新的 Date（sandbox 那一個 realm），readSheet() 才認得。
+  const sheet = later.sandbox.SpreadsheetApp.getActiveSpreadsheet().getSheetByName('SendLog');
+  const cell = sheet.getRange(3, later.sandbox.COLUMNS.SEND_LOG.keys.indexOf('TIMESTAMP') + 1);
+  const stamp = cell.getValue();
+  assert.strictEqual(Object.prototype.toString.call(stamp), '[object Date]', '前提：TIMESTAMP 保留時分秒');
+  const dedupSec = later.sandbox.publishConfig_().dedupSec;
+  assert.strictEqual(dedupSec, Number(G22_DEDUP_SEC));
+  cell.setValue(new stamp.constructor(stamp.getTime() - (dedupSec + 1) * 1000));
+  const again = later.sandbox.apiRunPublish(Object.assign({}, G22_PAYLOAD));
+  assert.strictEqual(again.data.ok, true, again.data.message);
+  assert.strictEqual(readSendLog(later).length, 2);
+});
+
+test('G22-3 findRecentSendOnlyBatch_：全部 FAILED 的一批不算（一封都沒有寄出）；PUBLISH_DEDUP_SEC 是 0 就不檢查；收件人不分大小寫；別一期不算', function () {
+  const s = makeG22Env().sandbox;
+  const now = new Date(2026, 9, 22, 10, 0, 0).getTime();
+  const at = new Date(now - 5000);
+  const row = function (status, email, iso) {
+    return { TIMESTAMP: at, SERVICE_DATE: s.normalizeDate_(iso || '2027-11-07'), RECIPIENT_EMAIL: email || 'it1@example.com', STATUS: status, DRY_RUN: true, BATCH_ID: 'SB1' };
+  };
+  assert.strictEqual(s.findRecentSendOnlyBatch_([row('FAILED')], '2027-11-07', ['it1@example.com'], now, 30), null);
+  assert.strictEqual(s.findRecentSendOnlyBatch_([row('SEND_ONLY')], '2027-11-07', ['it1@example.com'], now, 0), null);
+  assert.ok(s.findRecentSendOnlyBatch_([row('SEND_ONLY', 'IT1@Example.com')], '2027-11-07', ['it1@example.com'], now, 30));
+  assert.strictEqual(s.findRecentSendOnlyBatch_([row('SEND_ONLY', null, '2027-10-31')], '2027-11-07', ['it1@example.com'], now, 30), null);
+  assert.strictEqual(s.findRecentSendOnlyBatch_([row('PUBLISH')], '2027-11-07', ['it1@example.com'], now, 30), null,
+    '發佈加寄出由發佈的防重複負責');
+  const found = s.findRecentSendOnlyBatch_([row('SEND_ONLY')], '2027-11-07', ['it1@example.com'], now, 30);
+  assert.strictEqual(found.secondsAgo, 5);
+  assert.strictEqual(found.recipientCount, 1);
 });
 
 // =====================================================================

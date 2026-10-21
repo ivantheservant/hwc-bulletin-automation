@@ -1350,6 +1350,10 @@ function publishCurrentUserEmail_() {
  *   是介面選中的主日。通知信的 `{{ServiceDate}}`（主旨與內文）與
  *   `SendLog.SERVICE_DATE` 一律用 `masterIssue.isoDate`，令信講的日期與連結
  *   打開看到的那一期一致。
+ *
+ *   ⚠️ 第二批測試修正 G22(b)：只寄出時，同一期、同一組收件人在 `PUBLISH_DEDUP_SEC`
+ *   秒內已經寄出過（SendLog 有 SEND_ONLY 的一批），回 `reason:'DUPLICATE_SEND'`，
+ *   一封都不寄（見 `findRecentSendOnlyBatch_()`）。發佈加寄出由發佈的防重複負責。
  * Args:
  *   isoDate {string} 介面選中的主日，yyyy-MM-dd。
  *   options {{groups:string[], customEmails:string, blob:(Blob|null),
@@ -1396,6 +1400,22 @@ function sendPublishNotice_(isoDate, options) {
       ok: false, dryRun: config.dryRun, recipientCount: 0, groups: o.groups || [], attached: false,
       reason: resolved.reason, message: resolved.message
     };
+  }
+
+  // ⚠️ 第二批測試修正 G22(b)：只寄出的防重複。發佈有自己的防重複（runPublishFlowLocked_()），
+  //    只寄出以前沒有：連線斷了、幹事照提示再按一次，就會再寄一封。這裏在拿着指令碼鎖、
+  //    寄出之前查 SendLog：同一期、同一組收件人在 PUBLISH_DEDUP_SEC 秒內已有只寄出的記錄，
+  //    就拒絕，一封都不寄、SendLog 一行都不寫。
+  if (!o.published) {
+    var recentSend = findRecentSendOnlyBatch_(readSendLogRowsForDedup_(), noticeIsoDate,
+      resolved.recipients.map(function (r) { return r.email; }), new Date().getTime(), config.dedupSec);
+    if (recentSend) {
+      return {
+        ok: false, dryRun: config.dryRun, recipientCount: 0, groups: (o.groups || []).slice(), attached: false,
+        reason: 'DUPLICATE_SEND',
+        message: buildDuplicateSendMessage_(noticeIsoDate, recentSend, config.timezone, config.dedupSec)
+      };
+    }
   }
 
   var links = masterPdfLinks_(config.masterFileId);
@@ -1734,6 +1754,124 @@ function runPublishFlowLocked_(payload, ctx) {
 
   result.lines = buildPublishResultLines_(result);
   return result;
+}
+
+/**
+ * 用途：第二批測試修正 G22(b)：讀 SendLog 給只寄出的防重複用。
+ *
+ *   ⚠️ 不可以用 `readSheet()`：TIMESTAMP 欄的型別是 DATE，`readSheet()` 會正規化成當日
+ *   零時，時分秒全部丟失，「30 秒之內」就永遠算不到。這裏直接讀儲存格的原值（寫入時是
+ *   帶時分秒的 Date），欄位位置照 COLUMNS.SEND_LOG.keys，並核對第 2 行機器鍵。
+ *   工作表不存在當作沒有記錄——寄出之後 writeSendLogRows_() 一樣寫不到，屆時會原樣拋錯。
+ * Args: （無）
+ * Returns:
+ *   {Object[]} 每一行 `{TIMESTAMP, SERVICE_DATE, RECIPIENT_EMAIL, STATUS, DRY_RUN, BATCH_ID}`
+ *     （儲存格原值，沒有正規化）。
+ * Raises:
+ *   Error 如果第 2 行機器鍵與程式定義不符（結構被改過，不可以靜靜當作沒有記錄）。
+ */
+function readSendLogRowsForDedup_() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.SEND_LOG);
+  if (!sheet) return [];
+  var keys = COLUMNS.SEND_LOG.keys;
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 3) return [];
+  var header = sheet.getRange(2, 1, 1, keys.length).getValues()[0];
+  keys.forEach(function (key, i) {
+    if (String(header[i]).trim() !== key) {
+      throw new Error('readSendLogRowsForDedup_：工作表「' + SHEETS.SEND_LOG + '」第 2 行機器鍵與程式定義不符（第 '
+        + (i + 1) + ' 欄，預期「' + key + '」），請先執行「初始化工作表」。為免重複寄信，這次沒有寄出。');
+    }
+  });
+  return sheet.getRange(3, 1, lastRow - 2, keys.length).getValues().map(function (row) {
+    var obj = {};
+    ['TIMESTAMP', 'SERVICE_DATE', 'RECIPIENT_EMAIL', 'STATUS', 'DRY_RUN', 'BATCH_ID'].forEach(function (key) {
+      obj[key] = row[keys.indexOf(key)];
+    });
+    return obj;
+  });
+}
+
+/**
+ * 用途：第二批測試修正 G22(b)：在 SendLog 找「同一期、同一組收件人」在時窗內的只寄出
+ *   記錄。純函式。
+ *
+ *   一次寄出是 SendLog 同一個 BATCH_ID 的幾行（每個收件人一行）。一批算數的條件：
+ *   至少一行 STATUS 是 SEND_ONLY（全部 FAILED 即是一封都沒有寄出，可以再寄）、主日日期是
+ *   這一期、時間在 dedupSec 秒之內，而且那一批的收件人（不分大小寫）與這一次完全相同。
+ *   收件人不同（例如這一次改寄另一組）不算重複。時間在未來（時鐘不一致）不算重複，理由同
+ *   findRecentPublishStamp_()。
+ * Args:
+ *   sendLogRows {Object[]} `readSendLogRowsForDedup_()` 的輸出（TIMESTAMP 要帶時分秒）。
+ *   noticeIsoDate {string} 這一次通知信講的那一期，yyyy-MM-dd。
+ *   recipientEmails {string[]} 這一次的收件人電郵。
+ *   nowMs {number} 現在的毫秒數。
+ *   dedupSec {number} Config `PUBLISH_DEDUP_SEC`；0 或以下代表不檢查。
+ * Returns:
+ *   {?{at:Date, secondsAgo:number, recipientCount:number, dryRun:boolean}} 最近那一批；
+ *     不算重複回 `null`。
+ * Raises:
+ *   （無）
+ */
+function findRecentSendOnlyBatch_(sendLogRows, noticeIsoDate, recipientEmails, nowMs, dedupSec) {
+  var seconds = Number(dedupSec);
+  if (!(seconds > 0)) return null;
+  function emailKey(value) { return String(value || '').trim().toLowerCase(); }
+  var wanted = (recipientEmails || []).map(emailKey).filter(Boolean).sort().join('\n');
+  if (!wanted) return null;
+
+  var batches = {};
+  (sendLogRows || []).forEach(function (row) {
+    // 不用 instanceof：工作表讀出來的 Date 未必是同一個 Date 建構子造的（同 buildPublishStatusForWebApp_()）。
+    var at = Object.prototype.toString.call(row.TIMESTAMP) === '[object Date]' ? row.TIMESTAMP : null;
+    if (!at || isNaN(at.getTime())) return;
+    var serviceDate = normalizeDate_(row.SERVICE_DATE);
+    if (!serviceDate || formatIsoDate_(serviceDate) !== noticeIsoDate) return;
+    var key = String(row.BATCH_ID || '').trim() || ('@' + at.getTime());
+    var batch = batches[key] || (batches[key] = { at: at, emails: [], sendOnly: false, dryRun: false });
+    if (at.getTime() > batch.at.getTime()) batch.at = at;
+    batch.emails.push(emailKey(row.RECIPIENT_EMAIL));
+    if (String(row.STATUS || '') === SEND_ONLY_SEND_STATUS_) batch.sendOnly = true;
+    if (normalizeBoolean_(row.DRY_RUN) === true) batch.dryRun = true;
+  });
+
+  var found = null;
+  Object.keys(batches).forEach(function (key) {
+    var b = batches[key];
+    if (!b.sendOnly) return;
+    var elapsedMs = Number(nowMs) - b.at.getTime();
+    if (elapsedMs < 0 || elapsedMs > seconds * 1000) return;
+    var unique = b.emails.filter(function (e, i, all) { return e && all.indexOf(e) === i; });
+    if (unique.slice().sort().join('\n') !== wanted) return;
+    if (!found || b.at.getTime() > found.at.getTime()) {
+      found = { at: b.at, secondsAgo: Math.round(elapsedMs / 1000), recipientCount: unique.length, dryRun: b.dryRun };
+    }
+  });
+  return found;
+}
+
+/**
+ * 用途：第二批測試修正 G22(b)：只寄出被防重複擋下時的一句。純函式（時間格式化除外）。
+ * Args:
+ *   noticeIsoDate {string} 通知信講的那一期。
+ *   recent {{at:Date, recipientCount:number, dryRun:boolean}} `findRecentSendOnlyBatch_()` 的結果。
+ *   timezone {string} Config `SYS_TIMEZONE`。
+ *   dedupSec {number} Config `PUBLISH_DEDUP_SEC`。
+ * Returns:
+ *   {string}
+ * Raises:
+ *   （無）時間格式化失敗就不寫時間。
+ */
+function buildDuplicateSendMessage_(noticeIsoDate, recent, timezone, dedupSec) {
+  var hhmm = '';
+  try {
+    hhmm = Utilities.formatDate(recent.at, timezone, 'HH:mm');
+  } catch (err) {
+    hhmm = '';
+  }
+  return '剛才已經寄出過這一期（' + noticeIsoDate + '）的通知（' + (hhmm ? hhmm + '，' : '')
+    + recent.recipientCount + ' 個收件人' + (recent.dryRun ? '，模擬模式只有記錄' : '') + '），'
+    + '為免重複，這次沒有再寄。如果真的要再寄一次，請 ' + dedupSec + ' 秒之後再按。';
 }
 
 /**

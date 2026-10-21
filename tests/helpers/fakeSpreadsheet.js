@@ -131,12 +131,21 @@ function writeCellLikeSheets(value, rowNo, colNo, numberFormats, escapedValues) 
  *   headers {string[]} 第 1 行（人看的標題，內容不影響任何驗證邏輯）。
  *   keys {string[]} 第 2 行機器鍵，決定資料列的欄位順序。
  *   rowObjects {Object[]} 資料列，以機器鍵為 key 的物件陣列。
+ *   options {{keepDateTime:boolean}=} 第二批測試修正 G22(b)：`keepDateTime` 是 true 時，
+ *     寫入的 Date 原樣存起來（保留時分秒，與真的 Sheets 一樣），不轉成 yyyy-MM-dd。只可以
+ *     用在「同一個 sandbox 寫、同一個 sandbox 讀」的工作表（否則有上面講的跨 realm 問題）；
+ *     要測「幾秒之內」的防重複（讀 SendLog 的 TIMESTAMP）就一定要用它。
  * Returns:
  *   {Object} 假 Sheet，實作 getLastRow／getLastColumn／getMaxRows／
  *     getFrozenRows／setFrozenRows／getRange()（含 getValues／setValues／
  *     setFontWeight／setBackground／setNumberFormat／clearContent）。
  */
-function makeFakeSheet(headers, keys, rowObjects) {
+function makeFakeSheet(headers, keys, rowObjects, options) {
+  var keepDateTime = Boolean(options && options.keepDateTime);
+  function writeCell(value, rowNo, colNo, numberFormats, escapedValues) {
+    if (keepDateTime && value && Object.prototype.toString.call(value) === '[object Date]') return value;
+    return writeCellLikeSheets(value, rowNo, colNo, numberFormats, escapedValues);
+  }
   var data = [headers, keys].concat(rowObjects.map(function (obj) {
     return keys.map(function (k) { return obj[k] === undefined ? '' : obj[k]; });
   }));
@@ -206,7 +215,7 @@ function makeFakeSheet(headers, keys, rowObjects) {
             var rowIdx = r - 1 + i;
             while (data.length <= rowIdx) data.push([]);
             for (var j = 0; j < values[i].length; j++) {
-              data[rowIdx][c - 1 + j] = writeCellLikeSheets(
+              data[rowIdx][c - 1 + j] = writeCell(
                 values[i][j], rowIdx + 1, c + j, numberFormats, escapedValues);
             }
           }
@@ -222,7 +231,7 @@ function makeFakeSheet(headers, keys, rowObjects) {
         },
         setValue: function (value) {
           while (data.length <= r - 1) data.push([]);
-          data[r - 1][c - 1] = writeCellLikeSheets(value, r, c, numberFormats, escapedValues);
+          data[r - 1][c - 1] = writeCell(value, r, c, numberFormats, escapedValues);
           return this;
         },
         clearContent: function () {
