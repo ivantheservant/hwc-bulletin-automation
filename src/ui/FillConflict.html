@@ -124,8 +124,41 @@
   var CALL_TIMEOUT_SEC = <?!= JSON.stringify(callTimeoutSec) ?>;
 
   // BEGIN no-response-detect（G20：照搬自 ui/Script.html，兩處要一字不差；這個對話框是另一個獨立頁面，共用不到那一份。改這裏要同步改那裏；tests/writeaction.test.js 會核對）
-  /** 第二批測試修正 G13：看來是連線／傳輸問題的錯誤訊息（見 isNoResponseFailure()）。 */
-  var NO_RESPONSE_PATTERN = /NetworkError|HTTP\s*5\d\d|time(d)?\s*out|Failed to fetch|Connection failure/i;
+  /**
+   * 第二批測試修正 G13／G26：看來是連線／傳輸問題的錯誤訊息（見 isNoResponseFailure()）。
+   * G26：訊息帶 HTTP 狀態碼時另外按狀態碼判斷（httpStatusOfFailure()），這裏不再認 HTTP 5xx。
+   */
+  var NO_RESPONSE_PATTERN = /NetworkError|time(d)?\s*out|Failed to fetch|Connection failure/i;
+
+  /**
+   * 用途：第二批測試修正 G26：取出失敗處理收到的錯誤的文字。
+   * Args:
+   *   err {*} 失敗處理收到的錯誤（字串、Error 或其他）。
+   * Returns:
+   *   {string} 沒有文字回空字串。
+   * Raises:
+   *   （無）
+   */
+  function failureRawText(err) {
+    if (typeof err === 'string') return err;
+    if (err && typeof err.message === 'string') return err.message;
+    return '';
+  }
+
+  /**
+   * 用途：第二批測試修正 G26：由錯誤訊息找出 HTTP 狀態碼（例如「NetworkError: Connection
+   *   failure due to HTTP 502」的 502）。
+   * Args:
+   *   raw {string} 錯誤訊息。
+   * Returns:
+   *   {?number} 沒有狀態碼回 null。
+   * Raises:
+   *   （無）
+   */
+  function httpStatusOfFailure(raw) {
+    var m = /HTTP\s*(\d{1,3})\b/i.exec(String(raw || ''));
+    return m ? Number(m[1]) : null;
+  }
 
   /**
    * 用途：第二批測試修正 G13：判斷一個失敗看來是不是連線／傳輸問題（伺服器沒有回應），
@@ -136,22 +169,57 @@
    *   仍在處理、之後亦可能已經完成。伺服器明確回傳的錯誤（例如 STALE、驗證失敗）經
    *   withApiResult_() 變成 ok:false，由成功處理接收，不會來到這裏；來到失敗處理而又
    *   有一句不屬於連線問題的訊息，是伺服器拋出的例外，照舊當作失敗。
+   *
+   *   G26：帶 HTTP 狀態碼的，只有 0 與 5xx 算沒有回應。401／403 是登入狀態有問題（登入過期、
+   *   同一個瀏覽器登入了幾個 Google 帳戶），請求根本沒有到伺服器，見 isSignInFailure()；
+   *   其他 4xx 亦沒有到伺服器，照舊當作失敗。
    * Args:
    *   err {*} 失敗處理收到的錯誤；callServer() 自己的逾時錯誤帶 noResponse:true。
    * Returns:
-   *   {boolean} 帶 noResponse:true、沒有任何訊息，或者訊息符合 NO_RESPONSE_PATTERN
-   *     （NetworkError、HTTP 5xx、timeout／timed out、Failed to fetch、Connection failure）
-   *     就是 true。
+   *   {boolean} 帶 noResponse:true、沒有任何訊息、HTTP 狀態碼是 0 或 5xx，或者沒有狀態碼而
+   *     訊息符合 NO_RESPONSE_PATTERN（NetworkError、timeout／timed out、Failed to fetch、
+   *     Connection failure）就是 true。
    * Raises:
    *   （無）
    */
   function isNoResponseFailure(err) {
     if (err && err.noResponse === true) return true;
-    var raw = '';
-    if (typeof err === 'string') raw = err;
-    else if (err && typeof err.message === 'string') raw = err.message;
+    var raw = failureRawText(err);
     if (raw.trim() === '') return true;
+    var status = httpStatusOfFailure(raw);
+    if (status !== null) return status === 0 || (status >= 500 && status <= 599);
     return NO_RESPONSE_PATTERN.test(raw);
+  }
+
+  /**
+   * 用途：第二批測試修正 G26：這個失敗是不是 Google 登入狀態有問題（HTTP 401／403）。
+   * Args:
+   *   err {*} 失敗處理收到的錯誤。
+   * Returns:
+   *   {boolean}
+   * Raises:
+   *   （無）
+   */
+  function isSignInFailure(err) {
+    if (err && err.noResponse === true) return false;
+    var status = httpStatusOfFailure(failureRawText(err));
+    return status === 401 || status === 403;
+  }
+
+  /**
+   * 用途：第二批測試修正 G26：登入狀態有問題時給使用者看的一句。這個動作沒有送到伺服器，
+   *   重新登入之後再做一次是安全的。
+   * Args:
+   *   err {*} 失敗處理收到的錯誤（取它的 HTTP 狀態碼）。
+   * Returns:
+   *   {string}
+   * Raises:
+   *   （無）
+   */
+  function describeSignInFailure(err) {
+    var status = httpStatusOfFailure(failureRawText(err));
+    return 'Google 登入狀態有問題（HTTP ' + (status || '401/403') + '），這個動作沒有送到伺服器。'
+      + '請重新載入頁面；如果用了多個 Google 帳戶，請只登入教會帳戶再試。';
   }
   // END no-response-detect
 
@@ -193,6 +261,11 @@
     if (!(seconds > 0)) seconds = 120;
 
     var fail = settle(function (err) {
+      // G26：HTTP 401／403 是登入狀態有問題，請求沒有到伺服器（同 ui/Script.html）。
+      if (isSignInFailure(err)) {
+        onFail(describeSignInFailure(err));
+        return;
+      }
       // G20：連線錯誤（例如 HTTP 502）或逾時不等於沒有做，伺服器可能仍在處理、之後亦可能
       // 已經完成（同 ui/Script.html 的 G13）。不自動重試。
       if (isNoResponseFailure(err)) {

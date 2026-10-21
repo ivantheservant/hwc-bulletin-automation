@@ -1086,6 +1086,81 @@ test('G25-3 其他在 #mainContent 以外的對話框：處理中「由職事表
 });
 
 // =====================================================================
+// G26：HTTP 401／403 不是「沒有回應」，是登入狀態有問題，請求沒有到伺服器
+// =====================================================================
+
+console.log('\nHTTP 401／403（G26）');
+
+function signInMessage(status) {
+  return 'Google 登入狀態有問題（HTTP ' + status + '），這個動作沒有送到伺服器。請重新載入頁面；如果用了多個 Google 帳戶，請只登入教會帳戶再試。';
+}
+
+test('G26-1 「重設這一週」按確定 → NetworkError … HTTP 403 → 即時講登入狀態有問題（不講「可能已經完成」），不等候、不重新載入；ErrorLog 記原本的錯誤，不加「連線錯誤」註記', function () {
+  const ui = makeUi();
+  ui.click('resetWeekBtn');
+  ui.click('confirmOkBtn');
+  ui.take('apiResetWeek').fail(new Error('NetworkError: Connection failure due to HTTP 403'));
+  assert.deepStrictEqual(ui.message(), { type: 'error', text: signInMessage(403) });
+  assert.strictEqual(ui.timers.pending(ui.delayMs), 0, '不等候');
+  assert.strictEqual(ui.count('apiLoadWeek'), 0);
+  assert.strictEqual(ui.ctx.state.inFlight, 0);
+  const report = ui.take('apiLogClientError').args[0];
+  assert.strictEqual(report.message, '呼叫伺服器失敗（apiResetWeek）：NetworkError: Connection failure due to HTTP 403');
+  assertWrittenChinese(assert, 'G26 登入', [signInMessage(403)]);
+});
+
+test('G26-2 儲存 → HTTP 401 → 登入那一句，表單上的改動保留、「儲存」可以再按；讀取類（看差異）→ HTTP 401 → 同一句', function () {
+  const save = makeUi();
+  save.ctx.form.PRELUDE = '新序樂';
+  save.click('saveBtn');
+  save.take('apiSaveWeek').fail(new Error('NetworkError: Connection failure due to HTTP 401'));
+  assert.deepStrictEqual(save.message(), { type: 'error', text: signInMessage(401) });
+  assert.strictEqual(save.ctx.form.PRELUDE, '新序樂');
+  assert.strictEqual(save.els.saveBtn.disabled, false);
+  assert.strictEqual(save.els.saveBtn.textContent, '儲存');
+
+  const read = makeUi();
+  clickRestoreButton(read, 'SNAP-1');
+  read.take('apiDiffWeekSnapshot').fail(new Error('NetworkError: Connection failure due to HTTP 401'));
+  assert.deepStrictEqual(read.message(), { type: 'error', text: signInMessage(401) });
+});
+
+test('G26-3 分類：HTTP 0、5xx、沒有狀態碼的 NetworkError 才算沒有回應；401／403 是登入；404、429 照舊當失敗', function () {
+  const ui = makeUi();
+  const c = ui.ctx;
+  const e = function (m) { return new Error(m); };
+  [['NetworkError: Connection failure due to HTTP 0', true], ['NetworkError: Connection failure due to HTTP 502', true],
+    ['Connection failure due to HTTP 503', true], ['NetworkError', true], ['TypeError: Failed to fetch', true],
+    ['NetworkError: Connection failure due to HTTP 404', false], ['NetworkError: Connection failure due to HTTP 429', false],
+    ['NetworkError: Connection failure due to HTTP 401', false], ['NetworkError: Connection failure due to HTTP 403', false]
+  ].forEach(function (pair) {
+    assert.strictEqual(c.isNoResponseFailure(e(pair[0])), pair[1], pair[0]);
+  });
+  assert.strictEqual(c.isSignInFailure(e('NetworkError: Connection failure due to HTTP 401')), true);
+  assert.strictEqual(c.isSignInFailure(e('NetworkError: Connection failure due to HTTP 403')), true);
+  assert.strictEqual(c.isSignInFailure(e('NetworkError: Connection failure due to HTTP 502')), false);
+  const timeoutErr = e('伺服器在 120 秒內沒有回應。');
+  timeoutErr.noResponse = true;
+  assert.strictEqual(c.isSignInFailure(timeoutErr), false);
+  assert.strictEqual(c.isNoResponseFailure(timeoutErr), true);
+
+  // HTTP 404：寫入類照舊當失敗（「呼叫伺服器失敗（…）」），不講「可能已經完成」。
+  const w = makeUi();
+  w.click('resetWeekBtn');
+  w.click('confirmOkBtn');
+  w.take('apiResetWeek').fail(e('NetworkError: Connection failure due to HTTP 404'));
+  assert.deepStrictEqual(w.message(), { type: 'error', text: '呼叫伺服器失敗（apiResetWeek）：NetworkError: Connection failure due to HTTP 404' });
+  assert.strictEqual(w.timers.pending(w.delayMs), 0);
+});
+
+test('G26-4 「處理填寫表衝突」對話框 → HTTP 403 → 登入那一句，「確定」可以再按（請求沒有到伺服器）', function () {
+  const ui = makeFillConflictUi();
+  ui.submitAll('GRID').fail(new Error('NetworkError: Connection failure due to HTTP 403'));
+  assert.strictEqual(ui.els.status.textContent, signInMessage(403));
+  assert.strictEqual(ui.els.confirmBtn.disabled, false);
+});
+
+// =====================================================================
 // G24：寫入類沒有回應的結尾，按連線錯誤與逾時分
 // =====================================================================
 
