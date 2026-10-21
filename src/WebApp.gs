@@ -1926,6 +1926,11 @@ function getRosterFetchCandidates_(isoDate) {
  *
  *   ⚠️ **不刪行**——`DutyOverride` 的記錄永遠保留，只是不再生效。日後
  *   要追「這一格曾經被誰、什麼時候、改成什麼」仍然查得到。
+ *
+ *   ⚠️ 第二批測試修正 G28：真的停用了覆寫就更新這一週的 `LAST_SAVED_AT`（與儲存、還原、
+ *   重設一致）。以前不更新：另一個較早載入的分頁之後按「儲存」，送上來的事奉框仍然是舊的
+ *   覆寫名字（前端每次儲存都送全部格），樂觀鎖照樣通過，`computeDutyOverridePlan_()` 就把
+ *   剛停用的同名覆寫重新啟用。更新之後那個分頁會收到 STALE。
  * Args:
  *   isoDate {string} 主日日期，yyyy-MM-dd。
  *   selections {{postId:string, slotIndex:number}[]} 使用者勾選的欄位。
@@ -1976,6 +1981,9 @@ function fetchFromRosterForWebApp_(isoDate, selections) {
     });
     cleared++;
   });
+
+  // G28：真的停用了才更新；一格都沒有停用就不動（與儲存的 F2 同一個道理）。
+  if (cleared > 0) touchWeekLastSavedAt_(isoDate, new Date());
 
   return {
     clearedCount: cleared,

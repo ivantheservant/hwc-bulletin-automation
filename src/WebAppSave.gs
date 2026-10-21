@@ -1217,6 +1217,25 @@ function readRowsWithRowNo_(sheetName) {
 }
 
 /**
+ * 用途：第二批測試修正 G28：把某一個主日的 `LAST_SAVED_AT` 改成指定時間（填寫介面的樂觀鎖
+ *   以它為準）。改了這一週會經填寫介面送回來的資料（事奉框覆寫）而又不經儲存的寫入路徑，
+ *   要叫這一支，否則較早載入的分頁儲存時會把那些改動蓋回去。不記 `AuditLog`（同 `writeWeekCell_()`）。
+ * Args:
+ *   isoDate {string} 主日日期，yyyy-MM-dd。
+ *   stamp {Date} 新的時間。
+ * Returns:
+ *   {boolean} `BulletinWeeks` 有沒有這一行（沒有就甚麼都不寫）。
+ * Raises:
+ *   Error 如果 `BulletinWeeks` 工作表不存在。
+ */
+function touchWeekLastSavedAt_(isoDate, stamp) {
+  var row = readBulletinWeekRowWithRowNo_(isoDate);
+  if (!row) return false;
+  writeWeekCell_(row.__rowNo, 'LAST_SAVED_AT', stamp);
+  return true;
+}
+
+/**
  * 用途：讀 `BulletinWeeks` 指定主日的那一行（帶行號）。
  * Args:
  *   isoDate {string} 主日日期，yyyy-MM-dd。

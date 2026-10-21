@@ -807,6 +807,68 @@ test('G23-4 只有一種鎖：儲存用的是指令碼鎖，等候時間與內�
 });
 
 // =====================================================================
+// G28：由職事表重新取數要更新 LAST_SAVED_AT，否則較早載入的分頁儲存會令停用的覆寫復活
+// =====================================================================
+
+console.log('\n由職事表重新取數更新最後儲存時間（G28）');
+
+/**
+ * 一個主日，主席（職事表是陳大文）已經有一筆生效中的覆寫「李小明」（經 apiSaveWeek 造出來）。
+ * 最後儲存時間撥回一個舊日子：假工作表只存到日期，同一日之內兩次寫入分不出先後。
+ */
+function makeOverriddenChairEnv() {
+  const env = makeSaveEnv();
+  const sb = env.sb;
+  const created = sb.apiSaveWeek({ isoDate: env.iso, lastSavedAt: sb.loadWeekForWebApp_(env.iso).lastSavedAt,
+    week: {}, baseWeek: {}, dutyEdits: [{ postId: 'CHAIR', slotIndex: 1, name: '李小明' }] });
+  assert.strictEqual(created.ok, true, JSON.stringify(created.error));
+  const rowNo = sb.readBulletinWeekRowWithRowNo_(env.iso).__rowNo;
+  sb.SpreadsheetApp.getActiveSpreadsheet().getSheetByName('BulletinWeeks')
+    .getRange(rowNo, sb.COLUMNS.BULLETIN_WEEKS.keys.indexOf('LAST_SAVED_AT') + 1).setValue('2026-10-01');
+  return env;
+}
+
+function chairOverride(sb) {
+  return sb.readSheet('DutyOverride').filter(function (r) { return r.POST_ID === 'CHAIR'; })[0];
+}
+
+test('G28-1 真正入口：分頁甲載入 → 分頁乙「由職事表重新取數」停用主席的覆寫 → 分頁甲按「儲存」（事奉框仍是舊的覆寫名字）→ STALE，覆寫沒有復活', function () {
+  const env = makeOverriddenChairEnv();
+  const sb = env.sb;
+  const tabA = sb.loadWeekForWebApp_(env.iso);
+  assert.strictEqual(chairOverride(sb).ACTIVE, true, '前提：覆寫生效中');
+
+  const fetched = sb.apiFetchFromRoster(env.iso, [{ postId: 'CHAIR', slotIndex: 1 }]);
+  assert.strictEqual(fetched.ok, true, JSON.stringify(fetched.error));
+  assert.strictEqual(fetched.data.clearedCount, 1);
+  assert.strictEqual(chairOverride(sb).ACTIVE, false);
+  assert.notStrictEqual(sb.canonicalSaveToken_(sb.readSheet('BulletinWeeks')[0].LAST_SAVED_AT), tabA.lastSavedAt,
+    '由職事表重新取數要更新最後儲存時間');
+
+  // 分頁甲只改了序樂；前端照樣送全部事奉格，主席仍是它載入時的「李小明」。
+  const patch = { PRELUDE: '甲改的序樂' };
+  const saved = sb.apiSaveWeek({ isoDate: env.iso, lastSavedAt: tabA.lastSavedAt, week: patch,
+    baseWeek: sb.baseWeekFor_(tabA.week, patch), dutyEdits: [{ postId: 'CHAIR', slotIndex: 1, name: '李小明' }] });
+  assert.strictEqual(saved.ok, false);
+  assert.strictEqual(saved.error.code, 'STALE');
+  assert.strictEqual(chairOverride(sb).ACTIVE, false, '停用的覆寫沒有復活');
+});
+
+test('G28-2 由職事表重新取數一格都沒有停用（勾選的格本來就沒有生效中的覆寫）→ 不更新最後儲存時間', function () {
+  const env = makeOverriddenChairEnv();
+  const sb = env.sb;
+  sb.apiFetchFromRoster(env.iso, [{ postId: 'CHAIR', slotIndex: 1 }]);
+  const before = sb.readSheet('BulletinWeeks')[0].LAST_SAVED_AT;
+  const rowNo = sb.readBulletinWeekRowWithRowNo_(env.iso).__rowNo;
+  sb.SpreadsheetApp.getActiveSpreadsheet().getSheetByName('BulletinWeeks')
+    .getRange(rowNo, sb.COLUMNS.BULLETIN_WEEKS.keys.indexOf('LAST_SAVED_AT') + 1).setValue('2026-10-02');
+  const again = sb.apiFetchFromRoster(env.iso, [{ postId: 'CHAIR', slotIndex: 1 }]);
+  assert.strictEqual(again.data.clearedCount, 0);
+  assert.ok(before, '前提：第一次有寫');
+  assert.strictEqual(sb.canonicalSaveToken_(sb.readSheet('BulletinWeeks')[0].LAST_SAVED_AT), sb.canonicalSaveToken_('2026-10-02'), '沒有停用就不動');
+});
+
+// =====================================================================
 // G15：重設與還原對話框按「取消」
 // =====================================================================
 
