@@ -113,6 +113,8 @@ var AUTH_ERROR_KEYWORDS_ = ['permission', 'authorization', 'Required permissions
  *   err {*} 被攔到的例外物件（或任意值）。
  * Returns:
  *   {string} 原本的錯誤訊息；偵測到是授權問題時，後面會多一段指引。
+ * Raises:
+ *   （無）
  */
 function enrichAuthError_(err) {
   var message = (err && err.message) ? String(err.message) : String(err === null || err === undefined ? '' : err);

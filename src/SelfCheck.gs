@@ -975,6 +975,11 @@ function buildSelfCheckReportLines_(summary) {
  *   （由內容表輸入，不是幹事逐格填），真正要填的項目被淹沒。人數合併成一行，
  *   字眼與判斷用 `attendanceMissingSummaryText_()`／`isAttendanceMissingItem_()`，
  *   與寄出前檢查同一組函式；合併那一行排在該主日第一格人數原本的位置。
+ *
+ *   ⚠️ 第二批測試修正 G12：人數合併之後，一行不一定等於一項。截斷時的
+ *   「尚有 N 項未列出。」照實數**項數**：人數那一行按它代表的格數計，其他
+ *   每行一項；「無法計算」的主日不知道有幾項，不計入 N，另外寫「另有 M 個
+ *   主日無法計算」。
  * Args:
  *   quarterId {string} 季度 ID。
  *   sourceLabel {string} 這個季度 ID 的來源說明（人手輸入或
@@ -998,6 +1003,8 @@ function buildQuarterMissingFieldsReportLines_(quarterId, sourceLabel) {
   if (dateResolution.message) lines.push(dateResolution.message);
   lines.push('');
   var itemLines = [];
+  // G12：每一行代表幾多項待填（人數那一行是格數；「無法計算」是 null）。
+  var itemCounts = [];
   serviceDates.forEach(function (sd) {
     try {
       var attendanceCount = 0;
@@ -1008,6 +1015,7 @@ function buildQuarterMissingFieldsReportLines_(quarterId, sourceLabel) {
           if (attendanceLineIndex === -1) {
             attendanceLineIndex = itemLines.length;
             itemLines.push('');
+            itemCounts.push(0);
           }
           attendanceCount++;
           return;
@@ -1015,12 +1023,15 @@ function buildQuarterMissingFieldsReportLines_(quarterId, sourceLabel) {
         // F6：完整列出，通常空白的標明出來（不計入「本季待填欄位總數」）。
         itemLines.push(sd.isoDate + '　' + m.label + '（' + m.field + '）'
           + (m.optional === true ? '　〔通常空白〕' : ''));
+        itemCounts.push(1);
       });
       if (attendanceLineIndex !== -1) {
         itemLines[attendanceLineIndex] = sd.isoDate + '　人數：' + attendanceMissingSummaryText_(attendanceCount);
+        itemCounts[attendanceLineIndex] = attendanceCount;
       }
     } catch (perDateErr) {
       itemLines.push(sd.isoDate + '　（無法計算：' + ((perDateErr && perDateErr.message) ? perDateErr.message : String(perDateErr)) + '）');
+      itemCounts.push(null);
     }
   });
 
@@ -1037,8 +1048,16 @@ function buildQuarterMissingFieldsReportLines_(quarterId, sourceLabel) {
     return lines.concat(itemLines);
   }
 
-  var shown = itemLines.slice(0, Math.max(0, budget - 1));
-  return lines.concat(shown).concat(['尚有 ' + (itemLines.length - shown.length) + ' 項未列出。']);
+  var shownCount = Math.max(0, budget - 1);
+  var shown = itemLines.slice(0, shownCount);
+  var hiddenItems = 0;
+  var hiddenUnknownDates = 0;
+  itemCounts.slice(shownCount).forEach(function (n) {
+    if (n === null) hiddenUnknownDates++;
+    else hiddenItems += n;
+  });
+  return lines.concat(shown).concat(['尚有 ' + hiddenItems + ' 項未列出'
+    + (hiddenUnknownDates > 0 ? '（另有 ' + hiddenUnknownDates + ' 個主日無法計算）' : '') + '。']);
 }
 
 /**

@@ -935,5 +935,37 @@ test('G7-3 與寄出前檢查同一支函式產生字眼：同一個主日，兩
   assert.strictEqual(publishSrc.indexOf("格未填（上週崇拜人數由內容表輸入）'"), -1, 'Publish.gs 不可以再自己寫一份字眼');
 });
 
+
+test('G12-3 經 quarterMissingFieldsReport_()：截斷時「尚有 N 項未列出。」照實數項數（人數那一行按格數計），顯示 ＋ 未列出 ＝ 全部待填項數', function () {
+  const env = makeEnv({ config: { DIAGNOSTICS_MAX_ROWS: '12' } });
+  const result = env.sandbox.quarterMissingFieldsReport_(QUARTER_ID);
+  assert.strictEqual(result.ok, true, result.message);
+  const lines = Array.from(result.lines);
+  assert.ok(lines.length <= 12, '要遵守行數上限：' + lines.length);
+
+  const last = lines[lines.length - 1];
+  const m = /^尚有 (\d+) 項未列出。$/.exec(last);
+  assert.ok(m, '最後一行應該是「尚有 N 項未列出。」：' + last);
+
+  const shownLines = lines.filter(function (l) { return /^\d{4}-\d{2}-\d{2}　/.test(l); });
+  const shownItems = shownLines.reduce(function (sum, l) {
+    const att = /　人數：(\d+) 格未填/.exec(l);
+    return sum + (att ? Number(att[1]) : 1);
+  }, 0);
+  let totalItems = 0;
+  let totalLines = 0;
+  SERVICE_DATES.forEach(function (iso) {
+    const missing = Array.from(env.sandbox.buildBulletinModel_(iso).missing);
+    const att = missing.filter(function (x) { return env.sandbox.isAttendanceMissingItem_(x); }).length;
+    totalItems += missing.length;
+    totalLines += (missing.length - att) + (att > 0 ? 1 : 0);
+  });
+  assert.strictEqual(shownItems + Number(m[1]), totalItems,
+    '顯示 ' + shownItems + ' ＋ 未列出 ' + m[1] + ' 應該等於全部 ' + totalItems + ' 項');
+  const hiddenLines = totalLines - shownLines.length;
+  assert.ok(Number(m[1]) > hiddenLines,
+    '未列出的部分包括人數合併行，項數（' + m[1] + '）要多過行數（' + hiddenLines + '）——數行數就是舊的錯');
+});
+
 console.log('\n通過 ' + pass + ' 項，失敗 ' + fail + ' 項。');
 process.exit(fail === 0 ? 1 - 1 : 1);

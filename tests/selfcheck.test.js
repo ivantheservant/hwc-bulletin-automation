@@ -552,6 +552,8 @@ test('19i. 由真正入口（選單函式 menuShowQuarterMissingFieldsList_）�
   //    的主日由 20 行變成 9 行（8 項非人數 ＋ 1 行人數）。原本 25 個主日（500 行）
   //    才逼得出截斷，現在 25 個主日只有 225 行，所以改用 50 個主日（450 行）。
   //    要鎖的仍然是「總行數不超過上限」與「顯示 ＋ 隱藏 === 全部」。不是改壞。
+  //    ⚠️ G12：「尚有 N 項」數的是項數，不是行數——人數那一行按格數計，所以
+  //    守恆要用項數算：50 個主日 × 20 項 = 1000 項。
   const env = makeManySundaysEnv({ sundayCount: 50, uiPromptButton: 'OK', uiPromptText: '' });
   assert.doesNotThrow(function () { env.sandbox.menuShowQuarterMissingFieldsList_(); });
 
@@ -567,9 +569,14 @@ test('19i. 由真正入口（選單函式 menuShowQuarterMissingFieldsList_）�
   const m = /^尚有 (\d+) 項未列出。$/.exec(last);
   assert.ok(m, '最後一行應該是「尚有 N 項未列出。」，實際：' + last);
 
-  const shownItems = rows.filter(function (r) { return /^\d{4}-\d{2}-\d{2}　/.test(String(r.CONTENT || '')); }).length;
+  const shownLines = rows.filter(function (r) { return /^\d{4}-\d{2}-\d{2}　/.test(String(r.CONTENT || '')); });
+  const shownItems = shownLines.reduce(function (sum, r) {
+    const att = /　人數：(\d+) 格未填/.exec(String(r.CONTENT));
+    return sum + (att ? Number(att[1]) : 1);
+  }, 0);
   const hidden = Number(m[1]);
-  assert.strictEqual(shownItems + hidden, 450, '顯示 ' + shownItems + ' ＋ 隱藏 ' + hidden + ' 應該等於 450 行（50 個主日 × 9）');
+  assert.strictEqual(shownItems + hidden, 1000, '顯示 ' + shownItems + ' 項 ＋ 隱藏 ' + hidden + ' 項應該等於 1000 項（50 個主日 × 20）');
+  assert.ok(shownLines.some(function (r) { return String(r.CONTENT).indexOf('人數：12 格未填') !== -1; }), '前提：顯示的部分有人數合併行');
   assert.strictEqual(rows.length, 380, '總行數應該剛好用盡 DIAGNOSTICS_MAX_ROWS');
 });
 

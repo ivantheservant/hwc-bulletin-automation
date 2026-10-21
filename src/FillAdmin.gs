@@ -496,6 +496,8 @@ function protectedSheetNames_() {
  * Args: （無）
  * Returns:
  *   {{protectedCount:number, skipped:string[], editors:string[]}}
+ * Raises:
+ *   Error Google 拒絕設定保護（例如沒有權限），或寫 `AuditLog` 失敗時原樣拋出。
  */
 function applySheetProtection_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -528,6 +530,8 @@ function applySheetProtection_() {
  * Args: （無）
  * Returns:
  *   {string[]}
+ * Raises:
+ *   Error 讀 Config 失敗時原樣拋出。
  */
 function sheetProtectionEditors_() {
   return getConfigTextList_(CONFIG_KEYS.PROTECTION_EDITOR_EMAILS, '')
@@ -557,9 +561,9 @@ function protectSheetForSystem_(sheet, editors) {
 }
 
 /**
- * 用途：第二批測試修正 G8：「初始化工作表」這一次**新建**的工作表，如果在
- *   `protectedSheetNames_()` 之內，建立後即時套用同一套保護。**既有的表一張都
- *   不動**（那些由選單「設定工作表保護」處理，幹事可能有理由暫時解除）。
+ * 用途：第二批測試修正 G8：「初始化工作表」這一次新建的工作表，如果在
+ *   `protectedSheetNames_()` 之內，建立後即時套用同一套保護。既有的表一張都
+ *   不動（那些由選單「設定工作表保護」處理，幹事可能有理由暫時解除）。
  *
  *   ⚠️ 某一張設定失敗不會令初始化失敗——工作表已經建好，回「初始化失敗」是
  *   講一句與事實相反的話。失敗的逐張記進 `ErrorLog`，並回傳給呼叫方顯示。
@@ -568,6 +572,9 @@ function protectSheetForSystem_(sheet, editors) {
  *   createdNames {string[]} 這一次初始化新建的工作表名稱。
  * Returns:
  *   {{protectedNames:string[], failed:{name:string, message:string}[]}}
+ * Raises:
+ *   Error 讀 Config（例外編輯者）或寫 `AuditLog`（`appendAuditLog_()`）失敗時原樣
+ *     拋出；單張工作表設定保護失敗不會拋，逐張記進 `ErrorLog` 並放在 `failed`。
  */
 function protectNewlyCreatedSheets_(ss, createdNames) {
   var wanted = protectedSheetNames_();
@@ -610,12 +617,14 @@ function protectNewlyCreatedSheets_(ss, createdNames) {
 }
 
 /**
- * 用途：把 `protectNewlyCreatedSheets_()` 的結果排成給人看的行。**純函式。**
+ * 用途：把 `protectNewlyCreatedSheets_()` 的結果排成給人看的行。純函式。
  *   初始化對話框與 `Diagnostics` 報告共用，兩邊講同一句。
  * Args:
  *   result {?{protectedNames:string[], failed:Object[]}}
  * Returns:
  *   {string[]} 這一次沒有新建任何受保護的表時回空陣列。
+ * Raises:
+ *   （無）
  */
 function buildNewSheetProtectionLines_(result) {
   var o = result || {};

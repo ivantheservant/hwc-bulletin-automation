@@ -61,6 +61,8 @@ function weekSnapshotReasonLabel_(code) {
  *   timezone {string} Config 的 `SYS_TIMEZONE`。
  * Returns:
  *   {string} 不是有效的 Date（讀不到、被人手改成文字）回空字串。
+ * Raises:
+ *   Error `Utilities.formatDate()` 拋的錯（例如 `timezone` 無效）原樣拋出。
  */
 function weekSnapshotStampText_(date, timezone) {
   // ⚠️ 用 toString 判斷，不用 instanceof：工作表讀出來的 Date 不一定與本檔案
@@ -82,6 +84,9 @@ function weekSnapshotStampText_(date, timezone) {
  * Returns:
  *   {string} 時間讀不到時寫「（時間不明）」（與填寫介面版本列表、還原對話框的
  *     退回字眼相同），不會只剩一個原因括號。
+ * Raises:
+ *   Error 同 `weekSnapshotStampText_()`（呼叫方要不要退回，自己決定，見
+ *     `restoreVersionLabel_()`）。
  */
 function weekSnapshotDisplayName_(group, timezone) {
   var g = group || {};
@@ -940,7 +945,7 @@ function restoreWeekSnapshotFromWebApp_(payload) {
     };
   }
 
-  // ⚠️ 第二批測試修正 G11：完成訊息的版本名稱在**任何寫入之前**算好。排在寫入
+  // ⚠️ 第二批測試修正 G11：完成訊息的版本名稱在任何寫入之前算好。排在寫入
   // 之後的話，時區設定錯令 formatDate 拋錯時，還原其實已經做完，介面卻顯示錯誤，
   // 幹事會以為沒有還原而再做一次。
   var versionLabel = restoreVersionLabel_(loaded.group);
@@ -982,6 +987,8 @@ function restoreWeekSnapshotFromWebApp_(payload) {
  *   group {{createdAt:*, reason:string, snapshotId:string}} `groupWeekSnapshots_()` 的一項。
  * Returns:
  *   {string}
+ * Raises:
+ *   （無）算不到就退回「（時間不明）」並寫 `ErrorLog`。
  */
 function restoreVersionLabel_(group) {
   try {

@@ -509,16 +509,17 @@ function buildMissingList_(input) {
     });
   });
 
-  // 第二批測試修正 G6：待填說明是給幹事看的，用內容表的分頁名稱，不用
-  // 工作表英文名（Announcements／Prayers／Fellowships）。
+  // 第二批測試修正 G6／G12：待填說明是給幹事看的，用內容表的分頁名稱，不用
+  // 工作表英文名（Announcements／Prayers／Fellowships）；分頁名稱讀
+  // `contentImportTargets_()`（內容表分頁 → 週報工作表的唯一對應），不在這裏另寫一份。
   if (input.announcementCount === 0) {
-    add('ANNOUNCEMENTS', '家事報告', '內容表「家事報告」分頁這一週沒有任何有效的行。');
+    add('ANNOUNCEMENTS', '家事報告', emptyContentListReason_(SHEETS.ANNOUNCEMENTS));
   }
   if (input.prayerCount === 0) {
-    add('PRAYERS', '代禱事項', '內容表「代禱事項」分頁這一週沒有任何有效的行。');
+    add('PRAYERS', '代禱事項', emptyContentListReason_(SHEETS.PRAYERS));
   }
   if (input.fellowshipCount === 0) {
-    add('FELLOWSHIPS', '團契聚會', '內容表「團契聚會」分頁這一週沒有任何有效的行。');
+    add('FELLOWSHIPS', '團契聚會', emptyContentListReason_(SHEETS.FELLOWSHIPS));
   }
 
   (input.dutyBoxPage1 || []).forEach(function (row) {
@@ -605,7 +606,30 @@ function missingCountSummary_(missing) {
 }
 
 /**
- * 用途：判斷一項待填是不是「上週崇拜人數」12 格的其中一格。**純函式。**
+ * 用途：某一張清單表（`Announcements` 等）這一週沒有任何有效的行時，待填說明的
+ *   字眼「內容表「家事報告」分頁這一週沒有任何有效的行。」。第二批測試修正 G12：
+ *   分頁名稱讀 `contentImportTargets_()`（內容表分頁 → 週報工作表的唯一對應），
+ *   內容表分頁改名時字眼跟着變，不會一處改了、一處仍是舊名。
+ * Args:
+ *   sheetName {string} 週報試算表的清單表名稱（`SHEETS.ANNOUNCEMENTS` 等）。
+ * Returns:
+ *   {string} 對應不到內容表分頁時，退回寫明工作表名稱（不會變成空白，也不會
+ *     寫一個不存在的分頁名）。
+ * Raises:
+ *   （無）
+ */
+function emptyContentListReason_(sheetName) {
+  var target = contentImportTargets_().filter(function (t) {
+    return t.kind === 'LIST' && t.targetSheet === sheetName;
+  })[0];
+  if (target && target.tabName) {
+    return '內容表「' + target.tabName + '」分頁這一週沒有任何有效的行。';
+  }
+  return '「' + sheetName + '」工作表這一週沒有任何有效的行。';
+}
+
+/**
+ * 用途：判斷一項待填是不是「上週崇拜人數」12 格的其中一格。純函式。
  *
  *   第二批測試修正 G7：寄出前檢查（`groupPublishMissing_()`）與本季待填清單
  *   （`buildQuarterMissingFieldsReportLines_()`）都把人數合併成一行，「哪些算
@@ -614,6 +638,8 @@ function missingCountSummary_(missing) {
  *   item {?{field:string}} `buildMissingList_()` 輸出的一項。
  * Returns:
  *   {boolean}
+ * Raises:
+ *   （無）
  */
 function isAttendanceMissingItem_(item) {
   return String((item || {}).field || '').indexOf('ATT_') === 0;
@@ -621,11 +647,13 @@ function isAttendanceMissingItem_(item) {
 
 /**
  * 用途：人數合併成一行時的字眼「N 格未填（上週崇拜人數由內容表輸入）」。
- *   **純函式。**寄出前檢查與本季待填清單共用，字眼只有一處。
+ *   純函式。寄出前檢查與本季待填清單共用，字眼只有一處。
  * Args:
  *   count {number} 未填的人數格數。
  * Returns:
  *   {string}
+ * Raises:
+ *   （無）
  */
 function attendanceMissingSummaryText_(count) {
   return Number(count || 0) + ' 格未填（上週崇拜人數由內容表輸入）';

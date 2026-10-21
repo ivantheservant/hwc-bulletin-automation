@@ -1151,6 +1151,40 @@ test('G6-1 填寫介面載入一週（真入口 apiLoadWeek）：待填說明用
   assertWrittenChinese(assert, '待填說明', all.map(function (m) { return m.reason; }));
 });
 
+test('G12-1 待填說明的分頁名稱跟內容表對應走（經 apiLoadWeek）：把「家事報告」分頁改名為「教會消息」，字眼即時跟着變；其餘兩張不受影響', function () {
+  const env = makeEnv({});
+  const sb = env.sandbox;
+  const original = sb.contentImportTargets_;
+  // 模擬日後內容表分頁改名：只改唯一那一份對應，BulletinModel.gs 不用改。
+  sb.contentImportTargets_ = function () {
+    return original().map(function (t) {
+      return t.targetSheet === sb.SHEETS.ANNOUNCEMENTS ? Object.assign({}, t, { tabName: '教會消息' }) : t;
+    });
+  };
+  try {
+    const resp = sb.apiLoadWeek(D);
+    assert.strictEqual(resp.ok, true, JSON.stringify(resp.error));
+    const all = Array.from(resp.data.missingSplit.required).concat(Array.from(resp.data.missingSplit.optional));
+    const byField = {};
+    all.forEach(function (m) { byField[m.field] = m.reason; });
+    assert.strictEqual(byField.ANNOUNCEMENTS, '內容表「教會消息」分頁這一週沒有任何有效的行。');
+    assert.strictEqual(byField.PRAYERS, '內容表「代禱事項」分頁這一週沒有任何有效的行。');
+    assert.strictEqual(byField.FELLOWSHIPS, '內容表「團契聚會」分頁這一週沒有任何有效的行。');
+  } finally {
+    sb.contentImportTargets_ = original;
+  }
+  // BulletinModel.gs 的程式碼不再自己寫死三個分頁名稱（說明註解內的例子不算）。
+  const model = readSrc('src/BulletinModel.gs');
+  ["'內容表「家事報告」分頁", "'內容表「代禱事項」分頁", "'內容表「團契聚會」分頁"].forEach(function (literal) {
+    assert.strictEqual(model.indexOf(literal), -1, '不可以再有字串常值 ' + literal);
+  });
+});
+
+test('G12-2 對應不到內容表分頁時，退回寫明工作表名稱，不會變成空白', function () {
+  const env = makeEnv({});
+  assert.strictEqual(env.sandbox.emptyContentListReason_('不存在的表'), '「不存在的表」工作表這一週沒有任何有效的行。');
+});
+
 test('G6-2 重設對話框第 3 點不再用開發用語「第三種欄位覆寫」；Script.html 使用者字串也沒有', function () {
   const t = loadSnapshotPanel();
   const third = Array.from(t.api.resetLines(false))[3];

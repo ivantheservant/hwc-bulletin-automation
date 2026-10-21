@@ -30,6 +30,9 @@
  * Args: （無，簡易觸發器固定簽章）
  * Returns:
  *   {void}
+ * Raises:
+ *   Error 不在試算表介面執行（例如在 Apps Script 編輯器直接執行）時，
+ *     `SpreadsheetApp.getUi()` 拋錯。
  */
 function onOpen() {
   SpreadsheetApp.getUi()
@@ -129,6 +132,8 @@ function onOpen() {
  * Args: （無）
  * Returns:
  *   {void}
+ * Raises:
+ *   （無）失敗時寫 `ErrorLog` 並用對話框顯示。
  */
 function menuInitializeAllSheets_() {
   var ui = SpreadsheetApp.getUi();

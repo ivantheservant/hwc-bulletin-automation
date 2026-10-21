@@ -738,6 +738,8 @@ var INVARIANT_SEND_BATCH_MS_ = 90000;
  *   status {*} `SendLog.STATUS`。
  * Returns:
  *   {string[]}
+ * Raises:
+ *   Error 讀 Config 失敗時原樣拋出。
  */
 function invariantSendGroupsForStatus_(status) {
   var text = String(status || '');

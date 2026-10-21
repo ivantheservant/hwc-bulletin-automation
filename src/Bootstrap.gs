@@ -317,6 +317,8 @@ function readmeContentLines_() {
  *   summary {Object} initializeAllSheets() 組出的摘要物件。
  * Returns:
  *   {void}
+ * Raises:
+ *   Error 寫 `Diagnostics` 失敗時原樣拋出。
  */
 function writeInitializeDiagnosticsReport_(summary) {
   var lines = [];

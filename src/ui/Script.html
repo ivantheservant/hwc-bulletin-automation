@@ -1967,6 +1967,8 @@
    *   `resetPublishPanelIfWeekChanged()`）。
    * Returns:
    *   {void}
+   * Raises:
+   *   （無）伺服器錯誤經 `callServer()` 的 `onError` 顯示。
    */
   function loadWeek(isoDate, options) {
     var opts = options || {};
@@ -2481,6 +2483,8 @@
    *   event {Event} `change` 事件。
    * Returns:
    *   {void}
+   * Raises:
+   *   （無）讀檔失敗經訊息列顯示。
    */
   function onPublishPdfChosen(event) {
     var file = event.target.files && event.target.files[0];
@@ -2528,6 +2532,8 @@
    *   confirmed {boolean} 幹事是否已經勾了「仍然要發佈」那一格。
    * Returns:
    *   {void}
+   * Raises:
+   *   （無）拒絕與伺服器錯誤都經訊息列與確認視窗顯示。
    */
   function runPublish(confirmed) {
     if (!state.isoDate) { showMessage('error', '未選擇主日，無法執行。'); return; }
@@ -2669,6 +2675,8 @@
    *   isError {boolean=} `true` 時用紅色樣式。
    * Returns:
    *   {void}
+   * Raises:
+   *   （無）
    */
   function showPublishResult(text, isError) {
     var box = document.getElementById('publishResult');
@@ -2682,6 +2690,8 @@
    * Args: （無）
    * Returns:
    *   {void}
+   * Raises:
+   *   （無）
    */
   function clearPublishResult() {
     var box = document.getElementById('publishResult');
@@ -2699,6 +2709,8 @@
    * Args: （無）
    * Returns:
    *   {void}
+   * Raises:
+   *   （無）
    */
   function clearChosenPublishPdf() {
     state.publish.pdfBase64 = '';
@@ -2723,6 +2735,8 @@
    *   nextIsoDate {string} 將要載入的主日。
    * Returns:
    *   {boolean} 有沒有清走。
+   * Raises:
+   *   （無）
    */
   function resetPublishPanelIfWeekChanged(previousIsoDate, nextIsoDate) {
     if (String(previousIsoDate || '') === String(nextIsoDate || '')) return false;

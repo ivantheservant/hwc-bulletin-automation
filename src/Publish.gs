@@ -394,7 +394,7 @@ function latestPublishLogRow_(rows) {
 
 /**
  * 用途：master 連結現時是哪一期——`PublishLog` 之中與目前 master 檔案
- *   **同一類**（正式／自測）的最新一行。第二批測試修正 G2：只寄出時，
+ *   同一類（正式／自測）的最新一行。第二批測試修正 G2：只寄出時，
  *   通知信的日期、寄出前檢查的提醒、「從未發佈過」的判斷，全部用這一支，
  *   不各自再讀一次。
  *
@@ -438,6 +438,8 @@ function currentMasterPublishIssue_(masterFileId) {
  *   value {*} 工作表讀出來的版本號。
  * Returns:
  *   {?number} 正整數；不是正整數回 `null`。
+ * Raises:
+ *   （無）
  */
 function normalizePublishVersionNo_(value) {
   if (typeof value !== 'number' && typeof value !== 'string') return null;
@@ -453,6 +455,8 @@ function normalizePublishVersionNo_(value) {
  *   versionNo {*} 版本號（任何值，經 `normalizePublishVersionNo_()`）。
  * Returns:
  *   {string} 版本號不是正整數回空字串。
+ * Raises:
+ *   （無）
  */
 function publishVersionSuffix_(versionNo) {
   var n = normalizePublishVersionNo_(versionNo);
@@ -461,7 +465,7 @@ function publishVersionSuffix_(versionNo) {
 
 /**
  * 用途：只寄出時，選中的主日與 master 連結現時那一期不同，寄出前檢查要加的
- *   那一行提醒。**純函式。**
+ *   那一行提醒。純函式。
  * Args:
  *   selectedIsoDate {string} 介面選中的主日。
  *   masterIssue {?{isoDate:string, versionNo:(number|null)}} `currentMasterPublishIssue_()`
@@ -469,6 +473,8 @@ function publishVersionSuffix_(versionNo) {
  *     「（第 N 版）」（G10）。
  * Returns:
  *   {string} 兩者相同、或沒有 `masterIssue` 回空字串。
+ * Raises:
+ *   （無）
  */
 function buildMasterIssueMismatchLine_(selectedIsoDate, masterIssue) {
   if (!masterIssue) return '';
@@ -496,6 +502,8 @@ function buildMasterIssueMismatchLine_(selectedIsoDate, masterIssue) {
  *   missing {Object[]} `model.missing`，每項 `{field, label, reason}`。
  * Returns:
  *   {{label:string, items:string[]}[]} 只回有內容嗰啲組，次序固定。
+ * Raises:
+ *   （無）
  */
 function groupPublishMissing_(missing) {
   var groups = [
@@ -682,6 +690,8 @@ function publishConfirmLabels_(doPublish) {
  *     省略當作 `true`（維持舊有字眼）。
  * Returns:
  *   {string[]}
+ * Raises:
+ *   （無）
  */
 function buildPublishPrecheckLines_(precheck, doPublish) {
   var o = precheck || {};
@@ -730,7 +740,7 @@ function buildPublishPrecheckLines_(precheck, doPublish) {
  *   options {{masterIssue:(?{isoDate:string, versionNo:(number|null)})}=} 選填。
  *     第二批測試修正 G2：只寄出時由 `runPublishFlow_()` 傳入
  *     `currentMasterPublishIssue_()` 的結果（同一次請求只讀一次）；選中的
- *     主日與它不同時，檢查多一行提醒（`masterIssueNotice`）。這一行**不**
+ *     主日與它不同時，檢查多一行提醒（`masterIssueNotice`）。這一行不
  *     計入 `needsConfirm`／`forcedReason`（那兩個記的是資料本身的問題），
  *     由呼叫方另外決定要不要出確認視窗。有發佈時不傳。
  * Returns:
@@ -1336,7 +1346,7 @@ function publishCurrentUserEmail_() {
  *   受 `DRY_RUN` 保護，寫 `SendLog`：發佈加寄出記 `STATUS='PUBLISH'`，
  *   只寄出記 `STATUS='SEND_ONLY'`。
  *
- *   ⚠️ 第二批測試修正 G2：只寄出時 master 連結裏面是**現時那一期**，不一定
+ *   ⚠️ 第二批測試修正 G2：只寄出時 master 連結裏面是現時那一期，不一定
  *   是介面選中的主日。通知信的 `{{ServiceDate}}`（主旨與內文）與
  *   `SendLog.SERVICE_DATE` 一律用 `masterIssue.isoDate`，令信講的日期與連結
  *   打開看到的那一期一致。
@@ -1492,6 +1502,9 @@ function findPublishEmailTemplate_() {
  *   {{ok:boolean, reason:(string|undefined), message:(string|undefined),
  *     precheck:(Object|undefined), published:(Object|undefined),
  *     sent:(Object|undefined), lines:string[]}}
+ * Raises:
+ *   Error 讀工作表、職事表（`buildPublishPrecheck_()`）或 `PublishLog` 失敗時原樣拋出，
+ *     由 `apiRunPublish()` 的 `withApiResult_()` 轉成錯誤回應並寫 `ErrorLog`。
  */
 function runPublishFlow_(payload) {
   var p = payload || {};
@@ -1641,6 +1654,8 @@ function runPublishFlow_(payload) {
  *     `masterIssue` 只寄出時才有（`runPublishFlow_()` 已經讀好），發佈時是 `null`。
  * Returns:
  *   {Object} 同 `runPublishFlow_()`。
+ * Raises:
+ *   Error 同 `runPublishFlow_()`；寄出之後寫 `AuditLog` 失敗亦原樣拋出。
  */
 function runPublishFlowLocked_(payload, ctx) {
   var p = payload || {};
@@ -1735,6 +1750,8 @@ function runPublishFlowLocked_(payload, ctx) {
  *     `sendPublishNotice_()` 成功時的回傳值。
  * Returns:
  *   {void}
+ * Raises:
+ *   Error 寫 `AuditLog` 失敗時（`appendAuditLog_()`）原樣拋出。
  */
 function auditSendNoticeOnly_(isoDate, sent) {
   var o = sent || {};
@@ -1758,6 +1775,8 @@ function auditSendNoticeOnly_(isoDate, sent) {
  *   result {Object} `runPublishFlow_()` 嘅回傳值（`ok:true`）。
  * Returns:
  *   {string[]}
+ * Raises:
+ *   （無）
  */
 function buildPublishResultLines_(result) {
   var o = result || {};

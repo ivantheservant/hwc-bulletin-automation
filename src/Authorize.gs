@@ -78,6 +78,8 @@ function authorizeAllScopes() {
  * Args: （無）
  * Returns:
  *   {void}
+ * Raises:
+ *   （無）失敗時寫 `ErrorLog` 並用對話框顯示，不往外拋。
  */
 function menuAuthorizeAllScopes_() {
   var ui = SpreadsheetApp.getUi();
