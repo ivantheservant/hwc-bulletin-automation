@@ -54,6 +54,42 @@ function weekSnapshotReasonLabel_(code) {
 }
 
 /**
+ * 用途：版本建立時間的顯示文字（`yyyy-MM-dd HH:mm`）。純函式。版本列表、
+ *   看差異、還原完成訊息共用這一支，時間格式只有一處。
+ * Args:
+ *   date {*} `WeekSnapshots.CREATED_AT`（工作表讀出來的 Date）。
+ *   timezone {string} Config 的 `SYS_TIMEZONE`。
+ * Returns:
+ *   {string} 不是有效的 Date（讀不到、被人手改成文字）回空字串。
+ */
+function weekSnapshotStampText_(date, timezone) {
+  // ⚠️ 用 toString 判斷，不用 instanceof：工作表讀出來的 Date 不一定與本檔案
+  //    同一個執行環境建立（測試的假工作表就不是）。
+  if (Object.prototype.toString.call(date) !== '[object Date]' || isNaN(date.getTime())) return '';
+  return Utilities.formatDate(date, timezone, 'yyyy-MM-dd HH:mm');
+}
+
+/**
+ * 用途：給幹事看的版本名稱「時間（原因中文名）」，例如
+ *   「2026-10-21 19:43（填寫介面儲存）」。純函式。
+ *
+ *   ⚠️ 第二批測試修正 G5：完成訊息不可以顯示內部版本 ID
+ *   （例如「2028-04-16-20261021T194316」），幹事看不明白；要與版本列表、
+ *   還原對話框用同一個寫法。`AuditLog` 照舊記 ID，方便日後追查。
+ * Args:
+ *   group {{createdAt:*, reason:string}} `groupWeekSnapshots_()` 的一項。
+ *   timezone {string} Config 的 `SYS_TIMEZONE`。
+ * Returns:
+ *   {string} 時間讀不到時寫「（時間不明）」（與填寫介面版本列表、還原對話框的
+ *     退回字眼相同），不會只剩一個原因括號。
+ */
+function weekSnapshotDisplayName_(group, timezone) {
+  var g = group || {};
+  var stamp = weekSnapshotStampText_(g.createdAt, timezone) || '（時間不明）';
+  return stamp + '（' + weekSnapshotReasonLabel_(g.reason) + '）';
+}
+
+/**
  * 用途：「季度填寫表」一族的版本原因——同一個主日在時間限制之內只存一次。
  *   純函式。
  * Args: （無）
@@ -712,7 +748,7 @@ function listWeekSnapshotsForWebApp_(isoDate) {
   }
   var timezone = getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland');
   function stamp(date) {
-    return (date instanceof Date && !isNaN(date.getTime())) ? Utilities.formatDate(date, timezone, 'yyyy-MM-dd HH:mm') : '';
+    return weekSnapshotStampText_(date, timezone);
   }
 
   var limit = normalizeInt_(getConfig(CONFIG_KEYS.SNAPSHOT_LIST_LIMIT, '20'));
@@ -791,8 +827,7 @@ function diffWeekSnapshotForWebApp_(isoDate, snapshotId) {
 
   return {
     isoDate: isoDate, snapshotId: loaded.group.snapshotId,
-    createdAt: (created instanceof Date && !isNaN(created.getTime()))
-      ? Utilities.formatDate(created, timezone, 'yyyy-MM-dd HH:mm') : '',
+    createdAt: weekSnapshotStampText_(created, timezone),
     reasonLabel: weekSnapshotReasonLabel_(loaded.group.reason),
     lastSavedAt: canonicalSaveToken_(state.weekRow ? state.weekRow.LAST_SAVED_AT : null),
     rows: diffWeekSnapshotState_(loaded.payload, state, readSheet(SHEETS.POST_DISPLAY)),
@@ -875,6 +910,8 @@ function applyWeekRestorePlan_(isoDate, rowNo, plan, action, noteHead) {
  * Returns:
  *   {{restoredFieldCount:number, dutyChangeCount:number, fieldOverrideChangeCount:number,
  *     safetySnapshotId:string, lastSavedAt:string, message:{type:string, text:string}}}
+ *     `message.text` 用「時間（原因中文名）」稱呼版本（`weekSnapshotDisplayName_()`），
+ *     不顯示內部 ID（第二批測試修正 G5）；`AuditLog` 備註照舊記 ID。
  * Raises:
  *   Error 找不到版本／那一週（`SNAPSHOT_NOT_FOUND`）、鎖定值不符（`STALE`）、
  *     存不到安全版本，或任何寫入失敗。
@@ -923,7 +960,9 @@ function restoreWeekSnapshotFromWebApp_(payload) {
     lastSavedAt: canonicalSaveToken_(stamp),
     message: {
       type: 'success',
-      text: '已還原到版本「' + loaded.group.snapshotId + '」：週報欄位 ' + plan.fieldChanges.length
+      text: '已還原到版本「'
+        + weekSnapshotDisplayName_(loaded.group, getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland'))
+        + '」：週報欄位 ' + plan.fieldChanges.length
         + ' 格、事奉框覆寫 ' + dutyCount + ' 項、手動覆寫的欄位 ' + fieldOverrideCount
         + ' 項。還原前的現況已另存成一個版本，萬一揀錯可以再還原回來。'
     }

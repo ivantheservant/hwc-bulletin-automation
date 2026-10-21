@@ -1126,5 +1126,69 @@ test('接線：展開時才載入；載入週報後刷新；還原／重設走�
   assert.strictEqual(js.indexOf('confirm('.replace('confirm(', 'confirm(')) === -1 ? true : js.indexOf('window.confirm') === -1, true);
 });
 
+
+// =====================================================================
+// 第二批測試修正 G5：完成訊息不顯示內部版本 ID
+// =====================================================================
+
+console.log('\n完成訊息用「時間（原因）」稱呼版本（G5）');
+
+/** 內部版本 ID 的特徵片段：yyyyMMdd'T'HHmmss（buildBackupId_() 的格式）。 */
+const SNAPSHOT_ID_FRAGMENT = /\d{8}T\d{6}/;
+
+test('G5-1 還原（真入口 restoreWeekSnapshotFromWebApp_）：完成訊息用版本列表同一個寫法「時間（填寫介面儲存）」，不含內部 ID；AuditLog 照舊記 ID', function () {
+  const env = makeHistoryEnv();
+  const target = versionsOf(env, D)[0];
+  assert.ok(SNAPSHOT_ID_FRAGMENT.test(target.snapshotId), '前提：版本 ID 帶時間片段：' + target.snapshotId);
+
+  // 版本列表（填寫介面看到的那一行）怎樣寫，完成訊息就要怎樣寫。
+  const listed = env.sandbox.listWeekSnapshotsForWebApp_(D).versions.filter(function (v) {
+    return v.snapshotId === target.snapshotId;
+  })[0];
+  assert.ok(listed.createdAt, '前提：版本列表有建立時間');
+  const displayName = listed.createdAt + '（' + listed.reasonLabel + '）';
+  assert.strictEqual(listed.reasonLabel, '填寫介面儲存');
+
+  const diff = env.sandbox.diffWeekSnapshotForWebApp_(D, target.snapshotId);
+  assert.strictEqual(diff.createdAt + '（' + diff.reasonLabel + '）', displayName, '還原對話框與版本列表一致');
+
+  const result = env.sandbox.restoreWeekSnapshotFromWebApp_({ isoDate: D, snapshotId: target.snapshotId, lastSavedAt: diff.lastSavedAt });
+  const text = result.message.text;
+  assert.strictEqual(result.message.type, 'success');
+  assert.ok(text.indexOf('已還原到版本「' + displayName + '」：') === 0, text);
+  assert.ok(text.indexOf('（填寫介面儲存）') !== -1, text);
+  assert.strictEqual(text.indexOf(target.snapshotId), -1, '不可以顯示內部 ID：' + text);
+  assert.ok(!SNAPSHOT_ID_FRAGMENT.test(text), '連 ID 的時間片段都不可以出現：' + text);
+  assert.strictEqual(text.indexOf(result.safetySnapshotId), -1, '安全版本的 ID 也不可以出現');
+  assertWrittenChinese(assert, '還原完成訊息', text);
+
+  const audit = env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'WEEK_RESTORE'; });
+  assert.ok(audit.length > 0);
+  audit.forEach(function (r) { assert.ok(String(r.NOTES).indexOf(target.snapshotId) !== -1, 'AuditLog 仍要記 ID：' + r.NOTES); });
+});
+
+test('G5-2 經填寫介面 API（apiRestoreWeekSnapshot）與「重設這一週」（resetWeekFromWebApp_）：訊息都不含內部 ID', function () {
+  const env = makeHistoryEnv();
+  const target = versionsOf(env, D)[0];
+  const resp = env.sandbox.apiRestoreWeekSnapshot({ isoDate: D, snapshotId: target.snapshotId });
+  assert.strictEqual(resp.ok, true, JSON.stringify(resp));
+  assert.ok(!SNAPSHOT_ID_FRAGMENT.test(resp.data.message.text), resp.data.message.text);
+  assert.ok(resp.data.message.text.indexOf('（填寫介面儲存）') !== -1, resp.data.message.text);
+
+  const reset = env.sandbox.resetWeekFromWebApp_(D);
+  assert.ok(reset.safetySnapshotId, '前提：重設有存安全版本');
+  assert.strictEqual(reset.message.text.indexOf(reset.safetySnapshotId), -1, reset.message.text);
+  assert.ok(!SNAPSHOT_ID_FRAGMENT.test(reset.message.text), reset.message.text);
+});
+
+test('G5-3 weekSnapshotDisplayName_：時間讀不到寫「（時間不明）」（與前端版本列表的退回字眼相同），不會只剩一個括號；未知原因代碼原樣顯示', function () {
+  const env = makeEnv({});
+  assert.strictEqual(env.sandbox.weekSnapshotDisplayName_({ createdAt: '', reason: 'WEBAPP_SAVE' }, 'Pacific/Auckland'),
+    '（時間不明）（填寫介面儲存）');
+  assert.strictEqual(env.sandbox.weekSnapshotDisplayName_({ createdAt: null, reason: 'XYZ' }, 'Pacific/Auckland'), '（時間不明）（XYZ）');
+  // 前端的退回字眼也是這一句（Script.html 版本列表與還原對話框）。
+  assert.ok(readSrc('src/ui/Script.html').indexOf("diff.createdAt || '（時間不明）'") !== -1);
+});
+
 console.log('\n通過 ' + pass + ' 項，失敗 ' + fail + ' 項。');
 process.exit(fail === 0 ? 0 : 1);
