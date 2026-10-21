@@ -1529,22 +1529,53 @@ test('G22-2 不算重複：收件人不同（改寄另一組）照寄；上一�
   assert.strictEqual(readSendLog(later).length, 2);
 });
 
-test('G22-3 findRecentSendOnlyBatch_：全部 FAILED 的一批不算（一封都沒有寄出）；PUBLISH_DEDUP_SEC 是 0 就不檢查；收件人不分大小寫；別一期不算', function () {
+test('G22-3 findRecentNoticeBatch_：全部 FAILED 的一批不算（一封都沒有寄出）；PUBLISH_DEDUP_SEC 是 0 就不檢查；收件人不分大小寫；別一期不算', function () {
   const s = makeG22Env().sandbox;
   const now = new Date(2026, 9, 22, 10, 0, 0).getTime();
   const at = new Date(now - 5000);
   const row = function (status, email, iso) {
     return { TIMESTAMP: at, SERVICE_DATE: s.normalizeDate_(iso || '2027-11-07'), RECIPIENT_EMAIL: email || 'it1@example.com', STATUS: status, DRY_RUN: true, BATCH_ID: 'SB1' };
   };
-  assert.strictEqual(s.findRecentSendOnlyBatch_([row('FAILED')], '2027-11-07', ['it1@example.com'], now, 30), null);
-  assert.strictEqual(s.findRecentSendOnlyBatch_([row('SEND_ONLY')], '2027-11-07', ['it1@example.com'], now, 0), null);
-  assert.ok(s.findRecentSendOnlyBatch_([row('SEND_ONLY', 'IT1@Example.com')], '2027-11-07', ['it1@example.com'], now, 30));
-  assert.strictEqual(s.findRecentSendOnlyBatch_([row('SEND_ONLY', null, '2027-10-31')], '2027-11-07', ['it1@example.com'], now, 30), null);
-  assert.strictEqual(s.findRecentSendOnlyBatch_([row('PUBLISH')], '2027-11-07', ['it1@example.com'], now, 30), null,
-    '發佈加寄出由發佈的防重複負責');
-  const found = s.findRecentSendOnlyBatch_([row('SEND_ONLY')], '2027-11-07', ['it1@example.com'], now, 30);
+  assert.strictEqual(s.findRecentNoticeBatch_([row('FAILED')], '2027-11-07', ['it1@example.com'], now, 30), null);
+  assert.strictEqual(s.findRecentNoticeBatch_([row('SEND_ONLY')], '2027-11-07', ['it1@example.com'], now, 0), null);
+  assert.ok(s.findRecentNoticeBatch_([row('SEND_ONLY', 'IT1@Example.com')], '2027-11-07', ['it1@example.com'], now, 30));
+  assert.strictEqual(s.findRecentNoticeBatch_([row('SEND_ONLY', null, '2027-10-31')], '2027-11-07', ['it1@example.com'], now, 30), null);
+  // G22 補充改了這一條的預期：以前「發佈加寄出」那一批不算，但 G18 叫人「已經發佈而未寄出的話，
+  // 再做時只勾寄出」——如果其實已經寄了，就會再寄一封。不要改回去。
+  assert.ok(s.findRecentNoticeBatch_([row('PUBLISH')], '2027-11-07', ['it1@example.com'], now, 30),
+    '發佈加寄出那一批亦算');
+  const found = s.findRecentNoticeBatch_([row('SEND_ONLY')], '2027-11-07', ['it1@example.com'], now, 30);
   assert.strictEqual(found.secondsAgo, 5);
   assert.strictEqual(found.recipientCount, 1);
+});
+
+test('G22-4 真正入口 apiRunPublish：發佈加寄出（IT）之後，30 秒內只寄出同一期、同一組 → 被擋（DUPLICATE_SEND），SendLog 只有發佈那一批', function () {
+  // 上一次發佈要在「現在」之前，剛才那一次發佈才會成為 master 現時那一期（makeG2Env 的
+  // PublishLog 日期在 2027 年，比測試執行的真實時間晚）。
+  const env = makeG2Env({
+    config: { DRY_RUN: 'TRUE', PUBLISH_DEDUP_SEC: G22_DEDUP_SEC }, sendLogKeepsTime: true,
+    publishLog: [{
+      SERVICE_DATE: G2_MASTER_ISSUE, VERSION_NO: 1, PUBLISHED_AT: '2026-01-04',
+      PUBLISHED_BY: 'tester@example.com', ARCHIVE_FILE_ID: 'OLD2', SENT: false,
+      SENT_GROUPS: '', MISSING_COUNT: 0, FORCED: false, FORCED_REASON: ''
+    }]
+  });
+  const both = env.sandbox.apiRunPublish({
+    isoDate: G2_SELECTED, doPublish: true, doSend: true, pdfBase64: PDF_BASE64, pdfName: '週報.pdf',
+    groups: ['IT'], customEmails: '', confirmed: true
+  });
+  assert.strictEqual(both.ok, true, JSON.stringify(both.error));
+  assert.strictEqual(both.data.ok, true, both.data.message);
+  assert.strictEqual(readSendLog(env).length, 1, '前提：發佈加寄出寄了一封');
+  assert.strictEqual(readSendLog(env)[0].STATUS, 'PUBLISH');
+
+  // 幹事以為「已經發佈而未寄出」，只勾「寄出」再做一次。
+  const again = env.sandbox.apiRunPublish(Object.assign({}, G22_PAYLOAD));
+  assert.strictEqual(again.ok, true, JSON.stringify(again.error));
+  assert.strictEqual(again.data.ok, false);
+  assert.strictEqual(again.data.reason, 'DUPLICATE_SEND');
+  assert.ok(again.data.message.indexOf('剛才已經寄出過這一期（' + G2_SELECTED + '）的通知') === 0, again.data.message);
+  assert.strictEqual(readSendLog(env).length, 1, 'SendLog 沒有多');
 });
 
 // =====================================================================

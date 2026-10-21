@@ -1352,8 +1352,8 @@ function publishCurrentUserEmail_() {
  *   打開看到的那一期一致。
  *
  *   ⚠️ 第二批測試修正 G22(b)：只寄出時，同一期、同一組收件人在 `PUBLISH_DEDUP_SEC`
- *   秒內已經寄出過（SendLog 有 SEND_ONLY 的一批），回 `reason:'DUPLICATE_SEND'`，
- *   一封都不寄（見 `findRecentSendOnlyBatch_()`）。發佈加寄出由發佈的防重複負責。
+ *   秒內已經寄出過（SendLog 有 SEND_ONLY 或 PUBLISH 的一批），回 `reason:'DUPLICATE_SEND'`，
+ *   一封都不寄（見 `findRecentNoticeBatch_()`）。發佈加寄出本身由發佈的防重複負責。
  * Args:
  *   isoDate {string} 介面選中的主日，yyyy-MM-dd。
  *   options {{groups:string[], customEmails:string, blob:(Blob|null),
@@ -1407,7 +1407,7 @@ function sendPublishNotice_(isoDate, options) {
   //    寄出之前查 SendLog：同一期、同一組收件人在 PUBLISH_DEDUP_SEC 秒內已有只寄出的記錄，
   //    就拒絕，一封都不寄、SendLog 一行都不寫。
   if (!o.published) {
-    var recentSend = findRecentSendOnlyBatch_(readSendLogRowsForDedup_(), noticeIsoDate,
+    var recentSend = findRecentNoticeBatch_(readSendLogRowsForDedup_(), noticeIsoDate,
       resolved.recipients.map(function (r) { return r.email; }), new Date().getTime(), config.dedupSec);
     if (recentSend) {
       return {
@@ -1793,14 +1793,19 @@ function readSendLogRowsForDedup_() {
 }
 
 /**
- * 用途：第二批測試修正 G22(b)：在 SendLog 找「同一期、同一組收件人」在時窗內的只寄出
- *   記錄。純函式。
+ * 用途：第二批測試修正 G22(b)：只寄出之前，在 SendLog 找「同一期、同一組收件人」在時窗內
+ *   已經寄出的通知。純函式。
  *
  *   一次寄出是 SendLog 同一個 BATCH_ID 的幾行（每個收件人一行）。一批算數的條件：
- *   至少一行 STATUS 是 SEND_ONLY（全部 FAILED 即是一封都沒有寄出，可以再寄）、主日日期是
- *   這一期、時間在 dedupSec 秒之內，而且那一批的收件人（不分大小寫）與這一次完全相同。
- *   收件人不同（例如這一次改寄另一組）不算重複。時間在未來（時鐘不一致）不算重複，理由同
+ *   至少一行 STATUS 是 SEND_ONLY 或 PUBLISH（全部 FAILED 即是一封都沒有寄出，可以再寄）、
+ *   主日日期是這一期、時間在 dedupSec 秒之內，而且那一批的收件人（不分大小寫）與這一次完全
+ *   相同。收件人不同（例如這一次改寄另一組）不算重複。時間在未來（時鐘不一致）不算重複，理由同
  *   findRecentPublishStamp_()。
+ *
+ *   G22 補充：PUBLISH（發佈加寄出）那一批亦算。G18 的提示叫人「已經發佈而未寄出的話，再做時只勾
+ *   「寄出」」——如果其實已經寄了，只寄出就會再寄一封；發佈加寄出之後只寄出，通知講的正是剛發佈
+ *   那一期（master 現時那一期），主日日期相同，於是擋得到。名稱由 findRecentSendOnlyBatch_() 改為
+ *   現在這個，免得名稱講的（只寄出）與實作做的（兩種寄出都算）對不上。
  * Args:
  *   sendLogRows {Object[]} `readSendLogRowsForDedup_()` 的輸出（TIMESTAMP 要帶時分秒）。
  *   noticeIsoDate {string} 這一次通知信講的那一期，yyyy-MM-dd。
@@ -1813,7 +1818,7 @@ function readSendLogRowsForDedup_() {
  * Raises:
  *   （無）
  */
-function findRecentSendOnlyBatch_(sendLogRows, noticeIsoDate, recipientEmails, nowMs, dedupSec) {
+function findRecentNoticeBatch_(sendLogRows, noticeIsoDate, recipientEmails, nowMs, dedupSec) {
   var seconds = Number(dedupSec);
   if (!(seconds > 0)) return null;
   function emailKey(value) { return String(value || '').trim().toLowerCase(); }
@@ -1828,17 +1833,18 @@ function findRecentSendOnlyBatch_(sendLogRows, noticeIsoDate, recipientEmails, n
     var serviceDate = normalizeDate_(row.SERVICE_DATE);
     if (!serviceDate || formatIsoDate_(serviceDate) !== noticeIsoDate) return;
     var key = String(row.BATCH_ID || '').trim() || ('@' + at.getTime());
-    var batch = batches[key] || (batches[key] = { at: at, emails: [], sendOnly: false, dryRun: false });
+    var batch = batches[key] || (batches[key] = { at: at, emails: [], sent: false, dryRun: false });
     if (at.getTime() > batch.at.getTime()) batch.at = at;
     batch.emails.push(emailKey(row.RECIPIENT_EMAIL));
-    if (String(row.STATUS || '') === SEND_ONLY_SEND_STATUS_) batch.sendOnly = true;
+    var status = String(row.STATUS || '');
+    if (status === SEND_ONLY_SEND_STATUS_ || status === PUBLISH_SEND_STATUS_) batch.sent = true;
     if (normalizeBoolean_(row.DRY_RUN) === true) batch.dryRun = true;
   });
 
   var found = null;
   Object.keys(batches).forEach(function (key) {
     var b = batches[key];
-    if (!b.sendOnly) return;
+    if (!b.sent) return;
     var elapsedMs = Number(nowMs) - b.at.getTime();
     if (elapsedMs < 0 || elapsedMs > seconds * 1000) return;
     var unique = b.emails.filter(function (e, i, all) { return e && all.indexOf(e) === i; });
@@ -1854,7 +1860,7 @@ function findRecentSendOnlyBatch_(sendLogRows, noticeIsoDate, recipientEmails, n
  * 用途：第二批測試修正 G22(b)：只寄出被防重複擋下時的一句。純函式（時間格式化除外）。
  * Args:
  *   noticeIsoDate {string} 通知信講的那一期。
- *   recent {{at:Date, recipientCount:number, dryRun:boolean}} `findRecentSendOnlyBatch_()` 的結果。
+ *   recent {{at:Date, recipientCount:number, dryRun:boolean}} `findRecentNoticeBatch_()` 的結果。
  *   timezone {string} Config `SYS_TIMEZONE`。
  *   dedupSec {number} Config `PUBLISH_DEDUP_SEC`。
  * Returns:
