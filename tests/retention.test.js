@@ -462,10 +462,10 @@ function goLiveItem(env, keyword) {
   })[0];
 }
 
-test('八項齊備，一項都不可以少', function () {
+test('九項齊備，一項都不可以少（第九項是階段 3 的講員表格）', function () {
   const env = makeEnv({});
   const items = env.sandbox.buildGoLiveChecklist_();
-  assert.strictEqual(items.length, 8, '實際：' + items.map(function (i) { return i.label; }).join('、'));
+  assert.strictEqual(items.length, 9, '實際：' + items.map(function (i) { return i.label; }).join('、'));
   items.forEach(function (i) {
     assert.ok(i.label && i.status && i.message, '每一項都要有標題、燈色、說明：' + JSON.stringify(i));
   });

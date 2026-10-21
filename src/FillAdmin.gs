@@ -458,6 +458,8 @@ function protectedSheetNames_() {
     SHEETS.DUTY_OVERRIDE,
     // 每週版本記錄：全部由系統寫，人手改一行只會令還原出錯。
     SHEETS.WEEK_SNAPSHOTS,
+    // 講員表格答案記錄：全部由系統寫（「有效」欄是唯一容許人手改的格）。
+    SHEETS.SPEAKER_FORM_SUBMISSIONS,
     // ContentSheets 只記「每季內容表指向哪一個檔案」，全部由系統寫；
     // 人手改一個檔案 ID 只會令匯入指去錯的檔案，所以一律受保護。
     SHEETS.CONTENT_SHEETS,

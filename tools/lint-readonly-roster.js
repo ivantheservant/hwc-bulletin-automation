@@ -16,7 +16,8 @@
  * 掃描三條規則
  * ─────────────────────────────────────────────────────────────────────
  *
- * 1. `openById(` 只准出現在 src/RosterRead.gs 與 src/ContentSheetIo.gs。
+ * 1. `openById(` 只准出現在 src/RosterRead.gs、src/ContentSheetIo.gs 與
+ *    src/SpeakerFormIo.gs（最後一個只用來開講員表格，見規則 5）。
  *    任何一個週報自己的 Google 試算表操作都是透過
  *    SpreadsheetApp.getActiveSpreadsheet()；需要另外開啟「別的試算表」的
  *    地方只有兩個——讀職事表（RosterRead.gs），與讀寫每季的「內容表」
@@ -68,7 +69,20 @@
  *    鍵，它就沒有辦法自己找到職事表。真正需要職事表 ID 的只有
  *    RosterRead.gs，而那個檔案不准有任何寫入方法（規則 2）。
  *
- * 四條規則都會先用 tools/lib/maskSource.js 把字串與註解內容遮罩掉，
+ * 5. `FormApp`（Google 表單）只准出現在 src/SpeakerFormIo.gs。
+ *
+ *    第二批階段 3 加入「講員表格」（Google Form）。`FormApp.openById()` 與
+ *    `DriveApp`／`SpreadsheetApp.openById()` 一樣，理論上可以開啟**任何**一份
+ *    表單，包括職事表系統自己的表單；而且它的 `openById(` 字樣會觸發規則 1，
+ *    所以 SpeakerFormIo.gs 同時列入規則 1 的准許名單。處理方式與前面完全同一個
+ *    手法：把能力鎖死在**單一新檔案**，其餘檔案一律不准（本規則）；而那個檔案
+ *    也一律不准出現 `ROSTER_SPREADSHEET_ID`（規則 4），拿不到職事表的設定鍵，
+ *    就沒有辦法自己找到職事表。
+ *
+ *    ⚠️ SpeakerFormIo.gs **不**列入規則 3 的 `DriveApp` 准許名單：把表單搬進
+ *    Shared Drive 資料夾走 DriveShared.gs 的 `driveMoveFileToFolder_()`。
+ *
+ * 五條規則都會先用 tools/lib/maskSource.js 把字串與註解內容遮罩掉，
  * 避免像本檔案自己這種「解釋規則」的文件字串／註解，被自己掃到而誤判。
  */
 
@@ -87,6 +101,12 @@ const CONTENT_SHEET_IO_FILE = 'ContentSheetIo.gs';
 
 /** 發佈（master PDF 覆寫、存檔副本）的 Drive IO，全部鎖死在這一個檔案。 */
 const PUBLISH_IO_FILE = 'PublishIo.gs';
+
+/** 講員表格（Google Form）的全部 FormApp 呼叫，鎖死在這一個檔案。見檔頭規則 5。 */
+const SPEAKER_FORM_IO_FILE = 'SpeakerFormIo.gs';
+
+/** 准許使用 `FormApp` 的檔案。見檔頭規則 5。 */
+const FORM_APP_FILES = [SPEAKER_FORM_IO_FILE];
 
 /**
  * Drive **進階服務**（`Drive.Files.*`）的唯一呼叫點。
@@ -115,7 +135,7 @@ const DRIVE_APP_FILES = ['DocxIo.gs', CONTENT_SHEET_IO_FILE, PUBLISH_IO_FILE, DR
 const DRIVE_ADVANCED_TOKEN = 'Drive.Files';
 
 /** 准許使用 `openById(` 的檔案。見檔頭規則 1。 */
-const OPEN_BY_ID_FILES = [ROSTER_READ_FILE, CONTENT_SHEET_IO_FILE];
+const OPEN_BY_ID_FILES = [ROSTER_READ_FILE, CONTENT_SHEET_IO_FILE, SPEAKER_FORM_IO_FILE];
 
 /**
  * 拿得到 `DriveApp`／`openById(` 的檔案內，一律不准出現這個識別碼——
@@ -124,8 +144,8 @@ const OPEN_BY_ID_FILES = [ROSTER_READ_FILE, CONTENT_SHEET_IO_FILE];
  */
 const ROSTER_ID_CONFIG_KEY = 'ROSTER_SPREADSHEET_ID';
 
-/** 要套用規則 4 的檔案：獲准的高權限檔案，扣除 RosterRead.gs。 */
-const ROSTER_ID_FORBIDDEN_FILES = DRIVE_APP_FILES.concat(OPEN_BY_ID_FILES)
+/** 要套用規則 4 的檔案：獲准的高權限檔案（含 FormApp 那個），扣除 RosterRead.gs。 */
+const ROSTER_ID_FORBIDDEN_FILES = DRIVE_APP_FILES.concat(OPEN_BY_ID_FILES, FORM_APP_FILES)
   .filter(function (f, i, arr) { return f !== ROSTER_READ_FILE && arr.indexOf(f) === i; });
 
 const FORBIDDEN_WRITE_METHODS = [
@@ -245,6 +265,17 @@ function lint(srcDir) {
       });
     }
 
+    // 規則 5：FormApp 只准出現在指定檔案。
+    if (FORM_APP_FILES.indexOf(fileName) === -1) {
+      findOccurrenceLines(masked, 'FormApp').forEach(function (line) {
+        violations.push({
+          file: fileName, line: line, rule: 'FORM_APP_OUTSIDE_ALLOWED_FILES',
+          message: '「FormApp」只准出現在 ' + FORM_APP_FILES.join('、') + '。`FormApp.openById()` 可以開啟任何一份表單，'
+            + '能力集中在單一檔案，才有辦法逐一稽核；那個檔案同樣拿不到職事表 ID。'
+        });
+      });
+    }
+
     // 規則 4：高權限檔案（RosterRead.gs 除外）一律拿不到職事表 ID。
     if (ROSTER_ID_FORBIDDEN_FILES.indexOf(fileName) !== -1) {
       findOccurrenceLines(masked, ROSTER_ID_CONFIG_KEY).forEach(function (line) {
@@ -275,6 +306,7 @@ function main() {
     console.log('✓ 沒有發現違規——openById 只在 ' + OPEN_BY_ID_FILES.join('、') + '、'
       + ROSTER_READ_FILE + ' 沒有任何寫入方法、'
       + 'DriveApp 只在 ' + DRIVE_APP_FILES.join('、') + '、'
+      + 'FormApp 只在 ' + FORM_APP_FILES.join('、') + '、'
       + '而 ' + ROSTER_ID_FORBIDDEN_FILES.join('、') + ' 拿不到職事表 ID。');
     process.exit(0);
   }
@@ -300,6 +332,8 @@ if (require.main === module) {
     ROSTER_ID_FORBIDDEN_FILES: ROSTER_ID_FORBIDDEN_FILES,
     CONTENT_SHEET_IO_FILE: CONTENT_SHEET_IO_FILE,
     PUBLISH_IO_FILE: PUBLISH_IO_FILE,
+    SPEAKER_FORM_IO_FILE: SPEAKER_FORM_IO_FILE,
+    FORM_APP_FILES: FORM_APP_FILES,
     DRIVE_SHARED_FILE: DRIVE_SHARED_FILE,
     DRIVE_ADVANCED_TOKEN: DRIVE_ADVANCED_TOKEN,
     ROSTER_READ_FILE: ROSTER_READ_FILE

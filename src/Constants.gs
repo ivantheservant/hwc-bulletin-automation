@@ -89,7 +89,9 @@ var SHEETS = Object.freeze({
   MONKEY_LOG: 'MonkeyLog',
   MONKEY_STATE: 'MonkeyState',
   // ---- 第二批階段 2：每週版本記錄（見 src/WeekSnapshots.gs）----
-  WEEK_SNAPSHOTS: 'WeekSnapshots'
+  WEEK_SNAPSHOTS: 'WeekSnapshots',
+  // ---- 第二批階段 3：講員表格（Google Form）的答案記錄（見 src/SpeakerForm.gs）----
+  SPEAKER_FORM_SUBMISSIONS: 'SpeakerFormSubmissions'
 });
 
 /**
@@ -548,6 +550,28 @@ var COLUMNS = Object.freeze({
       'TEXT', 'TEXT', 'BOOLEAN'
     ],
     textFormatColumns: ['SNAPSHOT_ID', 'PAYLOAD_JSON']
+  },
+
+  // 第二批階段 3：講員表格（Google Form）每一份答案一行（見 src/SpeakerForm.gs）。
+  //
+  // ⚠️ 同一個主日有多份答案時，以**最新一份**為準；舊的**不停用**，只是不再採用
+  // （`ACTIVE` 留給幹事日後手動停用某一份明顯填錯的答案，系統自己不會改它）。
+  // ⚠️ `SCRIPTURE_REF`（例如「3:16」）、`SERMON_TITLE`、`NOTES` 是使用者填的原文，
+  // 一律強制純文字，免得被試算表轉成時間或日期。
+  SPEAKER_FORM_SUBMISSIONS: {
+    headers: [
+      '提交時間', '主日日期', '答題者電郵', '講員', '讀經經文', '證道講題', '備註',
+      '處理結果', '處理說明', '有效'
+    ],
+    keys: [
+      'TIMESTAMP', 'SERVICE_DATE', 'RESPONDENT_EMAIL', 'SPEAKER_NAME', 'SCRIPTURE_REF', 'SERMON_TITLE', 'NOTES',
+      'RESULT', 'DETAIL', 'ACTIVE'
+    ],
+    types: [
+      'DATE', 'DATE', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT',
+      'TEXT', 'TEXT', 'BOOLEAN'
+    ],
+    textFormatColumns: ['SPEAKER_NAME', 'SCRIPTURE_REF', 'SERMON_TITLE', 'NOTES', 'DETAIL']
   }
 
 });
@@ -701,7 +725,24 @@ var CONFIG_KEYS = Object.freeze({
   CONTENT_SHEET_ARCHIVE_FOLDER_ID: 'CONTENT_SHEET_ARCHIVE_FOLDER_ID',
   // 第二批階段 2：每週版本記錄
   SNAPSHOT_THROTTLE_MINUTES: 'SNAPSHOT_THROTTLE_MINUTES',
-  SNAPSHOT_LIST_LIMIT: 'SNAPSHOT_LIST_LIMIT'
+  SNAPSHOT_LIST_LIMIT: 'SNAPSHOT_LIST_LIMIT',
+  // 第二批階段 3：講員表格（Google Form）
+  SPEAKER_FORM_ID: 'SPEAKER_FORM_ID',
+  SPEAKER_FORM_URL: 'SPEAKER_FORM_URL',
+  SPEAKER_FORM_FOLDER_ID: 'SPEAKER_FORM_FOLDER_ID',
+  SPEAKER_FORM_TITLE: 'SPEAKER_FORM_TITLE',
+  SPEAKER_FORM_DESCRIPTION: 'SPEAKER_FORM_DESCRIPTION',
+  SPEAKER_FORM_CONFIRMATION: 'SPEAKER_FORM_CONFIRMATION',
+  SPEAKER_FORM_WEEKS_AHEAD: 'SPEAKER_FORM_WEEKS_AHEAD',
+  SPEAKER_FORM_NOTIFY_GROUPS: 'SPEAKER_FORM_NOTIFY_GROUPS',
+  SPEAKER_FORM_Q_DATE: 'SPEAKER_FORM_Q_DATE',
+  SPEAKER_FORM_Q_SPEAKER: 'SPEAKER_FORM_Q_SPEAKER',
+  SPEAKER_FORM_Q_SCRIPTURE: 'SPEAKER_FORM_Q_SCRIPTURE',
+  SPEAKER_FORM_Q_TITLE: 'SPEAKER_FORM_Q_TITLE',
+  SPEAKER_FORM_Q_NOTES: 'SPEAKER_FORM_Q_NOTES',
+  SPEAKER_FORM_DATE_SPECIAL_PATTERN: 'SPEAKER_FORM_DATE_SPECIAL_PATTERN',
+  SPEAKER_FORM_NOTIFY_SUBJECT: 'SPEAKER_FORM_NOTIFY_SUBJECT',
+  SPEAKER_NAME_HONORIFICS: 'SPEAKER_NAME_HONORIFICS'
 });
 
 // =====================================================================
@@ -862,7 +903,25 @@ var DEFAULTS = Object.freeze([
 
   // ---- 第二批階段 2：每週版本記錄 ----
   { key: CONFIG_KEYS.SNAPSHOT_THROTTLE_MINUTES, value: '15', note: '每週版本記錄：季度填寫表觸發器、手動同步與處理衝突的寫回，同一個主日在這個分鐘數之內只存一個版本，免得每改一格就多一個版本。其他動作（填寫介面儲存、內容表匯入、重設、還原等）每次都存。填 0 代表不限制' },
-  { key: CONFIG_KEYS.SNAPSHOT_LIST_LIMIT, value: '20', note: '每週版本記錄：填寫介面的「版本記錄」列表最多顯示最新幾個版本。舊版本不會刪除，只是列表不顯示' }
+  { key: CONFIG_KEYS.SNAPSHOT_LIST_LIMIT, value: '20', note: '每週版本記錄：填寫介面的「版本記錄」列表最多顯示最新幾個版本。舊版本不會刪除，只是列表不顯示' },
+
+  // ---- 第二批階段 3：講員表格（Google Form）----
+  { key: CONFIG_KEYS.SPEAKER_FORM_ID, value: '', note: '講員表格：表格的檔案 ID。由填寫介面「建立講員表格」自動寫入，一般不需要人手填。留空代表還沒有建立' },
+  { key: CONFIG_KEYS.SPEAKER_FORM_URL, value: '', note: '講員表格：給講員填寫的固定連結（長期使用，不是每季一個）。由系統建立表格時寫入，講員收藏這一條即可' },
+  { key: CONFIG_KEYS.SPEAKER_FORM_FOLDER_ID, value: '', note: '講員表格：表格檔案放在哪一個資料夾（資料夾 ID，必須在 Shared Drive 內）。留空就用 CONTENT_SHEET_FOLDER_ID（內容表的資料夾）' },
+  { key: CONFIG_KEYS.SPEAKER_FORM_TITLE, value: '粵語堂主日講員資料', note: '講員表格：表格標題。只在建立表格時使用；之後要改請直接在表格上改' },
+  { key: CONFIG_KEYS.SPEAKER_FORM_DESCRIPTION, value: '請講員填寫主日的證道講題與讀經經文。每一份答案會直接寫進該主日的週報；填錯了可以再填一次，以最後一份為準。只限教會帳戶填寫。', note: '講員表格：表格說明文字。只在建立表格時使用' },
+  { key: CONFIG_KEYS.SPEAKER_FORM_CONFIRMATION, value: '多謝填寫！你的答案已經記下，教會同工會核對。', note: '講員表格：講員按「提交」之後看到的確認文字。只在建立表格時使用' },
+  { key: CONFIG_KEYS.SPEAKER_FORM_WEEKS_AHEAD, value: '16', note: '講員表格：「主日日期」下拉列出從今日起未來幾多個主日（以週報工作表內未封存的主日為準）' },
+  { key: CONFIG_KEYS.SPEAKER_FORM_NOTIFY_GROUPS, value: 'ADMIN', note: '講員表格：每份答案寄通知給 Recipients 的哪些組別（逗號分隔）。遵守 DRY_RUN：試行模式只寫 SendLog，不真的寄出' },
+  { key: CONFIG_KEYS.SPEAKER_FORM_Q_DATE, value: '主日日期', note: '講員表格題目字眼：主日日期（下拉，必填）。系統靠這個題目字眼認答案，建立表格之後不要在表格上改題目；要改請先改這裏再重新建立' },
+  { key: CONFIG_KEYS.SPEAKER_FORM_Q_SPEAKER, value: '講員', note: '講員表格題目字眼：講員（短答，必填）。只用來核對事奉框的講員，不會改事奉框' },
+  { key: CONFIG_KEYS.SPEAKER_FORM_Q_SCRIPTURE, value: '讀經經文', note: '講員表格題目字眼：讀經經文（短答，必填）。答案寫入週報的「讀經經文」' },
+  { key: CONFIG_KEYS.SPEAKER_FORM_Q_TITLE, value: '證道講題', note: '講員表格題目字眼：證道講題（短答，必填）。答案寫入週報的「證道講題」' },
+  { key: CONFIG_KEYS.SPEAKER_FORM_Q_NOTES, value: '備註', note: '講員表格題目字眼：備註（段落，選填）。只記在 SpeakerFormSubmissions 和通知信，不寫進週報' },
+  { key: CONFIG_KEYS.SPEAKER_FORM_DATE_SPECIAL_PATTERN, value: '{{DATE}}（{{SPECIAL}}）', note: '講員表格「主日日期」下拉選項的字眼樣式。{{DATE}} 換成日期（例如 2028-04-09），{{SPECIAL}} 換成特別主日名稱；沒有特別主日的主日只顯示日期' },
+  { key: CONFIG_KEYS.SPEAKER_FORM_NOTIFY_SUBJECT, value: '{{CHURCH}}週報：講員表格新答案（{{SERVICE_DATE}}，{{RESULT}}）', note: '講員表格通知信的主旨樣式。可用 {{CHURCH}}（教會名稱）、{{SERVICE_DATE}}（主日日期）、{{RESULT}}（處理結果）' },
+  { key: CONFIG_KEYS.SPEAKER_NAME_HONORIFICS, value: '牧師,傳道,弟兄,姊妹,博士,老師,先生,女士,長老,執事', note: '講員核對：比較「表格填的講員」與「事奉框的講員」之前，先從名字去掉的尊稱（逗號分隔）。兩邊的空白也會先去掉。名字相同才不出警告' }
 ]);
 
 // =====================================================================
@@ -966,6 +1025,27 @@ var RECIPIENT_GROUP = Object.freeze({
   TEST: 'TEST',
   IT: 'IT',
   WORSHIP: 'WORSHIP'
+});
+
+/**
+ * `SpeakerFormSubmissions.RESULT` 的取值與中文名稱——**一處定義**。
+ *
+ * | 代碼 | 意思 |
+ * |---|---|
+ * | `APPLIED` | 已寫入週報（經內容表，或沒有內容表時直接寫 `BulletinWeeks`） |
+ * | `UNCHANGED` | 答案與週報現在的內容一樣，沒有東西要寫 |
+ * | `BLOCKED_BY_OVERRIDE` | 那一格有生效中的人手覆寫（`FieldOverride`），不蓋過 |
+ * | `SKIPPED_PAST` | 主日已過去，不寫週報 |
+ * | `NO_WEEK` | 週報工作表沒有這個主日的資料行 |
+ * | `ERROR` | 處理過程出錯（詳情見 `DETAIL` 與 `ErrorLog`） |
+ */
+var SPEAKER_FORM_RESULTS = Object.freeze({
+  APPLIED: '已寫入週報',
+  UNCHANGED: '內容與週報相同，沒有改動',
+  BLOCKED_BY_OVERRIDE: '有人手覆寫，沒有蓋過',
+  SKIPPED_PAST: '主日已過，沒有寫入',
+  NO_WEEK: '找不到這個主日的週報',
+  ERROR: '處理出錯'
 });
 
 /**

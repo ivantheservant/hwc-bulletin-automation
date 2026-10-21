@@ -143,14 +143,14 @@ test('原因代碼與中文名稱在 WEEK_SNAPSHOT_REASONS 一處定義，十二
   assertWrittenChinese(assert, '版本原因名稱', codes.map(function (c) { return sb.WEEK_SNAPSHOT_REASONS[c]; }));
 });
 
-test('WeekSnapshots 欄位依次是 SNAPSHOT_ID…ACTIVE，新工作表排在 SHEETS 最後', function () {
+test('WeekSnapshots 欄位依次是 SNAPSHOT_ID…ACTIVE，新工作表接在既有工作表之後（階段 3 的表再接在它後面）', function () {
   const sb = makeEnv().sandbox;
   assert.deepStrictEqual(Array.from(sb.COLUMNS.WEEK_SNAPSHOTS.keys), [
     'SNAPSHOT_ID', 'PART_NO', 'SERVICE_DATE', 'QUARTER_ID', 'CREATED_AT', 'CREATED_BY', 'REASON',
     'SUMMARY', 'PAYLOAD_JSON', 'DOC_FILE_ID', 'ACTIVE'
   ]);
   const ids = Object.keys(sb.SHEETS);
-  assert.strictEqual(ids[ids.length - 1], 'WEEK_SNAPSHOTS');
+  assert.strictEqual(ids.indexOf('WEEK_SNAPSHOTS'), ids.indexOf('MONKEY_STATE') + 1, '緊接在階段 2 之前最後一張表之後');
 });
 
 test('Config：SNAPSHOT_THROTTLE_MINUTES 預設 15、SNAPSHOT_LIST_LIMIT 預設 20，都有說明', function () {

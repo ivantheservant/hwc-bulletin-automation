@@ -531,11 +531,12 @@ function readWeekStateForSnapshot_(isoDate) {
  *   isoDate {string} 主日日期，yyyy-MM-dd。
  *   reason {string} `WEEK_SNAPSHOT_REASONS` 的鍵。
  *   options {{throttle:boolean=, dedupeSameReason:boolean=, docFileId:string=,
- *     snapshotRows:Object[]=}=}
+ *     actor:string=, snapshotRows:Object[]=}=}
  *     `throttle`：套用 `SNAPSHOT_THROTTLE_MINUTES`（季度填寫表一族用）；
  *     `dedupeSameReason`：內容與同一原因的最新版本完全相同就不再存
  *     （`WORD_GENERATED` 用，免得每次下載都多一個版本）；
  *     `docFileId`：記進 `DOC_FILE_ID`；
+ *     `actor`：記進 `CREATED_BY`（表單提交觸發器裏查不到操作者，就用答題者的電郵）；
  *     `snapshotRows`：呼叫方已經讀好的 `WeekSnapshots` 資料列（一次替十幾個
  *     主日存版本時只讀一次，這張表每行可能有 49000 字元，逐個主日重讀很慢）。
  *     只可以傳給**不同主日**的連續呼叫——同一個主日要存第二個版本時必須重讀。
@@ -582,7 +583,7 @@ function createWeekSnapshot_(isoDate, reason, options) {
   var timezone = getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland');
   var existingIds = allRows.map(function (r) { return String(r.SNAPSHOT_ID || ''); });
   var snapshotId = buildBackupId_(isoDate, now, timezone, existingIds);
-  var actor = currentUserEmailForBackup_();
+  var actor = opts.actor ? String(opts.actor) : currentUserEmailForBackup_();
   var summary = summarizeWeekSnapshotPayload_(built.payload);
   var parts = splitBackupPayload_(built.json);
 
@@ -727,9 +728,7 @@ function listWeekSnapshotsForWebApp_(isoDate) {
     };
   });
 
-  var published = readSheet(SHEETS.PUBLISH_LOG).filter(function (r) {
-    return r.IS_SELFTEST !== true && fieldOverrideIsoOf_(r.SERVICE_DATE) === isoDate;
-  }).sort(function (a, b) {
+  var published = filterPublishedRowsForDate_(readSheet(SHEETS.PUBLISH_LOG), isoDate).sort(function (a, b) {
     return (Number(b.VERSION_NO) || 0) - (Number(a.VERSION_NO) || 0);
   }).map(function (r) {
     return {

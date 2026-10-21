@@ -132,6 +132,14 @@ function buildBulletinModel_(isoDate) {
 
   snapshot.slotsByPost = applyDutyOverridesToSlots_(snapshot.slotsByPost, buildDutyOverrideIndex_(overrides));
 
+  // ⚠️ 第二批階段 3：講員核對。表格填的講員只作核對，**不改事奉框**——跟事奉框
+  //    （職事表值套用覆寫之後）不同就出警告，由人決定是否換講員。
+  //    一定要排在上面套用覆寫**之後**：核對的對象是「週報上實際會印的講員」。
+  if (snapshot.found) {
+    var speakerWarning = speakerMismatchWarningForModel_(isoDate, snapshot.slotsByPost);
+    if (speakerWarning) warnings.push(speakerWarning);
+  }
+
   var dutyBoxPage1 = buildDutyBox_(snapshot, 1, warnings, diffByKey);
   var nextWeekDuty = [];
   if (nextSnapshot && nextSnapshot.found) {

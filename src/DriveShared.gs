@@ -190,6 +190,53 @@ function driveGetFileLocation_(fileId) {
   }
 }
 
+/**
+ * 用途：把一個檔案搬進指定資料夾（Shared Drive 內的資料夾也可以），
+ *   也就是加上新的父資料夾、並移走舊的父資料夾。
+ *   講員表格建立後搬進 `SPEAKER_FORM_FOLDER_ID` 用。
+ *
+ *   ⚠️ 搬不到會**拋錯**，由呼叫方決定怎樣向使用者說明；不當成成功。
+ * Args:
+ *   fileId {string} 檔案 ID。
+ *   folderId {string} 目標資料夾 ID。
+ * Returns:
+ *   {void}
+ * Raises:
+ *   Error 如果進階服務未啟用、沒有權限、檔案或資料夾不存在。
+ */
+function driveMoveFileToFolder_(fileId, folderId) {
+  var id = String(fileId || '').trim();
+  var target = String(folderId || '').trim();
+  if (!id || !target) {
+    throw new Error('driveMoveFileToFolder_：檔案 ID 與資料夾 ID 都不可以是空的。');
+  }
+  var current = Drive.Files.get(id, driveSharedOptions_({ fields: 'id,parents' }));
+  var oldParents = (current && current.parents) ? current.parents.join(',') : '';
+  var args = driveSharedOptions_({ addParents: target, fields: 'id,parents' });
+  if (oldParents) args.removeParents = oldParents;
+  Drive.Files.update({}, id, null, args);
+}
+
+/**
+ * 用途：判斷一個檔案或資料夾是不是在 Shared Drive（共用雲端硬碟）內。
+ * Args:
+ *   fileId {string} 檔案或資料夾 ID。
+ * Returns:
+ *   {?boolean} 在 Shared Drive 內回 `true`，在「我的雲端硬碟」回 `false`；
+ *     查不到（進階服務未啟用、沒有權限）回 `null`。
+ *     ⚠️ `null` 與 `false` **不可以**混為一談：後者是「查過，不在」，前者是「查不到」。
+ */
+function driveIsInSharedDrive_(fileId) {
+  var id = String(fileId || '').trim();
+  if (!id) return null;
+  try {
+    var file = Drive.Files.get(id, driveSharedOptions_({ fields: 'id,driveId' }));
+    return Boolean(file && file.driveId);
+  } catch (err) {
+    return null;
+  }
+}
+
 /** Drive 資料夾的 MIME 類型。列出子項時用來分開「檔案」與「資料夾」。 */
 var DRIVE_FOLDER_MIME_TYPE_ = 'application/vnd.google-apps.folder';
 

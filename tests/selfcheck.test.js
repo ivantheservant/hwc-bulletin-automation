@@ -54,7 +54,11 @@ function makeEnv(options) {
     WEBAPP_URL: o.webAppConfigured === false ? '' : 'https://script.google.com/macros/s/FAKE/exec'
   }, o.config || {});
 
-  const env = makeFillEnv(Object.assign({ withGrid: false, config: config }, o.fillEnvOptions || {}, {
+  const env = makeFillEnv(Object.assign({
+    withGrid: false, config: config,
+    // 階段 3 的授權探測會叫 FormApp.getActiveForm()（綁定在試算表的指令碼會得到 null）。
+    extraStubs: { FormApp: { getActiveForm: function () { return null; } } }
+  }, o.fillEnvOptions || {}, {
     driveApp: drive.DriveApp,
     // prompt-pre-usertest：「Drive 進階服務是否可用」那一項要能測到
     // 「不可用」的情況——不傳 driveAdvanced 給 fillEnv，Drive 就不存在，
@@ -587,10 +591,10 @@ test('19j. 燈色判定不受這次改動的行數上限設定影響（同一組
 // checkAuthorizationScopes_()：檢查授權範圍
 // =====================================================================
 
-test('checkAuthorizationScopes_：全部服務都叫得動 → 5 項全部 ok:true', function () {
+test('checkAuthorizationScopes_：全部服務都叫得動 → 6 項全部 ok:true（階段 3 加了 FormApp）', function () {
   const env = makeEnv({});
   const results = env.sandbox.checkAuthorizationScopes_();
-  assert.strictEqual(results.length, 5);
+  assert.strictEqual(results.length, 6);
   results.forEach(function (r) {
     assert.strictEqual(r.ok, true, r.item + '：' + r.message);
   });

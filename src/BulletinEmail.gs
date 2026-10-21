@@ -294,6 +294,16 @@ function buildBulletinEmailHtml_(model, options) {
     }).join('') + '</ul>');
   }
 
+  // 8b. 提示（model.warnings）。
+  //     ⚠️ 第二批階段 3 之前，週報資料模型的警告只出現在填寫介面頂部，**沒有**
+  //     進過這封郵件；講員表格的「講員與事奉框不同」警告要讓審閱的人也看到，
+  //     所以補上這一段。沒有警告就整段不出現，不影響平常的郵件。
+  if (model.warnings && model.warnings.length > 0) {
+    section('提示（' + model.warnings.length + ' 項）', '<ul>' + model.warnings.map(function (w) {
+      return '<li>' + esc(w.message) + '</li>';
+    }).join('') + '</ul>');
+  }
+
   // 9. 頁尾
   var versionText = (model.rosterVersionUsed === null || model.rosterVersionUsed === undefined)
     ? '（尚未生成）' : String(model.rosterVersionUsed);
@@ -359,6 +369,12 @@ function buildBulletinEmailPlainText_(model, options) {
     lines.push('　（無）');
   }
   lines.push('');
+
+  if (model.warnings && model.warnings.length > 0) {
+    lines.push('【提示（' + model.warnings.length + ' 項）】');
+    model.warnings.forEach(function (w) { lines.push('　' + w.message); });
+    lines.push('');
+  }
 
   var versionText = (model.rosterVersionUsed === null || model.rosterVersionUsed === undefined)
     ? '（尚未生成）' : String(model.rosterVersionUsed);

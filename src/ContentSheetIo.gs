@@ -191,6 +191,72 @@ function writeContentRows_(sheet, keys, rows, startRow) {
 }
 
 /**
+ * 用途：把「一個主日一行」的內容表分頁（例如「崇拜程序」）指定的幾格寫好：
+ *   該主日已經有一行生效中的資料就只改那幾格（其餘欄一格都不動）；沒有就在
+ *   最後面新增一行。講員表格的答案寫入內容表用。
+ *
+ *   ⚠️ 同一個主日有多行生效中資料時改**最後一行**——匯入也是以最後一行為準
+ *   （`buildContentImportTargets_()`），兩邊要看同一行。已停用的行（有效＝FALSE）
+ *   不會被復活，另起新行。
+ *   ⚠️ 寫之前先把那一格設成純文字格式，否則「3:16」之類的經文會被轉成時間。
+ *
+ *   這裏只做「找行、寫格」，不含業務判斷（寫哪幾格由呼叫方決定）。
+ * Args:
+ *   spreadsheet {Spreadsheet} 已經開啟的內容表。
+ *   tabName {string} 分頁名稱。
+ *   tabKeys {string[]} 該分頁的機器鍵（欄次序）。
+ *   isoDate {string} 主日日期，yyyy-MM-dd。
+ *   values {Object<string,string>} 要寫的欄位（機器鍵 → 值），不含 `SERVICE_DATE`／`ACTIVE`。
+ * Returns:
+ *   {{ok:boolean, reason:string, rowNo:number, created:boolean, previous:Object<string,string>}}
+ *     `ok:false` 時 `reason` 是 `'NO_TAB'`（內容表沒有這張分頁）。
+ *     `previous` 是改之前那幾格的原值（新增行時是空字串）。
+ */
+function upsertContentWeekValues_(spreadsheet, tabName, tabKeys, isoDate, values) {
+  var sheet = spreadsheet.getSheetByName(tabName);
+  if (!sheet) return { ok: false, reason: 'NO_TAB', rowNo: 0, created: false, previous: {} };
+
+  var lastRow = sheet.getLastRow();
+  var parsed = [];
+  if (lastRow >= CONTENT_SHEET_FIRST_DATA_ROW_) {
+    parsed = parseContentTabRows_(
+      sheet.getRange(CONTENT_SHEET_FIRST_DATA_ROW_, 1, lastRow - CONTENT_SHEET_FIRST_DATA_ROW_ + 1, tabKeys.length).getValues(),
+      tabKeys
+    );
+  }
+  var matches = parsed.filter(function (row) {
+    return row.__active === true && String(row.SERVICE_DATE || '').trim() === isoDate;
+  });
+  var target = matches.length > 0 ? matches[matches.length - 1] : null;
+
+  function writeCell(rowNo, key, value) {
+    var col = tabKeys.indexOf(key) + 1;
+    if (col <= 0) return;
+    var range = sheet.getRange(rowNo, col, 1, 1);
+    range.setNumberFormat('@');
+    range.setValue(value);
+  }
+
+  var previous = {};
+  if (target) {
+    Object.keys(values).forEach(function (key) {
+      previous[key] = String(target[key] === undefined ? '' : target[key]);
+      writeCell(target.__rowNo, key, values[key]);
+    });
+    return { ok: true, reason: '', rowNo: target.__rowNo, created: false, previous: previous };
+  }
+
+  var rowNo = Math.max(lastRow + 1, CONTENT_SHEET_FIRST_DATA_ROW_);
+  writeCell(rowNo, 'SERVICE_DATE', isoDate);
+  Object.keys(values).forEach(function (key) {
+    previous[key] = '';
+    writeCell(rowNo, key, values[key]);
+  });
+  writeCell(rowNo, 'ACTIVE', 'TRUE');
+  return { ok: true, reason: '', rowNo: rowNo, created: true, previous: previous };
+}
+
+/**
  * 用途：把一個內容表檔案搬去指定資料夾（R-035 封存用）。
  *
  *   ⚠️ **搬，不是刪。** 封存的整條規則就是「一格資料都不刪」——檔案仍然

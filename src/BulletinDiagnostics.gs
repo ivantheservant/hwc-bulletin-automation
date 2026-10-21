@@ -137,6 +137,10 @@ function createBlankBulletinWeeks_(quarterId) {
   });
   var statusCounts = countRosterStatuses_(quarterRows);
 
+  // 第二批階段 3：新增了主日，講員表格的「主日日期」下拉要跟着更新。
+  // 不拋錯：還沒建立講員表格就什麼都不做，失敗只記 ErrorLog。
+  if (newRows.length > 0) refreshSpeakerFormDatesQuietly_('createBlankBulletinWeeks_');
+
   // R-035：順手整理舊季度。包一層 try/catch——整理失敗不應該令
   //    「建立本季週報」整個失敗，那是兩件獨立的事。
   // ⚠️ 刻意不 force：有未發佈而且有內容的季度就略過，等人手確認。

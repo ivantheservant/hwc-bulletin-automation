@@ -716,6 +716,43 @@ function assertSheetSchemaUpToDate_(actionWord) {
 }
 
 /**
+ * 用途：前端呼叫，取得「講員表格」區塊要顯示的現況（是否已建立、連結、
+ *   觸發器狀態）。**唯讀**，不用 `FormApp`。
+ * Args: （無）
+ * Returns:
+ *   {{ok:boolean, data:Object, error?:Object}} `data` 形狀見 `speakerFormStatusForWebApp_()`。
+ */
+function apiGetSpeakerFormStatus() {
+  return withApiResult_(function () { return speakerFormStatusForWebApp_(); },
+    { functionName: 'apiGetSpeakerFormStatus' });
+}
+
+/**
+ * 用途：前端呼叫，建立講員表格（寫入 Config、建立表單、安裝觸發器）。詳細行為見
+ *   `createSpeakerFormForWebApp_()`。工作表結構落後時拒絕。
+ * Args: （無）
+ * Returns:
+ *   {{ok:boolean, data:Object, error?:Object}}
+ */
+function apiCreateSpeakerForm() {
+  return withApiResult_(function () {
+    assertSheetSchemaUpToDate_('建立講員表格');
+    return createSpeakerFormForWebApp_();
+  }, { functionName: 'apiCreateSpeakerForm' });
+}
+
+/**
+ * 用途：前端呼叫，刷新講員表格的「主日日期」下拉選項。
+ * Args: （無）
+ * Returns:
+ *   {{ok:boolean, data:Object, error?:Object}}
+ */
+function apiRefreshSpeakerFormDates() {
+  return withApiResult_(function () { return refreshSpeakerFormDatesForWebApp_(); },
+    { functionName: 'apiRefreshSpeakerFormDates' });
+}
+
+/**
  * 用途：前端呼叫，列出這一個主日的版本記錄與發佈記錄。**唯讀。**
  * Args:
  *   isoDate {string} 主日日期，yyyy-MM-dd。

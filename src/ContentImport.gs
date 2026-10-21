@@ -518,7 +518,8 @@ function summariseContentRow_(row, def) {
  * Args:
  *   input {{targets:Object, skippedTabs:string[], warnings:string[],
  *          existingLists:Object<string,Object[]>, existingWeeks:Object[],
- *          serviceDates:string[]}}
+ *          serviceDates:string[], tabNames:(string[]|null)=}}
+ *     `tabNames` 有值就只處理那幾張分頁（見 `previewContentImport_()`）。
  *     `serviceDates` 是這次匯入的範圍（整季或單一主日）；清單類與週欄位類
  *     的分頁都只處理範圍內的主日。
  *     `existingLists` 是「目標表名稱 → 該表全部資料列（帶 `__rowNo`）」；
@@ -563,6 +564,9 @@ function computeContentImportPlan_(input) {
   var weekChangesByDate = {};
 
   contentImportTargets_().forEach(function (def) {
+    // 分頁篩選（與下面的主日篩選同一個做法）：不在 `input.tabNames` 內的分頁一格都不動。
+    if (input.tabNames && input.tabNames.indexOf(def.tabName) === -1) return;
+
     var byDate = (input.targets || {})[def.tabName];
     if (!byDate) return; // 整張空白，已經在 skippedTabs 內
 
@@ -708,8 +712,9 @@ function readContentSheetTabs_(spreadsheet) {
  *   選單與 Web App 兩個入口都經過這裡（不可以各寫一套）。
  * Args:
  *   quarterId {string} 季度 ID。
- *   options {{isoDate:string=}=} 有 `isoDate` 就只匯入那一個主日；
- *     省略代表整季。
+ *   options {{isoDate:string=, tabNames:string[]=}=} 有 `isoDate` 就只匯入那一個
+ *     主日，省略代表整季；有 `tabNames` 就只匯入那幾張分頁（講員表格答案只匯入
+ *     「崇拜程序」，與主日篩選同一個做法），省略代表全部分頁。
  * Returns:
  *   {{ok:boolean, quarterId:string, scope:string, plan:(Object|undefined),
  *     fileUrl:(string|undefined), reason:(string|undefined),
@@ -776,6 +781,11 @@ function previewContentImport_(quarterId, options) {
   // ⚠️ 「連續到」一定要用**整季**的主日展開，之後才篩出要匯入的那一個
   // 主日——否則只匯入單一主日時，一條由上一週連登過來的報告會消失。
   var built = buildContentImportTargets_(contentData, allServiceDates);
+  // 分頁篩選：沒有被選中的分頁連「整張空白」的提示也不要出（它們根本不在這次範圍內）。
+  var tabNames = Array.isArray(opts.tabNames) ? opts.tabNames : null;
+  if (tabNames) {
+    built.skippedTabs = built.skippedTabs.filter(function (name) { return tabNames.indexOf(name) !== -1; });
+  }
 
   var existingLists = {};
   contentImportTargets_().forEach(function (def) {
@@ -792,6 +802,7 @@ function previewContentImport_(quarterId, options) {
     existingLists: existingLists,
     existingWeeks: readRowsWithRowNo_(SHEETS.BULLETIN_WEEKS),
     serviceDates: serviceDates,
+    tabNames: tabNames,
     // R-043／R-045：第三種模式要知道邊幾格已經被人手覆寫。
     // ⚠️ 讀**整季**的覆寫，不是只讀 serviceDates 那幾個——單一主日匯入時
     //    serviceDates 只有一個，但索引的鍵本來就帶主日，多讀不會影響判斷，

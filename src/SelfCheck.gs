@@ -799,6 +799,18 @@ function selfCheckLogItems_() {
 // =====================================================================
 
 /**
+ * 用途：「講員表格」這一項檢測。判斷全部在 `buildSpeakerFormCheckItem_()`
+ *   （與「上線前檢查」共用），這裏只負責收集現況。**唯讀。**
+ * Args: （無）
+ * Returns:
+ *   {{label:string, status:string, message:string, detail:string[]}}
+ */
+function selfCheckSpeakerFormItem_() {
+  var verdict = buildSpeakerFormCheckItem_(inspectSpeakerFormState_(), SELF_CHECK_STATUS_);
+  return selfCheckItem_('講員表格', verdict.status, verdict.message);
+}
+
+/**
  * 用途：「完成度自我檢測」的真正入口。跑完設定／資料／功能／紀錄四大類
  *   全部檢測項目，寫入 `Diagnostics`（報告名稱「完成度自我檢測」）。
  *   **唯讀**，不寫入任何資料。
@@ -824,6 +836,8 @@ function runSelfCheck_() {
     .concat(selfCheckPublishItems_(quarterResolution))
     // 自測機那一輪：不變量收成一個大項。
     .concat(selfCheckInvariantItems_())
+    // 第二批階段 3：講員表格（建立了沒有、限教會帳戶、觸發器剛好一個、資料夾在 Shared Drive）。
+    .concat([selfCheckSpeakerFormItem_()])
     // 第一輪自測之後：未完成的需求排在最後——看報告的人最後見到的
     // 應該是「還有什麼未做」，不是一堆綠燈。
     .concat([selfCheckRosterGapItem_()])
@@ -1071,6 +1085,7 @@ function authorizationScopeProbes_() {
     { item: 'DriveApp（雲端硬碟）', probe: function () { probeDriveAccess_(); } },
     { item: 'MailApp（寄信配額查詢）', probe: function () { MailApp.getRemainingDailyQuota(); } },
     { item: 'ScriptApp（觸發器清單）', probe: function () { ScriptApp.getProjectTriggers(); } },
+    { item: 'FormApp（講員表格）', probe: function () { probeFormsAccess_(); } },
     { item: 'Session（目前使用者）', probe: function () { Session.getActiveUser().getEmail(); } }
   ];
 }

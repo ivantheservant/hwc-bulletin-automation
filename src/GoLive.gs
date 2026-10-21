@@ -155,6 +155,12 @@ function buildGoLiveChecklist_() {
   // ---- 8. 沙盒季度不在使用者可見範圍 ----
   items.push(buildSandboxVisibilityItem_(S));
 
+  // ---- 9. 講員表格 ----
+  //    ⚠️ 與「完成度自我檢測」共用同一支 buildSpeakerFormCheckItem_()，不在這裏
+  //    再寫一次判斷。
+  var speakerVerdict = buildSpeakerFormCheckItem_(inspectSpeakerFormState_(), S);
+  items.push({ label: '上線前：講員表格', status: speakerVerdict.status, message: speakerVerdict.message });
+
   return items;
 }
 

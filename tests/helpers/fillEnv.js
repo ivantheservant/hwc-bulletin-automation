@@ -365,8 +365,16 @@ function makeFillEnv(options) {
       if (i !== -1) triggers.installed.splice(i, 1);
     },
     newTrigger: function (handler) {
-      const built = { getHandlerFunction: function () { return handler; } };
+      const built = {
+        getHandlerFunction: function () { return handler; },
+        __sourceId: '', __event: '',
+        getTriggerSourceId: function () { return built.__sourceId; },
+        getEventType: function () { return built.__event; }
+      };
       const builder = {
+        // 階段 3：講員表格的表單提交觸發器。
+        forForm: function (form) { built.__sourceId = form.getId(); return builder; },
+        onFormSubmit: function () { built.__event = 'ON_FORM_SUBMIT'; return builder; },
         forSpreadsheet: function () { return builder; },
         onEdit: function () { return builder; },
         timeBased: function () { return builder; },

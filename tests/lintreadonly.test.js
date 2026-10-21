@@ -355,6 +355,58 @@ test('lint() 會捉到 PublishIo.gs 內引用 ROSTER_SPREADSHEET_ID（它同樣�
 });
 
 // =====================================================================
+// 規則 5：FormApp 只准出現在 SpeakerFormIo.gs（第二批階段 3）
+// =====================================================================
+
+test('lint() 會捉到 SpeakerFormIo.gs 以外的檔案出現 FormApp', function () {
+  withFixture({
+    'Other.gs': "'use strict';\nfunction bad_(id) {\n  return FormApp.getActiveForm();\n}\n"
+  }, function (tmpDir) {
+    const hit = lint(tmpDir).violations;
+    assert.strictEqual(hit.length, 1);
+    assert.strictEqual(hit[0].rule, 'FORM_APP_OUTSIDE_ALLOWED_FILES');
+    assert.ok(hit[0].message.indexOf('SpeakerFormIo.gs') !== -1, hit[0].message);
+  });
+});
+
+test('lint() 不會誤判 SpeakerFormIo.gs 自己用 FormApp 與 FormApp.openById(', function () {
+  withFixture({
+    'SpeakerFormIo.gs': "'use strict';\nfunction ok_(id) {\n  return FormApp.openById(id);\n}\n"
+  }, function (tmpDir) {
+    assert.deepStrictEqual(lint(tmpDir).violations, []);
+  });
+});
+
+test('lint() 會捉到 SpeakerFormIo.gs 內引用 ROSTER_SPREADSHEET_ID（它同樣拿不到職事表）', function () {
+  withFixture({
+    'SpeakerFormIo.gs': [
+      "'use strict';",
+      'function bad_() {',
+      '  var id = getConfig(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, "");',
+      '  return FormApp.openById(id);',
+      '}'
+    ].join('\n')
+  }, function (tmpDir) {
+    const hit = lint(tmpDir).violations.filter(function (v) { return v.rule === 'ROSTER_ID_IN_PRIVILEGED_FILE'; });
+    assert.strictEqual(hit.length, 1);
+    assert.strictEqual(hit[0].file, 'SpeakerFormIo.gs');
+  });
+});
+
+test('lint() 不會被註解／字串裡提到 FormApp 誤導；SpeakerFormIo.gs 也不准用 DriveApp', function () {
+  withFixture({
+    'Other.gs': "'use strict';\n// 這裡只是提到 FormApp\nvar s = 'FormApp';\n",
+    'SpeakerFormIo.gs': "'use strict';\nfunction bad_(id) {\n  return DriveApp.getFileById(id);\n}\n"
+  }, function (tmpDir) {
+    const violations = lint(tmpDir).violations;
+    assert.strictEqual(violations.filter(function (v) { return v.rule === 'FORM_APP_OUTSIDE_ALLOWED_FILES'; }).length, 0);
+    const drive = violations.filter(function (v) { return v.rule === 'DRIVE_APP_OUTSIDE_ALLOWED_FILES'; });
+    assert.strictEqual(drive.length, 1, '表單搬資料夾走 DriveShared.gs，SpeakerFormIo.gs 本身不准用 DriveApp');
+    assert.strictEqual(drive[0].file, 'SpeakerFormIo.gs');
+  });
+});
+
+// =====================================================================
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail === 0 ? 0 : 1);

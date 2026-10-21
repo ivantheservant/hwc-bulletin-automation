@@ -50,9 +50,20 @@ function makeContentTab(keys, headers, rows) {
           }
           return out;
         },
-        setValues: function () { return range; },
+        // 階段 3 起真的記下寫入的值（講員表格答案會寫進「崇拜程序」分頁，要驗得到）。
+        setValues: function (values) {
+          for (let i = 0; i < values.length; i++) {
+            while (data.length <= r - 1 + i) data.push([]);
+            for (let j = 0; j < values[i].length; j++) data[r - 1 + i][c - 1 + j] = values[i][j];
+          }
+          return range;
+        },
         getValue: function () { const s = data[r - 1]; return s && s[c - 1] !== undefined ? s[c - 1] : ''; },
-        setValue: function () { return range; },
+        setValue: function (v) {
+          while (data.length <= r - 1) data.push([]);
+          data[r - 1][c - 1] = v;
+          return range;
+        },
         clearContent: function () { return range; },
         setNumberFormat: function () { return range; },
         setDataValidation: function () { return range; },
