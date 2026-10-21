@@ -208,6 +208,12 @@
     // F9：頁內確認對話框的兩粒按鈕，處理中一併停用。
     document.getElementById('confirmOkBtn').disabled = busy;
     document.getElementById('confirmCancelBtn').disabled = busy;
+    // G25：對話框都在 #mainContent 以外，遮罩擋不到，按鈕要自己停用。「由職事表重新取數」
+    // 兩粒、發佈前檢查視窗的「取消」（「確認發佈」由 setPublishButtonsBusy() 與勾選格管理，
+    // 勾選格的處理亦會看忙碌狀態）。
+    document.getElementById('fetchConfirmBtn').disabled = busy;
+    document.getElementById('fetchCancelBtn').disabled = busy;
+    document.getElementById('publishConfirmCancelBtn').disabled = busy;
 
     var previewIndicator = document.getElementById('previewBusyIndicator');
     if (state.previewInFlight > 0) previewIndicator.classList.remove('hidden');
@@ -1069,6 +1075,9 @@
    */
   function onConfirmDialogKeydown(event) {
     if (!confirmDialogCallback) return;
+    // G25：Esc 等於按「取消」，「取消」停用時（處理中，見 applyBusyState()）亦不算數。
+    // 看按鈕而不看 state：這一段要保持自足（測試會單獨抽出來執行）。
+    if (document.getElementById('confirmCancelBtn').disabled === true) return;
     if (event && event.key === 'Escape') settleConfirmDialog(false);
   }
   // END confirm-dialog
@@ -2751,6 +2760,8 @@
    *   （無）
    */
   function cancelFetchFromRoster() {
+    // G25：處理中不可以關閉並講「一格都沒有寫」——請求可能已經送出。
+    if (state.inFlight > 0) return;
     closeFetchDialog();
     showMessage('info', CANCELLED_NOTHING_WRITTEN_MESSAGE);
   }
@@ -2761,6 +2772,8 @@
    *   {void}
    */
   function confirmFetchFromRoster() {
+    // G25：處理中（例如上一個動作沒有回應、正在等候）不可以再送。
+    if (state.inFlight > 0) return;
     var selections = [];
     var boxes = document.querySelectorAll('#fetchDialogBody input[type="checkbox"]');
     for (var i = 0; i < boxes.length; i++) {
@@ -3001,6 +3014,9 @@
    */
   function runPublish(confirmed) {
     if (!state.isoDate) { showMessage('error', '未選擇主日，無法執行。'); return; }
+    // G25：處理中（包括沒有回應之後那 20 秒等候）不可以再送一次。發佈前檢查視窗在
+    // #mainContent 以外，遮罩擋不到，只靠按鈕停用不夠（勾選格曾經會把按鈕重新啟用）。
+    if (state.inFlight > 0) return;
 
     var doPublish = document.getElementById('doPublishCheck').checked;
     var doSend = document.getElementById('doSendCheck').checked;
@@ -3248,6 +3264,9 @@
    *   （無）
    */
   function cancelPublishConfirm() {
+    // G25：「確認發佈」已經送出、仍在處理（或者沒有回應、正在等候）時，不可以關閉視窗並講
+    // 「一格都沒有寫」——那時可能已經發佈或寄出。按鈕亦已停用（applyBusyState()）。
+    if (state.inFlight > 0) return;
     closePublishConfirm();
     showMessage('info', CANCELLED_NOTHING_WRITTEN_MESSAGE);
   }
@@ -3595,14 +3614,19 @@
     document.getElementById('speakerFormCreateBtn').addEventListener('click', onSpeakerFormCreateClicked);
     document.getElementById('speakerFormRefreshBtn').addEventListener('click', onSpeakerFormRefreshClicked);
     document.getElementById('speakerFormCopyBtn').addEventListener('click', onSpeakerFormCopyClicked);
-    document.getElementById('confirmOkBtn').addEventListener('click', function () { settleConfirmDialog(true); });
+    document.getElementById('confirmOkBtn').addEventListener('click', function () {
+      // G25：處理中不算數（按鈕已停用；這裏是第二道）。
+      if (state.inFlight > 0) return;
+      settleConfirmDialog(true);
+    });
     document.getElementById('confirmCancelBtn').addEventListener('click', function () { settleConfirmDialog(false); });
     document.addEventListener('keydown', onConfirmDialogKeydown);
     document.getElementById('publishConfirmCancelBtn').addEventListener('click', cancelPublishConfirm);
     document.getElementById('publishConfirmOkBtn').addEventListener('click', function () { runPublish(true); });
     // 勾了那一格才可以撳「確認發佈」——R-006／R-007 明文要求。
     document.getElementById('publishForcedCheck').addEventListener('change', function (e) {
-      document.getElementById('publishConfirmOkBtn').disabled = !e.target.checked;
+      // G25：處理中不可以因為勾了一下就重新啟用「確認發佈」。
+      document.getElementById('publishConfirmOkBtn').disabled = state.inFlight > 0 || !e.target.checked;
     });
 
     // ⚠️ R-011 起，四張清單改由內容表輸入，「新增一則…」那幾顆按鈕已經由

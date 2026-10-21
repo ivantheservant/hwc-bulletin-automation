@@ -1014,6 +1014,78 @@ test('G18-3 describeNoResponseFailure()：不知道這一次做甚麼（沒有 p
 });
 
 // =====================================================================
+// G25：等候期間發佈前檢查視窗（以及其他在 #mainContent 以外的對話框）不可以再送
+// =====================================================================
+
+console.log('\n等候期間對話框不可以再送（G25）');
+
+/** 按「執行」→ 伺服器要求確認 → 視窗打開 → 勾選 → 按「確認發佈」，回傳那一個請求。 */
+function publishThroughConfirm(ui) {
+  Object.assign(ui.ctx.state.publish, { pdfBase64: 'QUFB', pdfName: '週報.pdf', pdfIsoDate: D });
+  ui.els.doPublishCheck.checked = true;
+  ui.click('publishRunBtn');
+  ui.take('apiRunPublish').ok({ ok: true, data: { ok: false, reason: 'NEEDS_CONFIRM', lines: ['未填欄位（3 項）'],
+    labels: { title: '發佈前檢查', checkbox: '我明白以上情況，仍然要發佈', confirmButton: '確認發佈' } } });
+  assert.strictEqual(ui.els.publishConfirmBackdrop.classList.contains('hidden'), false, '前提：發佈前檢查視窗打開了');
+  ui.els.publishForcedCheck.checked = true;
+  ui.els.publishForcedCheck.listeners.change({ target: ui.els.publishForcedCheck });
+  assert.strictEqual(ui.els.publishConfirmOkBtn.disabled, false, '前提：勾了之後可以按');
+  ui.click('publishConfirmOkBtn');
+  const call = ui.take('apiRunPublish');
+  assert.strictEqual(call.args[0].confirmed, true);
+  return call;
+}
+
+test('G25-1 「確認發佈」之後 502，等候 20 秒期間：再勾一下勾選格不會重新啟用「確認發佈」；按「確認發佈」、「執行」或直接叫 runPublish() 都不會再送', function () {
+  const ui = makeUi();
+  publishThroughConfirm(ui).fail(new Error(NETWORK_502));
+  assert.strictEqual(ui.ctx.state.inFlight, 1, '前提：等候期間介面忙碌');
+  ui.els.publishForcedCheck.checked = false;
+  ui.els.publishForcedCheck.listeners.change({ target: ui.els.publishForcedCheck });
+  ui.els.publishForcedCheck.checked = true;
+  ui.els.publishForcedCheck.listeners.change({ target: ui.els.publishForcedCheck });
+  assert.strictEqual(ui.els.publishConfirmOkBtn.disabled, true, '勾選格不可以把按鈕重新啟用');
+  ui.click('publishConfirmOkBtn');
+  ui.click('publishRunBtn');
+  ui.ctx.runPublish(true);
+  assert.strictEqual(ui.count('apiRunPublish'), 2, '只有「執行」與第一次「確認發佈」兩個請求');
+  ui.timers.run(ui.delayMs);
+  assert.strictEqual(ui.ctx.state.inFlight, 0);
+});
+
+test('G25-2 「確認發佈」送出之後、伺服器未回應之前按視窗的「取消」→ 不關閉、不講「已取消，一格都沒有寫。」（可能已經發佈）；「取消」按鈕處理中停用', function () {
+  const ui = makeUi();
+  const call = publishThroughConfirm(ui);
+  assert.strictEqual(ui.els.publishConfirmCancelBtn.disabled, true, '處理中「取消」停用');
+  ui.click('publishConfirmCancelBtn');
+  assert.strictEqual(ui.els.publishConfirmBackdrop.classList.contains('hidden'), false, '視窗不關閉');
+  assert.notDeepStrictEqual(ui.message(), { type: 'info', text: CANCELLED });
+  call.ok({ ok: true, data: { ok: true, lines: ['已發佈：第 4 版'], published: { versionNo: 4 } } });
+  assert.strictEqual(ui.els.publishConfirmCancelBtn.disabled, false, '完成之後還原');
+});
+
+test('G25-3 其他在 #mainContent 以外的對話框：處理中「由職事表重新取數」兩粒按鈕停用、確定不送、取消不講「一格都沒有寫」；頁內確認對話框的確定與 Esc 處理中不算數', function () {
+  const ui = makeUi({ extra: [['function confirmFetchFromRoster(', 'function schedulePreviewRefresh(']] });
+  ui.ctx.beginRequest('處理中…');
+  assert.strictEqual(ui.els.fetchConfirmBtn.disabled, true);
+  assert.strictEqual(ui.els.fetchCancelBtn.disabled, true);
+  ui.ctx.confirmFetchFromRoster();
+  ui.ctx.cancelFetchFromRoster();
+  assert.strictEqual(ui.count('apiFetchFromRoster'), 0);
+  assert.strictEqual(ui.message(), null);
+
+  let settled = null;
+  ui.ctx.openConfirmDialog('測試', ['一行'], function (ok) { settled = ok; });
+  ui.click('confirmOkBtn');
+  ui.dom.docListeners.keydown({ key: 'Escape' });
+  assert.strictEqual(settled, null, '處理中確定與 Esc 都不算數');
+  ui.ctx.endRequest();
+  ui.click('confirmOkBtn');
+  assert.strictEqual(settled, true, '處理完之後照常');
+  assert.strictEqual(ui.els.fetchConfirmBtn.disabled, false);
+});
+
+// =====================================================================
 // G24：寫入類沒有回應的結尾，按連線錯誤與逾時分
 // =====================================================================
 
