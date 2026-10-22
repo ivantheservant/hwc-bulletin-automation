@@ -862,10 +862,12 @@ test('G28-2 由職事表重新取數一格都沒有停用（勾選的格本來�
   const rowNo = sb.readBulletinWeekRowWithRowNo_(env.iso).__rowNo;
   sb.SpreadsheetApp.getActiveSpreadsheet().getSheetByName('BulletinWeeks')
     .getRange(rowNo, sb.COLUMNS.BULLETIN_WEEKS.keys.indexOf('LAST_SAVED_AT') + 1).setValue('2026-10-02');
+  // 撥回之後先讀一次作對照：假工作表把日期字串存成本機時區零時，直接與字串比較會受時區影響。
+  const rewound = sb.canonicalSaveToken_(sb.readSheet('BulletinWeeks')[0].LAST_SAVED_AT);
   const again = sb.apiFetchFromRoster(env.iso, [{ postId: 'CHAIR', slotIndex: 1 }]);
   assert.strictEqual(again.data.clearedCount, 0);
   assert.ok(before, '前提：第一次有寫');
-  assert.strictEqual(sb.canonicalSaveToken_(sb.readSheet('BulletinWeeks')[0].LAST_SAVED_AT), sb.canonicalSaveToken_('2026-10-02'), '沒有停用就不動');
+  assert.strictEqual(sb.canonicalSaveToken_(sb.readSheet('BulletinWeeks')[0].LAST_SAVED_AT), rewound, '沒有停用就不動');
 });
 
 /**
