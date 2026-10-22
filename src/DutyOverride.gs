@@ -265,6 +265,29 @@ function computeDutyOverridePlan_(input) {
 }
 
 /**
+ * 用途：第二批測試修正 G16／G28 複審：停用一筆事奉覆寫之後，畫面上那一格的名字會不會不變。
+ *   純函式。停用之後那一格改回顯示職事表的名字；覆寫的名字本來就與現在的職事表相同（職事表
+ *   追上了覆寫）才是不變。
+ *
+ *   ⚠️ 只有計畫帶 `rosterName`（`computeDutyOverridePlan_()` 算的，即儲存那一條路）才判斷得到；
+ *   重設、還原、由職事表重新取數的計畫沒有 `rosterName`，一律當作會變（`false`）——寧可多算一次
+ *   改動、令另一週多收一次 STALE，也不可以把真的改了名字講成沒有改。
+ *   `applyDutyOverridePlan_()` 的 `displayUnchanged` 與 `dutyPlanChangesNames_()` 都經這一支，
+ *   規則只有一份。
+ * Args:
+ *   deact {{oldValue:string, rosterName:(string|undefined)}} 停用計畫的一項。
+ * Returns:
+ *   {boolean} true＝畫面上的名字不變。
+ * Raises:
+ *   （無）
+ */
+function dutyDeactivationKeepsDisplay_(deact) {
+  var d = deact || {};
+  if (d.rosterName === undefined || d.rosterName === null) return false;
+  return String(d.oldValue || '').trim() === String(d.rosterName).trim();
+}
+
+/**
  * 用途：把 `computeDutyOverridePlan_()` 算出來的計畫套用到 `DutyOverride`
  *   工作表，並逐格累積 `AuditLog` 條目（呼叫方負責真正寫入）。
  *
@@ -272,8 +295,8 @@ function computeDutyOverridePlan_(input) {
  *
  *   G16：取消覆寫的條目另帶 `displayUnchanged`（不寫入 `AuditLog`，只給
  *   `countSaveChanges_()` 用）：覆寫的名字本來就與現在的職事表相同，畫面上那一格
- *   不會變，儲存訊息不把它算成使用者改了的欄位。計畫沒有 `rosterName`（其他呼叫方）
- *   時一律是 `false`。
+ *   不會變，儲存訊息不把它算成使用者改了的欄位。判斷經 `dutyDeactivationKeepsDisplay_()`
+ *   （與 `dutyPlanChangesNames_()` 共用）；計畫沒有 `rosterName`（重設、還原）時一律是 `false`。
  * Args:
  *   plan {Object} `computeDutyOverridePlan_()` 的輸出。
  *   targetDate {Date} 主日日期（新增行要用）。
@@ -316,8 +339,7 @@ function applyDutyOverridePlan_(plan, targetDate, isoDate, actorEmail, auditEntr
       rowKey: isoDate + '#' + deact.postId + '#' + deact.slotIndex,
       field: 'ACTIVE', oldValue: 'TRUE', newValue: 'FALSE',
       notes: '取消人手覆寫（原值：' + deact.oldValue + '），改回跟隨職事表。記錄保留，不刪行。',
-      displayUnchanged: deact.rosterName !== undefined && deact.rosterName !== null
-        && String(deact.oldValue || '').trim() === String(deact.rosterName).trim()
+      displayUnchanged: dutyDeactivationKeepsDisplay_(deact)
     });
   });
 

@@ -1247,6 +1247,9 @@ function touchWeeksShowingDuty_(dutyIsoDate, stamp) {
  * 用途：第二批測試修正 G28 補充：一份事奉框覆寫計畫會不會改到畫面上的名字。純函式。
  *   新增覆寫、停用覆寫、改名字或重新啟用算；只把覆寫對照的職事表值／版本更新到現在
  *   （FF-17 那一種）不算——畫面上的名字不變，另一週的分頁送回來的名字亦一樣，不會蓋走甚麼。
+ *   複審修正：停用一筆覆寫而名字本來就與現在的職事表相同（職事表追上了覆寫），畫面亦不變，
+ *   不算；判斷與 G16 的 `displayUnchanged` 共用 `dutyDeactivationKeepsDisplay_()`。計畫沒有
+ *   `rosterName`（重設、還原）照舊當作有改變。
  * Args:
  *   plan {?Object} `computeDutyOverridePlan_()` 形狀的計畫；`null`／`undefined` 當沒有。
  * Returns:
@@ -1256,7 +1259,8 @@ function touchWeeksShowingDuty_(dutyIsoDate, stamp) {
  */
 function dutyPlanChangesNames_(plan) {
   if (!plan) return false;
-  if ((plan.appends || []).length > 0 || (plan.deactivations || []).length > 0) return true;
+  if ((plan.appends || []).length > 0) return true;
+  if ((plan.deactivations || []).some(function (d) { return !dutyDeactivationKeepsDisplay_(d); })) return true;
   return (plan.updates || []).some(function (u) {
     return (u.changes || []).some(function (c) { return c.field === 'OVERRIDE_NAME' || c.field === 'ACTIVE'; });
   });

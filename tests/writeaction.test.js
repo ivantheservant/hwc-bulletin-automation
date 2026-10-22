@@ -965,6 +965,50 @@ test('G28-6 「重設這一週」W 停用主席的覆寫 → W-7 較早載入的
   assert.ok(readSrc('src/WeekSnapshots.gs').split('touchWeeksShowingDuty_(isoDate, stamp)').length - 1 === 2, '還原與重設兩處都有');
 });
 
+/** 職事表把某一個主日的主席改成另一個人（職事表那邊改了人；只讀週報的假職事表，不經 src）。 */
+function rosterChangesChair(sb, rowNo, personId, name) {
+  const roster = sb.SpreadsheetApp.openById('FAKE_ROSTER_ID_FOR_FILL_TESTS');
+  const sh = roster.getSheetByName('RosterAssignments');
+  const keys = sh.getRange(2, 1, 1, sh.getLastColumn()).getValues()[0];
+  sh.getRange(rowNo, keys.indexOf('PersonID') + 1).setValue(personId);
+  sh.getRange(rowNo, keys.indexOf('PersonNameSnapshot') + 1).setValue(name);
+  const nm = roster.getSheetByName('NameMapping');
+  const nk = nm.getRange(2, 1, 1, nm.getLastColumn()).getValues()[0];
+  nm.getRange(nm.getLastRow() + 1, 1, 1, nk.length).setValues([nk.map(function (k) {
+    return k === 'PersonID' ? personId : k === 'NameTC' ? name : k === 'Active' ? true : '';
+  })]);
+}
+
+test('G28-7 複審：W 的主席覆寫是「李小明」，職事表之後亦改成李小明；W 只改序樂儲存 → 後端停用那筆覆寫但畫面名字不變 → 不更新 W-7，W-7 較早載入的分頁儲存不會收到 STALE', function () {
+  const env = makeThreeWeekEnv();
+  const sb = env.sb;
+  saveFromStaleTab(env, env.week, '李小明', '陳大文');
+  assert.strictEqual(activeChairOn(sb, env.week), '李小明', '前提：覆寫生效中');
+  rosterChangesChair(sb, 4, 'P9002', '李小明');   // 第 4 行是 2027-11-14
+  sb.ROSTER_TABLES_CACHE_ = null;                 // 下一次執行：同一次執行內的職事表快取不跨執行
+  // W-7 與 W 在職事表追上之後重新載入（最後儲存時間撥回舊日子，同一日之內分不出先後）。
+  [env.before, env.week].forEach(function (iso) {
+    const rowNo = sb.readBulletinWeekRowWithRowNo_(iso).__rowNo;
+    sb.SpreadsheetApp.getActiveSpreadsheet().getSheetByName('BulletinWeeks')
+      .getRange(rowNo, sb.COLUMNS.BULLETIN_WEEKS.keys.indexOf('LAST_SAVED_AT') + 1).setValue('2026-10-02');
+    env.tabs[iso] = sb.loadWeekForWebApp_(iso);
+  });
+
+  const wSave = saveFromStaleTab(env, env.week, '李小明', '陳大文');
+  assert.strictEqual(wSave.ok, true, JSON.stringify(wSave.error));
+  assert.strictEqual(activeChairOn(sb, env.week), null, '前提：後端停用了那筆覆寫（名字與職事表相同）');
+  const before = saveFromStaleTab(env, env.before, '陳大文', '李小明');
+  assert.strictEqual(before.ok, true, 'W-7 不應收到 STALE：' + JSON.stringify(before.error));
+
+  // 規則只有一份：G16 的 displayUnchanged 與這裏用同一支。
+  assert.strictEqual(sb.dutyDeactivationKeepsDisplay_({ oldValue: '李小明', rosterName: '李小明' }), true);
+  assert.strictEqual(sb.dutyDeactivationKeepsDisplay_({ oldValue: '李小明', rosterName: '陳大文' }), false);
+  assert.strictEqual(sb.dutyDeactivationKeepsDisplay_({ oldValue: '李小明' }), false, '重設、還原的計畫沒有 rosterName：當作會變');
+  assert.strictEqual(sb.dutyPlanChangesNames_({ appends: [], updates: [], deactivations: [{ oldValue: '李小明', rosterName: '李小明' }] }), false);
+  assert.strictEqual(sb.dutyPlanChangesNames_({ appends: [], updates: [], deactivations: [{ oldValue: '李小明' }] }), true);
+  assert.ok(readSrc('src/DutyOverride.gs').indexOf('displayUnchanged: dutyDeactivationKeepsDisplay_(deact)') !== -1);
+});
+
 // =====================================================================
 // G15：重設與還原對話框按「取消」
 // =====================================================================
