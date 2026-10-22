@@ -975,7 +975,9 @@ test('G28-6 「重設這一週」W 停用主席的覆寫 → W-7 較早載入的
   assert.strictEqual(stale.ok, false);
   assert.strictEqual(stale.error.code, 'STALE');
   assert.strictEqual(activeChairOn(sb, env.week), null);
-  assert.ok(readSrc('src/WeekSnapshots.gs').split('touchWeeksShowingDuty_(isoDate, stamp)').length - 1 === 2, '還原與重設兩處都有');
+  // 複審 3 改了寫法（W 剛剛已經寫了，只列 W-7）；還原與重設兩處都要有。
+  assert.ok(readSrc('src/WeekSnapshots.gs').split('touchWeeksLastSavedAt_(weeksShowingDuty_([isoDate], [isoDate]), stamp)').length - 1 === 2,
+    '還原與重設兩處都有');
 });
 
 /** 職事表把某一個主日的主席改成另一個人（職事表那邊改了人；只讀週報的假職事表，不經 src）。 */
@@ -1020,6 +1022,33 @@ test('G28-7 複審：W 的主席覆寫是「李小明」，職事表之後亦改
   assert.strictEqual(sb.dutyPlanChangesNames_({ appends: [], updates: [], deactivations: [{ oldValue: '李小明', rosterName: '李小明' }] }), false);
   assert.strictEqual(sb.dutyPlanChangesNames_({ appends: [], updates: [], deactivations: [{ oldValue: '李小明' }] }), true);
   assert.ok(readSrc('src/DutyOverride.gs').indexOf('displayUnchanged: dutyDeactivationKeepsDisplay_(deact)') !== -1);
+});
+
+test('G28-8 複審 3：儲存同時改了本週與下週事奉 → W 的 LAST_SAVED_AT 只寫一次，W-7 與 W+7 各寫一次，而且共用一次讀取', function () {
+  const env = makeThreeWeekEnv();
+  const sb = env.sb;
+  const rowOf = {};
+  [env.before, env.week, env.after].forEach(function (iso) { rowOf[sb.readBulletinWeekRowWithRowNo_(iso).__rowNo] = iso; });
+  const writes = [];
+  const touchCalls = [];
+  const origWrite = sb.writeWeekCell_;
+  const origTouch = sb.touchWeeksLastSavedAt_;
+  sb.writeWeekCell_ = function (rowNo, key) {
+    if (key === 'LAST_SAVED_AT') writes.push(rowOf[rowNo]);
+    return origWrite.apply(this, arguments);
+  };
+  sb.touchWeeksLastSavedAt_ = function (isoDates) {
+    touchCalls.push(JSON.parse(JSON.stringify(isoDates)));
+    return origTouch.apply(this, arguments);
+  };
+  const r = saveFromStaleTab(env, env.week, '臨時主席', '下週主席');
+  sb.writeWeekCell_ = origWrite;
+  sb.touchWeeksLastSavedAt_ = origTouch;
+  assert.strictEqual(r.ok, true, JSON.stringify(r.error));
+  assert.deepStrictEqual(writes.slice().sort(), [env.before, env.week, env.after].sort(), '每週一次');
+  assert.deepStrictEqual(touchCalls, [[env.before, env.after]], '一次讀取，W 不在內');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(sb.weeksShowingDuty_([env.week, env.after], [env.week]))), [env.before, env.after]);
+  assert.strictEqual(sb.touchWeeksLastSavedAt_([], new Date()), 0, '空清單不讀');
 });
 
 // =====================================================================

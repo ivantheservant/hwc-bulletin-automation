@@ -959,8 +959,11 @@ function saveWeekFromWebAppLocked_(payload, isoDate, targetDate) {
     savedToken = canonicalSaveToken_(newTimestamp);
     // G28 補充：事奉框的名字改了，顯示那些名字的另一週（本週事奉的上一週「下週事奉」、
     // 下週事奉那一週的「本週事奉」）亦要更新，否則那一週較早載入的分頁儲存會蓋回去。
-    if (dutyPlanChangesNames_(dutyPlan)) touchWeeksShowingDuty_(isoDate, newTimestamp);
-    if (dutyPlanChangesNames_(nextDutyPlan)) touchWeeksShowingDuty_(nextIsoDate, newTimestamp);
+    // 複審 3：這一週剛剛已經寫了，不再寫；W-7、W+7 共用一次讀取。
+    var dutyDates = [];
+    if (dutyPlanChangesNames_(dutyPlan)) dutyDates.push(isoDate);
+    if (dutyPlanChangesNames_(nextDutyPlan)) dutyDates.push(nextIsoDate);
+    touchWeeksLastSavedAt_(weeksShowingDuty_(dutyDates, [isoDate]), newTimestamp);
   }
 
   auditEntries.forEach(function (entry) { appendAuditLog_(entry); });
@@ -1221,26 +1224,41 @@ function readRowsWithRowNo_(sheetName) {
 }
 
 /**
- * 用途：第二批測試修正 G28 補充：某一個主日的事奉框覆寫改了之後，更新「畫面上顯示這一個主日
- *   事奉」的兩個主日的 `LAST_SAVED_AT`：那一個主日（「本週事奉」）與前一個主日（「下週事奉」，
- *   R-040）。
+ * 用途：第二批測試修正 G28 補充：某幾個主日的事奉框覆寫改了之後，畫面上顯示這些事奉的主日：
+ *   每一個主日 D 本身（「本週事奉」）與前一個主日 D-7（「下週事奉」，R-040）。純函式（日期計算
+ *   除外）。結果要交給 `touchWeeksLastSavedAt_()` 更新 `LAST_SAVED_AT`。
  *
  *   ⚠️ 為甚麼要兩個：前端每次儲存都把「本週事奉」與「下週事奉」兩個框的全部格送上來
  *   （docs/待確認事項.md FF-17），而事奉框是兩方比較（送來的名字對職事表），不是三方比較。
  *   任何一個顯示這些名字的分頁，只要是在改動之前載入的，儲存時就會把舊名字送回來、蓋走改動；
  *   更新它的 `LAST_SAVED_AT` 才會令它收到 STALE。
  * Args:
- *   dutyIsoDate {string} 覆寫改了的那一個主日，yyyy-MM-dd。
- *   stamp {Date} 新的時間。
+ *   dutyIsoDates {string[]} 覆寫改了的主日，yyyy-MM-dd。
+ *   excludedIsoDates {string[]=} 不用列出的主日（例如呼叫方剛剛已經寫了的那一週）。
  * Returns:
- *   {void}
+ *   {string[]} 沒有重複的主日，yyyy-MM-dd。
  * Raises:
- *   Error 如果 `BulletinWeeks` 工作表不存在。
+ *   （無）日期格式不對的那一項略過。
  */
-function touchWeeksShowingDuty_(dutyIsoDate, stamp) {
-  touchWeekLastSavedAt_(dutyIsoDate, stamp);
-  var d = normalizeDate_(dutyIsoDate);
-  if (d) touchWeekLastSavedAt_(formatIsoDate_(addDays_(d, -7)), stamp);
+function weeksShowingDuty_(dutyIsoDates, excludedIsoDates) {
+  var excluded = excludedIsoDates || [];
+  var out = [];
+  function add(iso) {
+    if (!iso || excluded.indexOf(iso) !== -1 || out.indexOf(iso) !== -1) return;
+    out.push(iso);
+  }
+  (dutyIsoDates || []).forEach(function (iso) {
+    var d = null;
+    try {
+      d = normalizeDate_(iso);
+    } catch (err) {
+      d = null;
+    }
+    if (!d) return;
+    add(iso);
+    add(formatIsoDate_(addDays_(d, -7)));
+  });
+  return out;
 }
 
 /**
@@ -1267,22 +1285,34 @@ function dutyPlanChangesNames_(plan) {
 }
 
 /**
- * 用途：第二批測試修正 G28：把某一個主日的 `LAST_SAVED_AT` 改成指定時間（填寫介面的樂觀鎖
- *   以它為準）。改了這一週會經填寫介面送回來的資料（事奉框覆寫）而又不經儲存的寫入路徑，
+ * 用途：第二批測試修正 G28：把幾個主日的 `LAST_SAVED_AT` 改成指定時間（填寫介面的樂觀鎖
+ *   以它為準）。改了會經填寫介面送回來的資料（事奉框覆寫）而又不經那一週儲存的寫入路徑，
  *   要叫這一支，否則較早載入的分頁儲存時會把那些改動蓋回去。不記 `AuditLog`（同 `writeWeekCell_()`）。
+ *   複審 3：幾個主日共用一次讀取 `BulletinWeeks`；清單是空的就不讀。
  * Args:
- *   isoDate {string} 主日日期，yyyy-MM-dd。
+ *   isoDates {string[]} 主日日期，yyyy-MM-dd。
  *   stamp {Date} 新的時間。
  * Returns:
- *   {boolean} `BulletinWeeks` 有沒有這一行（沒有就甚麼都不寫）。
+ *   {number} 實際寫了幾個主日（`BulletinWeeks` 沒有那一行就略過）。
  * Raises:
  *   Error 如果 `BulletinWeeks` 工作表不存在。
  */
-function touchWeekLastSavedAt_(isoDate, stamp) {
-  var row = readBulletinWeekRowWithRowNo_(isoDate);
-  if (!row) return false;
-  writeWeekCell_(row.__rowNo, 'LAST_SAVED_AT', stamp);
-  return true;
+function touchWeeksLastSavedAt_(isoDates, stamp) {
+  var wanted = isoDates || [];
+  if (wanted.length === 0) return 0;
+  var rows = readRowsWithRowNo_(SHEETS.BULLETIN_WEEKS);
+  var written = 0;
+  wanted.forEach(function (iso) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ''));
+    if (!m) return;
+    var row = rows.filter(function (r) {
+      return rosterDateMatchesYMD_(r.SERVICE_DATE, Number(m[1]), Number(m[2]), Number(m[3]));
+    })[0];
+    if (!row) return;
+    writeWeekCell_(row.__rowNo, 'LAST_SAVED_AT', stamp);
+    written++;
+  });
+  return written;
 }
 
 /**
