@@ -489,19 +489,33 @@ function setCellValueTextSafe_(sheet, def, rowNo, fieldKey, value) {
  *
  *   Apps Script 會把試算表的寫入暫存起來，批次寫出；官方建議放鎖之前先 flush，否則下一個
  *   拿到鎖的執行，有機會讀到上一個執行仍未寫出的舊值——鎖就白拿了。專案內四處拿指令碼鎖的
- *   地方（儲存、內容表匯入、講員表格答案、發佈）一律經這裏放鎖。flush 拋錯時鎖照樣放，錯誤
- *   原樣拋出（不吞掉）。
+ *   地方（儲存、內容表匯入、講員表格答案、發佈）一律經這裏放鎖。
+ *
+ *   ⚠️ 複審修正：這一支在呼叫方的 finally 之內執行。以前 flush 拋錯會原樣拋出，蓋走 try 段
+ *   本來的結果——例如發佈加寄出其實已經做完，回應卻變成 ok:false，幹事會再做一次。現在 flush
+ *   的錯誤只記 `ErrorLog`（`FLUSH_FAILED`），不拋出；鎖照放，主結果照原樣回傳。
+ *   揀「只記 ErrorLog、不在畫面講」的理由：flush 只是提早寫出，執行結束時 Apps Script 本來就會
+ *   寫出暫存；這一刻 flush 失敗多數是一時的服務錯誤，在發佈結果加一句「記錄可能未寫好」會令幹事
+ *   以為要再做一次（正正是要避免的事）。IT 看 ErrorLog 便知道要核對那一次的記錄。
+ *   `appendErrorLog_()` 自己失敗亦不會拋出。
  * Args:
  *   lock {Lock} `LockService.getScriptLock()` 拿到、已經 `tryLock()` 成功的鎖。
  * Returns:
  *   {void}
  * Raises:
- *   Error `SpreadsheetApp.flush()` 拋出的錯誤（鎖已經放了）。
+ *   （無）flush 的錯誤記入 ErrorLog；`releaseLock()` 本身拋錯則原樣拋出。
  */
 function flushAndReleaseLock_(lock) {
   try {
     SpreadsheetApp.flush();
-  } finally {
-    lock.releaseLock();
+  } catch (flushErr) {
+    appendErrorLog_({
+      source: ERROR_LOG_SOURCE.SERVER,
+      functionName: 'flushAndReleaseLock_',
+      errorCode: 'FLUSH_FAILED',
+      message: '放指令碼鎖之前 SpreadsheetApp.flush() 失敗（鎖照樣放了，主動作的結果照原樣回傳）：'
+        + ((flushErr && flushErr.message) ? flushErr.message : String(flushErr))
+    });
   }
+  lock.releaseLock();
 }

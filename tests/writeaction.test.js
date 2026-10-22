@@ -775,7 +775,7 @@ test('G23b-1 放鎖之前先 SpreadsheetApp.flush()：儲存（真正入口 apiS
   assert.deepStrictEqual(events, ['tryLock', 'flush', 'releaseLock']);
 });
 
-test('G23b-2 專案內四處拿指令碼鎖（儲存、內容表匯入、講員表格答案、發佈）全部經 flushAndReleaseLock_() 放鎖；flush 拋錯時鎖照樣放', function () {
+test('G23b-2 專案內四處拿指令碼鎖（儲存、內容表匯入、講員表格答案、發佈）全部經 flushAndReleaseLock_() 放鎖', function () {
   const files = fs.readdirSync(path.join(__dirname, '..', 'src')).filter(function (f) { return f.endsWith('.gs'); });
   const takers = [];
   files.forEach(function (f) {
@@ -788,11 +788,24 @@ test('G23b-2 專案內四處拿指令碼鎖（儲存、內容表匯入、講員�
     if (f !== 'SheetUtils.gs') assert.strictEqual(text.indexOf('.releaseLock()'), -1, f + ' 不可以直接 releaseLock()');
   });
   assert.deepStrictEqual(takers.sort(), ['ContentImport.gs', 'Publish.gs', 'SpeakerForm.gs', 'WebAppSave.gs']);
+});
 
+test('G23b-3 複審：flush 拋錯 → 主結果不變（真正入口 apiSaveWeek 照樣回成功與原本的訊息）、鎖已放、ErrorLog 有一行 FLUSH_FAILED；以前會拋出、蓋走主結果', function () {
   const env = makeSaveEnv();
+  env.sb.SpreadsheetApp.flush = function () { throw new Error('Service Spreadsheets failed while accessing document'); };
+  const resp = env.sb.apiSaveWeek(JSON.parse(JSON.stringify(env.payload)));
+  assert.strictEqual(resp.ok, true, JSON.stringify(resp.error));
+  assert.strictEqual(resp.data.message.text, '已儲存，更新了 1 個欄位。', '主結果照原樣');
+  assert.strictEqual(env.sb.LockService.held(), false, '鎖已放');
+  const errors = env.sb.readSheet('ErrorLog').filter(function (r) { return r.ERROR_CODE === 'FLUSH_FAILED'; });
+  assert.strictEqual(errors.length, 1);
+  assert.strictEqual(errors[0].FUNCTION_NAME, 'flushAndReleaseLock_');
+  assert.ok(errors[0].MESSAGE.indexOf('Service Spreadsheets failed') !== -1, errors[0].MESSAGE);
+  assertWrittenChinese(assert, 'FLUSH_FAILED', [errors[0].MESSAGE.split('：')[0]]);
+
+  // 直接叫：不拋出，鎖照放。
   let released = false;
-  env.sb.SpreadsheetApp.flush = function () { throw new Error('flush 失敗'); };
-  assert.throws(function () { env.sb.flushAndReleaseLock_({ releaseLock: function () { released = true; } }); }, /flush 失敗/);
+  assert.doesNotThrow(function () { env.sb.flushAndReleaseLock_({ releaseLock: function () { released = true; } }); });
   assert.strictEqual(released, true);
 });
 
