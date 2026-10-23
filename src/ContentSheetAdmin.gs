@@ -72,8 +72,21 @@ function applyContentTabLayout_(sheet, tabDef, options) {
     sheet.setFrozenRows(CONTENT_SHEET_HEADER_ROWS_);
   }
   // 內容表 v2（決定 6）：「崇拜程序」有十多欄，凍結 A 欄（主日日期），向右捲動仍然看得到是哪一個主日。
+  //    凍結失敗（例如有人合併了跨 A、B 欄的格，Sheets 會拒絕）不可以令版面其餘部分、_說明等略過：
+  //    寫一筆 ErrorLog（上線前檢查「最近 7 日的錯誤」看得到），其餘照做（審查第二輪 7）。
   if (tabDef.frozenColumns && sheet.getFrozenColumns() < tabDef.frozenColumns) {
-    sheet.setFrozenColumns(tabDef.frozenColumns);
+    try {
+      sheet.setFrozenColumns(tabDef.frozenColumns);
+    } catch (freezeErr) {
+      appendErrorLog_({
+        source: ERROR_LOG_SOURCE.SERVER, functionName: 'applyContentTabLayout_',
+        errorCode: 'CONTENT_SHEET_FREEZE_FAILED',
+        message: '內容表「' + tabDef.tabName + '」凍結 A 欄失敗（多數是有人合併了跨欄的格）：'
+          + ((freezeErr && freezeErr.message) ? freezeErr.message : String(freezeErr))
+          + '。其餘版面照常套用；要凍結的話，先取消合併，再按一次「建立／刷新本季內容表」。',
+        detail: buildErrorDetail_(freezeErr)
+      });
+    }
   }
 
   // ---- A1 說明（誰負責、幾時要填好）----

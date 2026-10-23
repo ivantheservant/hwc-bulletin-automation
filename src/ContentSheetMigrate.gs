@@ -48,6 +48,12 @@
 /** 移轉時新增的行寫在「備註」的字眼（新建內容表的行不寫）。 */
 var CONTENT_SHEET_MIGRATED_ROW_NOTE_ = '系統移轉建立';
 
+/**
+ * AuditLog 動作：「這一份內容表的移轉已經開始」（第一格寫入之前寫）。重跑時見到這一行，就知道新欄位置的字
+ * 可能是上一次移轉自己寫的（兩次之間來源又改過），不可以當成「原本已經有字」整次拒絕（審查 A6-2 至 A6-4）。
+ */
+var CONTENT_SHEET_MIGRATE_START_ACTION_ = 'CONTENT_SHEET_MIGRATE_V2_START';
+
 /** 已停用舊分頁 A1 的註解。 */
 var CONTENT_SHEET_RETIRED_TAB_NOTE_ = '已停用（2026-10）：資料已搬入「崇拜程序」分頁，請不要再填這一張。';
 
@@ -56,14 +62,14 @@ var CONTENT_SHEET_RETIRED_TAB_PROTECTION_ = '週報系統：已停用的舊分�
 
 /**
  * 用途：移轉要讀的三樣東西：崇拜程序（第 2 行與資料）、兩張舊分頁（改名前後兩個名字都認）、
- *   BulletinWeeks。唯讀。
+ *   BulletinWeeks，以及 AuditLog 有沒有這一份內容表「移轉已開始」的記錄。唯讀。
  * Args:
  *   spreadsheet {Spreadsheet} 已經開啟的內容表。
  * Returns:
  *   {{worship:{exists:boolean, headerKeys:string[], rows:Object[]},
  *     legacy:{kind:string, def:Object, sheetName:string, renamed:boolean, retiredState:?Object,
  *       headerKeys:string[], rows:Object[]}[],
- *     weeks:Object[]}}
+ *     weeks:Object[], migrationStarted:boolean}}
  *     `rows` 一律經 `parseContentTabRows_()`（單一正規化）：崇拜程序按 v2 定義解析，舊分頁按凍結的
  *     v1 定義解析。`retiredState`：已改名的分頁還缺哪幾樣（`inspectRetiredContentTab_()`）；未改名的是 `null`。
  * Raises:
@@ -101,7 +107,28 @@ function readContentSheetV2Inputs_(spreadsheet) {
     });
   });
 
-  return { worship: worship, legacy: legacy, weeks: readSheet(SHEETS.BULLETIN_WEEKS) };
+  return {
+    worship: worship, legacy: legacy, weeks: readSheet(SHEETS.BULLETIN_WEEKS),
+    migrationStarted: contentSheetMigrationStarted_(readSheet(SHEETS.AUDIT_LOG), String(spreadsheet.getId()))
+  };
+}
+
+/**
+ * 用途：AuditLog 有沒有這一份內容表「移轉已開始」的記錄（`CONTENT_SHEET_MIGRATE_V2_START`，欄位＝檔案 ID）。純函式。
+ * Args:
+ *   auditRows {Object[]} `readSheet(SHEETS.AUDIT_LOG)` 的輸出。
+ *   fileId {string} 內容表檔案 ID。
+ * Returns:
+ *   {boolean}
+ * Raises:
+ *   （無）
+ */
+function contentSheetMigrationStarted_(auditRows, fileId) {
+  var id = String(fileId || '').trim();
+  if (!id) return false;
+  return (auditRows || []).some(function (r) {
+    return String(r.ACTION || '') === CONTENT_SHEET_MIGRATE_START_ACTION_ && String(r.FIELD || '').trim() === id;
+  });
 }
 
 /**
@@ -122,8 +149,9 @@ function migrationText_(value) {
 /**
  * 用途：內容表 v2 移轉的計畫。純函式；預覽與執行共用。規則見檔頭。
  * Args:
- *   input {{serviceDates:string[], worship:Object, legacy:Object[], weeks:Object[], created:boolean}}
- *     前三樣見 `readContentSheetV2Inputs_()`；`created`＝這一次新建的內容表（新增行的「備註」留空）。
+ *   input {{serviceDates:string[], worship:Object, legacy:Object[], weeks:Object[], created:boolean,
+ *     migrationStarted:boolean}}
+ *     前三樣與 `migrationStarted` 見 `readContentSheetV2Inputs_()`；`created`＝這一次新建的內容表（新增行的「備註」留空）。
  * Returns:
  *   {{ok:boolean, reason:string, message:string, needsMigration:boolean, keys:string[],
  *     newColumns:string[], cellWrites:Object[], appends:Object[], conflicts:Object[], skipped:Object[],
@@ -143,7 +171,7 @@ function planContentSheetV2Migration_(input) {
   var keys = def.keys;
   var valueKeys = keys.filter(function (k) { return k !== 'SERVICE_DATE' && k !== 'ACTIVE' && k !== 'NOTES'; });
   var plan = {
-    ok: true, reason: '', message: '', needsMigration: false, keys: keys, newColumns: [],
+    ok: true, reason: '', message: '', needsMigration: false, resumed: false, keys: keys, newColumns: [],
     cellWrites: [], appends: [], conflicts: [], skipped: [], strayCells: [], legacyToRetire: [], legacyToFinish: [],
     counts: {
       newColumns: 0, callDates: 0, baptismDates: 0, weekCells: 0, appendedRows: 0, conflicts: 0, skipped: 0,
@@ -256,7 +284,10 @@ function planContentSheetV2Migration_(input) {
     return migrationText_(row.NOTES) === CONTENT_SHEET_MIGRATED_ROW_NOTE_;
   };
   // 審查 A6：v1 的新欄位置原本已經有字（不是移轉自己寫的）。只在第 2 行仍然是舊版時才會發生。
-  var checkStray = plan.needsMigration && newValueKeys.length > 0;
+  //    上一次移轉已經開始（AuditLog 有記錄）的話，第一次寫入之前已經核對過「原本沒有字」，現在新欄位置的字
+  //    只可能是上一次自己寫的（兩次之間來源再改過）→ 當作「兩邊不同」保留現值，不拒絕（審查 A6-2 至 A6-4）。
+  plan.resumed = plan.needsMigration && input.migrationStarted === true;
+  var checkStray = plan.needsMigration && newValueKeys.length > 0 && !plan.resumed;
   var addStray = function (iso, row, key, existing) {
     plan.strayCells.push({ isoDate: iso, rowNo: row.__rowNo, key: key, col: keys.indexOf(key) + 1, existing: existing });
   };
@@ -281,7 +312,8 @@ function planContentSheetV2Migration_(input) {
         addStray(iso, row, key, existingIsDate ? '（被試算表轉成日期／時間）' : existing);
         return;
       }
-      if (cand.value === '') return;
+      // 重跑（上一次已開始）時，新欄的來源之後變成空白亦要講出來（保留現值）。
+      if (cand.value === '' && !(plan.resumed && isNewKey)) return;
       plan.conflicts.push({
         isoDate: iso, key: key, existing: existingIsDate ? '（被試算表轉成日期／時間）' : existing,
         candidate: cand.value, source: cand.source
@@ -308,9 +340,9 @@ function planContentSheetV2Migration_(input) {
       // ——停用行不匯入，沒有副作用；日後把它改回 TRUE，序樂、宣召等亦不會被清空（審查 A3）。
       if (!plan.needsMigration) return;
       var lastInactive = dateRows.slice().sort(function (a, b) { return a.__rowNo - b.__rowNo; })[dateRows.length - 1];
-      reconcileRow(iso, lastInactive, fromLegacy, week, true);
+      var wroteInactive = reconcileRow(iso, lastInactive, fromLegacy, week, true);
       dateRows.forEach(function (row) { if (row !== lastInactive) reconcileRow(iso, row, {}, null, false); });
-      plan.counts.inactiveDates++;
+      if (wroteInactive) plan.counts.inactiveDates++;
       return;
     }
 
@@ -448,6 +480,14 @@ function listRetiredContentTabNames_(spreadsheet) {
  */
 function applyContentSheetV2Migration_(spreadsheet, worshipSheet, plan, quarterId) {
   var keys = plan.keys;
+  // 第一格寫入之前留記錄：之後中途失敗再重跑，planner 由這一行知道新欄位置的字是自己寫的（審查 A6）。
+  if (plan.needsMigration && !plan.resumed) {
+    appendAuditLog_({
+      action: CONTENT_SHEET_MIGRATE_START_ACTION_, sheetName: SHEETS.CONTENT_SHEETS, rowKey: quarterId,
+      field: String(spreadsheet.getId()),
+      notes: '內容表 v2 移轉開始（已核對新欄位置原本沒有字）。之後的步驟各自另有記錄。'
+    });
+  }
   if (plan.needsMigration || plan.appends.length > 0) ensureContentTabColumns_(worshipSheet, keys.length);
 
   // 1. 新欄先設純文字（寫入之前），否則「3:16」之類的值會被轉成時間（bug class 11、45）。
@@ -479,23 +519,7 @@ function applyContentSheetV2Migration_(spreadsheet, worshipSheet, plan, quarterI
     writeContentRows_(worshipSheet, keys, rows, startRow);
   }
 
-  // 3. 舊分頁改名、隱藏、註解、警告式保護。不刪。已改名但未做齊的，補做缺的那幾樣（審查 B2）。
-  var finishedTabs = [];
-  (plan.legacyToFinish || []).forEach(function (l) {
-    var sheet = spreadsheet.getSheetByName(l.sheetName);
-    if (!sheet) return;
-    ensureRetiredContentTabState_(sheet, l.state, CONTENT_SHEET_RETIRED_TAB_NOTE_, CONTENT_SHEET_RETIRED_TAB_PROTECTION_);
-    finishedTabs.push(l.sheetName);
-  });
-  var retiredTabs = [];
-  plan.legacyToRetire.forEach(function (l) {
-    var sheet = spreadsheet.getSheetByName(l.sheetName);
-    if (!sheet) return;
-    var newName = uniqueRetiredContentTabName_(spreadsheet, l.sheetName);
-    retireContentTab_(sheet, newName, CONTENT_SHEET_RETIRED_TAB_NOTE_, CONTENT_SHEET_RETIRED_TAB_PROTECTION_);
-    retiredTabs.push({ from: l.sheetName, to: newName });
-  });
-
+  // 格子與新增行寫好之後即時記一筆（之後改名、隱藏失敗，這一筆仍然在；審查 B2-4）。
   if (plan.needsMigration || plan.appends.length > 0) appendAuditLog_({
     action: 'CONTENT_SHEET_MIGRATE_V2', sheetName: SHEETS.CONTENT_SHEETS, rowKey: quarterId, field: '崇拜程序',
     newValue: '欄 +' + plan.counts.newColumns + '；格 ' + plan.cellWrites.length + '；行 +' + plan.appends.length
@@ -503,26 +527,43 @@ function applyContentSheetV2Migration_(spreadsheet, worshipSheet, plan, quarterI
     notes: plan.needsMigration
       ? ('內容表 v2 移轉：「崇拜程序」加 ' + plan.counts.newColumns + ' 欄，寫入 ' + plan.cellWrites.length
         + ' 格（其中由週報回填 ' + plan.counts.weekCells + ' 格），新增 ' + plan.appends.length + ' 行，'
-        + plan.counts.conflicts + ' 格兩邊不同（保留崇拜程序的值）。')
+        + plan.counts.conflicts + ' 格兩邊不同（保留崇拜程序的值）。'
+        + (plan.resumed ? '上一次移轉中途停止，已經寫好的格這一次不再計算。' : ''))
       : ('「崇拜程序」為 ' + plan.appends.length + ' 個未有任何一行的主日預先開好一行，由週報帶入現有的值。')
   });
-  retiredTabs.forEach(function (t) {
-    var kind = plan.legacyToRetire.filter(function (l) { return l.sheetName === t.from; })[0].kind;
+
+  // 3. 舊分頁改名、隱藏、註解、警告式保護。不刪。已改名但未做齊的，補做缺的那幾樣（審查 B2）。
+  //    每一張做完即時記 AuditLog。
+  var finishedTabs = [];
+  (plan.legacyToFinish || []).forEach(function (l) {
+    var sheet = spreadsheet.getSheetByName(l.sheetName);
+    if (!sheet) return;
+    ensureRetiredContentTabState_(sheet, l.state, CONTENT_SHEET_RETIRED_TAB_NOTE_, CONTENT_SHEET_RETIRED_TAB_PROTECTION_);
+    finishedTabs.push(l.sheetName);
     appendAuditLog_({
-      action: 'CONTENT_SHEET_MIGRATE_V2', sheetName: SHEETS.CONTENT_SHEETS, rowKey: quarterId, field: t.from,
-      oldValue: t.from, newValue: t.to,
-      notes: '內容表 v2 移轉：舊分頁「' + t.from + '」的資料已搬入「崇拜程序」（'
-        + (kind === 'CALL' ? plan.counts.callDates : plan.counts.baptismDates) + ' 個主日），分頁改名為「'
-        + t.to + '」並隱藏，沒有刪除。'
+      action: 'CONTENT_SHEET_MIGRATE_V2', sheetName: SHEETS.CONTENT_SHEETS, rowKey: quarterId, field: l.sheetName,
+      newValue: retiredContentTabStepsText_(l.state),
+      notes: '內容表 v2：已停用的舊分頁「' + l.sheetName + '」補做：' + retiredContentTabStepsText_(l.state) + '（資料不改、不刪）。'
     });
   });
-  finishedTabs.forEach(function (name) {
-    var st = plan.legacyToFinish.filter(function (l) { return l.sheetName === name; })[0].state;
+  var retiredTabs = [];
+  plan.legacyToRetire.forEach(function (l) {
+    var sheet = spreadsheet.getSheetByName(l.sheetName);
+    if (!sheet) return;
+    var newName = uniqueRetiredContentTabName_(spreadsheet, l.sheetName);
+    renameRetiredContentTab_(sheet, newName);
+    retiredTabs.push({ from: l.sheetName, to: newName });
+    // 改名一成功就記（之後隱藏、保護失敗，這一筆仍然在；下一次 legacyToFinish 補做並另記一筆）。
     appendAuditLog_({
-      action: 'CONTENT_SHEET_MIGRATE_V2', sheetName: SHEETS.CONTENT_SHEETS, rowKey: quarterId, field: name,
-      newValue: retiredContentTabStepsText_(st),
-      notes: '內容表 v2：已停用的舊分頁「' + name + '」補做：' + retiredContentTabStepsText_(st) + '（資料不改、不刪）。'
+      action: 'CONTENT_SHEET_MIGRATE_V2', sheetName: SHEETS.CONTENT_SHEETS, rowKey: quarterId, field: l.sheetName,
+      oldValue: l.sheetName, newValue: newName,
+      notes: '內容表 v2 移轉：舊分頁「' + l.sheetName + '」的資料已搬入「崇拜程序」（'
+        + (l.kind === 'CALL' ? plan.counts.callDates : plan.counts.baptismDates) + ' 個主日'
+        + (plan.resumed ? '，不計上一次已經寫好的格' : '') + '），分頁改名為「' + newName + '」，之後隱藏，沒有刪除。'
     });
+    ensureRetiredContentTabState_(sheet,
+      inspectRetiredContentTab_(sheet, CONTENT_SHEET_RETIRED_TAB_NOTE_, CONTENT_SHEET_RETIRED_TAB_PROTECTION_),
+      CONTENT_SHEET_RETIRED_TAB_NOTE_, CONTENT_SHEET_RETIRED_TAB_PROTECTION_);
   });
 
   return { retiredTabs: retiredTabs, finishedTabs: finishedTabs };
@@ -582,6 +623,10 @@ function buildContentSheetMigrationLines_(plan, options) {
   lines.push('　由舊「宣召」搬入 ' + plan.counts.callDates + ' 個主日；由舊「浸禮合堂」搬入 '
     + plan.counts.baptismDates + ' 個主日。');
   lines.push('　由週報回填 ' + plan.counts.weekCells + ' 格（只填空白格）。');
+  if (plan.resumed) {
+    lines.push('　（上一次移轉中途停止：上一次已經寫好的格不在以上數字之內，資料仍在；新欄位置與現在的來源不同的格，'
+      + '列入下面「兩邊不同」，保留「崇拜程序」的值。）');
+  }
   lines.push('　新增 ' + plan.counts.appendedRows + ' 行（這幾個主日「崇拜程序」未有任何一行，所有欄由週報帶齊）。');
   if (plan.counts.inactiveDates > 0) {
     lines.push('　' + plan.counts.inactiveDates + ' 個主日在「崇拜程序」只有已停用的行：不另開一行；新欄同樣填在最後一行'
@@ -591,7 +636,7 @@ function buildContentSheetMigrationLines_(plan, options) {
     lines.push('　⚠️ ' + plan.counts.conflicts + ' 格兩邊不同，保留「崇拜程序」的值：');
     plan.conflicts.slice(0, 10).forEach(function (c) {
       lines.push('　　' + c.isoDate + '「' + contentTabColumnLabel_('崇拜程序', c.key) + '」：崇拜程序「' + c.existing
-        + '」，' + (c.source === 'WEEKS' ? '週報' : (c.source === 'CALL' ? '舊宣召' : '舊浸禮合堂')) + '「' + c.candidate + '」');
+        + '」，' + (c.source === 'CALL' ? '舊宣召' : (c.source === 'BAPTISM' ? '舊浸禮合堂' : '週報')) + '「' + (c.candidate || '（空白）') + '」');
     });
     if (plan.conflicts.length > 10) lines.push('　　（另有 ' + (plan.conflicts.length - 10) + ' 格未列出）');
   }

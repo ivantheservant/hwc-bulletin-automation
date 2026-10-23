@@ -519,6 +519,27 @@ function previewFillRestore_(quarterId, backupId) {
  *   Error 如果備份內容解析失敗（見 `parseFillBackupPayload_()`）。
  */
 function restoreFillBackup_(quarterId, backupId) {
+  // 審查第二輪 4：與儲存、匯入同一把指令碼鎖（FieldOverride 是先讀後寫，同時儲存會寫出重複的覆寫行）。
+  return withScriptLock_('restoreFillBackup_', 30000, function () {
+    return restoreFillBackupLocked_(quarterId, backupId);
+  }, function () {
+    var lockErr = new Error('還原備份：30 秒內拿不到指令碼鎖，可能有另一個儲存、匯入或建立正在執行。'
+      + '請稍後再試一次。這次一格都沒有寫。');
+    lockErr.code = 'LOCK_TIMEOUT';
+    throw lockErr;
+  });
+}
+
+/**
+ * 用途：`restoreFillBackup_()` 拿到指令碼鎖之後的那一段。只可以由它呼叫。
+ * Args:
+ *   quarterId {string}　backupId {string} 同 `restoreFillBackup_()`。
+ * Returns:
+ *   {Object} 同 `restoreFillBackup_()`。
+ * Raises:
+ *   Error 同 `restoreFillBackup_()`。
+ */
+function restoreFillBackupLocked_(quarterId, backupId) {
   var preview = previewFillRestore_(quarterId, backupId);
   if (!preview.ok) return { ok: false, restoredCount: 0, message: preview.message };
 
@@ -534,9 +555,16 @@ function restoreFillBackup_(quarterId, backupId) {
     if (!overridableByDate[change.isoDate]) overridableByDate[change.isoDate] = {};
     overridableByDate[change.isoDate][change.fieldKey] = change.newValue;
   });
-  var overridePlans = Object.keys(overridableByDate).sort().map(function (iso) {
-    return { isoDate: iso, plan: planFieldOverridesFromPayload_(iso, overridableByDate[iso], weeksBefore[iso] || {}) };
+
+  // ⚠️ 次序（審查第二輪 4）：先寫 FieldOverride，再寫 BulletinWeeks。反過來的話，覆寫那一步失敗之後，
+  //    週報已經是還原值，再按一次還原時預覽講「與目前的資料完全相同」，覆寫永遠補不回。
+  var overrideAudit = [];
+  Object.keys(overridableByDate).sort().forEach(function (iso) {
+    var plan = planFieldOverridesFromPayload_(iso, overridableByDate[iso], weeksBefore[iso] || {});
+    if (!plan) return;
+    applyFieldOverridePlan_(restoreOverridePlan_(plan), normalizeDate_(iso), iso, getCallerEmail_(), overrideAudit);
   });
+  overrideAudit.forEach(function (entry) { appendAuditLog_(entry); });
 
   preview.changes.forEach(function (change) {
     writeBulletinWeekField_(change.isoDate, change.fieldKey, change.newValue);
@@ -548,12 +576,31 @@ function restoreFillBackup_(quarterId, backupId) {
     });
   });
 
-  var overrideAudit = [];
-  overridePlans.forEach(function (p) {
-    if (!p.plan) return;
-    applyFieldOverridePlan_(p.plan, normalizeDate_(p.isoDate), p.isoDate, getCallerEmail_(), overrideAudit);
-  });
-  overrideAudit.forEach(function (entry) { appendAuditLog_(entry); });
-
   return { ok: true, restoredCount: preview.changes.length, safetyBackupId: safety.backupId };
+}
+
+/**
+ * 用途：還原用的覆寫計畫：已有覆寫的欄**一律寫入**（upsert）還原的值，不取消。純函式。
+ *
+ *   原因（審查第二輪 3）：已有覆寫時，`planFieldOverridesFromPayload_()` 拿「覆寫當時的內容表值」做比較；
+ *   內容表之後再改過的話，那個值已經過時——還原的值剛好等於它，就會被誤判成「改回跟隨內容表」而取消覆寫，
+ *   下一次匯入把還原靜靜蓋走。一律寫入的話，如果還原的值其實等於內容表現值，下一次匯入會按 F5 規則自動解除，
+ *   結果仍然正確。
+ * Args:
+ *   plan {{upserts:Object[], deactivations:Object[], unchanged:number}} `computeFieldOverridePlan_()` 的輸出。
+ * Returns:
+ *   {{upserts:Object[], deactivations:Object[], unchanged:number}}
+ * Raises:
+ *   （無）
+ */
+function restoreOverridePlan_(plan) {
+  var upserts = (plan.upserts || []).slice();
+  (plan.deactivations || []).forEach(function (d) {
+    upserts.push({
+      fieldKey: d.fieldKey,
+      overrideValue: fieldOverrideNormalize_(d.row && d.row.SOURCE_VALUE_AT_OVERRIDE),
+      sourceValue: fieldOverrideNormalize_(d.row && d.row.SOURCE_VALUE_AT_OVERRIDE)
+    });
+  });
+  return { upserts: upserts, deactivations: [], unchanged: plan.unchanged || 0 };
 }

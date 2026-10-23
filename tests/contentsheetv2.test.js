@@ -384,7 +384,7 @@ test('M6e（審查 F8）上線前檢查與完成度自我檢測都有「內容�
   const pick = function (items, label) { return plain(items).filter(function (i) { return i.label === label; })[0]; };
   const before = pick(env.sandbox.buildGoLiveChecklist_(), '上線前：內容表版本');
   assert.ok(before && before.status.indexOf('🟡') !== -1, JSON.stringify(before));
-  assert.ok(before.message.indexOf(QUARTER_ID + '（舊版，未移轉）') !== -1 && before.message.indexOf('建立／刷新本季內容表') !== -1, before.message);
+  assert.ok(before.message.indexOf(QUARTER_ID + '（這一季）的內容表是舊版，未移轉') !== -1 && before.message.indexOf('建立／刷新本季內容表') !== -1, before.message);
   assertWrittenChinese(assert, '內容表版本', before.message);
   const selfBefore = pick(env.sandbox.runSelfCheck_().items, '內容表版本');
   assert.strictEqual(selfBefore.status, before.status);
@@ -537,7 +537,8 @@ test('（審查 D1）選單「季度工具 ▸ 還原到某個備份」（真入
   assert.strictEqual(weekOf(env, D1).PRELUDE, '序樂甲', '匯入不蓋過還原的值');
   assert.strictEqual(weekOf(env, D1).CALL_TEXT, '經文甲');
 
-  // 再還原到「還原之前」那一個備份（最新一個）：值與內容表相同 → 覆寫取消，之後跟隨內容表。
+  // 再還原到「還原之前」那一個備份（最新一個）：值與內容表相同。已有覆寫的欄一律寫入覆寫（審查第二輪 3），
+  //    下一次匯入見到覆寫值與內容表相同，按 F5 規則自動解除，之後跟隨內容表。
   answers.push(QUARTER_ID, '1');
   sb.SpreadsheetApp.getUi = function () {
     const ui = realGetUi();
@@ -551,10 +552,12 @@ test('（審查 D1）選單「季度工具 ▸ 還原到某個備份」（真入
   sb.menuRestoreQuarter_();
   sb.SpreadsheetApp.getUi = realGetUi;
   assert.strictEqual(weekOf(env, D1).PRELUDE, '之後的序樂');
+  assert.strictEqual(sb.apiRunQuarterContentImport(QUARTER_ID).data.ok, true);
   const stillActive = sb.readSheet('FieldOverride').filter(function (o) {
     return o.ACTIVE === true && (o.FIELD_KEY === 'PRELUDE' || o.FIELD_KEY === 'CALL_TEXT');
   });
   assert.strictEqual(stillActive.length, 0, JSON.stringify(plain(stillActive)));
+  assert.strictEqual(weekOf(env, D1).PRELUDE, '之後的序樂');
 });
 
 test('序樂空白時週報印 Config PRELUDE_DEFAULT（決定 11）；工作表那一格仍然是空白', function () {
@@ -728,6 +731,187 @@ test('C8-5 _README：季度填寫表、講員表格、FillSnapshot 三行講明�
     const line = lines.filter(function (l) { return l.indexOf(prefix) === 0; })[0];
     assert.ok(line && line.indexOf('已停用') !== -1 && line.indexOf('保留') !== -1, line);
   });
+});
+
+console.log('\n審查第二輪');
+
+/** 「崇拜程序」某主日最後一行生效中的那一行在 __data 的位置。 */
+function worshipRowIndex(env, iso) {
+  const data = env.contentTabs['崇拜程序'].__data;
+  let idx = -1;
+  data.forEach(function (row, i) { if (i >= 2 && row[0] === iso) idx = i; });
+  return idx;
+}
+
+/** 第一次移轉在 cellWrites 寫了 n 格之後失敗。 */
+function failAfterCellWrites(env, n) {
+  const plan = env.sandbox.planContentSheetV2Migration_(Object.assign(env.sandbox.readContentSheetV2Inputs_(env.contentSpreadsheet),
+    { serviceDates: contentEnv.SERVICE_DATES, created: false }));
+  assert.ok(plan.cellWrites.length > n, '前提：cellWrites 多過 ' + n + ' 格');
+  env.contentFaults.failOnSetValue = n + 1;
+  const failed = env.sandbox.apiRunContentSheetBuild(QUARTER_ID);
+  assert.ok(failed.ok === false || (failed.data && failed.data.ok === false), JSON.stringify(failed));
+  env.contentFaults.failOnSetValue = null;
+  return plan;
+}
+
+test('R2-A6a 第一次寫了一半失敗 → 期間幹事經真入口 apiSaveWeek 改了同一格（序樂）→ 重跑照常完成：那一格是移轉自己寫的，列入「兩邊不同」保留現值，不整次拒絕', function () {
+  const env = makeV1Env();
+  const plan = failAfterCellWrites(env, 2);
+  assert.ok(plan.cellWrites.slice(0, 2).some(function (w) { return w.key === 'PRELUDE' && w.isoDate === D1; }), JSON.stringify(plain(plan.cellWrites.slice(0, 2))));
+  const loaded = env.sandbox.apiLoadWeek(D1);
+  const saved = env.sandbox.apiSaveWeek({ isoDate: D1, lastSavedAt: loaded.data.lastSavedAt,
+    baseWeek: { PRELUDE: loaded.data.week.PRELUDE }, week: { PRELUDE: '幹事後來改的序樂' }, dutyEdits: [] });
+  assert.strictEqual(saved.ok, true, JSON.stringify(saved));
+  const data = run(env);
+  const text = data.lines.join('\n');
+  assert.ok(text.indexOf('上一次移轉中途停止') !== -1, text);
+  assert.ok(text.indexOf('「序樂」：崇拜程序「序樂甲」，週報「幹事後來改的序樂」') !== -1, text);
+  assert.strictEqual(rowOf(env, D1)[0].PRELUDE, '序樂甲', '保留崇拜程序的值');
+});
+
+test('R2-A6b 第一次寫了一半失敗 → 期間有人在最底為同一主日加了一行（目標行轉移）→ 重跑不整次拒絕', function () {
+  const env = makeV1Env();
+  const plan = failAfterCellWrites(env, 3);
+  assert.ok(plan.cellWrites.slice(0, 3).some(function (w) { return w.isoDate === D1; }));
+  const tab = env.contentTabs['崇拜程序'];
+  const keys = tab.__data[1];
+  const row = keys.map(function () { return ''; });
+  row[0] = D1; row[keys.indexOf('SERMON_TITLE')] = '講題甲（更正）'; row[keys.indexOf('ACTIVE')] = 'TRUE';
+  tab.__data.push(row);
+  const resp = env.sandbox.apiRunContentSheetBuild(QUARTER_ID);
+  assert.strictEqual(resp.ok, true, JSON.stringify(resp));
+  assert.strictEqual(resp.data.ok, true, JSON.stringify(resp.data));
+});
+
+test('R2-A6c 第一次因為新欄位置有字被拒絕（一格未寫）→ 不留「移轉已開始」記錄；清走之前再按仍然拒絕', function () {
+  const env = makeV1Env();
+  const tab = env.contentTabs['崇拜程序'];
+  const col = v2Keys(env).indexOf('HYMN_PRAISE');
+  while (tab.__data[2].length <= col) tab.__data[2].push('');
+  tab.__data[2][col] = '備忘';
+  assert.strictEqual(env.sandbox.apiRunContentSheetBuild(QUARTER_ID).data.reason, 'NEW_COLUMNS_NOT_EMPTY');
+  assert.strictEqual(env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'CONTENT_SHEET_MIGRATE_V2_START'; }).length, 0);
+  assert.strictEqual(env.sandbox.apiRunContentSheetBuild(QUARTER_ID).data.reason, 'NEW_COLUMNS_NOT_EMPTY');
+});
+
+test('R2-B2a 改名成功、hideSheet 失敗 → AuditLog 已有「宣召 → 宣召（已停用）」與格子摘要；重跑之後另有補做一筆', function () {
+  const env = makeV1Env();
+  const call = env.contentTabs['宣召'];
+  const real = call.hideSheet;
+  let fired = false;
+  call.hideSheet = function () { if (!fired) { fired = true; throw new Error('注入'); } return real.apply(call, arguments); };
+  assert.strictEqual(env.sandbox.apiRunContentSheetBuild(QUARTER_ID).ok, false);
+  const audits = function () { return env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'CONTENT_SHEET_MIGRATE_V2'; }); };
+  assert.ok(audits().some(function (a) { return a.FIELD === '宣召' && a.NEW_VALUE === '宣召（已停用）'; }), '改名一成功就記');
+  assert.ok(audits().some(function (a) { return a.FIELD === '崇拜程序'; }), '格子摘要已記');
+  run(env);
+  assert.ok(audits().some(function (a) { return a.FIELD === '宣召（已停用）' && String(a.NEW_VALUE).indexOf('隱藏') !== -1; }));
+});
+
+test('R2-B2b 已停用的舊分頁另有保護（說明不同或嚴格保護）→ 當作已保護，刷新不會再加保護、不改別人的說明', function () {
+  const env = makeV1Env();
+  run(env);
+  const retired = env.contentSpreadsheet.getSheetByName('宣召（已停用）');
+  retired.__protections[0].description = '幹事：只限幹事修改';
+  retired.__protections[0].warningOnly = false;
+  run(env);
+  run(env);
+  assert.deepStrictEqual(plain(retired.__protections.map(function (p) { return [p.description, p.warningOnly]; })), [['幹事：只限幹事修改', false]]);
+});
+
+test('R2-F6 凍結 A 欄失敗（例如合併了跨欄的格）→ 其餘版面、_說明照做；ErrorLog 一行 CONTENT_SHEET_FREEZE_FAILED', function () {
+  const env = makeV1Env();
+  env.contentTabs['崇拜程序'].setFrozenColumns = function () { throw new Error('You cannot freeze columns that contain only part of a merged cell.'); };
+  const data = run(env);
+  assert.strictEqual(data.ok, true);
+  const errs = env.sandbox.readSheet('ErrorLog').filter(function (r) { return r.ERROR_CODE === 'CONTENT_SHEET_FREEZE_FAILED'; });
+  assert.strictEqual(errs.length, 1, JSON.stringify(plain(env.sandbox.readSheet('ErrorLog'))));
+  assert.ok(String(env.contentSpreadsheet.getSheetByName('_說明').__data.map(function (r) { return r[0]; }).join('\n')).indexOf('崇拜程序') !== -1);
+});
+
+function restoreLatestViaMenu(sb, alerts) {
+  const answers = [QUARTER_ID, '1'];
+  const realGetUi = sb.SpreadsheetApp.getUi;
+  sb.SpreadsheetApp.getUi = function () {
+    const ui = realGetUi();
+    ui.prompt = function () {
+      const text = answers.shift();
+      return { getSelectedButton: function () { return ui.Button.OK; }, getResponseText: function () { return text; } };
+    };
+    ui.alert = function (title, message) { if (alerts) alerts.push(String(title) + '｜' + String(message || '')); return ui.Button.YES; };
+    return ui;
+  };
+  try { sb.menuRestoreQuarter_(); } finally { sb.SpreadsheetApp.getUi = realGetUi; }
+}
+
+test('R2-D1a 覆寫之後內容表再改過，還原到覆寫之前的備份（真入口 menuRestoreQuarter_）→ 覆寫保留，下一次匯入不會改成內容表的新值', function () {
+  const env = makeV1Env();
+  run(env);
+  const sb = env.sandbox;
+  assert.strictEqual(sb.apiRunQuarterContentImport(QUARTER_ID).data.ok, true);
+  sb.createFillBackup_(QUARTER_ID, 'MANUAL');
+  const l = sb.apiLoadWeek(D1).data;
+  assert.strictEqual(sb.apiSaveWeek({ isoDate: D1, lastSavedAt: l.lastSavedAt, baseWeek: { PRELUDE: l.week.PRELUDE },
+    week: { PRELUDE: '覆寫序樂' }, dutyEdits: [] }).ok, true);
+  const tab = env.contentTabs['崇拜程序'];
+  tab.__data[worshipRowIndex(env, D1)][tab.__data[1].indexOf('PRELUDE')] = '內容表新序樂';
+  assert.strictEqual(sb.apiRunQuarterContentImport(QUARTER_ID).data.ok, true);
+  assert.strictEqual(weekOf(env, D1).PRELUDE, '覆寫序樂', '前提：覆寫未被蓋過');
+  restoreLatestViaMenu(sb);
+  assert.strictEqual(weekOf(env, D1).PRELUDE, '序樂甲');
+  assert.strictEqual(sb.apiRunQuarterContentImport(QUARTER_ID).data.ok, true);
+  assert.strictEqual(weekOf(env, D1).PRELUDE, '序樂甲', '還原的值不可以被下一次匯入靜靜改走');
+});
+
+test('R2-D1b 還原時寫 FieldOverride 失敗 → 週報一格未改（先寫覆寫、後寫週報）；處理好之後再按一次就完成', function () {
+  const env = makeV1Env();
+  run(env);
+  const sb = env.sandbox;
+  assert.strictEqual(sb.apiRunQuarterContentImport(QUARTER_ID).data.ok, true);
+  sb.createFillBackup_(QUARTER_ID, 'MANUAL');
+  const tab = env.contentTabs['崇拜程序'];
+  tab.__data[worshipRowIndex(env, D1)][tab.__data[1].indexOf('PRELUDE')] = '之後的序樂';
+  assert.strictEqual(sb.apiRunQuarterContentImport(QUARTER_ID).data.ok, true);
+  const fo = env.sheets.FieldOverride;
+  const realGetRange = fo.getRange;
+  fo.getRange = function () {
+    const rg = realGetRange.apply(fo, arguments);
+    rg.setValues = function () { throw new Error('注入：FieldOverride 寫入失敗'); };
+    rg.setValue = function () { throw new Error('注入：FieldOverride 寫入失敗'); };
+    return rg;
+  };
+  const alerts = [];
+  restoreLatestViaMenu(sb, alerts);
+  fo.getRange = realGetRange;
+  assert.ok(alerts.join('\n').indexOf('還原失敗') !== -1, alerts.join('\n'));
+  assert.strictEqual(weekOf(env, D1).PRELUDE, '之後的序樂', '週報一格未改');
+  // 處理好之後再按（揀第 2 個：第 1 個是剛才「還原之前」自動多做的備份）。
+  const answers = [QUARTER_ID, '2'];
+  const realGetUi = sb.SpreadsheetApp.getUi;
+  sb.SpreadsheetApp.getUi = function () {
+    const ui = realGetUi();
+    ui.prompt = function () { const t = answers.shift(); return { getSelectedButton: function () { return ui.Button.OK; }, getResponseText: function () { return t; } }; };
+    ui.alert = function () { return ui.Button.YES; };
+    return ui;
+  };
+  sb.menuRestoreQuarter_();
+  sb.SpreadsheetApp.getUi = realGetUi;
+  assert.strictEqual(weekOf(env, D1).PRELUDE, '序樂甲');
+  assert.strictEqual(sb.apiRunQuarterContentImport(QUARTER_ID).data.ok, true);
+  assert.strictEqual(weekOf(env, D1).PRELUDE, '序樂甲', '覆寫已寫好，匯入不蓋過');
+});
+
+test('R2-F8a 已登記但開不到的內容表 → 🟡「開不到」，建議核對檔案，不叫人按「建立／刷新」；ContentSheets 工作表讀不到 → 🟡「核對不到」', function () {
+  const env = contentEnv.makeEnv({ contentLayout: 'current', content: {}, contentFileMissing: true, weekRows: baseOptions().weekRows });
+  const item = plain(env.sandbox.buildGoLiveChecklist_()).filter(function (i) { return i.label === '上線前：內容表版本'; })[0];
+  assert.ok(item.status.indexOf('🟡') !== -1, JSON.stringify(item));
+  assert.ok(item.message.indexOf('開不到') !== -1 && item.message.indexOf('「開啟內容表」核對') !== -1, item.message);
+  assert.strictEqual(item.message.indexOf('建立／刷新本季內容表'), -1, item.message);
+  assertWrittenChinese(assert, '內容表開不到', item.message);
+  const st = plain(env.sandbox.buildContentSheetVersionItem_({ ok: false, error: '讀不到 ContentSheets 工作表：x', checked: [], problems: [] },
+    env.sandbox.SELF_CHECK_STATUS_));
+  assert.ok(st.message.indexOf('核對不到') !== -1 && st.message.indexOf('初始化工作表') !== -1, st.message);
 });
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');

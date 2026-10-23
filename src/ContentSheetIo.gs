@@ -268,23 +268,19 @@ function writeContentCellAsText_(sheet, rowNo, colNo, value) {
 }
 
 /**
- * 用途：內容表 v2：停用一張已併入「崇拜程序」的舊分頁：改名，然後隱藏、A1 加註解、設警告式保護
- *   （`ensureRetiredContentTabState_()`）。**不刪**，資料原封不動（決定 14）。
+ * 用途：內容表 v2：停用舊分頁的第一步——改名（加「（已停用）」）。之後由呼叫方記 AuditLog，再經
+ *   `ensureRetiredContentTabState_()` 隱藏、A1 加註解、設警告式保護。**不刪**，資料原封不動（決定 14）。
  * Args:
  *   sheet {Sheet} 舊分頁。
  *   newName {string} 新名稱（呼叫方已確保沒有撞名）。
- *   note {string} A1 註解。
- *   protectionDescription {string} 保護的說明。
  * Returns:
  *   {void}
  * Raises:
- *   Error 任何一步失敗時原樣拋出。改名之後才失敗的話，下一次由 `inspectRetiredContentTab_()`
+ *   Error 改名失敗時原樣拋出。改名之後的步驟失敗的話，下一次由 `inspectRetiredContentTab_()`
  *     找出缺了哪幾樣，再補做（審查 B2）。
  */
-function retireContentTab_(sheet, newName, note, protectionDescription) {
+function renameRetiredContentTab_(sheet, newName) {
   sheet.setName(newName);
-  ensureRetiredContentTabState_(sheet, inspectRetiredContentTab_(sheet, note, protectionDescription),
-    note, protectionDescription);
 }
 
 /**
@@ -292,7 +288,7 @@ function retireContentTab_(sheet, newName, note, protectionDescription) {
  * Args:
  *   sheet {Sheet} 已改名（或者準備改名）的舊分頁。
  *   note {string} A1 註解應有的開頭。
- *   protectionDescription {string} 保護應有的說明。
+ *   protectionDescription {string} 保護應有的說明（現時只用於呼叫方一致；已有任何分頁保護就算已保護）。
  * Returns:
  *   {{needsHide:boolean, needsNote:boolean, needsProtect:boolean}}
  * Raises:
@@ -300,9 +296,9 @@ function retireContentTab_(sheet, newName, note, protectionDescription) {
  */
 function inspectRetiredContentTab_(sheet, note, protectionDescription) {
   var currentNote = String(sheet.getRange(1, 1, 1, 1).getNote() || '');
-  var protectedOk = (sheet.getProtections(SpreadsheetApp.ProtectionType.SHEET) || []).some(function (p) {
-    return typeof p.getDescription === 'function' && p.getDescription() === protectionDescription;
-  });
+  // 審查第二輪 6：分頁已有**任何**分頁保護（例如有人改了說明、或者改成嚴格保護）就當作已保護，
+  //    不再呼叫 protect()——否則會把別人的保護說明換掉、甚至降成警告式。
+  var protectedOk = (sheet.getProtections(SpreadsheetApp.ProtectionType.SHEET) || []).length > 0;
   return {
     needsHide: sheet.isSheetHidden() !== true,
     needsNote: currentNote.indexOf(note) !== 0,

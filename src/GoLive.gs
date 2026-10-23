@@ -172,13 +172,28 @@ function inspectContentSheetVersions_() {
       if (!lastDateByQuarter[q] || iso > lastDateByQuarter[q]) lastDateByQuarter[q] = iso;
     });
   } catch (err) {
-    return { ok: false, error: (err && err.message) ? err.message : String(err), checked: [], problems: [] };
+    return { ok: false, error: '讀不到週報資料：' + ((err && err.message) ? err.message : String(err)), checked: [], problems: [] };
+  }
+  try {
+    readSheet(SHEETS.CONTENT_SHEETS);
+  } catch (err) {
+    // ContentSheets 工作表讀不到（例如未按「初始化工作表」）：不知道各季內容表在哪裏，不可以當成「開不到」逐季報。
+    return { ok: false, error: '讀不到 ContentSheets 工作表：' + ((err && err.message) ? err.message : String(err)), checked: [], problems: [] };
   }
   Object.keys(lastDateByQuarter).sort().forEach(function (q) {
     if (lastDateByQuarter[q] < todayIso) return;
     out.checked.push(q);
     try {
-      var check = checkQuarterContentSheetSchema_(q);
+      // 審查第二輪 1：ContentSheets 有登記、但檔案開不到（被刪、搬走、沒有權限）不可以當成正常。
+      //    `checkQuarterContentSheetSchema_()` 遇到開不到會回 ok（那是匯入自己會講的情況），所以先在這裏分開。
+      var row = findContentSheetRow_(q);
+      if (!row) return;
+      var spreadsheet = openContentSpreadsheet_(row.FILE_ID);
+      if (!spreadsheet) {
+        out.problems.push({ quarterId: q, reason: 'UNREADABLE' });
+        return;
+      }
+      var check = checkContentSheetSchema_(spreadsheet);
       if (!check.ok) out.problems.push({ quarterId: q, reason: check.reason });
     } catch (err) {
       out.problems.push({ quarterId: q, reason: 'UNREADABLE' });
@@ -199,7 +214,7 @@ function inspectContentSheetVersions_() {
  */
 function buildContentSheetVersionItem_(state, S) {
   if (!state.ok) {
-    return { status: S.YELLOW, message: '讀不到週報資料，不知道要核對哪幾季（' + state.error + '）。⚠️ 「讀不到」不等於「沒問題」。' };
+    return { status: S.YELLOW, message: '核對不到（' + state.error + '）。⚠️ 「讀不到」不等於「沒問題」；請按一次「初始化工作表」再看。' };
   }
   if (state.checked.length === 0) {
     return { status: S.GREEN, message: '沒有仍未過完的季度，不用核對。' };
@@ -207,16 +222,27 @@ function buildContentSheetVersionItem_(state, S) {
   if (state.problems.length === 0) {
     return { status: S.GREEN, message: '已核對 ' + state.checked.join('、') + '：內容表都是新版（或者未建立）。' };
   }
-  var describe = function (p) {
-    if (p.reason === 'CONTENT_SHEET_HEADER_CHANGED') return p.quarterId + '（第 2 行被改過，要人手復原）';
-    if (p.reason === 'UNREADABLE') return p.quarterId + '（內容表讀不到）';
-    return p.quarterId + '（舊版，未移轉）';
+  var pick = function (reason) {
+    return state.problems.filter(function (p) { return p.reason === reason; }).map(function (p) { return p.quarterId; });
   };
-  return {
-    status: S.YELLOW,
-    message: '⚠️ ' + state.problems.map(describe).join('、') + '：這幾季從內容表匯入、「重設這一週」都會被整次拒絕。'
-      + '請在填寫介面「季度作業」揀那一季，按「建立／刷新本季內容表」，先看預覽再確定。'
-  };
+  var outdated = pick('CONTENT_SHEET_OUTDATED');
+  var changed = pick('CONTENT_SHEET_HEADER_CHANGED');
+  var unreadable = pick('UNREADABLE');
+  var which = function (list) { return list.join('、') + (list.length > 1 ? '（這幾季）' : '（這一季）'); };
+  var parts = [];
+  if (outdated.length > 0) {
+    parts.push(which(outdated) + '的內容表是舊版，未移轉：從內容表匯入、「重設這一週」都會被整次拒絕。'
+      + '請在填寫介面「季度作業」揀那一季，按「建立／刷新本季內容表」，先看預覽再確定。');
+  }
+  if (changed.length > 0) {
+    parts.push(which(changed) + '的內容表第 2 行（機器鍵）被改過：匯入會被整次拒絕。請把第 2 行改回原樣'
+      + '（檔案 ▸ 版本記錄），再按一次「建立／刷新本季內容表」。');
+  }
+  if (unreadable.length > 0) {
+    parts.push(which(unreadable) + '的內容表開不到（檔案可能被刪、搬走，或者這個帳戶沒有權限）：請在填寫介面'
+      + '「季度作業」按「開啟內容表」核對；確定不要了，請 IT 處理 ContentSheets 那一行。');
+  }
+  return { status: S.YELLOW, message: '⚠️ ' + parts.join('　') };
 }
 
 /**
