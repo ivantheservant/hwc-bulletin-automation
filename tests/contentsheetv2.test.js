@@ -16,6 +16,9 @@
 'use strict';
 
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
 const contentEnv = require('./helpers/contentEnv');
 const { legacyContentTabDefV1 } = require('./fixtures/legacyContentSheetV1');
 const { assertWrittenChinese } = require('./helpers/writtenChinese');
@@ -358,6 +361,106 @@ test('序樂空白時週報印 Config PRELUDE_DEFAULT（決定 11）；工作表
   assert.strictEqual(env.sandbox.buildBulletinModel_(D1).weekFields.PRELUDE, '預設序樂');
   assert.strictEqual(env.sandbox.applyPreludeDefault_({ PRELUDE: '自己的' }, '預設序樂').PRELUDE, '自己的');
   assert.strictEqual(env.sandbox.applyPreludeDefault_({}, '預設序樂').PRELUDE, undefined, '沒有那一行就不憑空造');
+});
+
+// =====================================================================
+// Commit 7：填寫介面的第三種模式說明＋待填提示
+// =====================================================================
+
+console.log('\n填寫介面與待填提示');
+
+function readSrc(rel) {
+  return fs.readFileSync(path.join(__dirname, '..', rel), 'utf8').replace(/\r\n/g, '\n');
+}
+
+/** 把 Script.html 的 renderContentSheetBar() 一段抽出來，在假 DOM 上真的執行。 */
+function loadBarRegion() {
+  const js = readSrc('src/ui/Script.html');
+  const start = js.indexOf('  var CONTENT_SHEET_BAR_OVERRIDABLE_SOURCE');
+  const end = js.indexOf('  // BEGIN confirm-dialog');
+  assert.ok(start !== -1 && end > start, '找不到狀態列那一段');
+  function makeEl(tag) {
+    const node = {
+      tag: tag, textContent: '', children: [], attrs: {}, classes: new Set(), innerHTML: '',
+      classList: { add: function (c) { node.classes.add(c); } },
+      appendChild: function (c) { node.children.push(c); return c; },
+      getAttribute: function (k) { return node.attrs[k] === undefined ? null : node.attrs[k]; }
+    };
+    return node;
+  }
+  const ctx = {
+    el: function (tag) { return makeEl(tag); },
+    makeSmallButton: function (label) { const b = makeEl('button'); b.textContent = label; return b; },
+    startContentImport: function () {}
+  };
+  vm.createContext(ctx);
+  vm.runInContext(js.slice(start, end) + '\nthis.render = renderContentSheetBar;', ctx);
+  return { render: ctx.render, makeEl: makeEl };
+}
+
+function barText(bar) {
+  return bar.children.map(function (c) { return c.textContent; }).join('');
+}
+
+test('T7-1 甲區塊（overridable）狀態列講明來自內容表「崇拜程序」、在這裏改等於覆寫；其他區塊照舊', function () {
+  const t = loadBarRegion();
+  const over = t.makeEl('div');
+  over.attrs['data-content-sheet-bar'] = 'overridable';
+  t.render(over, { exists: true, fileUrl: 'https://example.invalid/x', lastImportedAt: '2027-10-01 10:00' });
+  const text = barText(over);
+  ['本區內容來自內容表「崇拜程序」', '在這裏改等於覆寫，之後匯入不會蓋過', '最後匯入：2027-10-01 10:00', '重新匯入（只限這一個主日）'].forEach(function (piece) {
+    assert.ok(text.indexOf(piece) !== -1, '缺少：' + piece + '\n' + text);
+  });
+  const none = t.makeEl('div');
+  none.attrs['data-content-sheet-bar'] = 'overridable';
+  t.render(none, { exists: false });
+  assert.ok(barText(none).indexOf('「崇拜程序」') !== -1 && barText(none).indexOf('本季尚未建立內容表') !== -1, barText(none));
+
+  const plainBar = t.makeEl('div');
+  plainBar.attrs['data-content-sheet-bar'] = '';
+  t.render(plainBar, { exists: true, fileUrl: 'https://example.invalid/x', lastImportedAt: '' });
+  assert.ok(barText(plainBar).indexOf('本區內容來自內容表，最後匯入：尚未匯入過') === 0, barText(plainBar));
+  assertWrittenChinese(assert, '狀態列', [text, barText(none)]);
+});
+
+test('T7-2 Index.html：甲區塊頂有 overridable 狀態列；舊的「宣召由內容表接管」註解已拿走；浸禮提示指向「崇拜程序」；註解內沒有樣板標籤', function () {
+  const html = readSrc('src/ui/Index.html');
+  const blockA = html.slice(html.indexOf('<h2>甲、崇拜程序</h2>'), html.indexOf('<h2>乙、上週崇拜人數</h2>'));
+  assert.ok(blockA.indexOf('<div data-content-sheet-bar="overridable"></div>') !== -1);
+  assert.ok(blockA.indexOf('data-content-sheet-bar="overridable"') < blockA.indexOf('<div class="field-grid">'), '狀態列在區塊頂');
+  assert.strictEqual(blockA.split('data-content-sheet-bar').length - 1, 1, '甲區塊只有一條狀態列');
+  assert.strictEqual(html.indexOf('由內容表接管（R-011）'), -1);
+  assert.strictEqual(html.indexOf('內容表「浸禮合堂」分頁'), -1);
+  assert.ok(html.indexOf('內容表「崇拜程序」分頁</strong>（浸禮六欄）') !== -1);
+  const comments = html.match(/<!--[\s\S]*?-->/g) || [];
+  comments.forEach(function (c) { assert.strictEqual(c.indexOf('<?'), -1, '註解內不可以有樣板標籤：' + c); });
+});
+
+test('T7-3 真入口 apiLoadWeek：宣召、讀經經文、證道講題、回應詩歌的待填說明講明「請在內容表「崇拜程序」填寫。」；宣召不在唯讀清單', function () {
+  const env = contentEnv.makeEnv({ weekRows: [{ SERVICE_DATE: D1, QUARTER_ID: QUARTER_ID }] });
+  const resp = env.sandbox.apiLoadWeek(D1);
+  assert.strictEqual(resp.ok, true, JSON.stringify(resp.error));
+  const all = Array.from(resp.data.missingSplit.required).concat(Array.from(resp.data.missingSplit.optional));
+  const byField = {};
+  all.forEach(function (m) { byField[m.field] = m.reason; });
+  assert.strictEqual(byField.CALL_TEXT, '宣召經文與出處兩者皆未填。請在內容表「崇拜程序」填寫。');
+  ['SCRIPTURE_REF', 'SERMON_TITLE', 'RESPONSE_HYMN'].forEach(function (k) {
+    assert.strictEqual(byField[k], '請在內容表「崇拜程序」填寫。', k);
+  });
+  assert.strictEqual(byField.FLOWER_THIS_WEEK, '通常空白，有就填。', '不是內容表的欄照舊');
+  assert.strictEqual(Array.from(resp.data.readOnly.readOnlyFields.week).indexOf('CALL_REF'), -1);
+  assertWrittenChinese(assert, '待填說明', [byField.CALL_TEXT, byField.SERMON_TITLE]);
+});
+
+test('T7-4 真入口 apiQuarterMissingReport（本季待填清單）：那幾行附「請在內容表「崇拜程序」填寫。」', function () {
+  const env = contentEnv.makeEnv({ weekRows: [{ SERVICE_DATE: D1, QUARTER_ID: QUARTER_ID }] });
+  const resp = env.sandbox.apiQuarterMissingReport(QUARTER_ID);
+  assert.strictEqual(resp.ok, true, JSON.stringify(resp.error));
+  const lines = Array.from(resp.data.lines);
+  const sermon = lines.filter(function (l) { return l.indexOf(D1) === 0 && l.indexOf('（SERMON_TITLE）') !== -1; })[0];
+  assert.ok(sermon && sermon.indexOf('請在內容表「崇拜程序」填寫。') !== -1, JSON.stringify(lines.slice(0, 12)));
+  const flower = lines.filter(function (l) { return l.indexOf('（FLOWER_THIS_WEEK）') !== -1; })[0];
+  assert.ok(flower && flower.indexOf('請在內容表') === -1, flower);
 });
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');

@@ -1048,16 +1048,30 @@
   }
 
   /**
+   * 用途：內容表 v2：甲區塊（崇拜程序）那一條狀態列的開頭一句。
+   */
+  var CONTENT_SHEET_BAR_OVERRIDABLE_SOURCE = '本區內容來自內容表「崇拜程序」'
+    + '（程序表大標題、程序範本、誦讀、詩班項目名稱只在這裏填）；在這裏改等於覆寫，之後匯入不會蓋過';
+
+  /**
    * 用途：渲染一個區塊上方那一行。三種狀態的文案完全不同（未建立內容表／
-   *   已建立但未匯入／已匯入）。
+   *   已建立但未匯入／已匯入）。內容表 v2 起甲區塊那一條（`data-content-sheet-bar="overridable"`）
+   *   講明在這裏改等於覆寫。
+   * Args:
+   *   bar {Element} 狀態列。
+   *   info {{exists:boolean, fileUrl:string, lastImportedAt:string}} 內容表現況。
    */
   function renderContentSheetBar(bar, info) {
     bar.innerHTML = '';
     bar.classList.add('content-sheet-bar');
+    // 內容表 v2：甲區塊（崇拜程序）那一條標成 overridable——那一區的欄位是第三種模式：
+    // 來自內容表「崇拜程序」，但在這裏改得到，改了就是覆寫，之後匯入不會蓋過。
+    var overridable = bar.getAttribute('data-content-sheet-bar') === 'overridable';
+    var source = overridable ? CONTENT_SHEET_BAR_OVERRIDABLE_SOURCE : '本區內容來自內容表';
 
     if (!info.exists) {
       var warn = el('span');
-      warn.textContent = '本區內容來自內容表　｜　本季尚未建立內容表';
+      warn.textContent = source + '　｜　本季尚未建立內容表';
       bar.appendChild(warn);
       var hint = el('span', 'hint');
       // ⚠️ R-038：整條例行流程都做得到，所以指返落面那一個區塊，
@@ -1068,7 +1082,7 @@
     }
 
     var label = el('span');
-    label.textContent = '本區內容來自內容表，最後匯入：'
+    label.textContent = source + '，最後匯入：'
       + (info.lastImportedAt ? info.lastImportedAt : '尚未匯入過');
     bar.appendChild(label);
 

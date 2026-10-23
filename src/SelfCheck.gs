@@ -1007,7 +1007,9 @@ function buildQuarterMissingFieldsReportLines_(quarterId, sourceLabel) {
         }
         // F6：完整列出，通常空白的標明出來（不計入「本季待填欄位總數」）。
         itemLines.push(sd.isoDate + '　' + m.label + '（' + m.field + '）'
-          + (m.optional === true ? '　〔通常空白〕' : ''));
+          + (m.optional === true ? '　〔通常空白〕' : '')
+          // 內容表 v2：講明去哪裏填（與待填面板同一句，見 contentSheetFillHint_()）。
+          + (m.contentTab ? '　' + contentSheetFillHint_(m.contentTab) : ''));
         itemCounts.push(1);
       });
       if (attendanceLineIndex !== -1) {

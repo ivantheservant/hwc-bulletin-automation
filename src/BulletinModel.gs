@@ -512,21 +512,27 @@ function buildMissingList_(input) {
   //    ⚠️ 刻意**不是**「隱藏」：它們仍然逐項列出來，只是不計入頂部徽章
   //    那個數字。「正常空白」與「漏填」本來就不是二元的——真的漏填了
   //    獻花也有可能，所以看得見比數得準重要。
-  function add(field, label, reason, optional) {
+  function add(field, label, reason, optional, contentTab) {
     missing.push({
-      field: field, label: label, reason: reason, optional: optional === true
+      field: field, label: label, reason: reason, optional: optional === true,
+      // 內容表 v2：這一欄在內容表哪一張分頁填（沒有就是空字串）。本季待填清單每行附同一句提示。
+      contentTab: contentTab || ''
     });
   }
 
   // 宣召：經文與出處兩者皆空才算缺（只有出處是合法的，見 2026-04-05 樣本）。
+  // 內容表 v2：宣召、讀經經文、證道講題、回應詩歌都在內容表「崇拜程序」填，待填說明講明去哪裏填。
   if (isBlank('CALL_TEXT') && isBlank('CALL_REF')) {
-    add('CALL_TEXT', labelOf('CALL_TEXT') + '／' + labelOf('CALL_REF'), '宣召經文與出處兩者皆未填。');
+    var callTab = contentSheetTabForWeekField_('CALL_TEXT');
+    add('CALL_TEXT', labelOf('CALL_TEXT') + '／' + labelOf('CALL_REF'),
+      '宣召經文與出處兩者皆未填。' + contentSheetFillHint_(callTab), false, callTab);
   }
 
   ['SCRIPTURE_REF', 'SERMON_TITLE', 'RESPONSE_HYMN', 'FLOWER_THIS_WEEK'].forEach(function (key) {
     if (!isBlank(key)) return;
     var optional = optionalMissingFieldKeys_().indexOf(key) !== -1;
-    add(key, labelOf(key), optional ? '通常空白，有就填。' : '尚未填寫。', optional);
+    var tab = optional ? '' : contentSheetTabForWeekField_(key);
+    add(key, labelOf(key), optional ? '通常空白，有就填。' : (tab ? contentSheetFillHint_(tab) : '尚未填寫。'), optional, tab);
   });
 
   attendanceRowDefs_().forEach(function (def) {
@@ -629,6 +635,37 @@ function missingCountSummary_(missing) {
     optionalCount: optionalCount,
     optionalSuffix: optionalCount > 0 ? ('（另有 ' + optionalCount + ' 項通常空白）') : ''
   };
+}
+
+/**
+ * 用途：內容表 v2：`BulletinWeeks` 某一欄由內容表哪一張分頁（一個主日一行那一類）匯入。由
+ *   `contentImportTargets_()` 衍生，不另抄一份。純函式（讀常數）。
+ * Args:
+ *   key {string} `BulletinWeeks` 機器鍵。
+ * Returns:
+ *   {string} 分頁名稱；不是由內容表匯入的欄回空字串。
+ * Raises:
+ *   （無）
+ */
+function contentSheetTabForWeekField_(key) {
+  var hit = contentImportTargets_().filter(function (t) {
+    if (t.targetSheet !== SHEETS.BULLETIN_WEEKS || t.kind !== 'WEEK') return false;
+    return Object.keys(t.fieldMap).some(function (sourceKey) { return t.fieldMap[sourceKey] === key; });
+  })[0];
+  return hit ? hit.tabName : '';
+}
+
+/**
+ * 用途：內容表 v2：「請在內容表『X』填寫。」那一句（待填面板與本季待填清單共用）。純函式。
+ * Args:
+ *   tabName {string} 內容表分頁名稱；空字串回空字串。
+ * Returns:
+ *   {string}
+ * Raises:
+ *   （無）
+ */
+function contentSheetFillHint_(tabName) {
+  return tabName ? ('請在內容表「' + tabName + '」填寫。') : '';
 }
 
 /**

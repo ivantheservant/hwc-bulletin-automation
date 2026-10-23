@@ -130,6 +130,8 @@
 
     <section class="panel">
       <h2>甲、崇拜程序</h2>
+      <!-- 內容表 v2：本區大部分欄位來自內容表「崇拜程序」分頁，在這裏改等於覆寫（第三種模式）。 -->
+      <div data-content-sheet-bar="overridable"></div>
       <div class="field-grid">
         <label>程序表大標題
           <input type="text" data-field="PAGE_TITLE">
@@ -146,8 +148,6 @@
         <label class="field-wide">宣召經文
           <textarea data-field="CALL_TEXT" rows="2"></textarea>
         </label>
-        <!-- 宣召出處與宣召經文兩欄由內容表接管（R-011），其餘欄位照舊可以編輯。 -->
-        <div class="field-wide" data-content-sheet-bar></div>
         <label>誦讀（覆寫）
           <select data-field="RECITATION_OVERRIDE" id="recitationSelect"></select>
           <!-- R-041：由後端算好的自動值。前端不可以自己重算一次月份分組。 -->
@@ -252,7 +252,7 @@
         （例如直接打「ET牧師」會原樣印出，並在警告清單提一句）。
         三個名單欄可以填<strong>多位</strong>，用空格分隔，<strong>原樣印出</strong>（不會自動加尊稱、不會重新排序）。
         留空的一行不會印在週報上，六格全部留空整個副框都不會出現。
-        這六格亦可以由<strong>內容表「浸禮合堂」分頁</strong>填——在這裏改就等於覆寫，之後匯入不會蓋過去。
+        這六格亦可以由<strong>內容表「崇拜程序」分頁</strong>（浸禮六欄）填——在這裏改就等於覆寫，之後匯入不會蓋過去。
       </p>
       <div class="field-grid">
         <label>浸禮主禮
