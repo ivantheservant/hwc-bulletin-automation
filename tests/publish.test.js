@@ -1684,6 +1684,57 @@ test('D11-3 describeWaitSeconds_：一分鐘或以上講分鐘（零頭進位）
 });
 
 // =====================================================================
+// 審查後修正 2：正式寄出時，防重複不理模擬模式（DRY_RUN=TRUE）的批次
+// =====================================================================
+
+/** 把 Config 的一格改成另一個值，並清走單次執行的記憶體快取（等於下一次執行）。 */
+function setConfigCell(env, key, value) {
+  const sheet = env.sandbox.SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Config');
+  const rows = sheet.getRange(1, 1, sheet.getLastRow(), 2).getValues();
+  let rowNo = -1;
+  rows.forEach(function (r, i) { if (String(r[0]) === key) rowNo = i + 1; });
+  assert.ok(rowNo > 0, 'Config 沒有 ' + key);
+  sheet.getRange(rowNo, 2).setValue(value);
+  env.sandbox.CONFIG_CACHE_ = null;
+}
+
+test('RV2-1 findRecentNoticeBatch_：這一次正式寄出（currentDryRun=false）→ 模擬模式那一批不算；這一次模擬寄出、或沒有傳 → 照舊算；正式那一批兩種都算', function () {
+  const s = makeG22Env().sandbox;
+  const now = new Date(2026, 9, 22, 10, 0, 0).getTime();
+  const at = new Date(now - 5 * 60 * 1000);   // 5 分鐘前，在 600 秒之內
+  const row = function (dryRun) {
+    return { TIMESTAMP: at, SERVICE_DATE: s.normalizeDate_('2027-11-07'), RECIPIENT_EMAIL: 'it1@example.com', STATUS: 'SEND_ONLY', DRY_RUN: dryRun, BATCH_ID: 'SB1' };
+  };
+  assert.strictEqual(s.findRecentNoticeBatch_([row(true)], '2027-11-07', ['it1@example.com'], now, 600, false), null,
+    '模擬那一批一封信都沒有寄出，不可以擋住正式寄出');
+  assert.ok(s.findRecentNoticeBatch_([row(true)], '2027-11-07', ['it1@example.com'], now, 600, true), '模擬之後再模擬照擋');
+  assert.ok(s.findRecentNoticeBatch_([row(true)], '2027-11-07', ['it1@example.com'], now, 600), '沒有傳：寧可多擋');
+  assert.ok(s.findRecentNoticeBatch_([row(false)], '2027-11-07', ['it1@example.com'], now, 600, false), '正式之後再正式照擋');
+  assert.ok(s.findRecentNoticeBatch_([row(false)], '2027-11-07', ['it1@example.com'], now, 600, true), '正式之後模擬照擋');
+});
+
+test('RV2-2 真正入口 apiRunPublish：DRY_RUN=TRUE 只寄出一次 → 改成 DRY_RUN=FALSE 隨即正式寄出 → 照寄（MailApp 真的寄了一封，SendLog 兩批）；再正式寄一次 → 被擋', function () {
+  const env = makeG2Env({ config: { DRY_RUN: 'TRUE', PUBLISH_DEDUP_SEC: '0' }, sendLogKeepsTime: true });
+  assert.strictEqual(env.sandbox.publishConfig_().sendOnlyDedupSec, 600, '前提：預設 10 分鐘');
+  const dry = env.sandbox.apiRunPublish(Object.assign({}, G22_PAYLOAD));
+  assert.strictEqual(dry.data.ok, true, dry.data.message);
+  assert.strictEqual(env.mails.length, 0, '模擬沒有寄');
+
+  setConfigCell(env, 'DRY_RUN', 'FALSE');
+  assert.strictEqual(env.sandbox.publishConfig_().dryRun, false, '前提：已經改成正式寄出');
+  const real = env.sandbox.apiRunPublish(Object.assign({}, G22_PAYLOAD));
+  assert.strictEqual(real.ok, true, JSON.stringify(real.error));
+  assert.strictEqual(real.data.ok, true, real.data.message);
+  assert.strictEqual(env.mails.length, 1, '正式寄出了一封');
+  assert.strictEqual(readSendLog(env).length, 2);
+
+  const again = env.sandbox.apiRunPublish(Object.assign({}, G22_PAYLOAD));
+  assert.strictEqual(again.data.reason, 'DUPLICATE_SEND');
+  assert.strictEqual(again.data.message.indexOf('模擬模式'), -1, '擋住它的是正式那一批：' + again.data.message);
+  assert.strictEqual(env.mails.length, 1);
+});
+
+// =====================================================================
 // D6：只寄出時「master 現時是哪一期」在發佈鎖之內再讀一次
 // =====================================================================
 

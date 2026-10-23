@@ -1434,8 +1434,10 @@ function sendPublishNotice_(isoDate, options) {
   //    寄出之前查 SendLog：同一期、同一組收件人在 SEND_ONLY_DEDUP_SEC 秒內（D11）已有寄出的記錄，
   //    就拒絕，一封都不寄、SendLog 一行都不寫。
   if (!o.published) {
+    // 審查後修正 2：正式寄出時不理模擬模式的批次（見 findRecentNoticeBatch_() 的 currentDryRun）。
     var recentSend = findRecentNoticeBatch_(readSendLogRowsForDedup_(), noticeIsoDate,
-      resolved.recipients.map(function (r) { return r.email; }), new Date().getTime(), config.sendOnlyDedupSec);
+      resolved.recipients.map(function (r) { return r.email; }), new Date().getTime(), config.sendOnlyDedupSec,
+      config.dryRun);
     if (recentSend) {
       return {
         ok: false, dryRun: config.dryRun, recipientCount: 0, groups: (o.groups || []).slice(), attached: false,
@@ -1893,12 +1895,18 @@ function readSendLogRowsForDedup_() {
  *   「寄出」」——如果其實已經寄了，只寄出就會再寄一封；發佈加寄出之後只寄出，通知講的正是剛發佈
  *   那一期（master 現時那一期），主日日期相同，於是擋得到。名稱由 findRecentSendOnlyBatch_() 改為
  *   現在這個，免得名稱講的（只寄出）與實作做的（兩種寄出都算）對不上。
+ *
+ *   審查後修正 2：這一次是正式寄出（`currentDryRun` 是 false）時，模擬模式（DRY_RUN=TRUE）的批次不算——
+ *   那一批一封信都沒有寄出，D11 把時窗加長到 10 分鐘之後，模擬寄過一次會擋住隨後的正式寄出。這一次是
+ *   模擬寄出時照舊算全部批次（正式寄過的一批亦擋住模擬，免得 SendLog 多一批假的）。`currentDryRun` 不是
+ *   布林（呼叫方漏傳）時照舊算全部批次：寧可多擋一次，也不可以靜靜放過重複。
  * Args:
  *   sendLogRows {Object[]} `readSendLogRowsForDedup_()` 的輸出（TIMESTAMP 要帶時分秒）。
  *   noticeIsoDate {string} 這一次通知信講的那一期，yyyy-MM-dd。
  *   recipientEmails {string[]} 這一次的收件人電郵。
  *   nowMs {number} 現在的毫秒數。
  *   dedupSec {number} Config `SEND_ONLY_DEDUP_SEC`（D11 之前是 `PUBLISH_DEDUP_SEC`）；0 或以下代表不檢查。
+ *   currentDryRun {boolean=} 這一次是不是模擬寄出（Config `DRY_RUN`）；只有 `false` 才略過模擬模式的批次。
  * Returns:
  *   {?{at:Date, secondsAgo:number, recipientCount:number, dryRun:boolean}} 最近那一批；
  *     不算重複回 `null`。
@@ -1908,7 +1916,7 @@ function readSendLogRowsForDedup_() {
  *     （`normalizeBoolean_()` 拋出）。SendLog 是系統寫的，正常不會出現；出現的話只寄出會失敗並
  *     講出那一格的值，不會靜靜略過防重複。
  */
-function findRecentNoticeBatch_(sendLogRows, noticeIsoDate, recipientEmails, nowMs, dedupSec) {
+function findRecentNoticeBatch_(sendLogRows, noticeIsoDate, recipientEmails, nowMs, dedupSec, currentDryRun) {
   var seconds = Number(dedupSec);
   if (!(seconds > 0)) return null;
   function emailKey(value) { return String(value || '').trim().toLowerCase(); }
@@ -1935,6 +1943,7 @@ function findRecentNoticeBatch_(sendLogRows, noticeIsoDate, recipientEmails, now
   Object.keys(batches).forEach(function (key) {
     var b = batches[key];
     if (!b.sent) return;
+    if (currentDryRun === false && b.dryRun) return;
     var elapsedMs = Number(nowMs) - b.at.getTime();
     if (elapsedMs < 0 || elapsedMs > seconds * 1000) return;
     var unique = b.emails.filter(function (e, i, all) { return e && all.indexOf(e) === i; });
