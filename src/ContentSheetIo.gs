@@ -166,6 +166,30 @@ function arrangeContentTabs_(spreadsheet, wantedNames) {
 }
 
 /**
+ * 用途：內容表 v2：讀一張分頁第 2 行（機器鍵）頭 `n` 欄。純 IO，不做判斷（判斷在
+ *   `checkContentSheetSchema_()`）。欄數夾住 `getMaxColumns()`：分頁欄數比 `n` 少的時候，
+ *   超出的位置當作空白，不會因為 `getRange()` 越界而拋錯。
+ * Args:
+ *   sheet {Sheet} 內容表其中一張分頁。
+ *   n {number} 要讀幾欄（通常是該分頁定義的欄數）。
+ * Returns:
+ *   {string[]} 長度剛好 `n`，每格已轉字串並去頭尾空白。
+ * Raises:
+ *   Error 讀取失敗時原樣拋出。
+ */
+function readContentTabHeaderKeys_(sheet, n) {
+  var want = Math.max(0, Number(n) || 0);
+  var available = Math.min(want, Math.max(0, Number(sheet.getMaxColumns()) || 0));
+  var cells = available > 0 ? sheet.getRange(2, 1, 1, available).getValues()[0] : [];
+  var out = [];
+  for (var i = 0; i < want; i++) {
+    var v = i < cells.length ? cells[i] : '';
+    out.push(v === null || v === undefined ? '' : String(v).trim());
+  }
+  return out;
+}
+
+/**
  * 用途：把一批「以機器鍵為 key 嘅資料列」寫入內容表某張分頁嘅指定位置。
  * Args:
  *   sheet {Sheet} 目標分頁。

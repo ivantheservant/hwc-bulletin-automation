@@ -1167,7 +1167,8 @@ function planWeekReset_(blankRow, current) {
  * Raises:
  *   Error 主日格式不對、BulletinWeeks 沒有那一行、鎖定值不符（`STALE`）、存不到
  *     安全版本，或任何寫入失敗；Error（`code:'LOCK_TIMEOUT'`）如果 30 秒內拿不到指令碼鎖
- *     （D13，一格都沒有寫）。
+ *     （D13，一格都沒有寫）；Error（`code:'CONTENT_SHEET_OUTDATED'`／`'CONTENT_SHEET_HEADER_CHANGED'`）
+ *     如果本季內容表第 2 行不符（內容表 v2，一格都沒有寫）。
  */
 function resetWeekFromWebApp_(isoDate, lastSavedAt) {
   if (!isoDate || !normalizeDate_(isoDate)) {
@@ -1211,13 +1212,9 @@ function resetWeekLocked_(isoDate, lastSavedAt) {
   });
   var plan = planWeekReset_(blankRow, state);
 
-  // ⚠️ 先存安全版本。存不到就一格都不寫。
-  var safety = createWeekSnapshot_(isoDate, 'BEFORE_RESET');
-  var entries = applyWeekRestorePlan_(isoDate, state.weekRow.__rowNo, plan, 'WEEK_RESET',
-    '重設這一週；重設前的現況已另存為版本「' + safety.snapshotId + '」。');
-  entries.forEach(function (entry) { appendAuditLog_(entry); });
-
-  // 本季已有內容表就重新匯入這一個主日。已經存過安全版本，匯入不必再存一個。
+  // 內容表 v2（決定 15）：重設會先把欄位清回預設值，再由內容表匯入這一個主日。內容表第 2 行
+  //    不符（未移轉或被改過）的話匯入會被整次拒絕，欄位就會留空——所以寫入之前先核對，
+  //    不符就整次拒絕重設，一格都不寫。
   var importMessage = '';
   var hasContentSheet = false;
   try {
@@ -1225,6 +1222,23 @@ function resetWeekLocked_(isoDate, lastSavedAt) {
   } catch (lookupErr) {
     importMessage = '查不到本季有沒有內容表（' + ((lookupErr && lookupErr.message) ? lookupErr.message : String(lookupErr)) + '），沒有重新匯入。';
   }
+  if (hasContentSheet) {
+    var schema = checkQuarterContentSheetSchema_(quarterId);
+    if (!schema.ok) {
+      var schemaErr = new Error(schema.message + '　重設會先清空欄位再由內容表匯入，匯入被拒絕的話欄位會留空，'
+        + '所以這次重設亦整次取消，一格都沒有寫。');
+      schemaErr.code = schema.reason;
+      throw schemaErr;
+    }
+  }
+
+  // ⚠️ 先存安全版本。存不到就一格都不寫。
+  var safety = createWeekSnapshot_(isoDate, 'BEFORE_RESET');
+  var entries = applyWeekRestorePlan_(isoDate, state.weekRow.__rowNo, plan, 'WEEK_RESET',
+    '重設這一週；重設前的現況已另存為版本「' + safety.snapshotId + '」。');
+  entries.forEach(function (entry) { appendAuditLog_(entry); });
+
+  // 本季已有內容表就重新匯入這一個主日（有沒有內容表已在上面查過）。已經存過安全版本，匯入不必再存一個。
   if (hasContentSheet) {
     var imported = applyContentImport_(quarterId, { isoDate: isoDate, skipSnapshot: true });
     importMessage = imported.ok

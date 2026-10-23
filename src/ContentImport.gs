@@ -157,7 +157,8 @@ function attendanceImportFieldMap_() {
  *   keys {string[]} 該分頁的機器鍵（決定欄次序）。
  * Returns:
  *   {Object[]} 每個元素以機器鍵為 key，另有 `__rowNo`（內容表上的行號，
- *     供警告訊息指出是哪一行）。
+ *     供警告訊息指出是哪一行）與 `__typeIssues`（被試算表轉成日期／時間的欄，
+ *     機器鍵清單；那幾格的值一律是空字串，匯入要略過，見 `buildContentImportTargets_()`）。
  */
 function parseContentTabRows_(values, keys) {
   var out = [];
@@ -165,9 +166,17 @@ function parseContentTabRows_(values, keys) {
     var isBlank = row.every(function (cell) { return cell === '' || cell === null || cell === undefined; });
     if (isBlank) return;
 
-    var obj = { __rowNo: i + CONTENT_SHEET_FIRST_DATA_ROW_ };
+    var obj = { __rowNo: i + CONTENT_SHEET_FIRST_DATA_ROW_, __typeIssues: [] };
     keys.forEach(function (key, c) {
       var v = row[c];
+      // 內容表 v2（bug class 4）：內容表全部欄位都是文字（日期亦是 yyyy-MM-dd 文字，由下拉選）。
+      //    讀到 Date 物件代表那一格被試算表自動轉成日期／時間（例如「3:16」變成時間），
+      //    String(Date) 會變成「Sat Dec 30 1899 …」寫進週報。記下來，由匯入略過並警告。
+      if (Object.prototype.toString.call(v) === '[object Date]') {
+        obj.__typeIssues.push(key);
+        obj[key] = '';
+        return;
+      }
       obj[key] = (v === null || v === undefined) ? '' : String(v).trim();
     });
 
@@ -286,15 +295,18 @@ function attendanceDateToServiceDate_(attendanceIso, serviceDates) {
  *     張整張空白**，呼叫方要完全跳過（安全規則 1）。
  *   serviceDates {string[]} 該季全部主日。
  * Returns:
- *   {{targets:Object, warnings:string[], skippedTabs:string[]}}
+ *   {{targets:Object, warnings:string[], skippedTabs:string[], blankActiveRows:Object[],
+ *     skipListDates:Object<string,Object<string,boolean>>}}
  *     `targets` 形狀：`{ '<分頁名稱>': { '<主日>': [資料列…] } }`；
- *     `skippedTabs` 是「整張空白、本次不改動」的分頁名稱。
+ *     `skippedTabs` 是「整張空白、本次不改動」的分頁名稱；`skipListDates` 是清單類分頁內
+ *     有格被試算表轉成日期／時間、這一次不比對的主日（分頁名稱 → 主日 → true）。
  */
 function buildContentImportTargets_(contentData, serviceDates) {
   var targets = {};
   var warnings = [];
   var skippedTabs = [];
   var blankActiveRows = [];
+  var skipListDates = {};
 
   contentImportTargets_().forEach(function (def) {
     var rows = (contentData || {})[def.tabName] || [];
@@ -312,11 +324,21 @@ function buildContentImportTargets_(contentData, serviceDates) {
       blankActiveRows.push({ tabName: def.tabName, rowNo: r.__rowNo, isoDate: String(r.SERVICE_DATE || '') });
     });
 
+    // ---- 內容表 v2（bug class 4）：被試算表轉成日期／時間的格 ----
+    //    逐格講出來。清單類分頁：主日／連續到／有效被轉了就不知道這一行屬於哪幾個主日，
+    //    整張這一次不匯入（否則那幾個主日既有的行會被當成「已刪除」而停用）；其餘欄被轉了，
+    //    這一行涉及的主日這一次不匯入。週欄位類分頁：主日／有效被轉了就略過這一行；其餘欄
+    //    只略過那一格（`computeContentImportPlan_()`），週報保留原值。
+    var typeIssues = classifyContentTypeIssues_(def, rows);
+    typeIssues.warnings.forEach(function (w) { warnings.push(w); });
+    if (typeIssues.skipWholeTab) return;
+
     var activeRows = rows.filter(function (r) { return r.__active; });
     var byDate = {};
 
     if (def.kind === 'WEEK_ATTENDANCE') {
       activeRows.forEach(function (row) {
+        if (typeIssues.skipRowNos[row.__rowNo]) return;
         var iso = attendanceDateToServiceDate_(row.SERVICE_DATE, serviceDates);
         if (!iso) {
           warnings.push('崇拜人數第 ' + row.__rowNo + ' 行的崇拜日期 '
@@ -327,6 +349,7 @@ function buildContentImportTargets_(contentData, serviceDates) {
       });
     } else if (def.kind === 'WEEK') {
       activeRows.forEach(function (row) {
+        if (typeIssues.skipRowNos[row.__rowNo]) return;
         var iso = String(row.SERVICE_DATE || '').trim();
         if ((serviceDates || []).indexOf(iso) === -1) {
           warnings.push(def.tabName + '第 ' + row.__rowNo + ' 行的主日日期 '
@@ -347,6 +370,10 @@ function buildContentImportTargets_(contentData, serviceDates) {
       expandedResult.rows.forEach(function (row) {
         if (!byDate[row.__isoDate]) byDate[row.__isoDate] = [];
         byDate[row.__isoDate].push(row);
+        if (typeIssues.skipRowNos[row.__rowNo]) {
+          if (!skipListDates[def.tabName]) skipListDates[def.tabName] = {};
+          skipListDates[def.tabName][row.__isoDate] = true;
+        }
       });
 
       // 同一個主日內按「次序」排先後；次序相同就按內容表上的行號。
@@ -365,8 +392,69 @@ function buildContentImportTargets_(contentData, serviceDates) {
 
   return {
     targets: targets, warnings: warnings, skippedTabs: skippedTabs,
-    blankActiveRows: blankActiveRows
+    blankActiveRows: blankActiveRows, skipListDates: skipListDates
   };
+}
+
+/** 內容表 v2：決定「一行屬於哪幾個主日、有沒有效」的欄。被轉成日期／時間就不知道這一行的範圍。 */
+var CONTENT_IMPORT_STRUCTURAL_KEYS_ = ['SERVICE_DATE', 'REPEAT_UNTIL', 'ACTIVE', 'SEQ_NO'];
+
+/**
+ * 用途：內容表 v2：整理一張分頁內被試算表轉成日期／時間的格（`parseContentTabRows_()` 的
+ *   `__typeIssues`），決定這一次怎樣略過，並逐格寫警告。純函式。只理會會匯入的欄與決定範圍的欄，
+ *   其他欄（例如「備註」「來源」）本來就不匯入，不出警告。
+ * Args:
+ *   def {Object} `contentImportTargets_()` 其中一項。
+ *   rows {Object[]} 這張分頁 `parseContentTabRows_()` 的輸出。
+ * Returns:
+ *   {{skipWholeTab:boolean, skipRowNos:Object<number,boolean>, warnings:string[]}}
+ *     週欄位類：`skipRowNos` 只放範圍欄出事的行（其餘欄由 `computeContentImportPlan_()` 逐格略過）；
+ *     清單類：`skipRowNos` 放任何一格出事的行（那一行涉及的主日整個不匯入）。
+ * Raises:
+ *   （無）
+ */
+function classifyContentTypeIssues_(def, rows) {
+  var out = { skipWholeTab: false, skipRowNos: {}, warnings: [] };
+  var isList = def.kind === 'LIST';
+  (rows || []).forEach(function (row) {
+    (row.__typeIssues || []).forEach(function (key) {
+      var structural = CONTENT_IMPORT_STRUCTURAL_KEYS_.indexOf(key) !== -1;
+      if (!structural && !Object.prototype.hasOwnProperty.call(def.fieldMap, key)) return;
+      var consequence;
+      if (isList && (key === 'SERVICE_DATE' || key === 'REPEAT_UNTIL' || key === 'ACTIVE')) {
+        out.skipWholeTab = true;
+        consequence = '不知道這一行屬於哪幾個主日，整張「' + def.tabName + '」這一次不匯入（週報保留原有的內容）';
+      } else if (isList) {
+        out.skipRowNos[row.__rowNo] = true;
+        consequence = '這一行涉及的主日，「' + def.tabName + '」這一次不匯入（週報保留原有的內容）';
+      } else if (structural) {
+        out.skipRowNos[row.__rowNo] = true;
+        consequence = '這一行這一次略過';
+      } else {
+        consequence = '這一格這一次不匯入（週報保留原值）';
+      }
+      out.warnings.push('「' + def.tabName + '」第 ' + row.__rowNo + ' 行「' + contentTabColumnLabel_(def.tabName, key)
+        + '」被試算表轉成日期／時間，' + consequence + '。請把那一格的格式改回純文字（格式 ▸ 數字 ▸ 純文字），再重新輸入。');
+    });
+  });
+  return out;
+}
+
+/**
+ * 用途：內容表某張分頁某一欄的中文標題（第 1 行），由 `contentSheetTabDefs_()` 衍生。純函式。
+ * Args:
+ *   tabName {string} 分頁名稱。
+ *   key {string} 機器鍵。
+ * Returns:
+ *   {string} 找不到就回機器鍵本身。
+ * Raises:
+ *   （無）
+ */
+function contentTabColumnLabel_(tabName, key) {
+  var tabDef = contentSheetTabDefs_().filter(function (d) { return d.tabName === tabName; })[0];
+  if (!tabDef) return key;
+  var index = tabDef.keys.indexOf(key);
+  return index === -1 ? key : (tabDef.headers[index] || key);
 }
 
 // =====================================================================
@@ -518,8 +606,9 @@ function summariseContentRow_(row, def) {
  * Args:
  *   input {{targets:Object, skippedTabs:string[], warnings:string[],
  *          existingLists:Object<string,Object[]>, existingWeeks:Object[],
- *          serviceDates:string[], tabNames:(string[]|null)=}}
+ *          serviceDates:string[], tabNames:(string[]|null)=, skipListDates:Object=}}
  *     `tabNames` 有值就只處理那幾張分頁（見 `previewContentImport_()`）。
+ *     `skipListDates` 見 `buildContentImportTargets_()`。
  *     `serviceDates` 是這次匯入的範圍（整季或單一主日）；清單類與週欄位類
  *     的分頁都只處理範圍內的主日。
  *     `existingLists` 是「目標表名稱 → 該表全部資料列（帶 `__rowNo`）」；
@@ -582,6 +671,10 @@ function computeContentImportPlan_(input) {
         // （整張空白就整張跳過，見 `buildContentImportTargets_()`）。如果
         // 這裡再按主日跳過，就會變成「一週的最後一則永遠刪不走」——堂委
         // 把那一則由內容表刪掉，週報上仍然照印。
+        // 內容表 v2：這個主日有格被試算表轉成日期／時間（`classifyContentTypeIssues_()`），
+        //    這一次整個主日不比對——既有的行一格不動，警告已經在 plan.warnings。
+        if (((input.skipListDates || {})[def.tabName] || {})[iso]) return;
+
         var existingForDate = existingAll
           .filter(function (r) { return formatIsoDate_(r.SERVICE_DATE) === iso; })
           .sort(function (a, b) { return Number(a.SEQ_NO || 0) - Number(b.SEQ_NO || 0); });
@@ -618,6 +711,9 @@ function computeContentImportPlan_(input) {
       }
       var sourceRow = byDate[iso][0];
       Object.keys(def.fieldMap).forEach(function (sourceKey) {
+        // 內容表 v2：這一格被試算表轉成日期／時間，這一次不匯入（不寫、不解除覆寫、不報衝突），
+        //    週報保留原值；警告已經在 plan.warnings。
+        if ((sourceRow.__typeIssues || []).indexOf(sourceKey) !== -1) return;
         var targetKey = def.fieldMap[sourceKey];
         var newValue = sourceRow[sourceKey];
 
@@ -680,6 +776,108 @@ function computeContentImportPlan_(input) {
 // =====================================================================
 // 真正入口
 // =====================================================================
+
+/**
+ * 用途：內容表 v2：核對一張分頁第 2 行（機器鍵）與定義是否相符。純函式。
+ * Args:
+ *   expectedKeys {string[]} 定義的機器鍵（欄次序）。
+ *   actualKeys {string[]} 第 2 行頭幾欄（`readContentTabHeaderKeys_()`，長度與 `expectedKeys` 相同）。
+ * Returns:
+ *   {{status:string, missing:number, column:number, expected:string, actual:string}}
+ *     `status`：`'OK'`／`'OUTDATED'`（第 2 行是定義的前綴，後面幾欄還未加）／`'HEADER_CHANGED'`
+ *     （其他不符：欄被改名、插入、刪除或移動）。`OUTDATED` 時 `missing` 是缺幾欄；
+ *     `HEADER_CHANGED` 時 `column`（1 起算）、`expected`、`actual` 指出第一個不符的位置。
+ * Raises:
+ *   （無）
+ */
+function compareContentTabHeaderKeys_(expectedKeys, actualKeys) {
+  var actual = actualKeys || [];
+  var firstBlank = -1;
+  for (var i = 0; i < expectedKeys.length; i++) {
+    var got = String(actual[i] === undefined ? '' : actual[i]);
+    if (got === expectedKeys[i]) {
+      if (firstBlank !== -1) {
+        return { status: 'HEADER_CHANGED', missing: 0, column: firstBlank + 1, expected: expectedKeys[firstBlank], actual: '' };
+      }
+      continue;
+    }
+    if (got === '') {
+      if (firstBlank === -1) firstBlank = i;
+      continue;
+    }
+    return { status: 'HEADER_CHANGED', missing: 0, column: i + 1, expected: expectedKeys[i], actual: got };
+  }
+  if (firstBlank === -1) return { status: 'OK', missing: 0, column: 0, expected: '', actual: '' };
+  return { status: 'OUTDATED', missing: expectedKeys.length - firstBlank, column: firstBlank + 1, expected: expectedKeys[firstBlank], actual: '' };
+}
+
+/**
+ * 用途：內容表 v2（bug class 50）：匯入按欄位位置讀，所以讀資料之前逐張核對第 2 行。不符就
+ *   整次拒絕，一格都不寫——否則加了新欄而未移轉的內容表會在新欄位置讀到空白，清空週報的序樂、
+ *   宣召等欄；被人插入或移動過欄的內容表會把甲欄的值寫進乙欄。分頁不存在照舊當作整張空白
+ *   （不在這裏拒絕）。所有匯入入口（選單、單週、整季、重設、自測）都經 `previewContentImport_()`。
+ * Args:
+ *   spreadsheet {Spreadsheet} 已經開啟的內容表。
+ * Returns:
+ *   {{ok:boolean, reason:string, message:string, tabs:{tabName:string, status:string}[]}}
+ *     `reason`：`''`／`'CONTENT_SHEET_OUTDATED'`／`'CONTENT_SHEET_HEADER_CHANGED'`
+ *     （兩種同時有的話報 `HEADER_CHANGED`，那一種要人手處理）。
+ * Raises:
+ *   Error 讀取分頁失敗時原樣拋出。
+ */
+function checkContentSheetSchema_(spreadsheet) {
+  var tabs = [];
+  var outdated = [];
+  var changed = [];
+  contentSheetTabDefs_().forEach(function (tabDef) {
+    var sheet = spreadsheet.getSheetByName(tabDef.tabName);
+    if (!sheet) return;
+    var verdict = compareContentTabHeaderKeys_(tabDef.keys, readContentTabHeaderKeys_(sheet, tabDef.keys.length));
+    tabs.push({ tabName: tabDef.tabName, status: verdict.status });
+    if (verdict.status === 'OUTDATED') outdated.push({ tabDef: tabDef, verdict: verdict });
+    if (verdict.status === 'HEADER_CHANGED') changed.push({ tabDef: tabDef, verdict: verdict });
+  });
+
+  if (changed.length > 0) {
+    return {
+      ok: false, reason: 'CONTENT_SHEET_HEADER_CHANGED', tabs: tabs,
+      message: changed.map(function (c) {
+        return '內容表「' + c.tabDef.tabName + '」第 2 行（機器鍵）第 ' + c.verdict.column + ' 欄應該是「'
+          + c.verdict.expected + '」，現在是「' + (c.verdict.actual || '（空白）') + '」。';
+      }).join('') + '匯入按欄位位置讀，第 2 行不符就會讀錯欄，所以這次整次拒絕，一格都沒有寫。'
+        + '請把第 2 行改回原樣；如果曾經插入、刪除或移動欄，請先復原（檔案 ▸ 版本記錄），再匯入。'
+    };
+  }
+  if (outdated.length > 0) {
+    return {
+      ok: false, reason: 'CONTENT_SHEET_OUTDATED', tabs: tabs,
+      message: '本季內容表的欄位比系統舊（' + outdated.map(function (o) {
+        return '「' + o.tabDef.tabName + '」少了 ' + o.verdict.missing + ' 欄';
+      }).join('、') + '），這次匯入整次拒絕，一格都沒有寫。請先在填寫介面「季度作業」按「建立／刷新本季內容表」，'
+        + '再匯入。'
+    };
+  }
+  return { ok: true, reason: '', message: '', tabs: tabs };
+}
+
+/**
+ * 用途：內容表 v2：按季度找到內容表並核對第 2 行（「重設這一週」寫入之前用）。唯讀。
+ * Args:
+ *   quarterId {string} 季度 ID。
+ * Returns:
+ *   {{ok:boolean, reason:string, message:string}} 本季沒有內容表、或者內容表開不到，回 `ok:true`
+ *     ——那兩種情況由匯入本身講出來（與以前一樣），這裏只擋「第 2 行不符」。
+ * Raises:
+ *   Error 讀 ContentSheets 或分頁失敗時原樣拋出。
+ */
+function checkQuarterContentSheetSchema_(quarterId) {
+  var row = findContentSheetRow_(String(quarterId || '').trim());
+  if (!row) return { ok: true, reason: '', message: '' };
+  var spreadsheet = openContentSpreadsheet_(row.FILE_ID);
+  if (!spreadsheet) return { ok: true, reason: '', message: '' };
+  var schema = checkContentSheetSchema_(spreadsheet);
+  return { ok: schema.ok, reason: schema.reason, message: schema.message };
+}
 
 /**
  * 用途：讀出內容表全部分頁的原始資料。
@@ -777,6 +975,12 @@ function previewContentImport_(quarterId, options) {
     serviceDates = [opts.isoDate];
   }
 
+  // 內容表 v2：讀資料之前先核對第 2 行，不符就整次拒絕（見 checkContentSheetSchema_()）。
+  var schema = checkContentSheetSchema_(spreadsheet);
+  if (!schema.ok) {
+    return { ok: false, quarterId: qid, scope: scope, reason: schema.reason, message: schema.message };
+  }
+
   var contentData = readContentSheetTabs_(spreadsheet);
   // ⚠️ 「連續到」一定要用**整季**的主日展開，之後才篩出要匯入的那一個
   // 主日——否則只匯入單一主日時，一條由上一週連登過來的報告會消失。
@@ -799,6 +1003,7 @@ function previewContentImport_(quarterId, options) {
     skippedTabs: built.skippedTabs,
     warnings: built.warnings,
     blankActiveRows: built.blankActiveRows,
+    skipListDates: built.skipListDates,
     existingLists: existingLists,
     existingWeeks: readRowsWithRowNo_(SHEETS.BULLETIN_WEEKS),
     serviceDates: serviceDates,
