@@ -1589,6 +1589,56 @@ test('G22-4 真正入口 apiRunPublish：發佈加寄出（IT）之後，30 秒�
 });
 
 // =====================================================================
+// D2：只寄出而 master 不是選中那一期時，待填清單前面講明「與這次通知無關」
+// =====================================================================
+
+const D2_LINE = '以下是 2028-04-09 的待填，與這次通知無關。';
+
+test('D2-1 只寄出、選中 2028-04-09、master 是 2027-11-07（經 runPublishFlow_）→ 寄出前檢查在「未填欄位」標題之前多一句，只出現一次；⚠ 那一行照舊', function () {
+  const env = makeG2Env();
+  const first = env.sandbox.runPublishFlow_({
+    isoDate: G2_SELECTED, doPublish: false, doSend: true, groups: ['IT'], customEmails: '', confirmed: false
+  });
+  assert.strictEqual(first.reason, 'NEEDS_CONFIRM');
+  const lines = first.lines;
+  const at = lines.indexOf(D2_LINE);
+  assert.ok(at !== -1, lines.join('\n'));
+  assert.ok(String(lines[at + 1]).indexOf('未填欄位（') === 0, '緊接着是未填欄位的標題：' + lines[at + 1]);
+  assert.strictEqual(lines.filter(function (l) { return l === D2_LINE; }).length, 1);
+  assert.ok(lines.indexOf(G2_WARNING) !== -1, '⚠ 那一行照舊');
+  assertWrittenChinese(assert, 'D2', [D2_LINE]);
+});
+
+test('D2-2 不加那一句：只寄出而選中的主日就是 master 那一期；發佈加寄出（沒有 ⚠ 那一行）', function () {
+  const env = makeG2Env();
+  const same = env.sandbox.runPublishFlow_({
+    isoDate: G2_MASTER_ISSUE, doPublish: false, doSend: true, groups: ['IT'], customEmails: '', confirmed: false
+  });
+  const sameText = (same.lines || []).join('\n');
+  assert.strictEqual(sameText.indexOf('與這次通知無關'), -1, sameText);
+  const precheck = env.sandbox.buildPublishPrecheck_(G2_SELECTED, true, {});
+  assert.strictEqual(precheck.masterIssueNotice, '');
+  assert.strictEqual(precheck.lines.join('\n').indexOf('與這次通知無關'), -1);
+  assert.ok(precheck.lines.join('\n').indexOf('未填欄位（') !== -1, '前提：發佈那一次亦有未填欄位');
+});
+
+test('D2-3 只有通常空白的欄位未填 → 那一句排在「通常空白」之前；完全沒有待填 → 不加', function () {
+  const sb = makeG2Env().sandbox;
+  const optionalOnly = sb.buildPublishPrecheckLines_({
+    isoDate: G2_SELECTED, missing: [{ field: 'FLOWER_THIS_WEEK', label: '本週獻花', optional: true }],
+    missingCount: 0, dateIssues: [], masterIssueNotice: G2_WARNING
+  }, false);
+  const at = optionalOnly.indexOf(D2_LINE);
+  assert.ok(at !== -1, optionalOnly.join('\n'));
+  assert.ok(String(optionalOnly[at + 1]).indexOf('通常空白') === 0, optionalOnly.join('\n'));
+  const none = sb.buildPublishPrecheckLines_({
+    isoDate: G2_SELECTED, missing: [], missingCount: 0, dateIssues: [], masterIssueNotice: G2_WARNING
+  }, false);
+  assert.strictEqual(none.indexOf(D2_LINE), -1, none.join('\n'));
+  assert.ok(none.indexOf(G2_WARNING) !== -1);
+});
+
+// =====================================================================
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail === 0 ? 0 : 1);

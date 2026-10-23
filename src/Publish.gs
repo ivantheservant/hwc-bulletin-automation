@@ -684,6 +684,10 @@ function publishConfirmLabels_(doPublish) {
  *
  *   ⚠️ 未填欄位**全部列出，不截斷、不寫「等 N 項」**（R-006 明文要求）。
  *   截斷嘅話，被截走嗰幾項就係最容易漏嘅嗰幾項。
+ *
+ *   D2：只寄出而選中的主日不是 master 現時那一期（有 `masterIssueNotice`）時，待填清單
+ *   列的仍是選中那一週，與通知信指向的那一期不同；清單前面先講一句「以下是 Y 的待填，
+ *   與這次通知無關。」，免得幹事以為 master 那一期有那麼多未填。
  * Args:
  *   precheck {Object} `buildPublishPrecheck_()` 嘅回傳值。
  *   doPublish {boolean=} 這次有沒有發佈；`false` 時標題用「寄出前檢查」。
@@ -700,8 +704,11 @@ function buildPublishPrecheckLines_(precheck, doPublish) {
   // F6：括號內的數字只數「一定要填」；通常空白的另外列出，不計入數字。
   //    分類一律經 `splitMissingList_()`，這裏不自己判斷。
   var split = splitMissingList_(o.missing);
+  // D2：那一句只出現一次，排在第一段待填清單（未填欄位，或者只有通常空白）的標題之前。
+  var notForNoticeLine = o.masterIssueNotice ? buildMissingNotForNoticeLine_(o.isoDate) : '';
   if (Number(o.missingCount || 0) > 0) {
     lines.push('');
+    if (notForNoticeLine) { lines.push(notForNoticeLine); notForNoticeLine = ''; }
     lines.push('未填欄位（' + o.missingCount + ' 項）' + missingCountSummary_(o.missing).optionalSuffix);
     groupPublishMissing_(split.required).forEach(function (group) {
       lines.push('　' + group.label + '：' + group.items.join('、'));
@@ -709,6 +716,7 @@ function buildPublishPrecheckLines_(precheck, doPublish) {
   }
   if (split.optional.length > 0) {
     lines.push('');
+    if (notForNoticeLine) { lines.push(notForNoticeLine); notForNoticeLine = ''; }
     lines.push('通常空白（有就填，不計入上面的數字）：'
       + split.optional.map(function (m) { return String((m || {}).label || (m || {}).field || ''); }).join('、'));
   }
@@ -728,6 +736,19 @@ function buildPublishPrecheckLines_(precheck, doPublish) {
 
   if (lines.length === 1) lines.push('沒有發現任何問題。');
   return lines;
+}
+
+/**
+ * 用途：D2：只寄出而選中的主日不是 master 現時那一期時，待填清單前面那一句。純函式。
+ * Args:
+ *   selectedIsoDate {string} 介面選中的主日（待填清單講的那一週），yyyy-MM-dd。
+ * Returns:
+ *   {string}
+ * Raises:
+ *   （無）
+ */
+function buildMissingNotForNoticeLine_(selectedIsoDate) {
+  return '以下是 ' + String(selectedIsoDate || '').trim() + ' 的待填，與這次通知無關。';
 }
 
 /**
