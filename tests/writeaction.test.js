@@ -699,13 +699,29 @@ function saveWithSecondDuringFirst(env) {
       seen.started = true;
       seen.lastSavedAtAtThatMoment = sb.readSheet('BulletinWeeks')[0].LAST_SAVED_AT;
       seen.preludeAtThatMoment = sb.readSheet('BulletinWeeks')[0].PRELUDE;
-      seen.second = sb.apiSaveWeek(JSON.parse(JSON.stringify(env.payload)));
+      // D12：第二次儲存是另一次執行（另一個 google.script.run），模組層的鎖計數是它自己的一份。
+      seen.second = asOtherExecution(sb, function () { return sb.apiSaveWeek(JSON.parse(JSON.stringify(env.payload))); });
     }
     return original.apply(this, arguments);
   };
   seen.first = sb.apiSaveWeek(JSON.parse(JSON.stringify(env.payload)));
   sb.trySnapshotWeek_ = original;
   return seen;
+}
+
+/**
+ * D12：在同一個 sandbox 之內模擬「另一次執行」。Apps Script 每一次執行都由頭載入全部 .gs，模組層的
+ * SCRIPT_LOCK_DEPTH_（src/ScriptLock.gs）每次都是 0；Node 測試只有一個 sandbox，要另一次執行的話
+ * 先把它設成 0，做完再還原——否則會被當成同一次執行的巢狀呼叫，不再等鎖。
+ */
+function asOtherExecution(sb, fn) {
+  const saved = sb.SCRIPT_LOCK_DEPTH_;
+  sb.SCRIPT_LOCK_DEPTH_ = 0;
+  try {
+    return fn();
+  } finally {
+    sb.SCRIPT_LOCK_DEPTH_ = saved;
+  }
 }
 
 function auditOf(sb, action) {
@@ -775,19 +791,30 @@ test('G23b-1 放鎖之前先 SpreadsheetApp.flush()：儲存（真正入口 apiS
   assert.deepStrictEqual(events, ['tryLock', 'flush', 'releaseLock']);
 });
 
-test('G23b-2 專案內四處拿指令碼鎖（儲存、內容表匯入、講員表格答案、發佈）全部經 flushAndReleaseLock_() 放鎖', function () {
+test('G23b-2 專案內拿指令碼鎖的地方全部經 withScriptLock_()（D12），它經 flushAndReleaseLock_() 放鎖；其他檔案不直接拿鎖、不直接放鎖、不碰鎖計數', function () {
   const files = fs.readdirSync(path.join(__dirname, '..', 'src')).filter(function (f) { return f.endsWith('.gs'); });
-  const takers = [];
+  const users = [];
   files.forEach(function (f) {
-    const text = readSrc('src/' + f);
-    // SheetUtils.gs 只在 flushAndReleaseLock_() 的說明裏提到 getScriptLock()，本身不拿鎖。
-    if (f !== 'SheetUtils.gs' && text.indexOf('LockService.getScriptLock()') !== -1) {
-      takers.push(f);
-      assert.ok(text.indexOf('flushAndReleaseLock_(lock)') !== -1, f + ' 要經 flushAndReleaseLock_() 放鎖');
+    const code = readSrc('src/' + f).split('\n').filter(function (line) {
+      const t = line.trim();
+      return !(t.indexOf('//') === 0 || t.indexOf('*') === 0 || t.indexOf('/*') === 0);
+    }).join('\n');
+    if (f === 'ScriptLock.gs') {
+      assert.ok(code.indexOf('LockService.getScriptLock()') !== -1);
+      assert.ok(code.indexOf('flushAndReleaseLock_(lock)') !== -1, 'ScriptLock.gs 要經 flushAndReleaseLock_() 放鎖');
+      return;
     }
-    if (f !== 'SheetUtils.gs') assert.strictEqual(text.indexOf('.releaseLock()'), -1, f + ' 不可以直接 releaseLock()');
+    assert.strictEqual(code.indexOf('getScriptLock('), -1, f + ' 不可以直接拿鎖（要經 withScriptLock_()）');
+    assert.strictEqual(code.indexOf('.tryLock('), -1, f);
+    assert.strictEqual(code.indexOf('.waitLock('), -1, f);
+    assert.strictEqual(code.indexOf('SCRIPT_LOCK_DEPTH_'), -1, f + ' 不可以讀寫鎖計數（只准 ScriptLock.gs）');
+    if (f !== 'SheetUtils.gs') assert.strictEqual(code.indexOf('.releaseLock()'), -1, f + ' 不可以直接 releaseLock()');
+    if (code.indexOf('withScriptLock_(') !== -1) users.push(f);
   });
-  assert.deepStrictEqual(takers.sort(), ['ContentImport.gs', 'Publish.gs', 'SpeakerForm.gs', 'WebAppSave.gs']);
+  // D12 的四處，加上 D13 的還原、重設（WeekSnapshots.gs）與由職事表重新取數（WebApp.gs）。
+  ['ContentImport.gs', 'Publish.gs', 'SpeakerForm.gs', 'WebAppSave.gs'].forEach(function (f) {
+    assert.ok(users.indexOf(f) !== -1, f + ' 要經 withScriptLock_()；現時：' + users.join('、'));
+  });
 });
 
 test('G23b-3 複審：flush 拋錯 → 主結果不變（真正入口 apiSaveWeek 照樣回成功與原本的訊息）、鎖已放、ErrorLog 有一行 FLUSH_FAILED；以前會拋出、蓋走主結果', function () {
@@ -816,8 +843,92 @@ test('G23-4 只有一種鎖：儲存用的是指令碼鎖，等候時間與內�
   assert.ok(src.indexOf('LockService.getScriptLock()') !== -1);
   assert.strictEqual(src.indexOf('getDocumentLock'), -1);
   assert.strictEqual(src.indexOf('getUserLock'), -1);
-  assert.ok(readSrc('src/ContentImport.gs').indexOf('lock.tryLock(30000)') !== -1, '對照：內容表匯入等 30 秒');
+  assert.ok(readSrc('src/ContentImport.gs').indexOf("withScriptLock_('applyContentImport_', 30000,") !== -1, '對照：內容表匯入等 30 秒');
 });
+
+// =====================================================================
+// D12：共用的鎖函式 withScriptLock_()，同一次執行之內巢狀呼叫不再等鎖、不提早放鎖
+// =====================================================================
+
+console.log('\n共用的鎖函式（D12）');
+
+/** 一把嚴格的假鎖：同一時間只可以有一個人拿着，拿着時再 tryLock 一律失敗（不可重入），並記下每一步。 */
+function strictRecordingLock(events) {
+  let held = false;
+  return {
+    getScriptLock: function () {
+      return {
+        tryLock: function (ms) { events.push('tryLock:' + ms); if (held) return false; held = true; return true; },
+        releaseLock: function () { events.push('releaseLock'); held = false; }
+      };
+    },
+    held: function () { return held; }
+  };
+}
+
+test('D12-1 巢狀呼叫：外層拿鎖一次；內層直接執行、不再 tryLock、不放鎖；內層做完時鎖仍然在外層手上；最外層做完才 flush 再放鎖', function () {
+  const events = [];
+  const env = makeSaveEnv({ LockService: strictRecordingLock(events) });
+  const sb = env.sb;
+  sb.SpreadsheetApp.flush = function () { events.push('flush'); };
+  const seen = {};
+  const out = sb.withScriptLock_('外層', 30000, function () {
+    seen.depthOuter = sb.SCRIPT_LOCK_DEPTH_;
+    const inner = sb.withScriptLock_('內層', 30000, function () {
+      seen.depthInner = sb.SCRIPT_LOCK_DEPTH_;
+      return '內層結果';
+    }, function () { throw new Error('內層不應該等鎖'); });
+    seen.heldAfterInner = sb.LockService.held();
+    seen.heldInThisExecution = sb.scriptLockHeldInThisExecution_();
+    return inner + '＋外層';
+  });
+  assert.strictEqual(out, '內層結果＋外層');
+  assert.strictEqual(seen.depthOuter, 1);
+  assert.strictEqual(seen.depthInner, 2);
+  assert.strictEqual(seen.heldAfterInner, true, '內層不可以提早放鎖');
+  assert.strictEqual(seen.heldInThisExecution, true);
+  assert.deepStrictEqual(events, ['tryLock:30000', 'flush', 'releaseLock'], '只拿一次、只放一次');
+  assert.strictEqual(sb.SCRIPT_LOCK_DEPTH_, 0);
+  assert.strictEqual(sb.scriptLockHeldInThisExecution_(), false);
+});
+
+test('D12-2 內層拋錯：錯誤原樣傳出，鎖仍然由外層在最後放；外層拋錯亦一樣放鎖、計數歸零（之後再拿得到）', function () {
+  const events = [];
+  const env = makeSaveEnv({ LockService: strictRecordingLock(events) });
+  const sb = env.sb;
+  sb.SpreadsheetApp.flush = function () {};
+  assert.throws(function () {
+    sb.withScriptLock_('外層', 30000, function () {
+      try {
+        sb.withScriptLock_('內層', 30000, function () { throw new Error('內層壞了'); });
+      } catch (err) {
+        assert.strictEqual(sb.LockService.held(), true, '內層拋錯之後鎖仍在');
+        throw err;
+      }
+    });
+  }, /內層壞了/);
+  assert.strictEqual(sb.LockService.held(), false);
+  assert.strictEqual(sb.SCRIPT_LOCK_DEPTH_, 0);
+  assert.strictEqual(sb.withScriptLock_('再一次', 30000, function () { return 'ok'; }), 'ok');
+});
+
+test('D12-3 拿不到鎖：onBusy 的回傳值原樣回傳（發佈的 LOCK_BUSY）或由它拋錯；沒有 onBusy 就拋 LOCK_TIMEOUT；fn 一次都沒有執行', function () {
+  const events = [];
+  const lock = strictRecordingLock(events);
+  const env = makeSaveEnv({ LockService: lock });
+  const sb = env.sb;
+  sb.SpreadsheetApp.flush = function () {};
+  let ran = 0;
+  // 另一次執行拿着鎖（模擬：手動令假鎖變成「有人拿着」）。
+  lock.getScriptLock().tryLock(1);
+  const busy = sb.withScriptLock_('x', 30000, function () { ran++; }, function () { return { ok: false, reason: 'LOCK_BUSY' }; });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(busy)), { ok: false, reason: 'LOCK_BUSY' });
+  assert.throws(function () { sb.withScriptLock_('x', 30000, function () { ran++; }); },
+    function (err) { return err.code === 'LOCK_TIMEOUT' && err.message.indexOf('x：另一個寫入動作') === 0; });
+  assert.strictEqual(ran, 0);
+  assert.strictEqual(sb.SCRIPT_LOCK_DEPTH_, 0, '拿不到鎖不可以把計數加了上去');
+});
+
 
 // =====================================================================
 // G28：由職事表重新取數要更新 LAST_SAVED_AT，否則較早載入的分頁儲存會令停用的覆寫復活

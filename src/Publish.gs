@@ -1662,26 +1662,21 @@ function runPublishFlow_(payload) {
   // ⚠️ 鎖擋住「兩個請求同時進來」；下面那個防重複時間戳記擋住「一個
   // 做完、使用者見不到反應又撳一次」。兩者缺一不可——只有鎖的話，第二
   // 次會在第一次放鎖之後乖乖地再發佈一版。
-  var lock = LockService.getScriptLock();
-  if (!lock.tryLock(PUBLISH_LOCK_WAIT_MS_)) {
+  // D12：經 withScriptLock_()（放鎖之前先 flush，見 flushAndReleaseLock_()）。
+  return withScriptLock_('runPublishFlow_', PUBLISH_LOCK_WAIT_MS_, function () {
+    return runPublishFlowLocked_(p, {
+      isoDate: isoDate, doPublish: doPublish, doSend: doSend,
+      blob: blob, pdfSizeMb: pdfSizeMb, sentGroups: sentGroups,
+      precheck: precheck, result: result, masterIssue: masterIssue
+    });
+  }, function () {
     return {
       ok: false, reason: 'LOCK_BUSY', lines: [],
       message: '另一個發佈或匯入正在執行中，' + Math.round(PUBLISH_LOCK_WAIT_MS_ / 1000)
         + ' 秒內都拿不到指令碼鎖，因此這一次沒有做任何事。請稍等片刻再按一次執行。'
         + '（如果剛才已經按過一次「執行」，請先等它完成，不要重複按。）'
     };
-  }
-
-  try {
-    return runPublishFlowLocked_(p, {
-      isoDate: isoDate, doPublish: doPublish, doSend: doSend,
-      blob: blob, pdfSizeMb: pdfSizeMb, sentGroups: sentGroups,
-      precheck: precheck, result: result, masterIssue: masterIssue
-    });
-  } finally {
-    // 第二批測試修正 G23 補充：放鎖之前先 flush（見 flushAndReleaseLock_()）。
-    flushAndReleaseLock_(lock);
-  }
+  });
 }
 
 /**

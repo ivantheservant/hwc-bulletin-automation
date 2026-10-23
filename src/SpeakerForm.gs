@@ -645,8 +645,11 @@ function refreshSpeakerFormDatesQuietly_(source) {
  *   Error 拿不到鎖（30 秒內）——寧可失敗留下紀錄，也不要不加鎖就寫。
  */
 function onSpeakerFormSubmit_(e) {
-  var lock = LockService.getScriptLock();
-  if (!lock.tryLock(30000)) {
+  // D12：經 withScriptLock_()。答案要寫內容表時會叫 applyContentImport_()（亦經 withScriptLock_()），
+  // 那一次是巢狀呼叫，不再等鎖、不提早放鎖。
+  return withScriptLock_('onSpeakerFormSubmit_', 30000, function () {
+    return handleSpeakerFormSubmission_(e, speakerFormTodayIso_());
+  }, function () {
     var lockErr = new Error('onSpeakerFormSubmit_：30 秒內拿不到指令碼鎖，這份講員表格答案沒有處理。');
     lockErr.code = 'LOCK_TIMEOUT';
     appendErrorLog_({
@@ -654,13 +657,7 @@ function onSpeakerFormSubmit_(e) {
       errorCode: 'LOCK_TIMEOUT', message: lockErr.message
     });
     throw lockErr;
-  }
-  try {
-    return handleSpeakerFormSubmission_(e, speakerFormTodayIso_());
-  } finally {
-    // 第二批測試修正 G23 補充：放鎖之前先 flush（見 flushAndReleaseLock_()）。
-    flushAndReleaseLock_(lock);
-  }
+  });
 }
 
 /**

@@ -816,24 +816,13 @@ function saveWeekFromWebApp_(payload) {
   assertContentSheetFieldsNotSubmitted_(payload);
 
   // G23：讀取、比對、寫入全部在鎖之內。等候時間與內容表匯入、講員表格的 30 秒一致。
-  // 專案內只有這一種鎖（指令碼鎖）。儲存拿着鎖時不會叫其他拿鎖的函式；但要知道另有一條路
-  // 是拿着鎖再拿一次：講員表格答案（onSpeakerFormSubmit_() 拿鎖）→ applySpeakerFormAnswer_()
-  // → applyContentImport_() 再 tryLock。同一個執行之內 getScriptLock() 可不可以重入未有核實，
-  // 見 docs/待確認事項.md FF-23。
-  var lock = LockService.getScriptLock();
-  if (!lock.tryLock(SAVE_LOCK_WAIT_MS_)) {
-    var lockErr = new Error('另一個寫入動作（例如另一次儲存、匯入或發佈）正在執行中，'
-      + Math.round(SAVE_LOCK_WAIT_MS_ / 1000) + ' 秒內等不到，所以這一次一格都沒有寫。'
-      + '你的改動仍在畫面上，請稍等再按「儲存」。');
-    lockErr.code = 'LOCK_TIMEOUT';
-    throw lockErr;
-  }
-  try {
+  // D12：經 withScriptLock_()（src/ScriptLock.gs）——同一次執行之內已經拿着鎖就不再拿、不提早放，
+  // 不依賴 getScriptLock() 可不可以重入（FF-23）。
+  return withScriptLock_('apiSaveWeek', SAVE_LOCK_WAIT_MS_, function () {
     return saveWeekFromWebAppLocked_(payload, isoDate, targetDate);
-  } finally {
-    // G23 補充：放鎖之前先 flush（見 flushAndReleaseLock_()）。
-    flushAndReleaseLock_(lock);
-  }
+  }, function () {
+    throw buildLockTimeoutError_(SAVE_LOCK_WAIT_MS_, '你的改動仍在畫面上，請稍等再按「儲存」。');
+  });
 }
 
 /** 第二批測試修正 G23：儲存等指令碼鎖最多等幾多毫秒（與 applyContentImport_()、onSpeakerFormSubmit_() 相同）。 */

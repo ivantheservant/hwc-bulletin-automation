@@ -637,6 +637,34 @@ function contentWeekOf(env, iso) {
   return env.sandbox.readSheet('BulletinWeeks').filter(function (r) { return env.sandbox.formatIsoDate_(r.SERVICE_DATE) === iso; })[0];
 }
 
+test('D12 真正入口：講員表格答案（本季有內容表）拿鎖 → applyContentImport_() 是巢狀呼叫 → 用不可重入的鎖亦成功（以前內層要等滿 30 秒再 LOCK_TIMEOUT）；鎖只拿一次、只放一次、匯入時仍在外層手上', function () {
+  const env = makeContentEnv();
+  const events = [];
+  let held = false;
+  env.sandbox.LockService = {
+    getScriptLock: function () {
+      return {
+        tryLock: function (ms) { events.push('tryLock:' + ms); if (held) return false; held = true; return true; },
+        releaseLock: function () { events.push('releaseLock'); held = false; }
+      };
+    }
+  };
+  const sb = env.sandbox;
+  const original = sb.writeContentImportPlan_;
+  let heldDuringImport = null;
+  sb.writeContentImportPlan_ = function () {
+    heldDuringImport = held && sb.scriptLockHeldInThisExecution_();
+    return original.apply(this, arguments);
+  };
+  const result = sb.onSpeakerFormSubmit_(contentSpeakerEvent({ scripture: '羅馬書 8:28', title: '新講題乙' }));
+  sb.writeContentImportPlan_ = original;
+  assert.strictEqual(result.result, 'APPLIED', JSON.stringify(result));
+  assert.strictEqual(heldDuringImport, true, '匯入寫入時鎖仍在外層手上');
+  assert.deepStrictEqual(events, ['tryLock:30000', 'releaseLock'], '只拿一次、只放一次');
+  assert.strictEqual(contentWeekOf(env, '2027-10-10').SERMON_TITLE, '新講題乙');
+  assert.strictEqual(sb.readSheet('ErrorLog').filter(function (r) { return r.ERROR_CODE === 'LOCK_TIMEOUT'; }).length, 0);
+});
+
 test('有內容表、該主日內容表還沒有那一行：在最後新增一行（日期、兩格、有效＝TRUE），再匯入', function () {
   const env = makeContentEnv({
     weekRows: [

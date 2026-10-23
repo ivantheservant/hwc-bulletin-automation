@@ -847,15 +847,9 @@ function applyContentImport_(quarterId, options) {
   if (!preview.ok) return preview;
   var skipSnapshot = Boolean(options && options.skipSnapshot === true);
 
-  var lock = LockService.getScriptLock();
-  if (!lock.tryLock(30000)) {
-    var lockErr = new Error('applyContentImport_：30 秒內拿不到指令碼鎖，'
-      + '可能有另一個匯入或者填寫表同步正在執行。請稍後再試一次。');
-    lockErr.code = 'LOCK_TIMEOUT';
-    throw lockErr;
-  }
-
-  try {
+  // D12：經 withScriptLock_()。講員表格答案與重設（D13）拿着鎖再叫這裏，是巢狀呼叫：直接寫，
+  // 不再等鎖、不提早放鎖（以前不知道 getScriptLock() 可不可以重入，見 FF-23）。
+  return withScriptLock_('applyContentImport_', 30000, function () {
     // ⚠️ 版本一定要在寫入之前存。
     preview.snapshotWarnings = skipSnapshot ? [] : snapshotWeeksBeforeWrite_(
       contentImportAffectedDates_(preview.plan),
@@ -863,12 +857,13 @@ function applyContentImport_(quarterId, options) {
     );
     writeContentImportPlan_(preview.plan);
     updateContentSheetField_(preview.quarterId, 'LAST_IMPORTED_AT', new Date());
-  } finally {
-    // 第二批測試修正 G23 補充：放鎖之前先 flush（見 flushAndReleaseLock_()）。
-    flushAndReleaseLock_(lock);
-  }
-
-  return preview;
+    return preview;
+  }, function () {
+    var lockErr = new Error('applyContentImport_：30 秒內拿不到指令碼鎖，'
+      + '可能有另一個匯入或者填寫表同步正在執行。請稍後再試一次。');
+    lockErr.code = 'LOCK_TIMEOUT';
+    throw lockErr;
+  });
 }
 
 /**
