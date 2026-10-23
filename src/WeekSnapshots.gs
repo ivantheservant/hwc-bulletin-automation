@@ -937,7 +937,7 @@ function restoreWeekSnapshotFromWebApp_(payload) {
   var loaded = loadWeekSnapshot_(isoDate, payload.snapshotId);
   var state = readWeekStateForSnapshot_(isoDate);
   if (!state.weekRow) {
-    throw new Error('主日 ' + isoDate + ' 在 BulletinWeeks 沒有資料行，無法還原。');
+    throw new Error('週報試算表未有主日 ' + isoDate + '，無法還原。');
   }
   assertWeekNotChangedSince_(state.weekRow, payload.lastSavedAt);
 
@@ -1154,7 +1154,7 @@ function resetWeekFromWebApp_(isoDate, lastSavedAt) {
   }
   var state = readWeekStateForSnapshot_(isoDate);
   if (!state.weekRow) {
-    throw new Error('主日 ' + isoDate + ' 在 BulletinWeeks 沒有資料行，無從重設。請先用選單「建立本季空白週報」。');
+    throw new Error('週報試算表未有主日 ' + isoDate + '，無從重設。請先用選單「建立本季空白週報」。');
   }
   assertWeekNotChangedSince_(state.weekRow, lastSavedAt);
 

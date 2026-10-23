@@ -82,7 +82,7 @@ function buildBulletinModel_(isoDate) {
   if (!week) {
     warnings.push({
       code: 'BULLETIN_WEEK_ROW_NOT_FOUND',
-      message: 'BulletinWeeks 工作表沒有 ' + isoDate + ' 這一行，全部人手填寫的欄位都當成空白處理。'
+      message: '週報試算表未有 ' + isoDate + ' 這一個主日，全部人手填寫的欄位都當成空白處理。'
         + '可以用選單「建立本季空白週報」先建好整季的空白行。'
     });
     week = {};
@@ -912,7 +912,7 @@ function persistInferredTemplateId_(isoDate, templateId, warnings) {
   } catch (err) {
     warnings.push({
       code: 'TEMPLATE_WRITEBACK_FAILED',
-      message: '推斷出程序範本「' + templateId + '」，但寫回 BulletinWeeks 失敗：'
+      message: '推斷出程序範本「' + templateId + '」，但寫回週報試算表失敗：'
         + (err && err.message ? err.message : String(err)) + '　模型本身不受影響。'
     });
     return false;

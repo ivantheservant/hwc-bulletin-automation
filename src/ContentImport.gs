@@ -612,8 +612,8 @@ function computeContentImportPlan_(input) {
 
       var week = weekByDate[iso];
       if (!week) {
-        plan.warnings.push(def.tabName + '：BulletinWeeks 沒有 ' + iso
-          + ' 這一行，本次略過。可以先用選單「建立本季空白週報」建好骨架。');
+        plan.warnings.push(def.tabName + '：週報試算表未有 ' + iso
+          + ' 這一個主日，本次略過。可以先用選單「建立本季空白週報」建好骨架。');
         return;
       }
       var sourceRow = byDate[iso][0];

@@ -798,10 +798,11 @@ test('「寄出內容表連結」旁邊顯示 DRY_RUN，而且確認那一句再
   const ui = fs.readFileSync(path.join(__dirname, '..', 'src', 'ui', 'Script.html'), 'utf8');
 
   assert.ok(idx.indexOf('id="opInviteDryRun"') !== -1, '按鈕旁邊要有 DRY_RUN 標記');
-  assert.ok(ui.indexOf('DRY_RUN=TRUE（不會真的寄出）') !== -1);
-  assert.ok(ui.indexOf('DRY_RUN=FALSE（會真的寄出）') !== -1);
+  // D4：先講中文、Config 的鍵放括號內；「撳」改「按」。
+  assert.ok(ui.indexOf('模擬模式（DRY_RUN=TRUE）：不會真的寄出') !== -1);
+  assert.ok(ui.indexOf('正式寄出（DRY_RUN=FALSE）：會真的寄出') !== -1);
   // ⚠️ 旁邊那個標記看漏了，確認那一句還攔得住。
-  assert.ok(ui.indexOf('目前 DRY_RUN=FALSE，撳「確定」會真的把郵件寄出去') !== -1);
+  assert.ok(ui.indexOf('目前是正式寄出（DRY_RUN=FALSE），按「確定」會真的把郵件寄出去') !== -1);
 });
 
 test('季度作業區塊預設摺疊（一季做一次的事，不應該霸住每週要做的事）', function () {

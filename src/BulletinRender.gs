@@ -806,7 +806,7 @@ function tryStoreLatestBulletinDocx_(isoDate, generated, audit) {
     if (!stored.recorded) {
       return { wordFile: wordFile, warning: {
         code: 'WORD_NOT_RECORDED',
-        message: 'Word 已存到雲端硬碟，但 BulletinWeeks 沒有 ' + isoDate + ' 這一行，檔案 ID 未能記下來，重新載入後看不到連結。'
+        message: 'Word 已存到雲端硬碟，但週報試算表未有 ' + isoDate + ' 這一個主日，檔案 ID 未能記下來，重新載入後看不到連結。'
       } };
     }
     return { wordFile: wordFile, warning: null };

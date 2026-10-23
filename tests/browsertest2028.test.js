@@ -549,5 +549,85 @@ test('F10-3 過長的 date 只顯示頭 40 字', function () {
   assert.ok(resolved.warning.indexOf('…') !== -1);
 });
 
+// =====================================================================
+// D4：給幹事看的字眼
+// =====================================================================
+
+console.log('\nD4：給幹事看的字眼');
+
+/** 把 Script.html 的 renderWarningsPanel() 抽出來，在只有一個 div 的假 DOM 上執行。 */
+function runWarningsPanel(warnings) {
+  const js = readSrc('src/ui/Script.html');
+  const fn = js.slice(js.indexOf('function renderWarningsPanel('), js.indexOf('function renderConflictStat('));
+  const panel = { innerHTML: '' };
+  const ctx = {
+    document: { getElementById: function (id) { assert.strictEqual(id, 'warningsPanel'); return panel; } },
+    escapeHtml: function (t) { return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  };
+  vm.createContext(ctx);
+  vm.runInContext(fn + '\nrenderWarningsPanel(__w);', Object.assign(ctx, { __w: warnings }));
+  return panel.innerHTML;
+}
+
+test('D4-1 警告清單：先顯示那一句，內部代碼放在句尾的灰色小字（.warning-code）；沒有代碼就不加；句子照樣跳脫', function () {
+  const html = runWarningsPanel([
+    { code: 'SPEAKER_FORM_MISMATCH', message: '講員表格的講員與事奉框不同' },
+    { message: '沒有代碼的<一句>' }
+  ]);
+  assert.strictEqual(html, '<ul><li>講員表格的講員與事奉框不同 <span class="warning-code">SPEAKER_FORM_MISMATCH</span></li>'
+    + '<li>沒有代碼的&lt;一句&gt;</li></ul>');
+  assert.strictEqual(html.indexOf('<code>'), -1, '代碼不再排在句子前面');
+  assert.ok(/\.warning-code\s*\{[^}]*color:\s*#999/.test(readSrc('src/ui/Style.html')), 'Style.html 要有灰色小字的樣式');
+  assert.strictEqual(runWarningsPanel([]), '（目前沒有警告）');
+});
+
+test('D4-2 「由職事表重新取數」對話框的提示句改為講使用者看得到的結果，不講工作表與欄位名', function () {
+  const idx = readSrc('src/ui/Index.html');
+  const start = idx.indexOf('id="fetchDialogFootnote"');
+  const footnote = idx.slice(idx.indexOf('>', start) + 1, idx.indexOf('</p>', start)).trim();
+  assert.strictEqual(footnote, '勾選的欄位會改回職事表的名字，你在介面改過的名字會取消（記錄仍然保留）。');
+  assertWrittenChinese(assert, 'D4 取數提示', [footnote]);
+});
+
+/** Index.html 給人看的文字：去掉註解、樣板標籤、script／style 之後的標籤外文字與 title／placeholder。 */
+function indexVisibleTexts() {
+  let html = readSrc('src/ui/Index.html').replace(/<!--[\s\S]*?-->/g, '').replace(/<\?[\s\S]*?\?>/g, '');
+  const texts = [];
+  html.replace(/(?:title|placeholder)="([^"]*)"/g, function (m, t) { texts.push(t); return m; });
+  html.replace(/<[^>]*>/g, '\n').split('\n').forEach(function (t) { if (t.trim()) texts.push(t.trim()); });
+  return texts;
+}
+
+test('D4-3 填寫介面（Index.html 標籤外文字、title、placeholder；Script.html 的中文字串常值）不出現內部工作表名與欄位機器鍵，亦不用「撳」', function () {
+  const banned = ['DutyOverride', 'FieldOverride', 'BulletinWeeks', 'ACTIVE=', 'WeekSnapshots', 'FillSnapshot', 'OVERRIDE_NAME', 'ROSTER_VALUE_AT_OVERRIDE'];
+  const offenders = [];
+  indexVisibleTexts().forEach(function (t) {
+    banned.concat(['撳']).forEach(function (b) { if (t.indexOf(b) !== -1) offenders.push('Index.html：' + t.slice(0, 60)); });
+  });
+  extractStringLiterals(readSrc('src/ui/Script.html')).forEach(function (lit) {
+    if (!/[一-鿿]/.test(lit.text)) return;
+    banned.concat(['撳']).forEach(function (b) {
+      if (lit.text.indexOf(b) !== -1) offenders.push('Script.html 第 ' + lit.line + ' 行：' + lit.text.slice(0, 60));
+    });
+  });
+  assert.deepStrictEqual(offenders, []);
+  assert.ok(indexVisibleTexts().some(function (t) { return t.indexOf('尊稱對照表（試算表的 PersonDisplay 工作表）') !== -1; }),
+    'PersonDisplay 是幹事要維護的表，保留名稱讓人找得到，但先講中文');
+});
+
+test('D4-4 經真正入口：週報試算表未有那一個主日時，載入的警告、還原、重設的訊息不用「BulletinWeeks」', function () {
+  const sb = makeFillEnv({ withGrid: false }).sandbox;
+  const loaded = sb.apiLoadWeek('2027-12-05');
+  assert.strictEqual(loaded.ok, true, JSON.stringify(loaded.error));
+  const warning = loaded.data.warnings.filter(function (w) { return w.code === 'BULLETIN_WEEK_ROW_NOT_FOUND'; })[0];
+  assert.ok(warning, '前提：有那一條警告');
+  assert.strictEqual(warning.message.indexOf('週報試算表未有 2027-12-05 這一個主日'), 0, warning.message);
+  const reset = sb.apiResetWeek({ isoDate: '2027-12-05' });
+  assert.strictEqual(reset.ok, false);
+  assert.strictEqual(reset.error.message, '週報試算表未有主日 2027-12-05，無從重設。請先用選單「建立本季空白週報」。');
+  [warning.message, reset.error.message].forEach(function (t) { assert.strictEqual(t.indexOf('BulletinWeeks'), -1, t); });
+  assertWrittenChinese(assert, 'D4 伺服器字眼', [warning.message, reset.error.message]);
+});
+
 console.log('\n通過 ' + pass + ' 項，失敗 ' + fail + ' 項。');
 process.exit(fail === 0 ? 0 : 1);

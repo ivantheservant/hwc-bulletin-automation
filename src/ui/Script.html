@@ -1066,7 +1066,7 @@
       var hint = el('span', 'hint');
       // ⚠️ R-038：整條例行流程都做得到，所以指返落面那一個區塊，
       //    不再叫幹事轉去試算表選單。
-      hint.textContent = '　請在下面「季度作業」區塊撳「建立／刷新本季內容表」。';
+      hint.textContent = '　請在下面「季度作業」區塊按「建立／刷新本季內容表」。';
       bar.appendChild(hint);
       return;
     }
@@ -1315,7 +1315,7 @@
     if (slot.status !== 'CONFLICT' && slot.hasOverride) {
       wrap.classList.add('is-overridden');
       wrap.title = '這一格是人手覆寫的（職事表現值：'
-        + (slot.rosterName || '（未排定）') + '）。撳「還原」可以改回跟隨職事表。';
+        + (slot.rosterName || '（未排定）') + '）。按「還原」可以改回跟隨職事表。';
     }
 
     var input = el('input');
@@ -2395,9 +2395,11 @@
       panel.innerHTML = '（目前沒有警告）';
       return;
     }
+    // D4：內部代碼（例如 SPEAKER_FORM_MISMATCH）是給 IT 查的，不可以排在句子前面搶眼；
+    //    改為句尾的灰色小字（.warning-code），幹事先讀到的是那一句話。
     panel.innerHTML = '<ul>' + list.map(function (w) {
-      var code = w.code ? ('<code>' + escapeHtml(w.code) + '</code>　') : '';
-      return '<li>' + code + escapeHtml(w.message || String(w)) + '</li>';
+      var code = w.code ? (' <span class="warning-code">' + escapeHtml(w.code) + '</span>') : '';
+      return '<li>' + escapeHtml(w.message || String(w)) + code + '</li>';
     }).join('') + '</ul>';
   }
 
@@ -3841,9 +3843,10 @@
     // ⚠️ DRY_RUN 一定要顯示喺「寄出內容表連結」旁邊。撳完見到「已寄 12 封」
     //    而其實一封都冇寄出，是這個系統最容易踩的一種誤會。
     var dryRunEl = document.getElementById('opInviteDryRun');
+    // D4：先講中文（模擬模式／正式寄出），Config 的鍵放在括號內，IT 一看便知是哪一格。
     dryRunEl.textContent = data.dryRun
-      ? 'DRY_RUN=TRUE（不會真的寄出）'
-      : 'DRY_RUN=FALSE（會真的寄出）';
+      ? '模擬模式（DRY_RUN=TRUE）：不會真的寄出'
+      : '正式寄出（DRY_RUN=FALSE）：會真的寄出';
     dryRunEl.className = 'quarter-ops-dryrun ' + (data.dryRun ? 'is-dryrun' : 'is-live');
 
     var linkRow = document.getElementById('opContentSheetLinkRow');
@@ -4019,8 +4022,8 @@
         // ⚠️ 確認那一句要**再講一次** DRY_RUN，因為這是唯一一粒會真的
         //    寄信出街的按鈕。旁邊那個標記看漏了，這一句還攔得住。
         confirmSuffix: dryRun
-          ? '目前 DRY_RUN=TRUE，撳「確定」不會真的寄出任何郵件，只會寫 SendLog。確定要繼續嗎？'
-          : '⚠️ 目前 DRY_RUN=FALSE，撳「確定」會真的把郵件寄出去。確定要寄嗎？'
+          ? '目前是模擬模式（DRY_RUN=TRUE），按「確定」不會真的寄出任何郵件，只會在試算表的 SendLog 留下記錄。確定要繼續嗎？'
+          : '⚠️ 目前是正式寄出（DRY_RUN=FALSE），按「確定」會真的把郵件寄出去。確定要寄嗎？'
       });
     });
 

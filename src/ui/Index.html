@@ -3,7 +3,7 @@
 <div id="app" data-call-timeout-sec="<?= callTimeoutSec ?>">
 
   <? if (schemaWarning) { ?>
-  <div class="schema-warning">工作表結構落後於程式碼（<?= schemaWarning ?>），請先在試算表撳「週報系統 ▸ 初始化工作表」。</div>
+  <div class="schema-warning">工作表結構落後於程式碼（<?= schemaWarning ?>），請先在試算表按「週報系統 ▸ 初始化工作表」。</div>
   <? } ?>
 
   <!--
@@ -52,9 +52,9 @@
       </label>
       <button id="prevWeekBtn" type="button" class="btn btn-secondary" title="上一個主日（可跨季）">← 上一個</button>
       <button id="nextWeekBtn" type="button" class="btn btn-secondary" title="下一個主日（可跨季）">下一個 →</button>
-      <span id="statMissing" class="stat stat-clickable" title="撳一下展開待填清單">待填 0 項</span>
-      <span id="statWarnings" class="stat stat-clickable" title="撳一下展開警告清單">警告 0 項</span>
-      <span id="statConflicts" class="stat stat-clickable" title="撳一下展開職事表分歧清單">衝突 0 項</span>
+      <span id="statMissing" class="stat stat-clickable" title="按一下展開待填清單">待填 0 項</span>
+      <span id="statWarnings" class="stat stat-clickable" title="按一下展開警告清單">警告 0 項</span>
+      <span id="statConflicts" class="stat stat-clickable" title="按一下展開職事表分歧清單">衝突 0 項</span>
       <span id="statSaved" class="stat">最後儲存時間：（尚未儲存）</span>
       <span class="topbar-spacer"></span>
       <a id="fillGridLink" class="btn btn-secondary hidden" target="_blank" rel="noopener">開啟本季填寫表</a>
@@ -249,7 +249,7 @@
       <h2>丙之二、浸禮合堂（副框）</h2>
       <p class="hint">
         只有浸禮三堂聯合崇拜那一週才需要填。三個「主禮」是<strong>一位</strong>——
-        <strong>在 <code>PersonDisplay</code> 找得到的才會自動套用尊稱，找不到就原樣印出</strong>
+        <strong>在尊稱對照表（試算表的 PersonDisplay 工作表）找得到的才會自動套用尊稱，找不到就原樣印出</strong>
         （例如直接打「ET牧師」會原樣印出，並在警告清單提一句）。
         三個名單欄可以填<strong>多位</strong>，用空格分隔，<strong>原樣印出</strong>（不會自動加尊稱、不會重新排序）。
         留空的一行不會印在週報上，六格全部留空整個副框都不會出現。
@@ -516,7 +516,7 @@
       </div>
       <div id="fetchDialogBody" class="dialog-body"></div>
       <p id="fetchDialogFootnote" class="dialog-footnote">
-        勾選的欄位會被職事表的值覆蓋，你的修改會被清除（<code>DutyOverride</code> 改為 <code>ACTIVE=FALSE</code>，記錄仍然保留）。
+        勾選的欄位會改回職事表的名字，你在介面改過的名字會取消（記錄仍然保留）。
       </p>
       <div class="dialog-actions">
         <button type="button" class="btn btn-secondary" id="fetchCancelBtn">取消</button>

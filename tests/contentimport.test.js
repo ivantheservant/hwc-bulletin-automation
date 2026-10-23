@@ -810,7 +810,8 @@ test('範圍 3. 範圍外的主日沒有 BulletinWeeks 那一行 → 不出「�
     }
   });
   const hasMissingRowWarning = function (plan) {
-    return plan.warnings.some(function (w) { return w.indexOf('BulletinWeeks 沒有 2027-10-10') !== -1; });
+    // D4：給幹事看的字眼不用工作表英文名（「BulletinWeeks 沒有……」改為「週報試算表未有……」）。
+    return plan.warnings.some(function (w) { return w.indexOf('週報試算表未有 2027-10-10 這一個主日') !== -1; });
   };
 
   const one = env.sandbox.previewContentImport_(QUARTER_ID, { isoDate: '2027-10-03' });

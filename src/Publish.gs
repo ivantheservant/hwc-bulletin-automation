@@ -953,7 +953,7 @@ function resolvePublishRecipients_(groups, customText, selfEmail) {
       ok: false, recipients: [], invalid: [], warnings: listed.warnings,
       reason: 'NO_RECIPIENTS',
       message: '一個收件人都找不到。勾選的組別是 ' + (selected.join('、') || '（沒有勾選）')
-        + '，而 Recipients 工作表內沒有屬於這些組別、ACTIVE=TRUE 而且電郵格式正確的資料列。'
+        + '，而收件人名單（試算表的 Recipients 工作表）內沒有屬於這些組別、仍然生效而且電郵格式正確的人。'
     };
   }
 
