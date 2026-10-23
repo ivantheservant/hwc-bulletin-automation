@@ -215,6 +215,18 @@ test('真正入口：schema 正常時 apiSaveWeek() 照常運作（確認上一�
   assert.ok(resp.data.changedFieldCount > 0);
 });
 
+test('D11 部署之後、按「初始化工作表」之前：Config 未有 SEND_ONLY_DEDUP_SEC → 填寫介面儲存回 SCHEMA_OUTDATED（所以這一輪部署後一定要按一次「初始化工作表」）', function () {
+  var sb = makeFullEnv();
+  var configRows = sb.DEFAULTS
+    .filter(function (d) { return d.key !== 'SEND_ONLY_DEDUP_SEC'; })
+    .map(function (d) { return { KEY: d.key, VALUE: d.value, NOTE: '', EDITABLE: true }; });
+  var sb2 = makeFullEnv({ configRows: configRows });
+  assertArrayEqual(sb2.checkSheetSchema_().missingConfigKeys, ['SEND_ONLY_DEDUP_SEC']);
+  var resp = sb2.apiSaveWeek({ isoDate: '2027-10-03', lastSavedAt: null, week: { SERMON_TITLE: 'x' }, baseWeek: { SERMON_TITLE: '' } });
+  assert.strictEqual(resp.ok, false);
+  assert.strictEqual(resp.error.code, 'SCHEMA_OUTDATED');
+});
+
 // =====================================================================
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');

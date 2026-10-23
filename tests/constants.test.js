@@ -186,7 +186,8 @@ test('CONFIG_KEYS 剛好 126 個（與 DEFAULTS 一一對應）', function () {
   // 第二批階段 1：+1（OUTPUT_GROUP_BY_QUARTER，Word 按季度分資料夾）。
   // 第二批階段 2：+2（SNAPSHOT_THROTTLE_MINUTES、SNAPSHOT_LIST_LIMIT，每週版本記錄）。
   // 第二批階段 3：+16（SPEAKER_FORM_* 十五個、SPEAKER_NAME_HONORIFICS 一個，講員表格）。
-  assert.strictEqual(Object.keys(CONFIG_KEYS).length, 126);
+  // D11：多了 SEND_ONLY_DEDUP_SEC（126 → 127）。
+  assert.strictEqual(Object.keys(CONFIG_KEYS).length, 127);
 });
 
 test('這一輪新增的 Config 鍵 FINANCE_PERIOD_LABEL_PATTERN 有定義、有預設值', function () {
@@ -220,7 +221,7 @@ test('CONFIG_KEYS 每一個值都有對應的 DEFAULTS 項目（不會有「有�
 });
 
 test('DEFAULTS 剛好 126 筆（105 ＋ R-035 兩個 ＋ 階段 1 一個 ＋ 階段 2 兩個 ＋ 階段 3 十六個）', function () {
-  assert.strictEqual(DEFAULTS.length, 126);
+  assert.strictEqual(DEFAULTS.length, 127);
 });
 
 test('內容表那 10 個 Config 鍵齊備，而且 ID 類 seed 成空字串', function () {

@@ -132,12 +132,15 @@ function effectivePublishMasterFileId_() {
  * Returns:
  *   {{masterFileId:string, masterFolderId:string, masterFileName:string,
  *     archiveFolderId:string, sendGroups:string[], attachPdf:boolean,
- *     maxPdfMb:number, dedupSec:number, timezone:string, dryRun:boolean,
+ *     maxPdfMb:number, dedupSec:number, sendOnlyDedupSec:number, timezone:string, dryRun:boolean,
  *     churchName:string}}
+ *   `dedupSec` 是發佈的防重複（Config `PUBLISH_DEDUP_SEC`）；`sendOnlyDedupSec` 是只寄出的防重複
+ *   （D11，Config `SEND_ONLY_DEDUP_SEC`，預設 600）。兩個讀不到或是負數都退回各自的預設值。
  */
 function publishConfig_() {
   var maxMb = normalizeInt_(getConfig(CONFIG_KEYS.PUBLISH_MAX_PDF_MB, '10'));
   var dedupSec = normalizeInt_(getConfig(CONFIG_KEYS.PUBLISH_DEDUP_SEC, '30'));
+  var sendOnlyDedupSec = normalizeInt_(getConfig(CONFIG_KEYS.SEND_ONLY_DEDUP_SEC, '600'));
   return {
     // ⚠️ 經 effectivePublishMasterFileId_()：自測機／亂行機用記憶體覆寫，
     //    不會碰 Config 那一格。理由見 PUBLISH_MASTER_FILE_ID_OVERRIDE_。
@@ -149,6 +152,7 @@ function publishConfig_() {
     attachPdf: normalizeBoolean_(getConfig(CONFIG_KEYS.PUBLISH_ATTACH_PDF, 'TRUE')) === true,
     maxPdfMb: (maxMb === null || maxMb <= 0) ? 10 : maxMb,
     dedupSec: (dedupSec === null || dedupSec < 0) ? 30 : dedupSec,
+    sendOnlyDedupSec: (sendOnlyDedupSec === null || sendOnlyDedupSec < 0) ? 600 : sendOnlyDedupSec,
     timezone: getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland'),
     dryRun: normalizeBoolean_(getConfig(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true,
     churchName: getConfig(CONFIG_KEYS.CHURCH_NAME, '')
@@ -1372,9 +1376,11 @@ function publishCurrentUserEmail_() {
  *   `SendLog.SERVICE_DATE` 一律用 `masterIssue.isoDate`，令信講的日期與連結
  *   打開看到的那一期一致。
  *
- *   ⚠️ 第二批測試修正 G22(b)：只寄出時，同一期、同一組收件人在 `PUBLISH_DEDUP_SEC`
- *   秒內已經寄出過（SendLog 有 SEND_ONLY 或 PUBLISH 的一批），回 `reason:'DUPLICATE_SEND'`，
- *   一封都不寄（見 `findRecentNoticeBatch_()`）。發佈加寄出本身由發佈的防重複負責。
+ *   ⚠️ 第二批測試修正 G22(b)：只寄出時，同一期、同一組收件人在時窗之內已經寄出過（SendLog 有
+ *   SEND_ONLY 或 PUBLISH 的一批），回 `reason:'DUPLICATE_SEND'`，一封都不寄（見
+ *   `findRecentNoticeBatch_()`）。D11：時窗是 Config `SEND_ONLY_DEDUP_SEC`（預設 600 秒）——以前沿用
+ *   發佈的 `PUBLISH_DEDUP_SEC`（30 秒），而寄出前檢查本身要 15 至 23 秒才出現，人手再寄一次一定超過
+ *   30 秒，等於擋不到。發佈加寄出本身由發佈的防重複（`PUBLISH_DEDUP_SEC`）負責，不變。
  * Args:
  *   isoDate {string} 介面選中的主日，yyyy-MM-dd。
  *   options {{groups:string[], customEmails:string, blob:(Blob|null),
@@ -1425,16 +1431,16 @@ function sendPublishNotice_(isoDate, options) {
 
   // ⚠️ 第二批測試修正 G22(b)：只寄出的防重複。發佈有自己的防重複（runPublishFlowLocked_()），
   //    只寄出以前沒有：連線斷了、幹事照提示再按一次，就會再寄一封。這裏在拿着指令碼鎖、
-  //    寄出之前查 SendLog：同一期、同一組收件人在 PUBLISH_DEDUP_SEC 秒內已有只寄出的記錄，
+  //    寄出之前查 SendLog：同一期、同一組收件人在 SEND_ONLY_DEDUP_SEC 秒內（D11）已有寄出的記錄，
   //    就拒絕，一封都不寄、SendLog 一行都不寫。
   if (!o.published) {
     var recentSend = findRecentNoticeBatch_(readSendLogRowsForDedup_(), noticeIsoDate,
-      resolved.recipients.map(function (r) { return r.email; }), new Date().getTime(), config.dedupSec);
+      resolved.recipients.map(function (r) { return r.email; }), new Date().getTime(), config.sendOnlyDedupSec);
     if (recentSend) {
       return {
         ok: false, dryRun: config.dryRun, recipientCount: 0, groups: (o.groups || []).slice(), attached: false,
         reason: 'DUPLICATE_SEND',
-        message: buildDuplicateSendMessage_(noticeIsoDate, recentSend, config.timezone, config.dedupSec)
+        message: buildDuplicateSendMessage_(noticeIsoDate, recentSend, config.timezone, config.sendOnlyDedupSec)
       };
     }
   }
@@ -1897,7 +1903,7 @@ function readSendLogRowsForDedup_() {
  *   noticeIsoDate {string} 這一次通知信講的那一期，yyyy-MM-dd。
  *   recipientEmails {string[]} 這一次的收件人電郵。
  *   nowMs {number} 現在的毫秒數。
- *   dedupSec {number} Config `PUBLISH_DEDUP_SEC`；0 或以下代表不檢查。
+ *   dedupSec {number} Config `SEND_ONLY_DEDUP_SEC`（D11 之前是 `PUBLISH_DEDUP_SEC`）；0 或以下代表不檢查。
  * Returns:
  *   {?{at:Date, secondsAgo:number, recipientCount:number, dryRun:boolean}} 最近那一批；
  *     不算重複回 `null`。
@@ -1951,7 +1957,8 @@ function findRecentNoticeBatch_(sendLogRows, noticeIsoDate, recipientEmails, now
  *   noticeIsoDate {string} 通知信講的那一期。
  *   recent {{at:Date, recipientCount:number, dryRun:boolean}} `findRecentNoticeBatch_()` 的結果。
  *   timezone {string} Config `SYS_TIMEZONE`。
- *   dedupSec {number} Config `PUBLISH_DEDUP_SEC`。
+ *   dedupSec {number} Config `SEND_ONLY_DEDUP_SEC`。最後一句按它講「N 分鐘」或「N 秒」
+ *     （`describeWaitSeconds_()`）。
  * Returns:
  *   {string}
  * Raises:
@@ -1966,7 +1973,24 @@ function buildDuplicateSendMessage_(noticeIsoDate, recent, timezone, dedupSec) {
   }
   return '剛才已經寄出過這一期（' + noticeIsoDate + '）的通知（' + (hhmm ? hhmm + '，' : '')
     + recent.recipientCount + ' 個收件人' + (recent.dryRun ? '，模擬模式只有記錄' : '') + '），'
-    + '為免重複，這次沒有再寄。如果真的要再寄一次，請 ' + dedupSec + ' 秒之後再按。';
+    + '為免重複，這次沒有再寄。如果真的要再寄一次，請 ' + describeWaitSeconds_(dedupSec) + '之後再按。';
+}
+
+/**
+ * 用途：D11：把「要等幾多秒」講成幹事讀得順的一句：一分鐘或以上講「N 分鐘」（不足一分鐘的零頭進位，
+ *   等足 N 分鐘一定已經過了時窗），不足一分鐘講「N 秒」。純函式。
+ * Args:
+ *   seconds {number} 秒數（Config `SEND_ONLY_DEDUP_SEC`）。
+ * Returns:
+ *   {string} 例如「10 分鐘」「2 分鐘」「30 秒」。
+ * Raises:
+ *   （無）不是正數當 0 秒。
+ */
+function describeWaitSeconds_(seconds) {
+  var n = Number(seconds);
+  if (!(n > 0)) n = 0;
+  if (n < 60) return Math.ceil(n) + ' 秒';
+  return Math.ceil(n / 60) + ' 分鐘';
 }
 
 /**

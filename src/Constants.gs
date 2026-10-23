@@ -694,6 +694,8 @@ var CONFIG_KEYS = Object.freeze({
   PUBLISH_MAX_PDF_MB: 'PUBLISH_MAX_PDF_MB',
   // ---- 發佈修正那一輪新增 ----
   PUBLISH_DEDUP_SEC: 'PUBLISH_DEDUP_SEC',
+  // ---- D11：只寄出的防重複時窗（與發佈的 PUBLISH_DEDUP_SEC 分開）----
+  SEND_ONLY_DEDUP_SEC: 'SEND_ONLY_DEDUP_SEC',
   WEBAPP_CALL_TIMEOUT_SEC: 'WEBAPP_CALL_TIMEOUT_SEC',
   // ---- 使用者測試模式的保險 ----
   TEST_MODE_BANNER: 'TEST_MODE_BANNER',
@@ -872,6 +874,7 @@ var DEFAULTS = Object.freeze([
   { key: CONFIG_KEYS.PUBLISH_ATTACH_PDF, value: 'TRUE', note: '發佈通知郵件要不要把 PDF 一併附上（FALSE 就只放連結）' },
   { key: CONFIG_KEYS.PUBLISH_MAX_PDF_MB, value: '10', note: '上載的 PDF 檔案大小上限（MB），超過會被拒絕' },
   { key: CONFIG_KEYS.PUBLISH_DEDUP_SEC, value: '30', note: '同一個主日在幾多秒內重複發佈會被視為「撳多了一次」，直接回報上一次的版本號，不再產生新版本' },
+  { key: CONFIG_KEYS.SEND_ONLY_DEDUP_SEC, value: '600', note: '只寄出（不發佈）時，同一期、同一組收件人在幾多秒內已經寄過（包括「發佈加寄出」那一次），就擋下不再寄，以免重複寄信。預設 600 秒（10 分鐘）；設成 0 等於關掉。發佈本身的防重複仍用 PUBLISH_DEDUP_SEC' },
   { key: CONFIG_KEYS.WEBAPP_CALL_TIMEOUT_SEC, value: '120', note: '填寫介面等候伺服器回應的上限（秒）；超過就顯示逾時訊息，不會一直轉圈' },
   { key: CONFIG_KEYS.TEST_MODE_BANNER, value: '', note: '填寫介面頂部要顯示的藍色提示文字（例如「這是測試系統，資料可以隨便改」）；留空就不顯示這一條橫幅' },
   { key: CONFIG_KEYS.SELFTEST_QUARTER_ID, value: '2030T1', note: '⚠️ 自測機的沙盒季度：自測機只准寫這一季。要同時滿足兩個條件：(1) 職事表沒有這一季的資料（順便測「職事表無資料」那條路）；(2) 含夏令時間轉換提示日，S22–S24 才驗得到寫入。提示登在改動當日的前一個主日，所以實際上要用 YYYYT1（4 月那一次，提示日在 3 月底）或者 YYYYT3（9 月那一次）——YYYYT2 與 YYYYT4 永遠不會含提示日。改成一個有真實資料的季度＝自測機會寫壞真資料' },

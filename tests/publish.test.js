@@ -1475,14 +1475,16 @@ test('G10-2 normalizePublishVersionNo_／publishVersionSuffix_：只有正整數
 });
 
 // =====================================================================
-// G22(b)：只寄出的防重複（同一期、同一組收件人，PUBLISH_DEDUP_SEC 秒之內）
+// G22(b)：只寄出的防重複（同一期、同一組收件人，SEND_ONLY_DEDUP_SEC 秒之內）
 // =====================================================================
 
+// D11：只寄出的時窗改用 SEND_ONLY_DEDUP_SEC（以前沿用 PUBLISH_DEDUP_SEC）。這一組照舊用 30 秒，
+// 順便驗「不足一分鐘講秒」那一句；預設 600 秒那一種見 D11-1。
 const G22_DEDUP_SEC = '30';
 const G22_PAYLOAD = { isoDate: G2_SELECTED, doPublish: false, doSend: true, groups: ['IT'], customEmails: '', confirmed: true };
 
 function makeG22Env() {
-  return makeG2Env({ config: { DRY_RUN: 'TRUE', PUBLISH_DEDUP_SEC: G22_DEDUP_SEC }, sendLogKeepsTime: true });
+  return makeG2Env({ config: { DRY_RUN: 'TRUE', PUBLISH_DEDUP_SEC: '0', SEND_ONLY_DEDUP_SEC: G22_DEDUP_SEC }, sendLogKeepsTime: true });
 }
 
 test('G22-1 真正入口 apiRunPublish：只寄出同一份 payload 連續兩次 → 第二次被擋（DUPLICATE_SEND，講明剛才已經寄出、這次沒有再寄）；SendLog 只有一行、AuditLog 只有一次寄出', function () {
@@ -1515,13 +1517,13 @@ test('G22-2 不算重複：收件人不同（改寄另一組）照寄；上一�
 
   const later = makeG22Env();
   later.sandbox.apiRunPublish(Object.assign({}, G22_PAYLOAD));
-  // 不等真時間：把那一行的時間撥前 PUBLISH_DEDUP_SEC + 1 秒（由 Config 現值算，見 bug class 115）。
+  // 不等真時間：把那一行的時間撥前 SEND_ONLY_DEDUP_SEC + 1 秒（由 Config 現值算，見 bug class 115）。
   // 用儲存格原值的建構子造新的 Date（sandbox 那一個 realm），readSheet() 才認得。
   const sheet = later.sandbox.SpreadsheetApp.getActiveSpreadsheet().getSheetByName('SendLog');
   const cell = sheet.getRange(3, later.sandbox.COLUMNS.SEND_LOG.keys.indexOf('TIMESTAMP') + 1);
   const stamp = cell.getValue();
   assert.strictEqual(Object.prototype.toString.call(stamp), '[object Date]', '前提：TIMESTAMP 保留時分秒');
-  const dedupSec = later.sandbox.publishConfig_().dedupSec;
+  const dedupSec = later.sandbox.publishConfig_().sendOnlyDedupSec;
   assert.strictEqual(dedupSec, Number(G22_DEDUP_SEC));
   cell.setValue(new stamp.constructor(stamp.getTime() - (dedupSec + 1) * 1000));
   const again = later.sandbox.apiRunPublish(Object.assign({}, G22_PAYLOAD));
@@ -1563,7 +1565,7 @@ test('G22-4 真正入口 apiRunPublish：發佈加寄出（IT）之後，30 秒�
   // 上一次發佈要在「現在」之前，剛才那一次發佈才會成為 master 現時那一期（makeG2Env 的
   // PublishLog 日期在 2027 年，比測試執行的真實時間晚）。
   const env = makeG2Env({
-    config: { DRY_RUN: 'TRUE', PUBLISH_DEDUP_SEC: G22_DEDUP_SEC }, sendLogKeepsTime: true,
+    config: { DRY_RUN: 'TRUE', PUBLISH_DEDUP_SEC: '0', SEND_ONLY_DEDUP_SEC: G22_DEDUP_SEC }, sendLogKeepsTime: true,
     publishLog: [{
       SERVICE_DATE: G2_MASTER_ISSUE, VERSION_NO: 1, PUBLISHED_AT: '2026-01-04',
       PUBLISHED_BY: 'tester@example.com', ARCHIVE_FILE_ID: 'OLD2', SENT: false,
@@ -1636,6 +1638,49 @@ test('D2-3 只有通常空白的欄位未填 → 那一句排在「通常空白�
   }, false);
   assert.strictEqual(none.indexOf(D2_LINE), -1, none.join('\n'));
   assert.ok(none.indexOf(G2_WARNING) !== -1);
+});
+
+// =====================================================================
+// D11：只寄出的防重複用 SEND_ONLY_DEDUP_SEC（預設 600 秒），發佈仍用 PUBLISH_DEDUP_SEC
+// =====================================================================
+
+test('D11-1 Config 有 SEND_ONLY_DEDUP_SEC，預設 600，有說明；未設定時（只有 DEFAULTS）只寄出兩次 → 第二次被擋，最後一句講「請 10 分鐘之後再按。」', function () {
+  const boot = loadAllSrcFilesInOrder(baseStubs({}));
+  const seed = boot.DEFAULTS.filter(function (d) { return d.key === 'SEND_ONLY_DEDUP_SEC'; })[0];
+  assert.ok(seed, 'DEFAULTS 要有 SEND_ONLY_DEDUP_SEC');
+  assert.strictEqual(seed.value, '600');
+  assert.ok(seed.note.indexOf('PUBLISH_DEDUP_SEC') !== -1, '說明要講明發佈另用 PUBLISH_DEDUP_SEC：' + seed.note);
+  assertWrittenChinese(assert, 'SEND_ONLY_DEDUP_SEC 說明', [seed.note]);
+
+  // PUBLISH_DEDUP_SEC 設成 0（發佈不防重複），只寄出照樣擋：兩者已經分開。
+  const env = makeG2Env({ config: { DRY_RUN: 'TRUE', PUBLISH_DEDUP_SEC: '0' }, sendLogKeepsTime: true });
+  assert.strictEqual(env.sandbox.publishConfig_().sendOnlyDedupSec, 600);
+  assert.strictEqual(env.sandbox.apiRunPublish(Object.assign({}, G22_PAYLOAD)).data.ok, true);
+  const second = env.sandbox.apiRunPublish(Object.assign({}, G22_PAYLOAD));
+  assert.strictEqual(second.data.reason, 'DUPLICATE_SEND');
+  assert.ok(second.data.message.endsWith('如果真的要再寄一次，請 10 分鐘之後再按。'), second.data.message);
+  assert.strictEqual(readSendLog(env).length, 1);
+  assertWrittenChinese(assert, 'D11 訊息', [second.data.message]);
+});
+
+test('D11-2 SEND_ONLY_DEDUP_SEC 是 0 → 只寄出不擋（即使 PUBLISH_DEDUP_SEC 很大）；發佈的防重複照舊跟 PUBLISH_DEDUP_SEC', function () {
+  const env = makeG2Env({ config: { DRY_RUN: 'TRUE', PUBLISH_DEDUP_SEC: '9999', SEND_ONLY_DEDUP_SEC: '0' }, sendLogKeepsTime: true });
+  env.sandbox.apiRunPublish(Object.assign({}, G22_PAYLOAD));
+  const again = env.sandbox.apiRunPublish(Object.assign({}, G22_PAYLOAD));
+  assert.strictEqual(again.data.ok, true, again.data.message);
+  assert.strictEqual(readSendLog(env).length, 2);
+  const cfg = env.sandbox.publishConfig_();
+  assert.strictEqual(cfg.dedupSec, 9999, '發佈的時窗仍是 PUBLISH_DEDUP_SEC');
+  assert.strictEqual(cfg.sendOnlyDedupSec, 0);
+  // 讀不到／負數 → 退回預設 600，不是 0（不可以靜靜關掉防重複）。
+  const bad = makeG2Env({ config: { SEND_ONLY_DEDUP_SEC: '-5' } }).sandbox.publishConfig_();
+  assert.strictEqual(bad.sendOnlyDedupSec, 600);
+});
+
+test('D11-3 describeWaitSeconds_：一分鐘或以上講分鐘（零頭進位），不足一分鐘講秒', function () {
+  const sb = loadAllSrcFilesInOrder(baseStubs({}));
+  [[600, '10 分鐘'], [60, '1 分鐘'], [90, '2 分鐘'], [59, '59 秒'], [30, '30 秒'], [1, '1 秒'], [0, '0 秒'], [-3, '0 秒']]
+    .forEach(function (pair) { assert.strictEqual(sb.describeWaitSeconds_(pair[0]), pair[1], String(pair[0])); });
 });
 
 // =====================================================================
