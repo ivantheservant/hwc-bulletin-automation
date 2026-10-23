@@ -1599,8 +1599,9 @@ function runPublishFlow_(payload) {
   // ---- 只寄出、不發佈：master 連結現時是哪一期；從未發佈過就拒絕 ----
   //
   // ⚠️ 第二批測試修正 G2：只寄出的通知信指向 master 連結，而 master 裏面是
-  //    `PublishLog` 最新那一期，不一定是介面選中的主日。這裏讀一次，之後
-  //    通知信的日期、寄出前檢查的提醒都用同一個結果，不各自再讀。
+  //    `PublishLog` 最新那一期，不一定是介面選中的主日。這裏讀的一次只用於
+  //    寄出前檢查的提醒與確認視窗；D6：通知信寫哪一期，拿着鎖之後再讀一次
+  //    （readMasterIssueInLock_()），與發佈寫 PublishLog 同在一把鎖之內。
   var masterIssue = null;
   if (doSend && !doPublish) {
     try {
@@ -1609,13 +1610,7 @@ function runPublishFlow_(payload) {
       if (!issueErr || issueErr.code !== 'MASTER_ISSUE_UNKNOWN') throw issueErr;
       return { ok: false, reason: 'MASTER_ISSUE_UNKNOWN', message: issueErr.message, lines: [] };
     }
-    if (!masterIssue) {
-      return {
-        ok: false, reason: 'NEVER_PUBLISHED', lines: [],
-        message: '從未發佈過任何一期，因此沒有已發佈的內容可以通知。請先發佈一次'
-          + '（勾選「發佈到 master 連結」並選擇 PDF），之後就可以只寄出不發佈。'
-      };
-    }
+    if (!masterIssue) return buildNeverPublishedResult_();
   }
 
   // ---- 發佈前檢查（R-006／R-007）----
@@ -1693,7 +1688,12 @@ function runPublishFlow_(payload) {
  *   ctx {{isoDate:string, doPublish:boolean, doSend:boolean, blob:(Blob|null),
  *        pdfSizeMb:number, sentGroups:string, precheck:Object, result:Object,
  *        masterIssue:(?{isoDate:string, versionNo:(number|null)})}}
- *     `masterIssue` 只寄出時才有（`runPublishFlow_()` 已經讀好），發佈時是 `null`。
+ *     `masterIssue` 只寄出時才有，是 `runPublishFlow_()` 在拿鎖之前讀的那一期（寄出前檢查
+ *     與確認視窗用的）；發佈時是 `null`。
+ *
+ *   D6：只寄出時，通知信指向哪一期一律用**拿着鎖之後**再讀的那一期（`readMasterIssueInLock_()`），
+ *   與發佈寫 `PublishLog` 在同一把鎖之內，是同一個真相來源。拿鎖之前讀的那一期只用來比較：
+ *   兩者不同（讀取與拿鎖之間另一次發佈剛完成）就照用鎖內那一期，結果多一行講明。
  * Returns:
  *   {Object} 同 `runPublishFlow_()`。
  * Raises:
@@ -1751,12 +1751,19 @@ function runPublishFlowLocked_(payload, ctx) {
 
   // ---- 寄出 ----
   if (doSend) {
+    var noticeIssue = null;
+    if (!doPublish) {
+      var locked = readMasterIssueInLock_(config.masterFileId, ctx.masterIssue);
+      if (!locked.ok) return locked.result;
+      noticeIssue = locked.issue;
+      if (locked.changedNote) result.masterIssueChangedNote = locked.changedNote;
+    }
     var sent = sendPublishNotice_(isoDate, {
       groups: p.groups || [],
       customEmails: p.customEmails || '',
       blob: ctx.blob,
       published: doPublish === true,
-      masterIssue: doPublish ? null : ctx.masterIssue
+      masterIssue: noticeIssue
     });
     if (!sent.ok) {
       // ⚠️ 發佈已經成功嘅話，唔可以因為寄唔出就話成件事失敗——master
@@ -1776,6 +1783,59 @@ function runPublishFlowLocked_(payload, ctx) {
 
   result.lines = buildPublishResultLines_(result);
   return result;
+}
+
+/**
+ * 用途：只寄出時「從未發佈過任何一期」的拒絕結果。純函式。拿鎖之前（`runPublishFlow_()`）
+ *   與拿鎖之後（`readMasterIssueInLock_()`）同一句。
+ * Args: （無）
+ * Returns:
+ *   {{ok:boolean, reason:string, lines:string[], message:string}}
+ * Raises:
+ *   （無）
+ */
+function buildNeverPublishedResult_() {
+  return {
+    ok: false, reason: 'NEVER_PUBLISHED', lines: [],
+    message: '從未發佈過任何一期，因此沒有已發佈的內容可以通知。請先發佈一次'
+      + '（勾選「發佈到 master 連結」並選擇 PDF），之後就可以只寄出不發佈。'
+  };
+}
+
+/**
+ * 用途：D6：只寄出時，拿着發佈鎖之後再讀一次 master 連結現時是哪一期（`currentMasterPublishIssue_()`）。
+ *   只可以在 `runPublishFlowLocked_()` 之內呼叫——發佈寫 `PublishLog` 在同一把鎖之內，鎖內讀到的
+ *   才與 master 檔案的內容一致。以前只在拿鎖之前讀（docs/待確認事項.md FF-9）：讀完之後、拿鎖之前
+ *   另一個分頁剛好發佈了新一期的話，通知信會寫舊一期的日期而連結已經是新一期。
+ * Args:
+ *   masterFileId {string} 目前生效的 master 檔案 ID。
+ *   issueBeforeLock {?{isoDate:string, versionNo:(number|null)}} 拿鎖之前讀的那一期（寄出前檢查用的）。
+ * Returns:
+ *   {{ok:boolean, issue:(?{isoDate:string, versionNo:(number|null)}), changedNote:string,
+ *     result:(Object|undefined)}} `ok:false` 時 `result` 是要原樣回傳給前端的拒絕結果
+ *     （讀不到日期、或者從未發佈過），一封都未寄；`changedNote` 是兩次讀到的不同時加在結果的一行，
+ *     相同時是空字串。
+ * Raises:
+ *   讀 `PublishLog` 失敗時的例外原樣拋出（`MASTER_ISSUE_UNKNOWN` 除外，轉成 `ok:false`）。
+ */
+function readMasterIssueInLock_(masterFileId, issueBeforeLock) {
+  var issue;
+  try {
+    issue = currentMasterPublishIssue_(masterFileId);
+  } catch (issueErr) {
+    if (!issueErr || issueErr.code !== 'MASTER_ISSUE_UNKNOWN') throw issueErr;
+    return { ok: false, issue: null, changedNote: '', result: { ok: false, reason: 'MASTER_ISSUE_UNKNOWN', message: issueErr.message, lines: [] } };
+  }
+  if (!issue) return { ok: false, issue: null, changedNote: '', result: buildNeverPublishedResult_() };
+  var before = issueBeforeLock || null;
+  var same = Boolean(before) && before.isoDate === issue.isoDate
+    && normalizePublishVersionNo_(before.versionNo) === normalizePublishVersionNo_(issue.versionNo);
+  var changedNote = (before && !same)
+    ? '⚠ 寄出前檢查之後，master 連結已經換成 ' + issue.isoDate + publishVersionSuffix_(issue.versionNo)
+      + '（另一次發佈剛剛完成），所以通知信指向 ' + issue.isoDate + '，不是寄出前檢查講的 '
+      + before.isoDate + publishVersionSuffix_(before.versionNo) + '。'
+    : '';
+  return { ok: true, issue: issue, changedNote: changedNote };
 }
 
 /**
@@ -1974,6 +2034,8 @@ function buildPublishResultLines_(result) {
     if (!o.published && o.sent.status === SEND_ONLY_SEND_STATUS_ && o.sent.noticeIsoDate) {
       lines.push('通知信指向 master 連結現時那一期：' + o.sent.noticeIsoDate
         + publishVersionSuffix_(o.sent.noticeVersionNo) + '。');
+      // D6：拿鎖之前與之後讀到的那一期不同（見 readMasterIssueInLock_()）。
+      if (o.masterIssueChangedNote) lines.push(o.masterIssueChangedNote);
     }
     if (o.sent.attached) lines.push('通知信已附上這一次的 PDF。');
   } else if (o.sendError) {

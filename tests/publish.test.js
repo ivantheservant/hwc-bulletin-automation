@@ -1639,6 +1639,83 @@ test('D2-3 只有通常空白的欄位未填 → 那一句排在「通常空白�
 });
 
 // =====================================================================
+// D6：只寄出時「master 現時是哪一期」在發佈鎖之內再讀一次
+// =====================================================================
+
+/** 拿鎖那一刻先跑 beforeGrant（模擬：讀完 master、拿鎖之前，另一次發佈剛完成），再給鎖。 */
+function lockThatRunsFirst(env, beforeGrant) {
+  let granted = 0;
+  env.sandbox.LockService = {
+    getScriptLock: function () {
+      return {
+        tryLock: function () { granted++; if (granted === 1) beforeGrant(); return true; },
+        releaseLock: function () {}
+      };
+    }
+  };
+}
+
+function appendPublishLogRow(env, row) {
+  env.sandbox.writeSheet(env.sandbox.SHEETS.PUBLISH_LOG, [Object.assign({
+    VERSION_NO: 1, PUBLISHED_BY: 'other@example.com', ARCHIVE_FILE_ID: 'NEW1', SENT: false,
+    SENT_GROUPS: '', MISSING_COUNT: 0, FORCED: false, FORCED_REASON: ''
+  }, row)]);
+}
+
+const D6_PAYLOAD = { isoDate: G2_SELECTED, doPublish: false, doSend: true, groups: ['IT'], customEmails: '', confirmed: true };
+
+function readPublishSrc() {
+  return require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'Publish.gs'), 'utf8').replace(/\r\n/g, '\n');
+}
+
+test('D6-1 只寄出：讀取（寄出前檢查）與拿鎖之間另一次發佈把 master 換成 2027-11-14 → 通知信用鎖內讀到的 2027-11-14（主旨、SendLog、結果訊息），並多一行講明', function () {
+  const env = makeG2Env();
+  const before = env.sandbox.runPublishFlow_(Object.assign({}, D6_PAYLOAD, { confirmed: false }));
+  assert.ok(before.lines.indexOf(G2_WARNING) !== -1, '前提：寄出前檢查講的是 2027-11-07');
+  lockThatRunsFirst(env, function () {
+    appendPublishLogRow(env, { SERVICE_DATE: '2027-11-14', VERSION_NO: 2, PUBLISHED_AT: '2027-11-13' });
+  });
+  const done = env.sandbox.runPublishFlow_(Object.assign({}, D6_PAYLOAD));
+  assert.strictEqual(done.ok, true, done.message);
+  const logs = readSendLog(env);
+  assert.strictEqual(logs.length, 1);
+  assert.ok(logs[0].SUBJECT.indexOf('— 2027-11-14') !== -1, '主旨用鎖內那一期：' + logs[0].SUBJECT);
+  assert.strictEqual(env.sandbox.formatIsoDate_(logs[0].SERVICE_DATE), '2027-11-14');
+  assert.ok(done.lines.indexOf('通知信指向 master 連結現時那一期：2027-11-14（第 2 版）。') !== -1, done.lines.join('\n'));
+  const note = '⚠ 寄出前檢查之後，master 連結已經換成 2027-11-14（第 2 版）（另一次發佈剛剛完成），所以通知信指向 2027-11-14，'
+    + '不是寄出前檢查講的 2027-11-07（第 1 版）。';
+  assert.ok(done.lines.indexOf(note) !== -1, done.lines.join('\n'));
+  assertWrittenChinese(assert, 'D6', [note]);
+});
+
+test('D6-2 對照：讀取與拿鎖之間沒有變 → 照舊用 2027-11-07，不加那一行', function () {
+  const env = makeG2Env();
+  const done = env.sandbox.runPublishFlow_(Object.assign({}, D6_PAYLOAD));
+  assert.strictEqual(done.ok, true, done.message);
+  assert.ok(readSendLog(env)[0].SUBJECT.indexOf('— ' + G2_MASTER_ISSUE) !== -1);
+  assert.strictEqual(done.lines.join('\n').indexOf('寄出前檢查之後'), -1, done.lines.join('\n'));
+});
+
+test('D6-3 鎖內讀到的最新一行日期讀不到 → 拒絕（MASTER_ISSUE_UNKNOWN），一封都不寄、SendLog 一行都不寫', function () {
+  const env = makeG2Env();
+  lockThatRunsFirst(env, function () {
+    appendPublishLogRow(env, { SERVICE_DATE: '', PUBLISHED_AT: '2027-11-13' });
+  });
+  const done = env.sandbox.runPublishFlow_(Object.assign({}, D6_PAYLOAD));
+  assert.strictEqual(done.ok, false);
+  assert.strictEqual(done.reason, 'MASTER_ISSUE_UNKNOWN', JSON.stringify(done));
+  assert.strictEqual(readSendLog(env).length, 0);
+  assert.strictEqual(env.mails.length, 0);
+});
+
+test('D6-4 源碼：寄出用的那一期在 runPublishFlowLocked_() 之內讀（readMasterIssueInLock_），不再用拿鎖之前那一個', function () {
+  const src = readPublishSrc();
+  const locked = src.slice(src.indexOf('function runPublishFlowLocked_('), src.indexOf('function buildNeverPublishedResult_('));
+  assert.ok(locked.indexOf('readMasterIssueInLock_(config.masterFileId, ctx.masterIssue)') !== -1);
+  assert.strictEqual(locked.indexOf('masterIssue: doPublish ? null : ctx.masterIssue'), -1);
+});
+
+// =====================================================================
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail === 0 ? 0 : 1);
