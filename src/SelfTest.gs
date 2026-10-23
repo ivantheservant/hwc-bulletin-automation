@@ -220,6 +220,10 @@ function assertSelfTestWritableQuarter_(quarterId, config) {
 
 /**
  * 用途：確認某一個主日屬於沙盒季度，否則拋錯。
+ *
+ *   審查後修正 5：只核對這一個主日。自測與亂行經 `saveWeekFromWebApp_()` 儲存時不帶 `nextWeekDutyEdits`，
+ *   儲存因此不碰下一個主日（W+7，可能已經在沙盒之外）；只送 `dutyEdits: []`，W 那一格的名字不會變，
+ *   亦不會更新上一個主日（W-7）的 `LAST_SAVED_AT`。日後自測要送下週事奉框，先核對 W+7 亦在沙盒之內。
  * Args:
  *   isoDate {string} 主日日期。
  *   config {Object} `selfTestConfig_()` 的回傳值。

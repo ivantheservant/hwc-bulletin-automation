@@ -51,7 +51,7 @@
  *   payloadVersion: 2,                 // D9：見 SAVE_PAYLOAD_VERSION_；帶事奉格而版本不對＝舊版前端，整次拒絕
  *   dutyEdits:     [{ postId:string, slotIndex:number, name:string, baseName:string,
  *                     keepOverride:(true|undefined), followRoster:(true|undefined) }, ...],   // 第六輪；D9 只送改過的格
- *   nextWeekDutyEdits: [ 同上 ]        // R-040：下週事奉，寫下一個主日
+ *   nextWeekDutyEdits: [ 同上 ]        // R-040：下週事奉，寫下一個主日；缺鍵＝不碰下一個主日（審查後修正 5）
  * }
  * ```
  *
@@ -911,7 +911,12 @@ function saveWeekFromWebAppLocked_(payload, isoDate, targetDate) {
   var nextDate = addDays_(targetDate, 7);
   var nextIsoDate = formatIsoDate_(nextDate);
   var dutyPlan = planDutyEditsFromPayload_(isoDate, payload.dutyEdits);
-  var nextDutyPlan = planDutyEditsFromPayload_(nextIsoDate, payload.nextWeekDutyEdits);
+  // 審查後修正 5：payload 沒有 nextWeekDutyEdits 這個鍵（沒有下週事奉框的呼叫：自測機、亂行機）就不碰
+  // 下一個主日——連「職事表追上了覆寫就自動停用」也不做。自測／亂行只核對 W 在沙盒季度之內
+  // （assertSelfTestWritableDate_()），W+7 可能已經在沙盒之外。填寫介面一定帶這個鍵（可以是空陣列）。
+  var nextDutyPlan = payload.nextWeekDutyEdits === undefined
+    ? null
+    : planDutyEditsFromPayload_(nextIsoDate, payload.nextWeekDutyEdits);
   // 這一週還沒有資料行時（防呆補行），欄位覆寫要等補行之後才算，維持原本的做法。
   var fieldOverridePlan = weekRowInfo
     ? planFieldOverridesFromPayload_(isoDate, normalizedWeek, weekRowInfo)

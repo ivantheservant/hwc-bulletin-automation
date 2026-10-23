@@ -958,5 +958,65 @@ test('RV1-9 changedDutyEdits()：followRoster 只認布林 true；帶 followRost
   ]);
 });
 
+// =====================================================================
+// 審查後修正 5：自測機、亂行機的儲存不碰下一個主日（W+7）
+// =====================================================================
+
+console.log('\n審查後修正 5：沒有 nextWeekDutyEdits 的儲存不碰 W+7');
+
+const OUTSIDE_SANDBOX = '2027-12-05';   // 2027T4 最後一個主日的下一個主日，不在沙盒季度之內
+
+/** 在某一個主日放一筆生效中、名字空白的覆寫（GG-3：任何一次碰到它的儲存都會自動停用）。 */
+function putBlankOverride(sb, iso) {
+  sb.writeSheet('DutyOverride', [{ SERVICE_DATE: sb.normalizeDate_(iso), POST_ID: 'CHAIR', SLOT_INDEX: 1, OVERRIDE_NAME: '',
+    ROSTER_VALUE_AT_OVERRIDE: '陳大文', ROSTER_VERSION_AT_OVERRIDE: 1, ACTIVE: true }]);
+}
+function auditRowsFor(sb, iso) {
+  return sb.readSheet('AuditLog').filter(function (a) { return String(a.ROW_KEY || '').indexOf(iso) === 0; });
+}
+
+test('RV5-1 經 apiSaveWeek：payload 沒有 nextWeekDutyEdits 這個鍵 → W+7 生效中的覆寫不動（連自動停用也不做）、W+7 沒有版本記錄與 AuditLog；帶空陣列（填寫介面）→ 照舊自動停用', function () {
+  const sb = makeEnv();
+  save(sb, W, { next: { 'CHAIR#1': '下週李' } });
+  rosterChangesChair(sb, W_AFTER, '下週李');   // 職事表追上：任何一次碰到 W+7 的儲存都會自動停用
+  rewindLastSavedAt(sb, W, '2026-10-02');
+  const tab = load(sb, W);
+  const auditBefore = auditRowsFor(sb, W_AFTER).length;
+  const snapshotsBefore = sb.readSheet('WeekSnapshots').length;
+  const resp = sb.apiSaveWeek(plain({ isoDate: W, lastSavedAt: tab.lastSavedAt, week: { PRELUDE: '自測序樂' },
+    baseWeek: { PRELUDE: tab.week.PRELUDE || '' }, dutyEdits: [] }));
+  assert.strictEqual(resp.ok, true, JSON.stringify(resp.error));
+  assert.ok(activeChair(sb, W_AFTER), 'W+7 的覆寫仍然生效');
+  assert.strictEqual(auditRowsFor(sb, W_AFTER).length, auditBefore, 'W+7 沒有 AuditLog');
+  assert.strictEqual(sb.readSheet('WeekSnapshots').length - snapshotsBefore, 1, '只有 W 一個版本');
+  assert.strictEqual(resp.data.message.text, '已儲存，更新了 1 個欄位。');
+
+  // 對照：填寫介面一定帶 nextWeekDutyEdits（空陣列）→ 照舊自動停用（D9-12 的行為）。
+  const r = save(sb, W, { patch: { PRELUDE: '介面序樂' } });
+  assert.strictEqual(r.resp.ok, true, JSON.stringify(r.resp.error));
+  assert.deepStrictEqual(r.payload.nextWeekDutyEdits, []);
+  assert.strictEqual(activeChair(sb, W_AFTER), null);
+});
+
+test('RV5-2 真正入口：亂行機「經填寫介面改幾格」揀中沙盒季度最後一個主日 → 下一個主日（沙盒之外）的覆寫與記錄一格都不動', function () {
+  const sb = makeEnv();
+  putBlankOverride(sb, OUTSIDE_SANDBOX);
+  const before = JSON.stringify(overrideRows(sb, OUTSIDE_SANDBOX));
+  const editFields = sb.monkeyActions_().filter(function (a) { return a.id === 'EDIT_FIELDS'; })[0];
+  const config = { quarterId: QUARTER_ID };
+  const dates = plain(sb.selfTestSandboxDates_(config));
+  assert.strictEqual(dates[dates.length - 1], '2027-11-28', '前提：沙盒最後一個主日');
+  assert.strictEqual(sb.addDaysToIsoDate_('2027-11-28', 7), OUTSIDE_SANDBOX);
+  assert.strictEqual(dates.indexOf(OUTSIDE_SANDBOX), -1, '前提：W+7 不在沙盒之內');
+  const result = editFields.run({
+    config: config, runId: 'RV5', stepNo: 1,
+    // 第一次揀主日（揀最後一個），之後揀改幾格（0＝一格）。
+    random: { nextInt: (function () { let n = 0; return function (k) { n++; return n === 1 ? k - 1 : 0; }; })() }
+  });
+  assert.ok(String(result.summary || result.detail || JSON.stringify(result)).indexOf('2027-11-28') !== -1, JSON.stringify(result));
+  assert.strictEqual(JSON.stringify(overrideRows(sb, OUTSIDE_SANDBOX)), before, '沙盒之外的覆寫一格都沒有改');
+  assert.strictEqual(auditRowsFor(sb, OUTSIDE_SANDBOX).length, 0, '沙盒之外沒有 AuditLog');
+});
+
 console.log('\n通過 ' + pass + ' 項，失敗 ' + fail + ' 項。');
 process.exit(fail === 0 ? 0 : 1);
