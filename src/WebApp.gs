@@ -475,15 +475,43 @@ function contentImportForWebApp_(isoDate, apply) {
   }
 
   var dryRun = normalizeBoolean_(getConfig(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
+  var conflicts = result.plan.conflicts || [];
+  var releases = result.plan.releases || [];
   return {
     ok: true,
     scope: result.scope,
     summary: {
       added: result.plan.added, updated: result.plan.updated,
-      removed: result.plan.removed, unchanged: result.plan.unchanged
+      removed: result.plan.removed, unchanged: result.plan.unchanged,
+      // 2026-10-23 重測發現：只有「沒有蓋過」或「解除覆寫」時，前端以前只看三個數字，講「一致，沒有任何改動」，
+      //    沒有蓋過的格靜靜不講（bug class 2），解除覆寫亦永遠做不到。
+      conflicts: conflicts.length, releases: releases.length,
+      noChangeMessage: buildContentImportNoChangeMessage_(conflicts)
     },
     lines: buildContentImportDialogLines_(result, { dryRun: dryRun, applied: Boolean(apply) })
   };
+}
+
+/**
+ * 用途：單週匯入「沒有要寫的改動」時給幹事看的一句。有格在介面改過、而內容表的值不同（沒有蓋過）就逐格講出來，
+ *   不可以講成「一致」。純函式。
+ * Args:
+ *   conflicts {{isoDate:string, field:string, overrideValue:*, sourceValue:*}[]} 匯入計畫的 `conflicts`。
+ * Returns:
+ *   {string}
+ * Raises:
+ *   （無）
+ */
+function buildContentImportNoChangeMessage_(conflicts) {
+  var list = conflicts || [];
+  if (list.length === 0) return '內容表與週報現況一致，沒有任何改動。';
+  var shown = list.slice(0, 3).map(function (c) {
+    return contentFieldLabel_(c.field) + '（你填的是「' + (c.overrideValue || '（空白）') + '」，內容表是「'
+      + (c.sourceValue || '（空白）') + '」）';
+  });
+  return '沒有要匯入的改動。有 ' + list.length + ' 格你在介面改過，內容表的值不同，所以沒有蓋過：'
+    + shown.join('；') + (list.length > 3 ? '；另有 ' + (list.length - 3) + ' 格' : '')
+    + '。想跟回內容表，把介面那一格改成與內容表相同再儲存。';
 }
 
 // =====================================================================

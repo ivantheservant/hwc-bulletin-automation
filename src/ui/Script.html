@@ -1209,9 +1209,10 @@
     if (!resp.data.ok) { showMessage('error', resp.data.message); return; }
 
     var summary = resp.data.summary;
-    var changeCount = summary.added + summary.updated + summary.removed;
+    // 「解除覆寫」亦是寫入，要經確認對話框；只有「沒有蓋過」的格時講出來，不可以講成「一致」。
+    var changeCount = summary.added + summary.updated + summary.removed + (summary.releases || 0);
     if (changeCount === 0) {
-      showMessage('info', '內容表與週報現況一致，沒有任何改動。');
+      showMessage('info', summary.noChangeMessage || '內容表與週報現況一致，沒有任何改動。');
       return;
     }
 
@@ -1228,7 +1229,9 @@
   function onContentImportDone(resp) {
     if (!resp.ok) { showMessage('error', resp.error.message); return; }
     if (!resp.data.ok) { showMessage('error', resp.data.message); return; }
-    showMessage('success', '匯入完成。' + resp.data.lines[2]);
+    var released = (resp.data.summary && resp.data.summary.releases) || 0;
+    showMessage('success', '匯入完成。' + resp.data.lines[2]
+      + (released > 0 ? '　有 ' + released + ' 格你之前改過的值已改回跟隨內容表。' : ''));
     loadWeek(state.isoDate, { keepMessage: true });
     // 匯入會令這一週的待填數字改變：主日下拉的「待填 N 項」標籤一併刷新（與儲存之後同一做法）。
     refreshWeekSelectorLabels();

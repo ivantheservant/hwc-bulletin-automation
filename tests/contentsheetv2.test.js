@@ -914,5 +914,47 @@ test('R2-F8a 已登記但開不到的內容表 → 🟡「開不到」，建議�
   assert.ok(st.message.indexOf('核對不到') !== -1 && st.message.indexOf('初始化工作表') !== -1, st.message);
 });
 
+console.log('\n2026-10-23 部署後重測發現');
+
+test('R3-1 填寫介面「重新匯入（只限這一個主日）」（真入口 apiPreviewContentImport）：只有「沒有蓋過」的格 → 講出來，不講「一致」；內容表改成與覆寫相同 → 預覽算一項「解除覆寫」，經確認寫入（apiRunContentImport）之後覆寫停用', function () {
+  const env = makeV1Env();
+  run(env);
+  const sb = env.sandbox;
+  assert.strictEqual(sb.apiRunQuarterContentImport(QUARTER_ID).data.ok, true);
+  const l = sb.apiLoadWeek(D1).data;
+  assert.strictEqual(sb.apiSaveWeek({ isoDate: D1, lastSavedAt: l.lastSavedAt, baseWeek: { PRELUDE: l.week.PRELUDE },
+    week: { PRELUDE: '介面序樂' }, dutyEdits: [] }).ok, true);
+
+  const p1 = sb.apiPreviewContentImport(D1);
+  assert.strictEqual(p1.ok, true, JSON.stringify(p1));
+  const s1 = plain(p1.data.summary);
+  assert.strictEqual(s1.added + s1.updated + s1.removed + s1.releases, 0, JSON.stringify(s1));
+  assert.strictEqual(s1.conflicts, 1);
+  assert.ok(s1.noChangeMessage.indexOf('沒有蓋過') !== -1 && s1.noChangeMessage.indexOf('「介面序樂」') !== -1
+    && s1.noChangeMessage.indexOf('「序樂甲」') !== -1, s1.noChangeMessage);
+  assert.strictEqual(s1.noChangeMessage.indexOf('一致'), -1, s1.noChangeMessage);
+  assertWrittenChinese(assert, '沒有蓋過', s1.noChangeMessage);
+
+  const tab = env.contentTabs['崇拜程序'];
+  tab.__data[worshipRowIndex(env, D1)][tab.__data[1].indexOf('PRELUDE')] = '介面序樂';
+  const p2 = plain(sb.apiPreviewContentImport(D1).data.summary);
+  assert.strictEqual(p2.releases, 1, JSON.stringify(p2));
+  const done = sb.apiRunContentImport(D1);
+  assert.strictEqual(done.ok, true, JSON.stringify(done));
+  assert.strictEqual(plain(done.data.summary).releases, 1);
+  const active = sb.readSheet('FieldOverride').filter(function (o) { return o.ACTIVE === true && o.FIELD_KEY === 'PRELUDE'; });
+  assert.strictEqual(active.length, 0, '覆寫已停用');
+  const p3 = plain(sb.apiPreviewContentImport(D1).data.summary);
+  assert.strictEqual(p3.noChangeMessage, '內容表與週報現況一致，沒有任何改動。');
+});
+
+test('R3-2 Script.html：單週匯入預覽把「解除覆寫」算作改動（經確認對話框），沒有改動時用伺服器的 noChangeMessage', function () {
+  const js = fs.readFileSync(path.join(__dirname, '..', 'src', 'ui', 'Script.html'), 'utf8');
+  const fn = js.slice(js.indexOf('function onContentImportPreviewed('), js.indexOf('function onContentImportDone('));
+  assert.ok(fn.indexOf('(summary.releases || 0)') !== -1, fn);
+  assert.ok(fn.indexOf('summary.noChangeMessage') !== -1, fn);
+  assert.ok(fn.indexOf('openConfirmDialog(') > fn.indexOf('summary.noChangeMessage'));
+});
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail === 0 ? 0 : 1);
