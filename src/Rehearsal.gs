@@ -2,9 +2,12 @@
  * Rehearsal.gs
  *
  * prompt9 第 3 部分：「全季流程演練」——一鍵跑完整條流程（讀職事表快照 →
- * 建立／刷新季度填寫表 → 產生團契 → 組裝週報資料模型 → 產生一份 Word →
- * 組裝電郵內容 → 檢查職事表分歧 → 統計待填欄位），把每一步的結果與耗時
+ * 產生團契 → 組裝週報資料模型 → 產生一份 Word → 組裝電郵內容 →
+ * 檢查職事表分歧 → 統計待填欄位），把每一步的結果與耗時
  * 寫成一份報告，讓 Ivan 一次過看到整季「如果現在真的跑會怎樣」。
+ *
+ * 內容表 v2：季度填寫表已停用，原本的第 2 步「建立／刷新季度填寫表」拿走（會替真實季度建立
+ * Fill_ 分頁），其餘步驟重新編號。
  *
  * ⚠️ **唯讀為主**：
  *   - 「檢查職事表分歧」這一步刻意用 `computeRosterDiff_()`（純讀取），
@@ -16,9 +19,8 @@
  *     `buildBulletinEmailPlainText_()`），完全不呼叫 `MailApp`、不寫
  *     `SendLog`——比「強制 DRY_RUN」更乾淨：連寄送那條程式路徑都沒有
  *     碰到，不會有「假使某處漏了判斷 DRY_RUN」的風險。
- *   - 「建立／刷新季度填寫表」「由常設時間表產生團契」**不是**唯讀
- *     （前者可能寫回同步結果，後者會新增團契資料列），但兩者本來就是
- *     幹事每季真的要做的事、而且都是冪等／只增不改——跟真正操作完全
+ *   - 「由常設時間表產生團契」**不是**唯讀（會新增團契資料列），但它本來就是
+ *     幹事每季真的要做的事、而且是冪等／只增不改——跟真正操作完全
  *     一樣，這正是「演練」要驗證的東西。
  *   - 「產生 Word」只產生**第一個**主日，避免 13 份 Word 拖慢整個演練；
  *     產生的檔案是真檔案（獨立副本，不會蓋走該主日的最新版 Word），會留在
@@ -76,37 +78,34 @@ function runQuarterRehearsal_(quarterId) {
   }, timings, failedSteps);
   var serviceDates = serviceDatesStep.ok ? serviceDatesStep.value : [];
 
-  // ---- 2. 建立／刷新季度填寫表 ----
-  runRehearsalStep_('2. 建立／刷新季度填寫表', function () {
-    return createOrRefreshFillGrid_(quarterId);
-  }, timings, failedSteps);
+  // （內容表 v2：原本的第 2 步「建立／刷新季度填寫表」已拿走，季度填寫表已停用。）
 
-  // ---- 3. 由常設時間表產生團契 ----
-  runRehearsalStep_('3. 由常設時間表產生團契', function () {
+  // ---- 2. 由常設時間表產生團契 ----
+  runRehearsalStep_('2. 由常設時間表產生團契', function () {
     return generateQuarterFellowships_(quarterId);
   }, timings, failedSteps);
 
-  // ---- 4. 為每個主日組裝 buildBulletinModel_() ----
+  // ---- 3. 為每個主日組裝 buildBulletinModel_() ----
   var models = {};
-  runRehearsalStep_('4. 組裝週報資料模型（全季）', function () {
+  runRehearsalStep_('3. 組裝週報資料模型（全季）', function () {
     serviceDates.forEach(function (sd) {
       try {
         models[sd.isoDate] = buildBulletinModel_(sd.isoDate);
       } catch (err) {
         models[sd.isoDate] = null;
         failedSteps.push({
-          step: '4. 組裝週報資料模型：' + sd.isoDate,
+          step: '3. 組裝週報資料模型：' + sd.isoDate,
           message: (err && err.message) ? err.message : String(err)
         });
       }
     });
   }, timings, failedSteps);
 
-  // ---- 5. 產生 Word（只產生第一個主日的，避免太慢）----
+  // ---- 4. 產生 Word（只產生第一個主日的，避免太慢）----
   var wordResult = null;
   var firstIsoDate = serviceDates.length > 0 ? serviceDates[0].isoDate : null;
   if (firstIsoDate) {
-    var wordStep = runRehearsalStep_('5. 產生 Word（僅第一個主日：' + firstIsoDate + '）', function () {
+    var wordStep = runRehearsalStep_('4. 產生 Word（僅第一個主日：' + firstIsoDate + '）', function () {
       // 用獨立副本，不蓋走這個主日的「最新版」Word（可能已有人手修改）。
       var result = saveBulletinDocxCopy_(firstIsoDate);
       if (!result.ok) throw new Error(result.message || ('原因代碼：' + result.reason));
@@ -115,44 +114,44 @@ function runQuarterRehearsal_(quarterId) {
     wordResult = wordStep.ok ? wordStep.value : null;
   }
 
-  // ---- 6. 組裝電郵內容（不寄）----
+  // ---- 5. 組裝電郵內容（不寄）----
   var emailOkCount = 0;
-  runRehearsalStep_('6. 組裝電郵內容（全季，不寄）', function () {
+  runRehearsalStep_('5. 組裝電郵內容（全季，不寄）', function () {
     serviceDates.forEach(function (sd) {
       var model = models[sd.isoDate];
-      if (!model) return; // 第 4 步已經記過失敗，這裡不重複記
+      if (!model) return; // 第 3 步已經記過失敗，這裡不重複記
       try {
         buildBulletinEmailHtml_(model, {});
         buildBulletinEmailPlainText_(model, {});
         emailOkCount++;
       } catch (err) {
         failedSteps.push({
-          step: '6. 組裝電郵內容：' + sd.isoDate,
+          step: '5. 組裝電郵內容：' + sd.isoDate,
           message: (err && err.message) ? err.message : String(err)
         });
       }
     });
   }, timings, failedSteps);
 
-  // ---- 7. 檢查職事表分歧（唯讀，不寫 AuditLog、不推進快照版本）----
+  // ---- 6. 檢查職事表分歧（唯讀，不寫 AuditLog、不推進快照版本）----
   var diffs = {};
-  runRehearsalStep_('7. 檢查職事表分歧（全季，唯讀）', function () {
+  runRehearsalStep_('6. 檢查職事表分歧（全季，唯讀）', function () {
     serviceDates.forEach(function (sd) {
       try {
         diffs[sd.isoDate] = computeRosterDiff_(sd.isoDate);
       } catch (err) {
         diffs[sd.isoDate] = null;
         failedSteps.push({
-          step: '7. 檢查職事表分歧：' + sd.isoDate,
+          step: '6. 檢查職事表分歧：' + sd.isoDate,
           message: (err && err.message) ? err.message : String(err)
         });
       }
     });
   }, timings, failedSteps);
 
-  // ---- 8. 統計待填欄位（含尊稱未設定人數）----
+  // ---- 7. 統計待填欄位（含尊稱未設定人數）----
   var honorificMissingCount = 0;
-  runRehearsalStep_('8. 統計待填欄位／尊稱未設定人數', function () {
+  runRehearsalStep_('7. 統計待填欄位／尊稱未設定人數', function () {
     if (!firstIsoDate) return;
     var quarterInfo = listRosterQuarterAssignedPersons_(firstIsoDate);
     var personDisplayRows = readSheet(SHEETS.PERSON_DISPLAY);

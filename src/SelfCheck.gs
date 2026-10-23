@@ -531,15 +531,8 @@ function selfCheckFeatureItems_() {
   var reconcileInstalled = Boolean(handlers['fillReconcileTrigger_']);
   items.push(selfCheckItem_('觸發器：填寫表對帳', reconcileInstalled ? S.GREEN : S.YELLOW, reconcileInstalled ? '已安裝。' : '尚未安裝。'));
 
-  // ⚠️「下一季提示」（autoCreateNextQuarterFillGrids_）不是獨立的觸發器，
-  // 是每週自動寄送流程 weeklyBulletinSendTrigger_ 順手做的一部分，
-  // 見 src/Trigger.gs／src/FillAdmin.gs——所以這裡的安裝狀態跟「自動
-  // 寄送」共用同一個判斷依據，不是另外裝一個。
-  items.push(selfCheckItem_(
-    '觸發器：下一季提示（隨自動寄送觸發器一起執行）',
-    sendInstalled ? S.GREEN : S.YELLOW,
-    sendInstalled ? '會隨每週自動寄送一起檢查。' : '自動寄送觸發器未安裝，這個功能也不會執行。'
-  ));
+  // 內容表 v2：「下一季提示」（autoCreateNextQuarterFillGrids_，星期一自動建立季度填寫表並寄邀請）
+  // 已隨季度填寫表停用，這一項拿走。新季度由內容表那一步自動建立並寄邀請（R-015）。
 
   var webAppUrl = getConfig(CONFIG_KEYS.WEBAPP_URL, '');
   items.push(selfCheckItem_('Web App 部署', webAppUrl ? S.GREEN : S.YELLOW, webAppUrl ? '已部署（' + webAppUrl + '）。' : 'WEBAPP_URL 是空的，尚未填入部署後的網址。'));

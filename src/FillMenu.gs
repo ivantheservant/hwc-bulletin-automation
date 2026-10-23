@@ -4,6 +4,10 @@
  * 季度填寫表相關的**選單處理函式**與觸發器安裝，以及「處理填寫表衝突」
  * 的 `HtmlService` 對話框。
  *
+ * 內容表 v2：季度填寫表已停用。選單子項目改名「季度工具」，只留與填寫表無關的維護項目；
+ * 已停用項目的處理函式保留名字、只顯示已停用（`showFillGridRetiredMenuAlert_()`），
+ * `apiResolveFillConflicts` 一律回 `FILL_GRID_RETIRED`。
+ *
  * ⚠️ 每個 `menuXxx_()` 的 catch 分支都要呼叫 `logMenuError_()`
  * （`src/ErrorLog.gs`）寫一筆 `ErrorLog`（`SOURCE='MENU'`），再顯示
  * `ui.alert()`——不能只顯示對話框、不留記錄，見 docs/已知bug類型.md 事故七。
@@ -13,15 +17,20 @@
 
 /**
  * 用途：問使用者一個季度 ID，共用的小工具。
+ *
+ *   內容表 v2：季度填寫表停用之後，提示改列週報試算表（`BulletinWeeks`）內有的季度，不再列
+ *   `Fill_*` 分頁——留下來的「季度工具」（整理次序、團契、備份、還原）處理的都是週報資料。
  * Args:
  *   ui {Ui} `SpreadsheetApp.getUi()`。
  *   title {string} 對話框標題。
  * Returns:
  *   {?string} 使用者取消時回 `null`。
+ * Raises:
+ *   Error 讀 `BulletinWeeks` 失敗時原樣拋出（由選單處理函式接住並寫 `ErrorLog`）。
  */
 function promptForQuarterId_(ui, title) {
-  var existing = listExistingFillGridQuarters_();
-  var hint = existing.length > 0 ? '\n\n目前已建立的季度：' + existing.join('、') : '';
+  var existing = listBulletinWeekQuarterIds_();
+  var hint = existing.length > 0 ? '\n\n週報試算表內的季度：' + existing.join('、') : '';
   var resp = ui.prompt(title, '請輸入季度 ID（例如 2027T4）：' + hint, ui.ButtonSet.OK_CANCEL);
   if (resp.getSelectedButton() !== ui.Button.OK) return null;
   var quarterId = resp.getResponseText().trim();
@@ -29,82 +38,68 @@ function promptForQuarterId_(ui, title) {
 }
 
 /**
- * 用途：選單項目「建立／刷新季度填寫表」的處理函式。
+ * 用途：列出 `BulletinWeeks` 內出現過的季度 ID（不重複、按名稱排序）。
  * Args: （無）
  * Returns:
- *   {void}
+ *   {string[]}
+ * Raises:
+ *   Error 讀 `BulletinWeeks` 失敗時原樣拋出。
  */
-function menuCreateOrRefreshFillGrid_() {
-  var ui = SpreadsheetApp.getUi();
+function listBulletinWeekQuarterIds_() {
+  var seen = {};
+  readSheet(SHEETS.BULLETIN_WEEKS).forEach(function (row) {
+    var qid = String(row.QUARTER_ID || '').trim();
+    if (qid) seen[qid] = true;
+  });
+  return Object.keys(seen).sort();
+}
+
+/**
+ * 用途：內容表 v2：已停用的季度填寫表選單項目共用的處理——只顯示一句已停用，一格都不寫。
+ *
+ *   ⚠️ 為甚麼保留這些處理函式的名字，而不是刪走：部署之前已經開着的試算表，選單是開啟那一刻
+ *   建好的，舊項目仍然在畫面上；按下去會按名字叫這裏。刪走的話會出「找不到指令碼函式」，
+ *   保留舊內容的話等於後門（bug class 47）。所以名字保留、內容換成這一句。
+ * Args:
+ *   title {string} 原本那個選單項目的名稱（對話框標題用）。
+ * Returns:
+ *   {void}
+ * Raises:
+ *   （無）`getUi()` 失敗時寫 `ErrorLog`。
+ */
+function showFillGridRetiredMenuAlert_(title) {
   try {
-    var quarterId = promptForQuarterId_(ui, '建立／刷新季度填寫表');
-    if (!quarterId) return;
-
-    var result = createOrRefreshFillGrid_(quarterId);
-    if (!result.ok) {
-      ui.alert('未能建立季度填寫表', result.message, ui.ButtonSet.OK);
-      return;
-    }
-
-    var lines = [
-      (result.created ? '已建立' : '已刷新') + '工作表：' + result.sheetName,
-      '主日數：' + result.rowCount,
-      '還原點：' + result.backupId
-    ];
-
-    if (result.sync) {
-      lines.push('');
-      lines.push('同步結果：寫回系統 ' + result.sync.pushCount + ' 格、刷新格子表 '
-        + result.sync.pullCount + ' 格、衝突 ' + result.sync.conflictCount + ' 格');
-      if (result.sync.conflictCount > 0) {
-        lines.push('');
-        lines.push('⚠️ 有 ' + result.sync.conflictCount + ' 格兩邊都改過，系統沒有改動任何一邊。');
-        lines.push('請用選單「處理填寫表衝突」逐項確認。');
-      }
-    }
-
-    ui.alert('季度填寫表', lines.join('\n'), ui.ButtonSet.OK);
+    var ui = SpreadsheetApp.getUi();
+    ui.alert(title, fillGridRetiredMessage_(), ui.ButtonSet.OK);
   } catch (err) {
-    logMenuError_('menuCreateOrRefreshFillGrid_', err);
-    ui.alert('建立季度填寫表失敗', enrichAuthError_(err), ui.ButtonSet.OK);
+    logMenuError_('showFillGridRetiredMenuAlert_', err);
   }
 }
 
 /**
- * 用途：選單項目「立即同步季度填寫表」的處理函式。
+ * 用途：內容表 v2：季度填寫表已停用。原本是選單項目「建立／刷新季度填寫表」的處理函式，現在只顯示已停用，
+ *   一格都不寫（理由見 `showFillGridRetiredMenuAlert_()`）。
  * Args: （無）
  * Returns:
  *   {void}
+ * Raises:
+ *   （無）
+ */
+function menuCreateOrRefreshFillGrid_() {
+  showFillGridRetiredMenuAlert_('建立／刷新季度填寫表');
+}
+
+/**
+ * 用途：內容表 v2：季度填寫表已停用。原本是選單項目「立即同步季度填寫表」的處理函式，現在只顯示已停用，
+ *   一格都不寫（理由見 `showFillGridRetiredMenuAlert_()`）。
+ * Args: （無）
+ * Returns:
+ *   {void}
+ * Raises:
+ *   （無）
  */
 function menuSyncFillGrid_() {
-  var ui = SpreadsheetApp.getUi();
-  try {
-    var quarterId = promptForQuarterId_(ui, '立即同步季度填寫表');
-    if (!quarterId) return;
-
-    var plan = syncFillGrid_(quarterId);
-    writeDiagnosticsReport_('季度填寫表同步', buildFillSyncReportLines_(plan));
-
-    var lines = [
-      '季度：' + quarterId,
-      '寫回 BulletinWeeks：' + plan.pushCount + ' 格',
-      '刷新格子表：' + plan.pullCount + ' 格',
-      '衝突：' + plan.conflictCount + ' 格',
-      '兩邊一致：' + plan.sameCount + ' 格'
-    ];
-    if (plan.conflictCount > 0) {
-      lines.push('');
-      lines.push('⚠️ 衝突的格子一格都沒有被改動，兩邊的值都保留。');
-      lines.push('請用選單「處理填寫表衝突」逐項確認。');
-    }
-    lines.push('');
-    lines.push('完整內容已寫入 Diagnostics 工作表。');
-
-    ui.alert('同步完成', lines.join('\n'), ui.ButtonSet.OK);
-  } catch (err) {
-    logMenuError_('menuSyncFillGrid_', err);
-    ui.alert('同步失敗', enrichAuthError_(err), ui.ButtonSet.OK);
-  }
+  showFillGridRetiredMenuAlert_('立即同步季度填寫表');
 }
 
 // =====================================================================
@@ -112,87 +107,51 @@ function menuSyncFillGrid_() {
 // =====================================================================
 
 /**
- * 用途：選單項目「處理填寫表衝突」的處理函式。開一個對話框逐項列出
- *   衝突，每項三選一。
+ * 用途：內容表 v2：季度填寫表已停用。原本是選單項目「處理填寫表衝突」的處理函式，現在只顯示已停用，
+ *   一格都不寫（理由見 `showFillGridRetiredMenuAlert_()`）。
  * Args: （無）
  * Returns:
  *   {void}
+ * Raises:
+ *   （無）
  */
 function menuResolveFillConflicts_() {
-  var ui = SpreadsheetApp.getUi();
-  try {
-    var quarterId = promptForQuarterId_(ui, '處理填寫表衝突');
-    if (!quarterId) return;
-
-    var plan = computeFillSyncPlan_(quarterId);
-    var conflicts = plan.cells.filter(function (c) { return c.status === FILL_SYNC_STATUS.CONFLICT; });
-
-    if (conflicts.length === 0) {
-      ui.alert('處理填寫表衝突', '季度 ' + quarterId + ' 目前沒有任何衝突。', ui.ButtonSet.OK);
-      return;
-    }
-
-    var template = HtmlService.createTemplateFromFile('ui/FillConflict');
-    template.quarterId = quarterId;
-    template.conflictsJson = JSON.stringify(conflicts);
-    template.callTimeoutSec = webAppCallTimeoutSec_();
-    ui.showModalDialog(
-      template.evaluate().setWidth(900).setHeight(600),
-      '處理填寫表衝突（' + quarterId + '，共 ' + conflicts.length + ' 格）'
-    );
-  } catch (err) {
-    logMenuError_('menuResolveFillConflicts_', err);
-    ui.alert('處理填寫表衝突失敗', enrichAuthError_(err), ui.ButtonSet.OK);
-  }
+  showFillGridRetiredMenuAlert_('處理填寫表衝突');
 }
 
 /**
- * 用途：選單項目「檢查格子表外觀」的處理函式。**唯讀**——只讀取實際
- *   套用的條件格式、凍結行欄、殘留註解、數字格式，寫入 `Diagnostics`，
- *   不改動格子表任何一格。
+ * 用途：內容表 v2：季度填寫表已停用。原本是選單項目「檢查格子表外觀」的處理函式，現在只顯示已停用，
+ *   一格都不寫（理由見 `showFillGridRetiredMenuAlert_()`）。
  * Args: （無）
  * Returns:
  *   {void}
+ * Raises:
+ *   （無）
  */
 function menuCheckFillGridAppearance_() {
-  var ui = SpreadsheetApp.getUi();
-  try {
-    var quarterId = promptForQuarterId_(ui, '檢查格子表外觀');
-    if (!quarterId) return;
-
-    var facts = inspectFillGridAppearance_(quarterId);
-    writeDiagnosticsReport_('格子表外觀檢查', buildFillAppearanceReportLines_(facts));
-
-    ui.alert(
-      '檢查格子表外觀',
-      '已把「' + facts.sheetName + '」的條件格式與格式設定寫入 Diagnostics 工作表。',
-      ui.ButtonSet.OK
-    );
-  } catch (err) {
-    logMenuError_('menuCheckFillGridAppearance_', err);
-    ui.alert('檢查格子表外觀失敗', enrichAuthError_(err), ui.ButtonSet.OK);
-  }
+  showFillGridRetiredMenuAlert_('檢查格子表外觀');
 }
 
 /**
- * 用途：衝突對話框呼叫的伺服器端函式——把使用者的選擇寫入。
- *
- *   ⚠️ 「暫不處理」（`SKIP`）的格**完全不動**，快照也不更新，所以下一次
- *   比對仍然會報成衝突。這是刻意的：使用者明確表示「稍後再算」，系統
- *   不可以自作主張把它變成不再提醒。
+ * 用途：「處理填寫表衝突」對話框（`src/ui/FillConflict.html`）呼叫的伺服器端函式。
+ *   內容表 v2 起季度填寫表已停用：一律回已停用，一格都不寫。`resolveFillConflicts_()`
+ *   本身保留到日後清理死碼時才刪（計劃 Commit 10），但已經沒有任何入口。
  * Args:
- *   quarterId {string} 季度 ID。
- *   decisions {{isoDate:string, fieldKey:string, choice:string}[]}
- *     `choice` 是 `'GRID'`（用格子表的值）／`'SYSTEM'`（用系統的值）／
- *     `'SKIP'`（暫不處理）。
+ *   quarterId {string} 季度 ID（只用於 ErrorLog 的參數摘要）。
+ *   decisions {Object[]} 對話框送來的選擇（不再理會）。
  * Returns:
- *   {{ok:boolean, appliedGrid:number, appliedSystem:number, skipped:number,
- *     decisionsReceived:number, matchedConflicts:number, unmatched:number,
- *     message:string}}
+ *   {{ok:boolean, error:{code:string, message:string}}} `ok` 一律是 `false`，
+ *     `error.code` 是 `'FILL_GRID_RETIRED'`。
+ * Raises:
+ *   （無）錯誤由 `withApiResult_()` 轉成回傳值。
  */
 function apiResolveFillConflicts(quarterId, decisions) {
+  // 內容表 v2：季度填寫表已停用。這是不帶底線的公開函式，瀏覽器主控台叫得到（bug class 33、47），
+  // 拿走選單項目不等於拿走入口，所以後端一律回已停用，一格都不寫。
   return withApiResult_(function () {
-    return resolveFillConflicts_(normalizeQuarterId_(quarterId), decisions);
+    var err = new Error(fillGridRetiredMessage_());
+    err.code = 'FILL_GRID_RETIRED';
+    throw err;
   }, { functionName: 'apiResolveFillConflicts', argsSummary: 'quarterId=' + quarterId });
 }
 
@@ -542,38 +501,16 @@ function menuGenerateFellowships_() {
 // =====================================================================
 
 /**
- * 用途：選單項目「寄出季度填寫邀請」的處理函式。
+ * 用途：內容表 v2：季度填寫表已停用。原本是選單項目「寄出季度填寫邀請」的處理函式，現在只顯示已停用，
+ *   一格都不寫（理由見 `showFillGridRetiredMenuAlert_()`）。
  * Args: （無）
  * Returns:
  *   {void}
+ * Raises:
+ *   （無）
  */
 function menuSendFillInvite_() {
-  var ui = SpreadsheetApp.getUi();
-  try {
-    var quarterId = promptForQuarterId_(ui, '寄出季度填寫邀請');
-    if (!quarterId) return;
-
-    var result = sendFillInvite_(quarterId);
-    if (!result.sent) {
-      ui.alert('未能寄出填寫邀請', result.message || ('原因代碼：' + result.reason), ui.ButtonSet.OK);
-      return;
-    }
-
-    ui.alert(
-      '填寫邀請',
-      [
-        '季度：' + quarterId,
-        '收件人：' + result.recipientCount + ' 位',
-        result.dryRun
-          ? '⚠️ DRY_RUN 目前是 TRUE，沒有真的寄出，只在 SendLog 留了記錄。'
-          : '已真正寄出。'
-      ].join('\n'),
-      ui.ButtonSet.OK
-    );
-  } catch (err) {
-    logMenuError_('menuSendFillInvite_', err);
-    ui.alert('寄出填寫邀請失敗', enrichAuthError_(err), ui.ButtonSet.OK);
-  }
+  showFillGridRetiredMenuAlert_('寄出季度填寫邀請');
 }
 
 /**
@@ -607,35 +544,16 @@ function menuApplySheetProtection_() {
 }
 
 /**
- * 用途：選單項目「檢查未建立的季度」的處理函式。唯讀。
+ * 用途：內容表 v2：季度填寫表已停用。原本是選單項目「檢查未建立的季度」的處理函式，現在只顯示已停用，
+ *   一格都不寫（理由見 `showFillGridRetiredMenuAlert_()`）。
  * Args: （無）
  * Returns:
  *   {void}
+ * Raises:
+ *   （無）
  */
 function menuCheckMissingQuarters_() {
-  var ui = SpreadsheetApp.getUi();
-  try {
-    var missing = findQuartersWithoutFillGrid_();
-    var existing = listExistingFillGridQuarters_();
-
-    ui.alert(
-      '檢查未建立的季度',
-      [
-        '已建立填寫表的季度（' + existing.length + '）：' + (existing.join('、') || '（無）'),
-        '',
-        '尚未建立的季度（' + missing.length + '）：' + (missing.join('、') || '（無）'),
-        '',
-        missing.length > 0
-          ? '可以用「建立／刷新季度填寫表」逐一建立；每週寄送流程也會自動建立並寄出邀請'
-            + '（受 Config 的 FILL_AUTO_CREATE_NEXT_QUARTER 與 DRY_RUN 控制）。'
-          : '全部季度都已經有填寫表。'
-      ].join('\n'),
-      ui.ButtonSet.OK
-    );
-  } catch (err) {
-    logMenuError_('menuCheckMissingQuarters_', err);
-    ui.alert('檢查未建立的季度失敗', enrichAuthError_(err), ui.ButtonSet.OK);
-  }
+  showFillGridRetiredMenuAlert_('檢查未建立的季度');
 }
 
 // =====================================================================
@@ -643,7 +561,8 @@ function menuCheckMissingQuarters_() {
 // =====================================================================
 
 /**
- * 用途：選單項目「安裝填寫表同步觸發器」的處理函式。
+ * 用途：選單項目「安裝 Config 改動稽核觸發器」的處理函式（內容表 v2 之前叫「安裝填寫表同步
+ *   觸發器」）。處理函式 `onFillGridEdit_` 的名字不改：已經安裝的觸發器按名字綁定。
  *
  *   ⚠️ 安裝前一律先刪同名觸發器——重複安裝會令同一次編輯觸發好幾次。
  * Args: （無）
@@ -660,13 +579,13 @@ function menuInstallFillEditTrigger_() {
       .create();
 
     ui.alert(
-      '安裝填寫表同步觸發器',
+      '安裝 Config 改動稽核觸發器',
       [
-        '已安裝。之後在 Fill_* 工作表的編輯會即時寫回 BulletinWeeks。',
+        '已安裝。之後在試算表直接改 Config 的「設定鍵」或「值」，每一格都會記入 AuditLog（CONFIG_MANUAL_EDIT）。',
         removed > 0 ? '（安裝前先移除了 ' + removed + ' 個舊觸發器，避免重複觸發。）' : '',
         '',
-        '⚠️ onEdit 觸發器出錯是靜默的，所以系統會把錯誤寫進 ErrorLog（SOURCE=TRIGGER）。',
-        '如果覺得同步沒有生效，先看那張表。'
+        '季度填寫表已停用：在 Fill_* 分頁改動不會寫入週報。',
+        '⚠️ onEdit 觸發器出錯是靜默的，所以系統會把錯誤寫進 ErrorLog（SOURCE=TRIGGER）。'
       ].filter(function (l) { return l; }).join('\n'),
       ui.ButtonSet.OK
     );
@@ -677,7 +596,8 @@ function menuInstallFillEditTrigger_() {
 }
 
 /**
- * 用途：選單項目「移除填寫表同步觸發器」的處理函式。
+ * 用途：選單項目「移除 Config 改動稽核觸發器」的處理函式（內容表 v2 之前叫「移除填寫表同步
+ *   觸發器」）。
  * Args: （無）
  * Returns:
  *   {void}
@@ -686,7 +606,8 @@ function menuRemoveFillEditTrigger_() {
   var ui = SpreadsheetApp.getUi();
   try {
     var removed = removeTriggersByHandler_(FILL_EDIT_TRIGGER_HANDLER_);
-    ui.alert('移除填寫表同步觸發器', '已移除 ' + removed + ' 個觸發器。', ui.ButtonSet.OK);
+    ui.alert('移除 Config 改動稽核觸發器', '已移除 ' + removed + ' 個觸發器。'
+      + '\n\n⚠️ 移除之後，在試算表直接改 Config 不會再記入 AuditLog。', ui.ButtonSet.OK);
   } catch (err) {
     logMenuError_('menuRemoveFillEditTrigger_', err);
     ui.alert('移除觸發器失敗', enrichAuthError_(err), ui.ButtonSet.OK);
@@ -694,36 +615,17 @@ function menuRemoveFillEditTrigger_() {
 }
 
 /**
- * 用途：選單項目「安裝填寫表對帳觸發器」的處理函式。每隔
- *   Config `FILL_RECONCILE_HOURS` 小時跑一次。
+ * 用途：內容表 v2：季度填寫表已停用。原本是選單項目「安裝填寫表對帳觸發器」的處理函式，現在只顯示已停用，
+ *   一格都不寫（理由見 `showFillGridRetiredMenuAlert_()`）。
+ *   ⚠️ 不可以再安裝：對帳觸發器會把 Fill_ 的值寫回週報。
  * Args: （無）
  * Returns:
  *   {void}
+ * Raises:
+ *   （無）
  */
 function menuInstallFillReconcileTrigger_() {
-  var ui = SpreadsheetApp.getUi();
-  try {
-    var hours = normalizeInt_(getConfig(CONFIG_KEYS.FILL_RECONCILE_HOURS, '6'));
-    if (!hours || hours < 1) hours = 6;
-
-    var removed = removeTriggersByHandler_(FILL_RECONCILE_TRIGGER_HANDLER_);
-    ScriptApp.newTrigger(FILL_RECONCILE_TRIGGER_HANDLER_).timeBased().everyHours(hours).create();
-
-    ui.alert(
-      '安裝填寫表對帳觸發器',
-      [
-        '已安裝，每 ' + hours + ' 小時跑一次三方對帳。',
-        removed > 0 ? '（安裝前先移除了 ' + removed + ' 個舊觸發器。）' : '',
-        '',
-        '對帳是安全網：即時同步觸發器萬一漏了某次編輯，對帳會補上。',
-        '有衝突時會寫 Diagnostics 並寄提醒（受 DRY_RUN 保護）。'
-      ].filter(function (l) { return l; }).join('\n'),
-      ui.ButtonSet.OK
-    );
-  } catch (err) {
-    logMenuError_('menuInstallFillReconcileTrigger_', err);
-    ui.alert('安裝對帳觸發器失敗', enrichAuthError_(err), ui.ButtonSet.OK);
-  }
+  showFillGridRetiredMenuAlert_('安裝填寫表對帳觸發器');
 }
 
 /**

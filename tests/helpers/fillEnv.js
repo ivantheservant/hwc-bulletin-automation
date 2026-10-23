@@ -92,14 +92,29 @@ function makeFillGridSheet(sandbox, rows) {
     setFrozenColumns: function (n) { frozenColumns = n; return sheet; },
     setConditionalFormatRules: function (rules) { conditionalRules = rules; return sheet; },
     getConditionalFormatRules: function () { return conditionalRules; },
-    getProtections: function () { return []; },
+    // 內容表 v2：「停用舊功能」會隱藏 Fill_ 並設系統保護，所以要記得住有沒有隱藏、有幾個保護。
+    __hidden: false,
+    __protections: [],
+    hideSheet: function () { sheet.__hidden = true; return sheet; },
+    showSheet: function () { sheet.__hidden = false; return sheet; },
+    isSheetHidden: function () { return sheet.__hidden; },
+    getProtections: function () { return sheet.__protections.slice(); },
     protect: function () {
-      return {
-        setDescription: function () { return this; },
-        removeEditors: function () { return this; },
-        addEditors: function () { return this; },
-        getEditors: function () { return []; }
+      const record = { description: '', warningOnly: false };
+      sheet.__protections.push(record);
+      const p = {
+        setDescription: function (d) { record.description = d; return p; },
+        setWarningOnly: function (b) { record.warningOnly = b === true; return p; },
+        removeEditors: function () { return p; },
+        addEditors: function () { return p; },
+        getEditors: function () { return []; },
+        canEdit: function () { return true; },
+        remove: function () {
+          const i = sheet.__protections.indexOf(record);
+          if (i !== -1) sheet.__protections.splice(i, 1);
+        }
       };
+      return p;
     },
     getRange: function (r, c, numRows, numCols) {
       numRows = numRows || 1;

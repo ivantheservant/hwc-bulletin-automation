@@ -344,7 +344,8 @@ function archiveQuarter_(quarterId, options) {
 }
 
 /**
- * 用途：取消封存一個季度，**完全還原**。
+ * 用途：取消封存一個季度，**完全還原**（內容表 v2 起季度填寫表已停用，`Fill_*` 維持隱藏，
+ *   其餘照舊還原）。
  * Args:
  *   quarterId {string} 季度 ID。
  * Returns:
@@ -362,7 +363,12 @@ function unarchiveQuarter_(quarterId) {
   }
 
   out.weekRows = setQuarterArchivedFlag_(qid, false);
-  out.fillGrid = setFillGridHidden_(qid, false);
+  // 內容表 v2：季度填寫表已停用，取消封存時不再取消隱藏 Fill_（以前會 showSheet()，令已停用的
+  // 分頁重新出現，同工以為仍然可以在那裏填）。
+  out.fillGrid = {
+    ok: true, sheetName: fillGridSheetName_(qid),
+    message: '季度填寫表已停用，' + fillGridSheetName_(qid) + ' 維持隱藏。'
+  };
   out.contentSheet = setContentSheetArchived_(qid, false, config.archiveFolderId);
 
   appendAuditLog_({
@@ -616,8 +622,8 @@ function menuUnarchiveQuarter_() {
   var ui = SpreadsheetApp.getUi();
   try {
     var resp = ui.prompt('取消封存季度',
-      '把一個已封存的季度完全還原：ARCHIVED 改回 FALSE、季度填寫表取消隱藏、\n'
-        + '內容表登記行的「有效」改回 TRUE。\n\n'
+      '把一個已封存的季度完全還原：ARCHIVED 改回 FALSE、\n'
+        + '內容表登記行的「有效」改回 TRUE。（季度填寫表已停用，Fill_ 分頁維持隱藏。）\n\n'
         + '⚠️ 內容表檔案不會自動搬回原本的資料夾——搬回哪裏系統不知道，\n'
         + '　　請在 Drive 人手處理（檔案一直都在，沒有刪）。\n\n'
         + '要還原哪一個季度？（例如 2027T4）',

@@ -2721,7 +2721,6 @@
     state.loadedNextDutyNames = dutyNameMap(state.nextWeekDutyEdits);
     renderStats(data.missingSplit, data.warnings, data.lastSavedAt);
     renderConflictStat(data.rosterDiff);
-    renderFillGridLink(data.fillGridUrl);
     renderPreviewLink(data.previewUrl);
     renderWordFileInfo(data.wordFile);
     refreshSnapshotPanel();
@@ -2734,19 +2733,9 @@
   }
 
   /**
-   * 用途：顯示／隱藏頂部的「開啟本季填寫表」連結（第八輪）。
-   *
-   *   ⚠️ 網址是空字串（格子表未建立）時**隱藏整個按鈕**——顯示一條開
-   *   不到的連結比不顯示更差，使用者會以為系統壞了。
-   * Args:
-   *   url {string} 直達季度填寫表的網址；空字串代表未建立。
-   * Returns:
-   *   {void}
-   */
-  /**
    * 用途：畫出（或者收起）「開啟預覽」那條連結（R-033）。
    *
-   *   ⚠️ 取不到網址就**不顯示**，與填寫表那一條同一個道理：一條開不到
+   *   ⚠️ 取不到網址就**不顯示**：一條開不到
    *   的連結比不顯示更差，使用者會以為系統壞了。取不到的常見原因是
    *   Config 的 PREVIEW_WEBAPP_URL 未填而且 ScriptApp 那一支拿不到。
    * Args:
@@ -2756,17 +2745,6 @@
    */
   function renderPreviewLink(url) {
     var link = document.getElementById('previewLink');
-    if (!url) {
-      link.classList.add('hidden');
-      link.removeAttribute('href');
-      return;
-    }
-    link.href = url;
-    link.classList.remove('hidden');
-  }
-
-  function renderFillGridLink(url) {
-    var link = document.getElementById('fillGridLink');
     if (!url) {
       link.classList.add('hidden');
       link.removeAttribute('href');

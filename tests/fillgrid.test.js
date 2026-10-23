@@ -448,14 +448,17 @@ function editEvent(env, rowNo, colNo, numRows, numCols) {
   };
 }
 
-test('3. 唯讀欄 _WEEK 被改 → 自動還原成職事表的值，並顯示浮動提示（不加永久註解）', function () {
+// ⚠️ 內容表 v2：季度填寫表已停用，onFillGridEdit_() 在 Fill_ 分頁編輯時**一格都不寫**（見 3f）。
+//    3、3b、3c、4 原本經 onFillGridEdit_() 驗「即時寫回／唯讀還原」；那段邏輯（applyFillGridEdit_()）
+//    保留到日後清理死碼時才刪，但已經沒有入口，所以這幾條改為直接叫內部函式，只守住它本身沒有壞。
+test('3. （內部函式）唯讀欄 _WEEK 被改 → applyFillGridEdit_ 還原成職事表的值，並顯示浮動提示', function () {
   const env = makeSyncedEnv();
   const sheet = env.sheets['Fill_' + QUARTER_ID];
   const weekCol = env.sandbox.fillGridColumnIndex_('_WEEK');
   const rowNo = 4;
 
   sheet.getRange(rowNo, weekCol).setValue('999');
-  env.sandbox.onFillGridEdit_(editEvent(env, rowNo, weekCol));
+  env.sandbox.applyFillGridEdit_(sheet, editEvent(env, rowNo, weekCol).range, QUARTER_ID);
 
   assert.strictEqual(String(sheet.getRange(rowNo, weekCol).getValue()), '1', '應該還原成職事表算出來的第 1 個主日');
   assert.strictEqual(sheet.getRange(rowNo, weekCol).getNote(), '', 'prompt8b：不應該再加永久儲存格註解');
@@ -463,7 +466,7 @@ test('3. 唯讀欄 _WEEK 被改 → 自動還原成職事表的值，並顯示�
   assert.ok(env.sandbox.readSheet('AuditLog').some(function (r) { return r.ACTION === 'FILL_GRID_REVERT_READONLY'; }));
 });
 
-test('3b. 唯讀欄 _DATE 被改 → 用那一行在格子表的位置反推真正日期，立即還原（不是打入的錯值）', function () {
+test('3b. （內部函式）唯讀欄 _DATE 被改 → 用那一行在格子表的位置反推真正日期，立即還原（不是打入的錯值）', function () {
   const env = makeSyncedEnv();
   const sheet = env.sheets['Fill_' + QUARTER_ID];
   const dateCol = env.sandbox.fillGridColumnIndex_('_DATE');
@@ -472,12 +475,12 @@ test('3b. 唯讀欄 _DATE 被改 → 用那一行在格子表的位置反推真�
   assert.strictEqual(original, '2027-11-07');
 
   sheet.getRange(4, dateCol).setValue('2027-10-06');
-  env.sandbox.onFillGridEdit_(editEvent(env, 4, dateCol));
+  env.sandbox.applyFillGridEdit_(sheet, editEvent(env, 4, dateCol).range, QUARTER_ID);
 
   // prompt8b 修的根因：即使使用者剛打錯 _DATE 本身，還原也不可以照抄
   // 剛打錯的值——必須用這一行的**位置**對照職事表反推出真正日期。
   assert.strictEqual(String(sheet.getRange(4, dateCol).getValue()), '2027-11-07',
-    '不需要等下一次刷新，onFillGridEdit_ 當下就要還原成正確日期');
+    '不需要等下一次刷新，applyFillGridEdit_ 當下就要還原成正確日期');
 
   const revertRow = env.sandbox.readSheet('AuditLog').filter(function (r) {
     return r.ACTION === 'FILL_GRID_REVERT_READONLY';
@@ -485,19 +488,43 @@ test('3b. 唯讀欄 _DATE 被改 → 用那一行在格子表的位置反推真�
   assert.strictEqual(revertRow.ROW_KEY, '2027-11-07', 'ROW_KEY 要記那一行原本的主日日期，不是使用者剛打入的錯值');
 });
 
-test('3c. 可編輯欄被改 → 寫回 BulletinWeeks，不會被當成唯讀欄還原', function () {
+test('3c. （內部函式）可編輯欄被改 → applyFillGridEdit_ 寫回 BulletinWeeks，不會被當成唯讀欄還原', function () {
   const env = makeSyncedEnv();
   const sheet = env.sheets['Fill_' + QUARTER_ID];
   const col = env.sandbox.fillGridColumnIndex_('SERMON_TITLE');
 
   sheet.getRange(4, col).setValue('新講題');
-  env.sandbox.onFillGridEdit_(editEvent(env, 4, col));
+  env.sandbox.applyFillGridEdit_(sheet, editEvent(env, 4, col).range, QUARTER_ID);
 
   const week = env.sandbox.readSheet('BulletinWeeks').filter(function (r) {
     return env.sandbox.fillGridCellText_(r.SERVICE_DATE) === '2027-11-07';
   })[0];
   assert.strictEqual(week.SERMON_TITLE, '新講題');
   assert.strictEqual(String(sheet.getRange(4, col).getValue()), '新講題', '可編輯欄不可以被還原');
+});
+
+test('3f. 內容表 v2：onFillGridEdit_ 在 Fill_ 改可編輯欄、唯讀欄、多格 → BulletinWeeks、FillSnapshot、AuditLog 一格都不變，出浮動提示', function () {
+  const env = makeSyncedEnv();
+  const sheet = env.sheets['Fill_' + QUARTER_ID];
+  const before = {
+    weeks: JSON.stringify(env.sandbox.readSheet('BulletinWeeks')),
+    snapshot: JSON.stringify(env.sandbox.readSheet('FillSnapshot')),
+    audit: env.sandbox.readSheet('AuditLog').length
+  };
+  const col = env.sandbox.fillGridColumnIndex_('SERMON_TITLE');
+  const weekCol = env.sandbox.fillGridColumnIndex_('_WEEK');
+  sheet.getRange(4, col).setValue('新講題');
+  sheet.getRange(4, weekCol).setValue('999');
+  env.sandbox.onFillGridEdit_(editEvent(env, 4, col));
+  env.sandbox.onFillGridEdit_(editEvent(env, 4, weekCol));
+  env.sandbox.onFillGridEdit_(editEvent(env, 4, col, 2, 2));
+
+  assert.strictEqual(JSON.stringify(env.sandbox.readSheet('BulletinWeeks')), before.weeks, '週報一格都不可以變');
+  assert.strictEqual(JSON.stringify(env.sandbox.readSheet('FillSnapshot')), before.snapshot, '快照一格都不可以變');
+  assert.strictEqual(env.sandbox.readSheet('AuditLog').length, before.audit, '不寫 AuditLog（沒有寫任何東西）');
+  assert.strictEqual(String(sheet.getRange(4, weekCol).getValue()), '999', '唯讀欄亦不再還原（一格都不寫）');
+  assert.ok(env.toasts.some(function (t) { return t.message.indexOf('季度填寫表已停用') !== -1; }), '要顯示已停用的浮動提示');
+  assert.strictEqual(env.sandbox.readSheet('ErrorLog').length, 0, '不是錯誤，不寫 ErrorLog');
 });
 
 test('3d. onFillGridEdit_：標題三行被改不會影響資料', function () {
@@ -527,7 +554,7 @@ test('3e.「建立／刷新季度填寫表」會清走唯讀三欄既有的殘�
 // 4. 多格貼上逐格處理
 // =====================================================================
 
-test('4. 多格貼上：一次貼 2 行 × 2 欄，四格都要各自寫回', function () {
+test('4. （內部函式）多格貼上：applyFillGridEdit_ 一次貼 2 行 × 2 欄，四格都要各自寫回', function () {
   const env = makeSyncedEnv();
   const sheet = env.sheets['Fill_' + QUARTER_ID];
   const startCol = env.sandbox.fillGridColumnIndex_('SERMON_TITLE');
@@ -537,7 +564,7 @@ test('4. 多格貼上：一次貼 2 行 × 2 欄，四格都要各自寫回', fu
   sheet.getRange(5, startCol).setValue('講題二');
   sheet.getRange(5, startCol + 1).setValue('回應詩歌二');
 
-  env.sandbox.onFillGridEdit_(editEvent(env, 4, startCol, 2, 2));
+  env.sandbox.applyFillGridEdit_(sheet, editEvent(env, 4, startCol, 2, 2).range, QUARTER_ID);
 
   const weeks = {};
   env.sandbox.readSheet('BulletinWeeks').forEach(function (r) {
@@ -666,16 +693,19 @@ test('6b. fillGridCellText_：Date 物件轉成 yyyy-MM-dd（比對一律在字�
 });
 
 // =====================================================================
-// 9. Web App 儲存後 FillSnapshot 有更新（最容易漏的一項）
+// 9. 內容表 v2：Web App 儲存不再碰季度填寫表
+//
+// ⚠️ 預期改了，理由：以前（第八輪）每次儲存都要即時刷新 Fill_ 那一格與 FillSnapshot，否則下一次
+//    同步會把舊值推回去（9、9b、9b-2、9b-3、9c、9d 守的就是這件事）。季度填寫表停用之後，同步、
+//    onEdit 寫回、處理衝突都已經沒有入口，refreshFillSnapshotAfterSave_() 一開始就返回——儲存、重設、
+//    還原、講員表格四條路一格 Fill_／FillSnapshot 都不寫。再寫的話，已停用的分頁仍然會被系統改動，
+//    幹事以為它仍然在用。
 // =====================================================================
 
-test('9. ⚠️ Web App 儲存後，FillSnapshot 一定要更新', function () {
+test('9. 內容表 v2：Web App 儲存之後，Fill_ 與 FillSnapshot 一格都不變', function () {
   const env = makeSyncedEnv();
-
-  const before = env.sandbox.readSheet('FillSnapshot').filter(function (r) {
-    return r.FIELD_KEY === 'SERMON_TITLE' && env.sandbox.fillGridCellText_(r.SERVICE_DATE) === '2027-11-07';
-  })[0];
-  assert.strictEqual(env.sandbox.fillGridCellText_(before.VALUE), '', '一開始是空的');
+  const snapshotBefore = JSON.stringify(env.sandbox.readSheet('FillSnapshot'));
+  const gridBefore = JSON.stringify(env.sandbox.readFillGridRows_(QUARTER_ID));
 
   env.sandbox.saveWeekFromWebApp_({
     isoDate: '2027-11-07', lastSavedAt: null,
@@ -683,108 +713,22 @@ test('9. ⚠️ Web App 儲存後，FillSnapshot 一定要更新', function () {
     announcements: [], prayers: [], fellowships: [], finance: []
   });
 
-  const after = env.sandbox.readSheet('FillSnapshot').filter(function (r) {
-    return r.FIELD_KEY === 'SERMON_TITLE' && env.sandbox.fillGridCellText_(r.SERVICE_DATE) === '2027-11-07';
-  })[0];
-  assert.strictEqual(env.sandbox.fillGridCellText_(after.VALUE), '經填寫介面改的',
-    '⚠️ 沒有更新快照的話，下一次同步會把這次儲存誤判成「兩邊都改過」');
-});
-
-test('9b. ⚠️ Web App 儲存 ＋ 格子表改另一格 → 各自同步，不會誤判成衝突', function () {
-  const env = makeSyncedEnv();
-
-  // 填寫介面改一格
-  env.sandbox.saveWeekFromWebApp_({
-    isoDate: '2027-11-07', lastSavedAt: null,
-    week: { SERMON_TITLE: '介面改的講題' }, baseWeek: { SERMON_TITLE: '' },
-    announcements: [], prayers: [], fellowships: [], finance: []
-  });
-  // 格子表改另一格
-  setGridCell(env, '2027-11-07', 'HYMN_PRAISE', '格子表改的詩歌');
-
-  // 填寫介面儲存時已經即時把 SERMON_TITLE 刷新到格子表並更新快照，
-  // 所以同步時只剩下格子表那一格要寫回。
-  const gridRow = env.sandbox.readFillGridRows_(QUARTER_ID)
-    .filter(function (r) { return r.isoDate === '2027-11-07'; })[0];
-  assert.strictEqual(gridRow.values.SERMON_TITLE, '介面改的講題',
-    '⚠️ 儲存之後格子表那一格要即時跟住更新，否則下次同步會把舊值推回去蓋掉它');
-
-  const plan = env.sandbox.syncFillGrid_(QUARTER_ID);
-  assert.strictEqual(plan.conflictCount, 0, '⚠️ 兩個不同的格子，不應該有任何衝突');
-  assert.strictEqual(plan.pushCount, 1, '格子表那一格要寫回');
-  assert.strictEqual(plan.pullCount, 0, '介面那一格已經即時刷新過，不用再 PULL');
-});
-
-test('9b-2. ⚠️ 反向鎖：填寫介面儲存之後，同步**不可以**把格子表的舊值推回去', function () {
-  // 這是實作時真的踩過的坑：只更新快照、不刷新格子表的話，
-  // 下一次同步會看到「格子表(舊) ≠ 快照(新)」而判定成「格子表改過」，
-  // 於是 PUSH 回去，把填寫介面剛剛存好的內容蓋掉。
-  const env = makeSyncedEnv();
-  env.sandbox.saveWeekFromWebApp_({
-    isoDate: '2027-11-07', lastSavedAt: null,
-    week: { SERMON_TITLE: '介面改的講題' }, baseWeek: { SERMON_TITLE: '' },
-    announcements: [], prayers: [], fellowships: [], finance: []
-  });
-
-  env.sandbox.syncFillGrid_(QUARTER_ID);
-
   const week = env.sandbox.readSheet('BulletinWeeks').filter(function (r) {
     return env.sandbox.fillGridCellText_(r.SERVICE_DATE) === '2027-11-07';
   })[0];
-  assert.strictEqual(week.SERMON_TITLE, '介面改的講題',
-    '⚠️ 填寫介面存好的內容絕對不可以被同步推回舊值蓋掉');
+  assert.strictEqual(week.SERMON_TITLE, '經填寫介面改的', '儲存本身照常寫入週報');
+  assert.strictEqual(JSON.stringify(env.sandbox.readSheet('FillSnapshot')), snapshotBefore, 'FillSnapshot 不可以變');
+  assert.strictEqual(JSON.stringify(env.sandbox.readFillGridRows_(QUARTER_ID)), gridBefore, 'Fill_ 不可以變');
 });
 
-test('9b-3. 格子表那一格有未同步的改動時，儲存**不會**蓋掉它（留給同步報衝突）', function () {
+test('9d. 內容表 v2：refreshFillSnapshotAfterSave_() 一開始就返回，Fill_ 與快照都不寫', function () {
   const env = makeSyncedEnv();
-  setGridCell(env, '2027-11-07', 'SERMON_TITLE', '格子表打的');
-
-  env.sandbox.saveWeekFromWebApp_({
-    isoDate: '2027-11-07', lastSavedAt: null,
-    week: { SERMON_TITLE: '介面打的' }, baseWeek: { SERMON_TITLE: '' },
-    announcements: [], prayers: [], fellowships: [], finance: []
-  });
-
+  const snapshotBefore = JSON.stringify(env.sandbox.readSheet('FillSnapshot'));
+  env.sandbox.refreshFillSnapshotAfterSave_('2027-11-07', [{ field: 'SERMON_TITLE', newValue: 'A' }]);
   const gridRow = env.sandbox.readFillGridRows_(QUARTER_ID)
     .filter(function (r) { return r.isoDate === '2027-11-07'; })[0];
-  assert.strictEqual(gridRow.values.SERMON_TITLE, '格子表打的',
-    '格子表有未同步的改動時，儲存不可以靜靜蓋掉它');
-
-  const plan = env.sandbox.syncFillGrid_(QUARTER_ID);
-  assert.strictEqual(plan.conflictCount, 1, '這才是真正的「兩邊都改過」，要報成衝突');
-});
-
-test('9c. Web App 儲存同一格之後，格子表再改**同一格** → 才算衝突', function () {
-  const env = makeSyncedEnv();
-  env.sandbox.saveWeekFromWebApp_({
-    isoDate: '2027-11-07', lastSavedAt: null,
-    week: { SERMON_TITLE: '介面改的' }, baseWeek: { SERMON_TITLE: '' },
-    announcements: [], prayers: [], fellowships: [], finance: []
-  });
-  // 快照已經更新成「介面改的」；現在格子表改成第三個值
-  setGridCell(env, '2027-11-07', 'SERMON_TITLE', '格子表改的');
-
-  const plan = env.sandbox.syncFillGrid_(QUARTER_ID);
-  assert.strictEqual(plan.conflictCount, 0, '快照已經跟系統一樣，所以只有格子表改過 ⇒ PUSH');
-  assert.strictEqual(plan.pushCount, 1);
-});
-
-test('9d. refreshFillSnapshotAfterSave_：只處理屬於格子表的欄位', function () {
-  const env = makeSyncedEnv();
-  const beforeCount = env.sandbox.readSheet('FillSnapshot').length;
-
-  env.sandbox.refreshFillSnapshotAfterSave_('2027-11-07', [
-    { field: 'SERMON_TITLE', newValue: 'A' },
-    { field: 'NOT_A_GRID_FIELD', newValue: 'B' }
-  ]);
-
-  assert.strictEqual(env.sandbox.readSheet('FillSnapshot').length, beforeCount,
-    '快照是整張重寫的，行數不應該因為多一個不相干的欄位而增加');
-
-  const gridRow = env.sandbox.readFillGridRows_(QUARTER_ID)
-    .filter(function (r) { return r.isoDate === '2027-11-07'; })[0];
-  assert.strictEqual(gridRow.values.SERMON_TITLE, 'A', '屬於格子表的欄位要刷新');
-  assert.strictEqual(gridRow.values.NOT_A_GRID_FIELD, undefined, '不屬於格子表的欄位根本沒有那一欄');
+  assert.notStrictEqual(gridRow.values.SERMON_TITLE, 'A', 'Fill_ 那一格不可以被刷新');
+  assert.strictEqual(JSON.stringify(env.sandbox.readSheet('FillSnapshot')), snapshotBefore);
 });
 
 test('9e. refreshFillSnapshotAfterSave_：快照寫入失敗不會令儲存失敗', function () {

@@ -11,7 +11,8 @@
  * （處理函式在 RosterDiff.gs），第六b輪加了三個 PersonDisplay／尊稱設定
  * 相關的項目（處理函式在 HonorificSetup.gs），第七輪加了兩個 Word 範本
  * 渲染的項目（處理函式在 BulletinRender.gs），第八輪加了一個「季度填寫表」
- * 子選單（處理函式在 FillMenu.gs）。Apps Script 全部檔案共用一個全域
+ * 子選單（處理函式在 FillMenu.gs；內容表 v2 停用季度填寫表之後改名「季度工具」，
+ * 只留與填寫表無關的維護項目）。Apps Script 全部檔案共用一個全域
  * 命名空間，選單引用哪個檔案定義的函式都可以。
  *
  * ⚠️ 第八輪的項目放在**子選單**：主選單已經有 16 個項目，再平鋪下去會
@@ -24,6 +25,12 @@
  */
 
 'use strict';
+
+/**
+ * 內容表 v2：「季度填寫表」子選單停用之後改名「季度工具」。選單與各處提示（例如「初始化工作表」
+ * 新建表設定保護失敗時叫人按的路徑）共用這一個字串，名稱一改兩處一齊改。
+ */
+var QUARTER_TOOLS_MENU_LABEL_ = '季度工具';
 
 /**
  * 用途：Apps Script 簡易觸發器，開啟試算表時自動執行，建立「週報系統」選單。
@@ -97,12 +104,10 @@ function onOpen() {
       .addItem('⚠️ 亂行機（沙盒季度，DRY_RUN）', 'menuRunMonkey_')
       .addItem('繼續亂行', 'menuResumeMonkey_'))
     .addSeparator()
-    .addSubMenu(SpreadsheetApp.getUi().createMenu('季度填寫表')
-      .addItem('建立／刷新季度填寫表', 'menuCreateOrRefreshFillGrid_')
-      .addItem('立即同步季度填寫表', 'menuSyncFillGrid_')
-      .addItem('處理填寫表衝突', 'menuResolveFillConflicts_')
-      .addItem('檢查格子表外觀', 'menuCheckFillGridAppearance_')
-      .addSeparator()
+    // 內容表 v2：季度填寫表（Fill_<季度>）已停用，子選單改名「季度工具」，只留下與填寫表無關的
+    // 維護項目。安裝／移除 onEdit 觸發器那兩項保留，因為同一個觸發器（onFillGridEdit_）同時負責
+    // Config 人手改動的稽核（事故四十三），名稱改為講它現在真正做的事。
+    .addSubMenu(SpreadsheetApp.getUi().createMenu(QUARTER_TOOLS_MENU_LABEL_)
       .addItem('整理清單次序', 'menuResequenceLists_')
       .addItem('修復被轉成數字的文字欄位', 'menuRepairTextColumns_')
       .addItem('由常設時間表產生本季團契', 'menuGenerateFellowships_')
@@ -110,14 +115,10 @@ function onOpen() {
       .addItem('立即備份本季', 'menuBackupQuarter_')
       .addItem('還原到某個備份', 'menuRestoreQuarter_')
       .addSeparator()
-      .addItem('寄出季度填寫邀請', 'menuSendFillInvite_')
-      .addItem('檢查未建立的季度', 'menuCheckMissingQuarters_')
       .addItem('設定工作表保護', 'menuApplySheetProtection_')
       .addSeparator()
-      .addItem('安裝填寫表同步觸發器', 'menuInstallFillEditTrigger_')
-      .addItem('移除填寫表同步觸發器', 'menuRemoveFillEditTrigger_')
-      .addItem('安裝填寫表對帳觸發器', 'menuInstallFillReconcileTrigger_')
-      .addItem('移除填寫表對帳觸發器', 'menuRemoveFillReconcileTrigger_'))
+      .addItem('安裝 Config 改動稽核觸發器', 'menuInstallFillEditTrigger_')
+      .addItem('移除 Config 改動稽核觸發器', 'menuRemoveFillEditTrigger_'))
     .addItem('試寄下週週報（依 DRY_RUN 設定）', 'menuTestSendBulletin_')
     .addItem('預覽週報郵件內容', 'menuPreviewBulletinEmail_')
     .addItem('安裝自動寄送觸發器', 'menuInstallSendTrigger_')

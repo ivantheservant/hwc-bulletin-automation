@@ -7,9 +7,29 @@
  * 純邏輯在 `src/FillGrid.gs`（版面與欄位）、`src/FillSync.gs`（三方比對）、
  * `src/FillBackup.gs`（備份還原）、`src/FellowshipSchedule.gs`（常設團契）；
  * 本檔案只負責把它們串起來，以及對使用者的呈現。
+ *
+ * 內容表 v2：季度填寫表已停用（每週內容改在填寫介面與內容表「崇拜程序」填）。
+ *   - 星期一不再自動建立季度填寫表、不再寄填寫邀請（`autoCreateNextQuarterFillGrids_()` 直接回空結果）；
+ *   - 對帳觸發器 `fillReconcileTrigger_()` 一開始就返回，不同步（觸發器由「停用舊功能」拆走）；
+ *   - `createOrRefreshFillGrid_()`、`sendFillInvite_()` 等內部函式保留，但已經沒有任何入口
+ *     （選單項目換成已停用的提示，見 `src/FillMenu.gs`），日後清理死碼時才刪。
+ * 保護、觸發器移除等仍然有其他功能依賴的函式照常運作。
  */
 
 'use strict';
+
+/**
+ * 用途：季度填寫表已停用的一句（選單、onEdit 浮動提示、公開 api 共用，字眼只有一處）。純函式。
+ * Args: （無）
+ * Returns:
+ *   {string}
+ * Raises:
+ *   （無）
+ */
+function fillGridRetiredMessage_() {
+  return '季度填寫表已停用（2026-10），這個動作一格都沒有寫。每週的內容請在填寫介面填寫，'
+    + '或者在本季內容表的「崇拜程序」填寫，再由填寫介面匯入。如果仍然見到舊的選單項目，請重新整理試算表。';
+}
 
 // =====================================================================
 // 建立／刷新季度填寫表
@@ -182,8 +202,8 @@ function findQuartersWithoutFillGrid_() {
 }
 
 /**
- * 用途：每週寄送流程順手做的事——發現有未建立填寫表的季度，就自動建立
- *   並寄出填寫邀請。
+ * 用途：（內容表 v2 起已停用，一律回空結果。）以前是每週寄送流程順手做的事——發現有未建立
+ *   填寫表的季度，就自動建立並寄出填寫邀請。
  *
  *   ⚠️ **同一季只寄一次**：用 `ConflictNoticeLog` 記一個另一種形狀的
  *   指紋（`FILL_INVITE|<季度>`），重用第六輪的防重複機制，不另外開一張表。
@@ -194,6 +214,10 @@ function findQuartersWithoutFillGrid_() {
  */
 function autoCreateNextQuarterFillGrids_() {
   var result = { created: [], invited: [], skipped: [] };
+
+  // 內容表 v2：季度填寫表已停用。星期一觸發器已經不再叫這一支；萬一有舊的呼叫方，亦不可以替
+  // 新一季建立 Fill_ 或寄出填寫邀請（內容表的自動建立與邀請在 autoCreateContentSheetsForUpcomingQuarters_()）。
+  if (FILL_GRID_RETIRED_ === true) return result;
 
   if (normalizeBoolean_(getConfig(CONFIG_KEYS.FILL_AUTO_CREATE_NEXT_QUARTER, 'TRUE')) !== true) {
     return result;
@@ -635,7 +659,7 @@ function buildNewSheetProtectionLines_(result) {
   if ((o.failed || []).length > 0) {
     lines.push('⚠️ 以下新建的工作表未能設定保護：' + o.failed.map(function (f) {
       return f.name + '（' + f.message + '）';
-    }).join('、') + '。請按選單「' + APP_NAME + ' ▸ 季度填寫表 ▸ 設定工作表保護」補設。');
+    }).join('、') + '。請按選單「' + APP_NAME + ' ▸ ' + QUARTER_TOOLS_MENU_LABEL_ + ' ▸ 設定工作表保護」補設。');
   }
   return lines;
 }
@@ -644,14 +668,25 @@ function buildNewSheetProtectionLines_(result) {
 // 觸發器
 // =====================================================================
 
-/** 填寫表同步觸發器指向的函式名稱。 */
+/**
+ * 內容表 v2：季度填寫表已停用。onEdit 的 Fill_ 分支、對帳觸發器、星期一自動建立一律看這一個。
+ * 只是一個寫死的事實（不是設定）：要恢復季度填寫表要改程式並重新設計兩個真相來源的問題，
+ * 不可以由 Config 一格打開。
+ */
+var FILL_GRID_RETIRED_ = true;
+
+/**
+ * onEdit 觸發器指向的函式名稱。內容表 v2 之後這個觸發器只做 Config 人手改動的稽核
+ * （名字沿用，因為已經安裝的觸發器按名字綁定）。
+ */
 var FILL_EDIT_TRIGGER_HANDLER_ = 'onFillGridEdit_';
 
 /** 填寫表定時對帳觸發器指向的函式名稱。 */
 var FILL_RECONCILE_TRIGGER_HANDLER_ = 'fillReconcileTrigger_';
 
 /**
- * 用途：定時對帳觸發器的處理函式。有衝突就寫 `Diagnostics` 並寄提醒。
+ * 用途：定時對帳觸發器的處理函式。內容表 v2 起季度填寫表已停用：一開始就返回，不同步。
+ *   （以前：有衝突就寫 `Diagnostics` 並寄提醒。）
  *
  *   整個函式包 try/catch 並寫 `ErrorLog`——觸發器拋錯是靜默的。
  * Args: （無）
@@ -659,6 +694,9 @@ var FILL_RECONCILE_TRIGGER_HANDLER_ = 'fillReconcileTrigger_';
  *   {void}
  */
 function fillReconcileTrigger_() {
+  // 內容表 v2：季度填寫表已停用，對帳不再把 Fill_ 的值寫回週報。觸發器由「季度工具 ▸ 停用舊功能」
+  // 拆走；拆之前萬一仍然觸發，這裏直接返回，一格都不寫。不寫 ErrorLog：這是預期的情況（bug class 89）。
+  if (FILL_GRID_RETIRED_ === true) return;
   try {
     var result = reconcileAllFillGrids_();
 

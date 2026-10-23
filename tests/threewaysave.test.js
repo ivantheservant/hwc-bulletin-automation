@@ -10,9 +10,10 @@
  *   F2　沒有任何改動的儲存也更新 `LAST_SAVED_AT`，令另一分頁誤報 STALE。
  *   F8　樂觀鎖擋下被當成錯誤寫進 `ErrorLog`。
  *
- * ⚠️ 全部經**真正入口** `saveWeekFromWebApp_()`／`apiSaveWeek()`，並且用
- *    真正的 `onFillGridEdit_()` 模擬「觸發器在伺服器端寫入」——只測內部小
- *    函式的話，I3 當時 `LAST_SAVED_AT` 根本不變這一點測不出來。
+ * ⚠️ 全部經**真正入口** `saveWeekFromWebApp_()`／`apiSaveWeek()`。「別處在伺服器端寫入」
+ *    以前用真正的 `onFillGridEdit_()`（季度填寫表觸發器）模擬；內容表 v2 停用季度填寫表之後，
+ *    那條路一格都不寫，改用 `writeBulletinWeekField_()`——內容表匯入、講員表格等伺服器端寫入
+ *    共用的那一支，同樣不更新 `LAST_SAVED_AT`，所以 I3 那一點照樣測得出來。
  *
  * 執行方式：node tests/threewaysave.test.js
  * 離開碼：0＝全部通過　1＝有測試失敗
@@ -50,32 +51,19 @@ function makeSyncedEnv() {
   return env;
 }
 
-/** 模擬幹事在季度填寫表直接打字，觸發器即時寫入 BulletinWeeks（不更新 LAST_SAVED_AT）。 */
+/**
+ * 模擬「別處在伺服器端寫入」BulletinWeeks（不更新 LAST_SAVED_AT）。內容表 v2 之前用季度填寫表的
+ * onEdit 觸發器；那條路停用之後，改用內容表匯入、講員表格共用的 writeBulletinWeekField_()。
+ * 名字保留 gridEdit，免得下面每一條都要改。
+ */
 function gridEdit(env, isoDate, fieldKey, value) {
-  const sheet = env.sheets['Fill_' + QUARTER_ID];
-  const row = env.sandbox.readFillGridRows_(QUARTER_ID).filter(function (r) { return r.isoDate === isoDate; })[0];
-  const col = env.sandbox.fillGridColumnIndex_(fieldKey);
-  sheet.getRange(row.rowNo, col).setValue(value);
-  env.sandbox.onFillGridEdit_({
-    range: {
-      getSheet: function () { return sheet; },
-      getRow: function () { return row.rowNo; },
-      getColumn: function () { return col; },
-      getNumRows: function () { return 1; },
-      getNumColumns: function () { return 1; }
-    }
-  });
+  assert.strictEqual(env.sandbox.writeBulletinWeekField_(isoDate, fieldKey, value), true, '前提：寫得到 ' + isoDate);
 }
 
 function weekRow(env, isoDate) {
   return env.sandbox.readSheet('BulletinWeeks').filter(function (r) {
     return env.sandbox.fillGridCellText_(r.SERVICE_DATE) === isoDate;
   })[0];
-}
-
-function gridValue(env, isoDate, fieldKey) {
-  const row = env.sandbox.readFillGridRows_(QUARTER_ID).filter(function (r) { return r.isoDate === isoDate; })[0];
-  return row.values[fieldKey];
 }
 
 /** 把會被儲存碰到的全部工作表拍一張快照，比較「一格都沒有寫」。 */
@@ -106,16 +94,16 @@ function catchError(fn) {
 
 console.log('\nF1：只送改過的欄位 ＋ 三方比較');
 
-test('F1-1 重現 I3：觸發器寫了序樂之後，較早載入的分頁只改獻花儲存 → 序樂保持新值', function () {
+test('F1-1 重現 I3：伺服器端寫了序樂之後，較早載入的分頁只改獻花儲存 → 序樂保持新值', function () {
   const env = makeSyncedEnv();
   // 分頁載入：序樂與獻花都是空白，LAST_SAVED_AT 從未有過。
   const loadedToken = env.sandbox.canonicalSaveToken_(weekRow(env, D).LAST_SAVED_AT);
 
-  // 另一個人在季度填寫表改序樂 → 觸發器即時寫入 BulletinWeeks，不碰 LAST_SAVED_AT。
+  // 別處在伺服器端改了序樂（以前是季度填寫表的觸發器）→ 寫入 BulletinWeeks，不碰 LAST_SAVED_AT。
   gridEdit(env, D, 'PRELUDE', '格子表改的序樂');
   assert.strictEqual(weekRow(env, D).PRELUDE, '格子表改的序樂');
   assert.strictEqual(env.sandbox.canonicalSaveToken_(weekRow(env, D).LAST_SAVED_AT), loadedToken,
-    '前提：觸發器寫入不更新 LAST_SAVED_AT，所以整行 STALE 檢查擋不住這種情況');
+    '前提：伺服器端寫入不更新 LAST_SAVED_AT，所以整行 STALE 檢查擋不住這種情況');
 
   // 舊分頁只改「本週獻花」。前端只送改過的欄位，另送它們載入時的值。
   const result = env.sandbox.saveWeekFromWebApp_({
@@ -127,12 +115,8 @@ test('F1-1 重現 I3：觸發器寫了序樂之後，較早載入的分頁只改
   assert.strictEqual(result.changedFieldCount, 1, '只有獻花一格是這次真的改動');
   assert.strictEqual(weekRow(env, D).FLOWER_THIS_WEEK, '玫瑰');
   assert.strictEqual(weekRow(env, D).PRELUDE, '格子表改的序樂', '⚠️ 序樂不可以被蓋回舊值（空白）');
-  assert.strictEqual(gridValue(env, D, 'PRELUDE'), '格子表改的序樂', '格子表也不可以被刷回舊值');
-  assert.strictEqual(gridValue(env, D, 'FLOWER_THIS_WEEK'), '玫瑰', '獻花要即時刷新到格子表');
-
-  const plan = env.sandbox.syncFillGrid_(QUARTER_ID);
-  assert.strictEqual(plan.conflictCount, 0, '同步之後兩邊一致，沒有衝突');
-  assert.strictEqual(plan.pushCount + plan.pullCount, 0, '同步之後兩邊一致，沒有東西要推或拉');
+  // 內容表 v2：以前這裏再驗「格子表即時刷新、同步之後兩邊一致」；季度填寫表已停用，儲存不再碰 Fill_
+  // （見 tests/fillgrid.test.js 第 9 組），所以拿走那幾句。
 });
 
 test('F1-2 同一格兩邊都改過 → FIELD_CONFLICT，整次拒絕，一格都沒有寫（含 LAST_SAVED_AT／FieldOverride／DutyOverride）', function () {
@@ -155,7 +139,7 @@ test('F1-2 同一格兩邊都改過 → FIELD_CONFLICT，整次拒絕，一格�
   assert.ok(err, '應該拋出例外');
   assert.strictEqual(err.code, 'FIELD_CONFLICT');
   assert.strictEqual(err.message,
-    '以下欄位在你載入之後已經被改過（可能是季度填寫表、內容表匯入或另一個分頁）：序樂。'
+    '以下欄位在你載入之後已經被改過（可能是內容表匯入或另一個分頁）：序樂。'
     + '請重新載入再改，以免蓋走別人的修改。');
   assert.deepStrictEqual(Array.from(err.conflictFields), ['PRELUDE']);
   assertNothingWritten(env, before);

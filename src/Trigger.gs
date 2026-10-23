@@ -80,19 +80,8 @@ function weeklyBulletinSendTrigger_() {
       });
     }
 
-    // 第八輪：職事表出現了新季度而還未建立填寫表的話，自動建立並寄出
-    // 填寫邀請。同樣包一層 try/catch——這件事失敗不應該連累週報寄送。
-    try {
-      autoCreateNextQuarterFillGrids_();
-    } catch (fillErr) {
-      appendErrorLog_({
-        source: ERROR_LOG_SOURCE.TRIGGER,
-        functionName: 'weeklyBulletinSendTrigger_/autoCreateNextQuarterFillGrids_',
-        errorCode: (fillErr && fillErr.code) || 'ERROR',
-        message: (fillErr && fillErr.message) ? fillErr.message : String(fillErr),
-        detail: buildErrorDetail_(fillErr)
-      });
-    }
+    // 內容表 v2：季度填寫表已停用，這裏不再自動建立 Fill_ 與寄出季度填寫邀請（第八輪的
+    // autoCreateNextQuarterFillGrids_()）。新季度的準備改由下面的內容表那一步做。
 
     // R-015：新季度快到（距離第一個主日少於 CONTENT_SHEET_INVITE_LEAD_DAYS）
     // 而且未寄過內容表邀請的話，自動建立內容表並寄出。同樣包一層 try/catch

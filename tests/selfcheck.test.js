@@ -376,7 +376,8 @@ test('17g. 沒有安裝任何觸發器 → 三個觸發器項目都是 🟡', fu
   assert.strictEqual(findItem(summary, '觸發器：自動寄送')[0].status, '🟡');
   assert.strictEqual(findItem(summary, '觸發器：填寫表同步')[0].status, '🟡');
   assert.strictEqual(findItem(summary, '觸發器：填寫表對帳')[0].status, '🟡');
-  assert.strictEqual(findItem(summary, '下一季提示')[0].status, '🟡');
+  // 內容表 v2：「下一季提示」（星期一自動建立季度填寫表）已隨季度填寫表停用，這一項不再存在。
+  assert.strictEqual(findItem(summary, '下一季提示').length, 0);
 });
 
 test('17h. 沒有設定任何工作表保護 → 🟡', function () {

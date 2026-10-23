@@ -551,7 +551,7 @@ function buildSaveOperations_(input) {
     var labels = webAppWeekFieldLabels_();
     var names = conflictFields.map(function (key) { return labels[key] || key; });
     var conflict = new Error(
-      '以下欄位在你載入之後已經被改過（可能是季度填寫表、內容表匯入或另一個分頁）：'
+      '以下欄位在你載入之後已經被改過（可能是內容表匯入或另一個分頁）：'
       + names.join('、') + '。請重新載入再改，以免蓋走別人的修改。'
     );
     conflict.code = 'FIELD_CONFLICT';
@@ -1083,7 +1083,11 @@ function countSaveChanges_(auditEntries) {
 }
 
 /**
- * 用途：填寫介面儲存之後，把改動過的欄位同步到季度填寫表——**同時**
+ * 用途：（內容表 v2 起季度填寫表已停用：一開始就返回，Fill_ 與 `FillSnapshot` 一格都不寫。
+ *   儲存、重設、還原、講員表格四條路都經這一支，所以只改這裏就全部覆蓋。下面是停用之前的說明，
+ *   函式本體保留到日後清理死碼時才刪。）
+ *
+ *   以前：填寫介面儲存之後，把改動過的欄位同步到季度填寫表——**同時**
  *   刷新格子表那一格與 `FillSnapshot`，讓兩邊立即重新一致。
  *
  * ─────────────────────────────────────────────────────────────────────
@@ -1111,6 +1115,7 @@ function countSaveChanges_(auditEntries) {
  *   {void}
  */
 function refreshFillSnapshotAfterSave_(isoDate, weekChanges) {
+  if (FILL_GRID_RETIRED_ === true) return;
   var changes = weekChanges || [];
   if (changes.length === 0) return;
 

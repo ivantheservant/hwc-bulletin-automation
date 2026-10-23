@@ -179,53 +179,25 @@ test('2f. 格子表還未建立 → 不寄，訊息叫人先建立填寫表', fu
 });
 
 // =====================================================================
-// 3. 同一季不重複寄
+// 3. 內容表 v2：星期一不再自動建立季度填寫表、不再寄填寫邀請
+//
+// ⚠️ 預期改了，理由：以前（第八輪）3–3e 守的是「新季度自動建立 Fill_ 並寄邀請，同一季只寄一次」。
+//    季度填寫表停用之後，星期一觸發器不再叫 autoCreateNextQuarterFillGrids_()（新季度改由內容表那一步
+//    自動建立與寄邀請，R-015），而這一支本身亦一開始就回空結果——萬一有舊的呼叫方，一樣不可以替
+//    真實季度建立 Fill_ 或寄信。
 // =====================================================================
 
-test('3. 自動建立下一季：第一次會建立並寄邀請', function () {
+test('3. 內容表 v2：autoCreateNextQuarterFillGrids_() 不建立 Fill_、不寄信、不記指紋（DRY_RUN=FALSE 亦一樣）', function () {
   const env = makeFillEnv({ withGrid: false, config: { DRY_RUN: 'FALSE' } });
   const result = env.sandbox.autoCreateNextQuarterFillGrids_();
 
-  assert.ok(result.created.indexOf(QUARTER_ID) !== -1, '應該建立了 ' + QUARTER_ID);
-  assert.ok(result.invited.indexOf(QUARTER_ID) !== -1);
-  assert.ok(env.mail.calls.length > 0);
-});
-
-test('3b. 自動建立下一季：第二次同一季不重複寄（指紋去重）', function () {
-  const env = makeFillEnv({ withGrid: false, config: { DRY_RUN: 'FALSE' } });
-  env.sandbox.autoCreateNextQuarterFillGrids_();
-  const firstCallCount = env.mail.calls.length;
-
-  const second = env.sandbox.autoCreateNextQuarterFillGrids_();
-  assert.strictEqual(second.created.length, 0, '格子表已經存在，不應該再建立');
-  assert.strictEqual(second.invited.length, 0);
-  assert.strictEqual(env.mail.calls.length, firstCallCount, '同一季不可以重複寄邀請');
-});
-
-test('3c. 指紋記進 ConflictNoticeLog（重用第六輪的防重複機制）', function () {
-  const env = makeFillEnv({ withGrid: false, config: { DRY_RUN: 'FALSE' } });
-  env.sandbox.autoCreateNextQuarterFillGrids_();
-
+  assert.strictEqual(result.created.length, 0, '不可以再建立季度填寫表');
+  assert.strictEqual(result.invited.length, 0);
+  assert.strictEqual(env.mail.calls.length, 0, '一封填寫邀請都不可以寄');
+  assert.strictEqual(env.sandbox.listExistingFillGridQuarters_().length, 0, '試算表內不可以多了 Fill_ 分頁');
   const log = env.sandbox.readSheet('ConflictNoticeLog');
-  const inviteRow = log.filter(function (r) { return r.POST_ID === 'FILL_INVITE'; })[0];
-  assert.ok(inviteRow, '應該記一筆 FILL_INVITE 指紋');
-  assert.strictEqual(inviteRow.FINGERPRINT, 'FILL_INVITE|' + QUARTER_ID);
-});
-
-test('3d. ⚠️ DRY_RUN=TRUE 時不記指紋（試行不可以消耗掉真正的通知機會）', function () {
-  const env = makeFillEnv({ withGrid: false, config: { DRY_RUN: 'TRUE' } });
-  env.sandbox.autoCreateNextQuarterFillGrids_();
-
-  const log = env.sandbox.readSheet('ConflictNoticeLog');
-  assert.strictEqual(log.filter(function (r) { return r.POST_ID === 'FILL_INVITE'; }).length, 0,
-    '⚠️ 指紋是會改變將來行為的**狀態**，試行模式不可以動它');
-});
-
-test('3e. FILL_AUTO_CREATE_NEXT_QUARTER=FALSE → 完全不自動建立', function () {
-  const env = makeFillEnv({ withGrid: false, config: { DRY_RUN: 'FALSE', FILL_AUTO_CREATE_NEXT_QUARTER: 'FALSE' } });
-  const result = env.sandbox.autoCreateNextQuarterFillGrids_();
-  assert.strictEqual(result.created.length, 0);
-  assert.strictEqual(env.mail.calls.length, 0);
+  assert.strictEqual(log.filter(function (r) { return r.POST_ID === 'FILL_INVITE'; }).length, 0);
+  assert.strictEqual(env.sandbox.readSheet('SendLog').filter(function (r) { return r.STATUS === 'FILL_INVITE'; }).length, 0);
 });
 
 test('3f. findQuartersWithoutFillGrid_：已建立的季度不會再列出', function () {

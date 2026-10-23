@@ -356,34 +356,25 @@ function makeGridEnv(config) {
   return env;
 }
 
-// ⚠️ 假工作表把 Date 存成 yyyy-MM-dd（見 tests/helpers/fakeSpreadsheet.js），版本的建立時間
-//    會變成當天 00:00，所以「時間限制之內」的情境用一個很大的分鐘數；剛好卡在邊界的判斷
-//    由上面的純函式測試負責。
-test('季度填寫表直接編輯（真入口 onFillGridEdit_）：寫入前存 GRID_EDIT 版本；時間限制之內再編輯不重複存', function () {
-  const env = makeGridEnv({ SNAPSHOT_THROTTLE_MINUTES: '100000' });
-  gridEdit(env, D, 'PRELUDE', '格子表改一');
-  assert.deepStrictEqual(reasonsOf(env, D), ['GRID_EDIT']);
-  const first = payloadOf(env, D, versionsOf(env, D)[0].snapshotId);
-  assert.strictEqual(first.week.PRELUDE, '序樂1', '版本記的是寫入之前的值');
-
-  gridEdit(env, D, 'PRELUDE', '格子表改二');
-  assert.strictEqual(versionsOf(env, D).length, 1, '時間限制之內只存一次');
-  assert.strictEqual(rowOf(env, D).PRELUDE, '格子表改二');
-  assert.strictEqual(versionsOf(env, D_NEXT).length, 0);
-});
-
-test('SNAPSHOT_THROTTLE_MINUTES=0：不限制，每次編輯都存', function () {
+// ⚠️ 內容表 v2：季度填寫表已停用，onFillGridEdit_() 在 Fill_ 編輯時一格都不寫，所以亦**不存版本**。
+//    以前這裏三條守「格子表直接編輯寫入前存 GRID_EDIT 版本、時間限制、與填寫介面儲存各自存」——
+//    那是寫入之前的版本；不再寫入，存版本只會令版本記錄多出一行甚麼都沒有改的「季度填寫表直接編輯」，
+//    幹事會以為格子表仍然在用。下面兩條改為守住「Fill_ 編輯不寫、不存版本」。
+//    （手動同步與處理衝突兩條仍然直接叫內部函式，守住那段保留到清理死碼的邏輯本身沒有壞。）
+test('內容表 v2：季度填寫表直接編輯（真入口 onFillGridEdit_）→ 週報不變、不存版本（時間限制設成 0 亦一樣）', function () {
   const env = makeGridEnv({ SNAPSHOT_THROTTLE_MINUTES: '0' });
-  gridEdit(env, D, 'PRELUDE', '甲');
-  gridEdit(env, D, 'PRELUDE', '乙');
-  assert.strictEqual(versionsOf(env, D).length, 2);
+  gridEdit(env, D, 'PRELUDE', '格子表改一');
+  gridEdit(env, D, 'PRELUDE', '格子表改二');
+  assert.strictEqual(versionsOf(env, D).length, 0, '一格都沒有寫，不可以存版本');
+  assert.strictEqual(rowOf(env, D).PRELUDE, '序樂1', '週報不可以被格子表改動');
 });
 
-test('填寫介面剛儲存過，緊接著格子表編輯：照樣存（兩個動作的「之前」不同）', function () {
+test('內容表 v2：填寫介面儲存之後在格子表編輯 → 只有 WEBAPP_SAVE 一個版本，週報保留介面儲存的值', function () {
   const env = makeGridEnv();
   save(env, D, { PRELUDE: '介面儲存' });
   gridEdit(env, D, 'PRELUDE', '格子表接着改');
-  assert.deepStrictEqual(reasonsOf(env, D).sort(), ['GRID_EDIT', 'WEBAPP_SAVE']);
+  assert.deepStrictEqual(reasonsOf(env, D), ['WEBAPP_SAVE']);
+  assert.strictEqual(rowOf(env, D).PRELUDE, '介面儲存');
 });
 
 test('手動同步（真入口 syncFillGrid_）：只有真的要寫回的主日才存 GRID_SYNC 版本', function () {

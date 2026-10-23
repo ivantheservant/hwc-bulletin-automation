@@ -501,8 +501,9 @@ function buildFillSyncReportLines_(plan) {
 // =====================================================================
 
 /**
- * 用途：本試算表的 installable `onEdit` 觸發器處理函式。目前處理兩件事：
- *   季度填寫表的即時寫回，以及 **`Config` 人手改動的稽核**。
+ * 用途：本試算表的 installable `onEdit` 觸發器處理函式。目前做兩件事：
+ *   **`Config` 人手改動的稽核**；以及在已停用的季度填寫表（`Fill_*`）被改動時顯示一句
+ *   「已停用，改動不會寫入週報」（內容表 v2 之前這裏會即時寫回 `BulletinWeeks`）。
  *
  *   ⚠️ 函式名沿用 `onFillGridEdit_`（`FILL_EDIT_TRIGGER_HANDLER_`）——
  *   已經安裝好的觸發器是**按名字**綁定的，改名等於令現有觸發器指向一支
@@ -532,11 +533,13 @@ function onFillGridEdit_(e) {
       return;
     }
 
-    // 2. 季度填寫表的即時寫回，其餘直接 return。
+    // 2. 季度填寫表：內容表 v2 起已停用。只顯示浮動提示，一格都不寫（不寫週報、不寫快照、
+    //    不寫 AuditLog）。以前這裏會即時把改動寫回 BulletinWeeks——停用之後再寫，就會與填寫介面
+    //    和內容表成為同一格的兩個真相來源（事故三、bug class 123）。
     var quarterId = quarterIdFromFillGridSheetName_(sheet.getName());
     if (!quarterId) return;
 
-    applyFillGridEdit_(sheet, e.range, quarterId);
+    SpreadsheetApp.getActiveSpreadsheet().toast(fillGridRetiredMessage_(), '季度填寫表已停用', 8);
   } catch (err) {
     try {
       appendErrorLog_({
