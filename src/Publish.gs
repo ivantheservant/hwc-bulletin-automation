@@ -1543,17 +1543,29 @@ function findPublishEmailTemplate_() {
  *   ⚠️ 「一格都未寫」呢件事好重要：`reason:'NEEDS_CONFIRM'` 係喺任何
  *   Drive 寫入、任何工作表寫入**之前**回嘅。前端出完確認視窗之後會帶住
  *   `confirmed:true` 再叫一次，嗰陣先至真係做嘢。
+ *
+ *   審查後修正 4：只寄出時，`NEEDS_CONFIRM` 的結果多帶 `masterIssue`（確認視窗講的那一期）；前端確認之後把它
+ *   原樣放在 `confirmedMasterIssue` 送回，`runPublishFlowLocked_()` 在鎖內拿它與鎖內讀到的那一期比較。
+ *   以前（D6）只比較「同一次執行之內」拿鎖之前與之後讀到的那一期，確認視窗開着的十幾秒之間另一次發佈
+ *   完成的話，第二次呼叫讀到的已經是新一期，兩次相同，結果不會講明通知指向的不是視窗講的那一期。
+ *   沒有送回（舊前端、不用確認視窗的寄出、程式叫的流程）就照舊用拿鎖之前讀的那一期比較。
  * Args:
  *   payload {{isoDate:string, doPublish:boolean, doSend:boolean,
  *             pdfBase64:string, pdfName:string, groups:string[],
- *             customEmails:string, confirmed:boolean}}
+ *             customEmails:string, confirmed:boolean,
+ *             confirmedMasterIssue:(?{isoDate:string, versionNo:(number|null)}|undefined)}}
+ *     `confirmedMasterIssue` 選填，只在只寄出、`confirmed:true` 時才看。
  * Returns:
  *   {{ok:boolean, reason:(string|undefined), message:(string|undefined),
  *     precheck:(Object|undefined), published:(Object|undefined),
- *     sent:(Object|undefined), lines:string[]}}
+ *     sent:(Object|undefined), lines:string[],
+ *     masterIssue:(?{isoDate:string, versionNo:(number|null)}|undefined)}}
+ *     `masterIssue` 只在只寄出的 `NEEDS_CONFIRM` 結果出現。
  * Raises:
  *   Error 讀工作表、職事表（`buildPublishPrecheck_()`）或 `PublishLog` 失敗時原樣拋出，
- *     由 `apiRunPublish()` 的 `withApiResult_()` 轉成錯誤回應並寫 `ErrorLog`。
+ *     由 `apiRunPublish()` 的 `withApiResult_()` 轉成錯誤回應並寫 `ErrorLog`；
+ *     Error（`code:'BAD_REQUEST'`）如果送來的 `confirmedMasterIssue` 格式不對（見
+ *     `normalizeConfirmedMasterIssue_()`），在任何寫入之前拋出。
  */
 function runPublishFlow_(payload) {
   var p = payload || {};
@@ -1620,6 +1632,10 @@ function runPublishFlow_(payload) {
     }
     if (!masterIssue) return buildNeverPublishedResult_();
   }
+  // 審查後修正 4：確認視窗講的那一期（只寄出、確認之後才看）。格式不對就拋錯，一格都未寫。
+  var confirmedMasterIssue = (doSend && !doPublish && p.confirmed === true)
+    ? normalizeConfirmedMasterIssue_(p.confirmedMasterIssue)
+    : null;
 
   // ---- 發佈前檢查（R-006／R-007）----
   var precheck = buildPublishPrecheck_(isoDate, doPublish, { masterIssue: masterIssue });
@@ -1652,7 +1668,11 @@ function runPublishFlow_(payload) {
       ok: false, reason: 'NEEDS_CONFIRM', precheck: precheck, lines: precheck.lines,
       // F7：視窗字眼跟著這次做的動作走（只寄出就不可以叫人勾「仍然要發佈」）。
       labels: publishConfirmLabels_(doPublish),
-      message: publishConfirmLabels_(doPublish).title + '發現需要確認的事項，請閱讀後勾選確認方框。'
+      message: publishConfirmLabels_(doPublish).title + '發現需要確認的事項，請閱讀後勾選確認方框。',
+      // 審查後修正 4：前端確認之後原樣送回（confirmedMasterIssue），鎖內與現時那一期比較。
+      masterIssue: masterIssue
+        ? { isoDate: masterIssue.isoDate, versionNo: normalizePublishVersionNo_(masterIssue.versionNo) }
+        : null
     };
   }
 
@@ -1669,7 +1689,8 @@ function runPublishFlow_(payload) {
     return runPublishFlowLocked_(p, {
       isoDate: isoDate, doPublish: doPublish, doSend: doSend,
       blob: blob, pdfSizeMb: pdfSizeMb, sentGroups: sentGroups,
-      precheck: precheck, result: result, masterIssue: masterIssue
+      precheck: precheck, result: result, masterIssue: masterIssue,
+      confirmedMasterIssue: confirmedMasterIssue
     });
   }, function () {
     return {
@@ -1690,13 +1711,17 @@ function runPublishFlow_(payload) {
  *   payload {Object} 原本嘅 payload（要用 `groups`／`customEmails`）。
  *   ctx {{isoDate:string, doPublish:boolean, doSend:boolean, blob:(Blob|null),
  *        pdfSizeMb:number, sentGroups:string, precheck:Object, result:Object,
- *        masterIssue:(?{isoDate:string, versionNo:(number|null)})}}
+ *        masterIssue:(?{isoDate:string, versionNo:(number|null)}),
+ *        confirmedMasterIssue:(?{isoDate:string, versionNo:(number|null)})}}
  *     `masterIssue` 只寄出時才有，是 `runPublishFlow_()` 在拿鎖之前讀的那一期（寄出前檢查
- *     與確認視窗用的）；發佈時是 `null`。
+ *     與確認視窗用的）；發佈時是 `null`。`confirmedMasterIssue` 是前端送回、確認視窗講的那一期
+ *     （審查後修正 4）；沒有送回是 `null`。
  *
  *   D6：只寄出時，通知信指向哪一期一律用**拿着鎖之後**再讀的那一期（`readMasterIssueInLock_()`），
  *   與發佈寫 `PublishLog` 在同一把鎖之內，是同一個真相來源。拿鎖之前讀的那一期只用來比較：
  *   兩者不同（讀取與拿鎖之間另一次發佈剛完成）就照用鎖內那一期，結果多一行講明。
+ *   審查後修正 4：前端送回了確認視窗講的那一期（`confirmedMasterIssue`）就拿它比較，不用拿鎖之前讀的
+ *   那一期——幹事確認的是視窗講的那一期，確認視窗開着期間另一次發佈完成亦要講明。
  * Returns:
  *   {Object} 同 `runPublishFlow_()`。
  * Raises:
@@ -1756,7 +1781,7 @@ function runPublishFlowLocked_(payload, ctx) {
   if (doSend) {
     var noticeIssue = null;
     if (!doPublish) {
-      var locked = readMasterIssueInLock_(config.masterFileId, ctx.masterIssue);
+      var locked = readMasterIssueInLock_(config.masterFileId, ctx.confirmedMasterIssue || ctx.masterIssue);
       if (!locked.ok) return locked.result;
       noticeIssue = locked.issue;
       if (locked.changedNote) result.masterIssueChangedNote = locked.changedNote;
@@ -1839,6 +1864,34 @@ function readMasterIssueInLock_(masterFileId, issueBeforeLock) {
       + before.isoDate + publishVersionSuffix_(before.versionNo) + '。'
     : '';
   return { ok: true, issue: issue, changedNote: changedNote };
+}
+
+/**
+ * 用途：審查後修正 4：驗證前端送回的「確認視窗講的那一期」（`confirmedMasterIssue`）。純函式。
+ *   這個值只用來決定結果要不要多一行提示，但它來自瀏覽器，格式不對不可以靜靜當作沒有送（那樣等於
+ *   悄悄退回舊做法），亦不可以拿去比較（比較一定不同，會講一句與事實不符的提示）。
+ * Args:
+ *   raw {*} payload 的 `confirmedMasterIssue`。
+ * Returns:
+ *   {?{isoDate:string, versionNo:(number|null)}} `undefined`／`null` 回 `null`（沒有送回，照舊）；
+ *     否則回正規化之後的一期（`versionNo` 經 `normalizePublishVersionNo_()`）。
+ * Raises:
+ *   Error（`code:'BAD_REQUEST'`）如果不是物件、`isoDate` 不是 yyyy-MM-dd，或 `versionNo` 不是 `null`
+ *     也不是數字。
+ */
+function normalizeConfirmedMasterIssue_(raw) {
+  if (raw === undefined || raw === null) return null;
+  var isoOk = typeof raw === 'object' && typeof raw.isoDate === 'string'
+    && /^\d{4}-\d{2}-\d{2}$/.test(raw.isoDate);
+  var versionOk = typeof raw === 'object'
+    && (raw.versionNo === null || (typeof raw.versionNo === 'number' && isFinite(raw.versionNo)));
+  if (!isoOk || !versionOk) {
+    var err = new Error('確認視窗送回的那一期格式不對，為免通知信講錯日期，這一次沒有寄出。'
+      + '請重新載入這一頁，再按一次「執行」。');
+    err.code = 'BAD_REQUEST';
+    throw err;
+  }
+  return { isoDate: raw.isoDate, versionNo: normalizePublishVersionNo_(raw.versionNo) };
 }
 
 /**

@@ -2037,5 +2037,36 @@ test('G17-6 讀取類遇到連線錯誤（HTTP 502）照舊即時顯示「呼叫
   assert.ok(ui.take('apiLogClientError').args[0].message.indexOf('可能已') === -1);
 });
 
+
+console.log('\n審查後修正 4：確認視窗講的那一期隨 apiRunPublish 送回');
+
+test('RV4-5 只寄出：按「執行」（不送那一期）→ 伺服器 NEEDS_CONFIRM 帶 masterIssue → 勾選、按「確認」→ 請求帶 confirmedMasterIssue（原樣）；之後再開一個不帶 masterIssue 的視窗 → 確認時不送', function () {
+  const ui = makeUi();
+  ui.els.doPublishCheck.checked = false;
+  ui.els.doSendCheck.checked = true;
+  ui.click('publishRunBtn');
+  const first = ui.take('apiRunPublish');
+  assert.strictEqual(first.args[0].confirmed, false);
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(first.args[0], 'confirmedMasterIssue'), false, '第一次不送');
+  first.ok({ ok: true, data: { ok: false, reason: 'NEEDS_CONFIRM', lines: ['⚠ 目前 master 連結是 2027-11-07（第 1 版）的週報'],
+    labels: { title: '寄出前檢查', checkbox: '我明白以上情況，仍然要寄出', confirmButton: '確認寄出' },
+    masterIssue: { isoDate: '2027-11-07', versionNo: 1 } } });
+  ui.els.publishForcedCheck.checked = true;
+  ui.els.publishForcedCheck.listeners.change({ target: ui.els.publishForcedCheck });
+  ui.click('publishConfirmOkBtn');
+  const confirmed = ui.take('apiRunPublish');
+  assert.strictEqual(confirmed.args[0].confirmed, true);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(confirmed.args[0].confirmedMasterIssue)), { isoDate: '2027-11-07', versionNo: 1 });
+
+  // 下一次的視窗不帶 masterIssue（例如發佈）：不可以沿用上一次那一期。
+  confirmed.ok({ ok: true, data: { ok: false, reason: 'NEEDS_CONFIRM', lines: ['未填欄位（3 項）'],
+    labels: { title: '發佈前檢查', checkbox: '我明白以上情況，仍然要發佈', confirmButton: '確認發佈' } } });
+  assert.strictEqual(ui.ctx.state.publish.confirmMasterIssue, null);
+  ui.els.publishForcedCheck.checked = true;
+  ui.els.publishForcedCheck.listeners.change({ target: ui.els.publishForcedCheck });
+  ui.click('publishConfirmOkBtn');
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(ui.take('apiRunPublish').args[0], 'confirmedMasterIssue'), false);
+});
+
 console.log('\n通過 ' + pass + ' 項，失敗 ' + fail + ' 項。');
 process.exit(fail === 0 ? 0 : 1);

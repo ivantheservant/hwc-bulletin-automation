@@ -914,6 +914,9 @@ function apiRunPublish(payload) {
     // （個人資料）——`ErrorLog.DETAIL` 兩者都不應該有。
     argsSummary: 'isoDate=' + p.isoDate + ' doPublish=' + (p.doPublish === true)
       + ' doSend=' + (p.doSend === true) + ' confirmed=' + (p.confirmed === true)
+      // 審查後修正 4：確認視窗送回的那一期（格式不對被拒時要看得到送了甚麼）。只是日期與版本，截短。
+      + (p.confirmedMasterIssue === undefined ? ''
+        : ' confirmedMasterIssue=' + String(JSON.stringify(p.confirmedMasterIssue)).slice(0, 80))
   });
 }
 

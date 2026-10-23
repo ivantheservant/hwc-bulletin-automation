@@ -67,7 +67,10 @@
     // `pdfIsoDate` 是揀那個 PDF 時畫面上的主日（G9）：換了主日就不可以拿它發佈。
     // `confirmSent`：發佈前檢查視窗這一次打開之後，是否已經按過「確認發佈」送出（G19 補充：
     // 送出之後按「取消」只可以關閉視窗，不可以顯示 CANCELLED_NOTHING_WRITTEN_MESSAGE）。
-    publish: { pdfBase64: '', pdfName: '', pdfIsoDate: '', panel: null, confirmButton: '', confirmSent: false },
+    // `confirmMasterIssue`：只寄出時發佈前檢查視窗講的那一期（伺服器 NEEDS_CONFIRM 帶來的 masterIssue），
+    // 按「確認」時原樣送回（confirmedMasterIssue），伺服器在鎖內比較（審查後修正 4）。`null` 代表沒有。
+    publish: { pdfBase64: '', pdfName: '', pdfIsoDate: '', panel: null, confirmButton: '', confirmSent: false,
+      confirmMasterIssue: null },
     options: { programTemplateIds: [], recitationOptions: [], prayerBlockHeadingOptions: [], cantoneseSubColumnLabel: '主堂' }
   };
 
@@ -3269,7 +3272,7 @@
     // G19 補充：由發佈前檢查視窗送出（confirmed）之後，那個視窗的「取消」不再代表「沒有做」。
     if (confirmed === true) state.publish.confirmSent = true;
 
-    callServer('apiRunPublish', [{
+    var publishPayload = {
       isoDate: state.isoDate,
       doPublish: doPublish,
       doSend: doSend,
@@ -3278,7 +3281,13 @@
       groups: selectedPublishGroups(),
       customEmails: document.getElementById('publishCustomEmails').value,
       confirmed: confirmed === true
-    }], function (resp) {
+    };
+    // 審查後修正 4：確認之後把視窗講的那一期送回，伺服器在鎖內與現時那一期比較；第一次「執行」不送。
+    if (confirmed === true && state.publish.confirmMasterIssue) {
+      publishPayload.confirmedMasterIssue = state.publish.confirmMasterIssue;
+    }
+
+    callServer('apiRunPublish', [publishPayload], function (resp) {
       setPublishButtonsBusy(false);
       onPublishDone(resp);
     }, {
@@ -3354,7 +3363,7 @@
 
     var data = resp.data;
     if (!data.ok && data.reason === 'NEEDS_CONFIRM') {
-      openPublishConfirm(data.lines, data.labels);
+      openPublishConfirm(data.lines, data.labels, data.masterIssue);
       return;
     }
     if (!data.ok) {
@@ -3462,10 +3471,12 @@
    *   lines {string[]} 伺服器排好的內容行。
    *   labels {{title:string, checkbox:string, confirmButton:string}=} 伺服器
    *     按「這次做甚麼」算好的字眼（F7：只寄出時不可以出現「發佈」）。
+   *   masterIssue {?{isoDate:string, versionNo:(number|null)}=} 只寄出時視窗講的那一期（審查後修正 4），
+   *     按「確認」時原樣送回；沒有就是 null。
    * Returns:
    *   {void}
    */
-  function openPublishConfirm(lines, labels) {
+  function openPublishConfirm(lines, labels, masterIssue) {
     var l = labels || { title: '發佈前檢查', checkbox: '我明白以上情況，仍然要發佈', confirmButton: '確認發佈' };
     document.getElementById('publishConfirmTitle').textContent = l.title;
     document.getElementById('publishForcedLabel').textContent = l.checkbox;
@@ -3478,6 +3489,10 @@
     document.getElementById('publishConfirmOkBtn').disabled = true;
     // G19 補充：每次打開都是一個新的確認，未送出。
     state.publish.confirmSent = false;
+    // 審查後修正 4：每次打開都換成這一次視窗講的那一期（沒有就清走，不可以沿用上一次的）。
+    state.publish.confirmMasterIssue = (masterIssue && masterIssue.isoDate)
+      ? { isoDate: String(masterIssue.isoDate), versionNo: masterIssue.versionNo === undefined ? null : masterIssue.versionNo }
+      : null;
     document.getElementById('publishConfirmBackdrop').classList.remove('hidden');
   }
 

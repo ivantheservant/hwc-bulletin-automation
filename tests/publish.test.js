@@ -1807,8 +1807,78 @@ test('D6-3 鎖內讀到的最新一行日期讀不到 → 拒絕（MASTER_ISSUE_
 test('D6-4 源碼：寄出用的那一期在 runPublishFlowLocked_() 之內讀（readMasterIssueInLock_），不再用拿鎖之前那一個', function () {
   const src = readPublishSrc();
   const locked = src.slice(src.indexOf('function runPublishFlowLocked_('), src.indexOf('function buildNeverPublishedResult_('));
-  assert.ok(locked.indexOf('readMasterIssueInLock_(config.masterFileId, ctx.masterIssue)') !== -1);
+  // 審查後修正 4 改了這一條：前端送回確認視窗講的那一期時拿它比較，沒有送回才用拿鎖之前那一個。
+  assert.ok(locked.indexOf('readMasterIssueInLock_(config.masterFileId, ctx.confirmedMasterIssue || ctx.masterIssue)') !== -1);
   assert.strictEqual(locked.indexOf('masterIssue: doPublish ? null : ctx.masterIssue'), -1);
+});
+
+// =====================================================================
+// 審查後修正 4：確認視窗講的那一期隨 apiRunPublish 送回，鎖內比較
+// =====================================================================
+
+const RV4_NOTE = '⚠ 寄出前檢查之後，master 連結已經換成 2027-11-14（第 2 版）（另一次發佈剛剛完成），所以通知信指向 2027-11-14，'
+  + '不是寄出前檢查講的 2027-11-07（第 1 版）。';
+
+/** 第一次「執行」（未確認）→ 回 NEEDS_CONFIRM；確認視窗開着期間，另一次發佈把 master 換成 2027-11-14。 */
+function rv4OpenDialogThenOtherPublish(env) {
+  const first = env.sandbox.apiRunPublish(Object.assign({}, D6_PAYLOAD, { confirmed: false }));
+  assert.strictEqual(first.ok, true, JSON.stringify(first.error));
+  assert.strictEqual(first.data.reason, 'NEEDS_CONFIRM');
+  assert.ok(first.data.lines.indexOf(G2_WARNING) !== -1, '前提：視窗講的是 2027-11-07');
+  appendPublishLogRow(env, { SERVICE_DATE: '2027-11-14', VERSION_NO: 2, PUBLISHED_AT: '2027-11-13' });
+  return first;
+}
+
+test('RV4-1 真正入口 apiRunPublish：只寄出的 NEEDS_CONFIRM 帶 masterIssue（視窗講的那一期）；確認視窗開着期間另一次發佈完成 → 確認時送回那一期 → 通知用現時的 2027-11-14，結果多一行講明', function () {
+  const env = makeG2Env();
+  const first = rv4OpenDialogThenOtherPublish(env);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(first.data.masterIssue)), { isoDate: G2_MASTER_ISSUE, versionNo: 1 });
+  const done = env.sandbox.apiRunPublish(Object.assign({}, D6_PAYLOAD, { confirmedMasterIssue: first.data.masterIssue }));
+  assert.strictEqual(done.ok, true, JSON.stringify(done.error));
+  assert.strictEqual(done.data.ok, true, done.data.message);
+  assert.ok(readSendLog(env)[0].SUBJECT.indexOf('— 2027-11-14') !== -1, readSendLog(env)[0].SUBJECT);
+  assert.ok(done.data.lines.indexOf(RV4_NOTE) !== -1, done.data.lines.join('\n'));
+});
+
+test('RV4-2 對照組（應該紅）：同一情境而前端沒有送回（舊前端）→ 照舊只比較同一次執行之內，讀到的兩次都是 2027-11-14，結果沒有那一行（這就是 D6 管不到的時窗）', function () {
+  const env = makeG2Env();
+  rv4OpenDialogThenOtherPublish(env);
+  const done = env.sandbox.apiRunPublish(Object.assign({}, D6_PAYLOAD));
+  assert.strictEqual(done.data.ok, true, done.data.message);
+  assert.ok(readSendLog(env)[0].SUBJECT.indexOf('— 2027-11-14') !== -1);
+  assert.strictEqual(done.data.lines.join('\n').indexOf('寄出前檢查之後'), -1, done.data.lines.join('\n'));
+});
+
+test('RV4-3 送回的那一期與現時相同 → 不加那一行；發佈加寄出的 NEEDS_CONFIRM 不帶 masterIssue', function () {
+  const env = makeG2Env();
+  const first = env.sandbox.apiRunPublish(Object.assign({}, D6_PAYLOAD, { confirmed: false }));
+  const done = env.sandbox.apiRunPublish(Object.assign({}, D6_PAYLOAD, { confirmedMasterIssue: first.data.masterIssue }));
+  assert.strictEqual(done.data.ok, true, done.data.message);
+  assert.strictEqual(done.data.lines.join('\n').indexOf('寄出前檢查之後'), -1, done.data.lines.join('\n'));
+
+  const both = makeG2Env().sandbox.runPublishFlow_({
+    isoDate: G2_SELECTED, doPublish: true, doSend: true, pdfBase64: PDF_BASE64, pdfName: '週報.pdf',
+    groups: ['IT'], customEmails: '', confirmed: false
+  });
+  assert.strictEqual(both.reason, 'NEEDS_CONFIRM');
+  assert.strictEqual(both.masterIssue, null);
+});
+
+test('RV4-4 送回的那一期格式不對（日期格式錯、版本是字串、不是物件）→ 拒絕（BAD_REQUEST），一封都不寄、SendLog 一行都不寫，ErrorLog 有記錄', function () {
+  [{ isoDate: '2027/11/07', versionNo: 1 }, { isoDate: G2_MASTER_ISSUE, versionNo: '1' }, 'x', { versionNo: 1 }].forEach(function (bad) {
+    const env = makeG2Env();
+    const resp = env.sandbox.apiRunPublish(Object.assign({}, D6_PAYLOAD, { confirmedMasterIssue: bad }));
+    assert.strictEqual(resp.ok, false, JSON.stringify(bad));
+    assert.strictEqual(resp.error.code, 'BAD_REQUEST');
+    assert.strictEqual(resp.error.message, '確認視窗送回的那一期格式不對，為免通知信講錯日期，這一次沒有寄出。請重新載入這一頁，再按一次「執行」。');
+    assert.strictEqual(readSendLog(env).length, 0);
+    assert.strictEqual(env.mails.length, 0);
+    assert.strictEqual(env.sandbox.readSheet('ErrorLog').filter(function (r) { return r.ERROR_CODE === 'BAD_REQUEST'; }).length, 1);
+    assertWrittenChinese(assert, 'RV4 拒絕訊息', [resp.error.message]);
+  });
+  // null 等於沒有送回（照舊），不是格式錯。
+  const ok = makeG2Env().sandbox.apiRunPublish(Object.assign({}, D6_PAYLOAD, { confirmedMasterIssue: null }));
+  assert.strictEqual(ok.data.ok, true, ok.data.message);
 });
 
 // =====================================================================
