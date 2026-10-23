@@ -1393,7 +1393,7 @@ test('G19-3 「由職事表重新取數」對話框、發佈前檢查視窗按�
   assert.strictEqual(pub.count('apiRunPublish'), 0);
 });
 
-test('G19-4 Script.html 內每一個 openConfirmDialog() 的取消分支：會寫入的都用 CANCELLED_NOTHING_WRITTEN_MESSAGE；只有換週例外（不是寫入）', function () {
+test('G19-4 Script.html 內每一個 openConfirmDialog() 的取消分支：會寫入的都用 CANCELLED_NOTHING_WRITTEN_MESSAGE；只有換週與重讀職事表（審查後修正 7）例外（不是寫入）', function () {
   const js = readSrc('src/ui/Script.html');
   const titles = [];
   // 註解內的「openConfirmDialog()」與函式定義本身不算呼叫。
@@ -1403,13 +1403,13 @@ test('G19-4 Script.html 內每一個 openConfirmDialog() 的取消分支：會�
     if (js.slice(m.index - 9, m.index) === 'function ') continue;
     const callback = js.slice(m.index, js.indexOf('callServer(', m.index) === -1 ? m.index + 400 : js.indexOf('callServer(', m.index));
     titles.push(m[1].trim());
-    if (m[1].indexOf("'換週'") !== -1) {
-      assert.ok(callback.indexOf('CANCELLED_NOTHING_WRITTEN_MESSAGE') === -1, '換週不是寫入，不用「一格都沒有寫」');
+    if (m[1].indexOf("'換週'") !== -1 || m[1].indexOf("'重讀職事表'") !== -1) {
+      assert.ok(callback.indexOf('CANCELLED_NOTHING_WRITTEN_MESSAGE') === -1, m[1] + ' 不是寫入，不用「一格都沒有寫」');
       continue;
     }
     assert.ok(callback.indexOf('CANCELLED_NOTHING_WRITTEN_MESSAGE') !== -1, m[1] + ' 的取消分支要用共用常數');
   }
-  assert.deepStrictEqual(titles, ["'由內容表匯入'", "'還原到這個版本'", "'重設這一週'", "'建立講員表格'", "'換週'", "data.title || '季度作業'"],
+  assert.deepStrictEqual(titles, ["'由內容表匯入'", "'還原到這個版本'", "'重設這一週'", "'建立講員表格'", "'換週'", "'重讀職事表'", "data.title || '季度作業'"],
     '對話框有增減：先檢查取消分支，再更新這裏');
   assert.strictEqual(js.indexOf('已取消，沒有寫入任何資料。'), -1, '舊字眼不再出現');
 });

@@ -1107,7 +1107,8 @@
    * 用途：第二批測試修正 G15：會改資料的確認對話框按「取消」（或 Esc）之後顯示的一句。
    *   重設這一週、還原到這個版本、季度作業共用這一個，字眼只有一處。
    *   G19：由內容表匯入（只限這一個主日）、建立講員表格、由職事表重新取數、發佈前檢查
-   *   視窗亦用這一句。換週的確認不是寫入，按取消只把下拉改回，不用這一句。
+   *   視窗亦用這一句。換週的確認不是寫入，按取消只把下拉改回，不用這一句；「重讀職事表」的確認
+   *   （審查後修正 7）亦不是寫入，按取消甚麼都不做，同樣不用這一句。
    */
   var CANCELLED_NOTHING_WRITTEN_MESSAGE = '已取消，一格都沒有寫。';
 
@@ -2306,9 +2307,21 @@
   function hasUnsavedWeekChanges() {
     if (!state.loaded) return false;
     var fields = diffWeekFields(collectWeekFieldsFromForm(), state.loadedWeek, CONTENT_SHEET_WEEK_FIELDS);
-    var duty = changedDutyEdits(state.dutyEdits, state.loadedDutyNames);
-    var nextDuty = changedDutyEdits(state.nextWeekDutyEdits, state.loadedNextDutyNames);
-    return Object.keys(fields.week).length + duty.length + nextDuty.length > 0;
+    return Object.keys(fields.week).length > 0 || hasUnsavedDutyEdits();
+  }
+
+  /**
+   * 用途：審查後修正 7：兩個事奉框（本週、下週）有沒有未儲存的改動。與 `hasUnsavedWeekChanges()`、
+   *   「儲存」送甚麼用同一支 `changedDutyEdits()`，規則只有一份。「重讀職事表」只重畫事奉框，
+   *   所以只問這一部分。
+   * Args: （無，讀 `state`）
+   * Returns:
+   *   {boolean}
+   */
+  function hasUnsavedDutyEdits() {
+    if (!state.loaded) return false;
+    return changedDutyEdits(state.dutyEdits, state.loadedDutyNames).length
+      + changedDutyEdits(state.nextWeekDutyEdits, state.loadedNextDutyNames).length > 0;
   }
 
   /**
@@ -2763,9 +2776,40 @@
     link.classList.remove('hidden');
   }
 
+  /**
+   * 用途：按「重讀職事表（本主日，不覆寫）」。
+   *
+   *   審查後修正 7：這個按鈕會按職事表最新內容重畫兩個事奉框，事奉框上未儲存的改動（改了的名字、
+   *   「保留我的」、「還原」）會靜靜丟失。有這種改動時先用頁內確認對話框問一次；按「取消」甚麼都不做，
+   *   亦不顯示訊息（與換週的確認同一做法：不是寫入，用不着「一格都沒有寫」那一句）。沒有改動時照舊直接讀。
+   *   表單其他欄位本來就不受影響，不算在內。
+   * Args: （無）
+   * Returns:
+   *   {void}
+   */
   function reloadRosterOnly() {
     if (!state.isoDate) return;
     if (state.inFlight > 0) return;
+    if (!hasUnsavedDutyEdits()) { startRosterReload(); return; }
+    openConfirmDialog('重讀職事表', [RELOAD_ROSTER_DISCARD_DUTY_PROMPT], function (accepted) {
+      if (accepted) startRosterReload();
+    });
+  }
+
+  /**
+   * 審查後修正 7：「重讀職事表」會重畫事奉框，事奉框有未儲存的改動時先問的一句。放在 reloadRosterOnly()
+   * 之後（測試會把 reloadRosterOnly() 至 buildSavePayload() 這一段抽出來執行）。
+   */
+  var RELOAD_ROSTER_DISCARD_DUTY_PROMPT = '重讀職事表會丟失你未儲存的事奉改動，確定嗎？';
+
+  /**
+   * 用途：真正送出「重讀職事表」的請求（`reloadRosterOnly()` 確認之後才叫）。
+   * Args: （無）
+   * Returns:
+   *   {void}
+   */
+  function startRosterReload() {
+    if (!state.isoDate || state.inFlight > 0) return;
     hideMessage();
     callServer('apiLoadWeek', [state.isoDate], onRosterReloaded, { busyText: '讀取職事表中…' });
   }

@@ -528,6 +528,8 @@ function makeUi(sb) {
     region(js, 'message-bar'),
     between(js, 'function setLoaded(', '// BEGIN call-server'),
     region(js, 'call-server'),
+    // 審查後修正 7：「重讀職事表」有未儲存的事奉改動時用真正的頁內確認對話框。
+    region(js, 'confirm-dialog'),
     region(js, 'load-week'),
     between(js, 'function onWeekLoaded(', 'function renderPreviewLink('),
     between(js, 'function renderReadOnly(', 'function renderNextWeekDutyBox('),
@@ -567,6 +569,21 @@ function makeUi(sb) {
       c.ok(resp);
       if (resp.ok) answerLoad();
       return { payload: payload, resp: resp };
+    },
+    /** 按一粒 wireStaticEvents() 接上的真按鈕（不自動回應伺服器）。 */
+    click: function (id) {
+      const node = dom.document.getElementById(id);
+      assert.ok(node.listeners.click, '#' + id + ' 沒有接上 click');
+      node.listeners.click({ target: node });
+    },
+    /** 頁內確認對話框是不是開着；開着的話回傳標題與內文。 */
+    dialog: function () {
+      const backdrop = dom.elements.confirmDialogBackdrop;
+      if (!backdrop || backdrop.classList.contains('hidden')) return null;
+      return {
+        title: dom.elements.confirmDialogTitle.textContent,
+        lines: dom.elements.confirmDialogBody.children.map(function (c) { return c.textContent; })
+      };
     },
     /** 按「重讀職事表（本主日，不覆寫）」（wireStaticEvents() 接上的真按鈕）。 */
     clickReloadRoster: function () {
@@ -1016,6 +1033,87 @@ test('RV5-2 真正入口：亂行機「經填寫介面改幾格」揀中沙盒�
   assert.ok(String(result.summary || result.detail || JSON.stringify(result)).indexOf('2027-11-28') !== -1, JSON.stringify(result));
   assert.strictEqual(JSON.stringify(overrideRows(sb, OUTSIDE_SANDBOX)), before, '沙盒之外的覆寫一格都沒有改');
   assert.strictEqual(auditRowsFor(sb, OUTSIDE_SANDBOX).length, 0, '沙盒之外沒有 AuditLog');
+});
+
+// =====================================================================
+// 審查後修正 7：「重讀職事表」有未儲存的事奉改動時先問
+// =====================================================================
+
+console.log('\n審查後修正 7：「重讀職事表」不再靜靜丟掉未儲存的事奉改動');
+
+const RV7_PROMPT = '重讀職事表會丟失你未儲存的事奉改動，確定嗎？';
+
+function apiLoadCount(ui) { return ui.calls.filter(function (c) { return c.name === 'apiLoadWeek'; }).length; }
+
+test('RV7-1 沒有未儲存的事奉改動（只改了表單其他欄位）→ 按「重讀職事表」照舊直接讀，不出對話框；表單欄位不受影響', function () {
+  const sb = makeEnv();
+  const ui = makeUi(sb);
+  ui.open(W);
+  ui.ctx.form.PRELUDE = '未儲存的序樂';
+  const before = apiLoadCount(ui);
+  ui.click('reloadRosterBtn');
+  assert.strictEqual(ui.dialog(), null);
+  assert.strictEqual(apiLoadCount(ui), before + 1, '直接送出');
+  ui.take('apiLoadWeek').ok(plain(sb.apiLoadWeek(W)));
+  assert.strictEqual(ui.ctx.form.PRELUDE, '未儲存的序樂');
+});
+
+test('RV7-2 事奉框改了名字 → 按「重讀職事表」→ 出頁內確認對話框（那一句原文）、一個請求都未送；按「取消」→ 甚麼都不做：名字仍在、仍算未儲存、訊息列不變、沒有請求', function () {
+  const sb = makeEnv();
+  const ui = makeUi(sb);
+  ui.open(W);
+  ui.slot('dutyBoxPage1Body').type('王五');
+  const messageBefore = ui.message();
+  const before = apiLoadCount(ui);
+  ui.click('reloadRosterBtn');
+  assert.deepStrictEqual(ui.dialog(), { title: '重讀職事表', lines: [RV7_PROMPT] });
+  assert.strictEqual(apiLoadCount(ui), before, '確認之前不送');
+  ui.click('confirmCancelBtn');
+  assert.strictEqual(ui.dialog(), null);
+  assert.strictEqual(apiLoadCount(ui), before, '取消之後亦不送');
+  assert.strictEqual(ui.slot('dutyBoxPage1Body').input.value, '王五');
+  assert.strictEqual(ui.ctx.hasUnsavedWeekChanges(), true);
+  assert.strictEqual(ui.message(), messageBefore, '取消不顯示訊息（與換週同一做法）');
+  assertWrittenChinese(assert, 'RV7 確認句', [RV7_PROMPT]);
+});
+
+test('RV7-3 同一情境按「確定」→ 送出重讀；職事表已經換了人 → 事奉框按職事表重畫（張三），改動丟失，不再算未儲存', function () {
+  const sb = makeEnv();
+  const ui = makeUi(sb);
+  ui.open(W);
+  ui.slot('dutyBoxPage1Body').type('王五');
+  rosterChangesChair(sb, W, '張三');
+  ui.click('reloadRosterBtn');
+  ui.click('confirmOkBtn');
+  assert.strictEqual(ui.dialog(), null);
+  ui.take('apiLoadWeek').ok(plain(sb.apiLoadWeek(W)));
+  assert.strictEqual(ui.slot('dutyBoxPage1Body').input.value, '張三');
+  assert.strictEqual(ui.ctx.hasUnsavedWeekChanges(), false);
+});
+
+test('RV7-4 下週事奉框的改動、本週衝突格按了「保留我的」、有覆寫的格按了「還原」亦算 → 先問', function () {
+  const sbNext = makeEnv();
+  const uiNext = makeUi(sbNext);
+  uiNext.open(W);
+  uiNext.slot('nextWeekDutyBody').type('下週王');
+  uiNext.click('reloadRosterBtn');
+  assert.ok(uiNext.dialog(), '下週事奉框的改動');
+
+  const sbKeep = makeConflictEnv();
+  const uiKeep = makeUi(sbKeep);
+  uiKeep.open(W);
+  const k = uiKeep.slot('dutyBoxPage1Body');
+  k.click(k.keepButton());
+  uiKeep.click('reloadRosterBtn');
+  assert.ok(uiKeep.dialog(), '「保留我的」');
+
+  const sbFollow = makeOverriddenEnv();
+  const uiFollow = makeUi(sbFollow);
+  uiFollow.open(W);
+  const f = uiFollow.slot('dutyBoxPage1Body');
+  f.click(f.restoreButton());
+  uiFollow.click('reloadRosterBtn');
+  assert.ok(uiFollow.dialog(), '「還原」');
 });
 
 console.log('\n通過 ' + pass + ' 項，失敗 ' + fail + ' 項。');
