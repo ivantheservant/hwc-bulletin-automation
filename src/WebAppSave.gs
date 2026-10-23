@@ -49,14 +49,16 @@
  *   fellowships:   [{ seqNo:(number|null), FELLOWSHIP_NAME, MEETING_DATE, MEETING_TIME, CONTENT }, ...],
  *   finance:       [{ seqNo:(number|null), ROW_LABEL, COL_SPECIAL_OVERSEAS, COL_HARDSHIP }, ...],
  *   payloadVersion: 2,                 // D9：見 SAVE_PAYLOAD_VERSION_；帶事奉格而版本不對＝舊版前端，整次拒絕
- *   dutyEdits:     [{ postId:string, slotIndex:number, name:string,
- *                     baseName:string, keepOverride:(true|undefined) }, ...],   // 第六輪；D9 只送改過的格
+ *   dutyEdits:     [{ postId:string, slotIndex:number, name:string, baseName:string,
+ *                     keepOverride:(true|undefined), followRoster:(true|undefined) }, ...],   // 第六輪；D9 只送改過的格
  *   nextWeekDutyEdits: [ 同上 ]        // R-040：下週事奉，寫下一個主日
  * }
  * ```
  *
  * D9：`dutyEdits`／`nextWeekDutyEdits` **只放載入之後改過的格**（未套尊稱的原始姓名，`baseName` 是
  * 載入時的名字），以及幹事對衝突格按了「保留我的」的格（`keepOverride:true`）。沒有送來的格一律不動。
+ * 審查後修正 1：對有覆寫的格按了「還原」的格帶 `followRoster:true`，後端不論名字與職事表現值，一律停用那一格
+ * 的覆寫（「還原」填的是載入時的職事表名字，不可以拿名字代表「改回跟隨職事表」）。
  * 與職事表現值相同、或者是空字串的格子**不會**產生 `DutyOverride` 記錄；職事表已經追上的覆寫每次儲存
  * 都會自動停用。見 `src/DutyOverride.gs` 的 `computeDutyOverridePlan_()`。
  * D9 之前前端每次都送全部格（docs/待確認事項.md FF-17、FF-26），那種舊分頁由 `payloadVersion` 擋住。

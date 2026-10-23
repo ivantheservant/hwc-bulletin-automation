@@ -188,6 +188,11 @@ function readDutyOverrideRows_(isoDate) {
  *       「保留我的」），是看著現在的職事表做決定的，衝突解除。
  *     - `keepOverride` 只認布林 `true`（字串 `"true"` 不算，當作沒有按）：名字不變，只把基準更新到現在
  *       的職事表，衝突解除（上一條的特例）。
+ *     - `followRoster` 只認布林 `true`（幹事對有覆寫的格按了「還原」）：不論送來的名字、也不論職事表
+ *       現值，一律停用那一格全部生效中的覆寫，不新增、不更新覆寫。名字不可以拿來代表這個意圖：「還原」
+ *       在輸入框填的是載入時的職事表名字，分頁開着期間職事表換了人的話，那個名字與職事表現值不同，
+ *       照一般規則會把舊名字釘成新覆寫（審查後修正 1）。`followRoster` 與 `keepOverride` 同時是 true
+ *       （介面不會這樣送）時以 `followRoster` 為準。
  *
  *   另外每次都檢查這一週**全部**生效中的覆寫（沒有送來的格）：覆寫的名字已經等於職事表現值（職事表
  *   追上了覆寫），或者覆寫名字是空白（畫面本來就顯示職事表），就自動停用（`autoCaughtUp:true`），
@@ -196,7 +201,7 @@ function readDutyOverrideRows_(isoDate) {
  * Args:
  *   input {{edits:Object[], existingRows:Object[], rosterNameByKey:Object,
  *          rosterVersion:(number|null)}}
- *     `edits` 每個元素是 `{postId, slotIndex, name, baseName, keepOverride}`（後兩個可省略）；
+ *     `edits` 每個元素是 `{postId, slotIndex, name, baseName, keepOverride, followRoster}`（後三個可省略）；
  *     `existingRows` 是 `readDutyOverrideRowsWithRowNo_()` 的輸出；`rosterNameByKey` 是
  *     「崗位#位次 → 職事表現值」。
  * Returns:
@@ -229,12 +234,25 @@ function computeDutyOverridePlan_(input) {
     var slotIndex = (edit.slotIndex === null || edit.slotIndex === undefined) ? 1 : Number(edit.slotIndex);
     var newName = String(edit.name === null || edit.name === undefined ? '' : edit.name).trim();
     var keep = edit.keepOverride === true;
+    var follow = edit.followRoster === true;
     var hasBase = typeof edit.baseName === 'string';
-    if (!keep && hasBase && newName === edit.baseName.trim()) return;
+    if (!follow && !keep && hasBase && newName === edit.baseName.trim()) return;
     editedKeys[key] = true;
 
     var rosterName = String(rosterNameByKey[key] === undefined ? '' : rosterNameByKey[key]).trim();
     var existing = existingByKey[key];
+
+    // 審查後修正 1：「還原」＝改回跟隨職事表。不看名字、不看職事表現值，那一格生效中的覆寫全部停用。
+    if (follow) {
+      (input.existingRows || []).forEach(function (row) {
+        if (row.ACTIVE !== true || dutyOverrideKey_(row.POST_ID, row.SLOT_INDEX) !== key) return;
+        deactivations.push({
+          rowNo: row.__rowNo, postId: edit.postId, slotIndex: slotIndex,
+          oldValue: String(row.OVERRIDE_NAME || ''), rosterName: rosterName, autoCaughtUp: false
+        });
+      });
+      return;
+    }
 
     var shouldOverride = newName !== '' && newName !== rosterName;
 

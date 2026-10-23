@@ -669,7 +669,8 @@ test('D9-18 「取消保留」撤回 → 不再算未儲存、儲存時不送；
   assert.strictEqual(s.input.value, '張三');
   const r = ui.clickSave();
   assert.strictEqual(r.resp.ok, true, JSON.stringify(r.resp.error));
-  assert.deepStrictEqual(r.payload.dutyEdits, [{ postId: 'CHAIR', slotIndex: 1, name: '張三', baseName: '李小明' }]);
+  // 審查後修正 1：「還原」有覆寫的格另帶 followRoster:true（以前只送名字）。
+  assert.deepStrictEqual(r.payload.dutyEdits, [{ postId: 'CHAIR', slotIndex: 1, name: '張三', baseName: '李小明', followRoster: true }]);
   assert.strictEqual(activeChair(sb, W), null, '改回職事表的名字＝取消覆寫');
   assert.strictEqual(conflictCount(sb, W), 0);
 });
@@ -785,6 +786,176 @@ test('D9-24 computeDutyOverridePlan_()（純函式）：沒有送來的格只做
   }));
   assert.deepStrictEqual(edited.deactivations, []);
   assert.strictEqual(edited.updates[0].changes[0].newValue, '新甲');
+});
+
+// =====================================================================
+// 審查後修正 1：分頁開着期間職事表換了人，再按「還原」
+// =====================================================================
+
+console.log('\n審查後修正 1：「還原」送明確意圖 followRoster');
+
+/** W 的主席覆寫成李小明（職事表當時是陳大文），回傳 sandbox；之後由測試決定何時載入、何時改職事表。 */
+function makeOverriddenEnv() {
+  const sb = makeEnv();
+  const made = save(sb, W, { duty: { 'CHAIR#1': '李小明' } });
+  assert.strictEqual(made.resp.ok, true, JSON.stringify(made.resp.error));
+  rewindLastSavedAt(sb, W, '2026-10-02');
+  return sb;
+}
+
+test('RV1-1 對照組（應該紅）：分頁載入之後職事表把主席由陳大文改成張三，只送「還原」填的名字（載入時的陳大文）而沒有 followRoster → 後端照一般規則把陳大文釘成覆寫（這正是審查重現 R3，名字代表不了「改回跟隨職事表」）', function () {
+  const sb = makeOverriddenEnv();
+  const tab = load(sb, W);
+  rosterChangesChair(sb, W, '張三');
+  const r = save(sb, W, { tab: tab, duty: { 'CHAIR#1': chairSlot(tab, 'dutyBoxPage1').rosterName } });
+  assert.strictEqual(r.resp.ok, true, JSON.stringify(r.resp.error));
+  assert.strictEqual(activeChair(sb, W).OVERRIDE_NAME, '陳大文', '沒有 followRoster 就會釘死舊名字');
+  assert.strictEqual(activeChair(sb, W).ROSTER_VALUE_AT_OVERRIDE, '張三');
+});
+
+test('RV1-2（審查重現 R3 改為通過）經 apiSaveWeek：同一情境帶 followRoster:true → 停用覆寫、不新增；重新載入顯示職事表現在的張三、沒有衝突；訊息算 1 個欄位；AuditLog 是幹事取消的備註', function () {
+  const sb = makeOverriddenEnv();
+  const tab = load(sb, W);
+  rosterChangesChair(sb, W, '張三');
+  const r = save(sb, W, { tab: tab, duty: { 'CHAIR#1': { name: chairSlot(tab, 'dutyBoxPage1').rosterName, followRoster: true } } });
+  assert.strictEqual(r.resp.ok, true, JSON.stringify(r.resp.error));
+  assert.deepStrictEqual(plain(r.payload.dutyEdits), [{ postId: 'CHAIR', slotIndex: 1, name: '陳大文', baseName: '李小明', followRoster: true }]);
+  assert.strictEqual(activeChair(sb, W), null, '覆寫停用');
+  assert.strictEqual(overrideRows(sb, W).length, 1, '不新增、不刪行');
+  const slot = chairSlot(load(sb, W), 'dutyBoxPage1');
+  assert.strictEqual(slot.bulletinName, '張三');
+  assert.strictEqual(slot.hasOverride, false);
+  assert.strictEqual(conflictCount(sb, W), 0);
+  assert.strictEqual(r.resp.data.message.text, '已儲存，更新了 1 個欄位。');
+  const audit = sb.readSheet('AuditLog').filter(function (a) { return a.ACTION === 'DUTY_OVERRIDE_CLEAR'; });
+  assert.strictEqual(audit.length, 1);
+  assert.strictEqual(audit[0].NOTES, '取消人手覆寫（原值：李小明），改回跟隨職事表。記錄保留，不刪行。');
+});
+
+test('RV1-3 followRoster 只認布林 true：字串 "true" 當作沒有，照一般規則處理（與 keepOverride 同一規則）；沒有生效中的覆寫時 followRoster 甚麼都不寫', function () {
+  const sb = makeOverriddenEnv();
+  const tab = load(sb, W);
+  rosterChangesChair(sb, W, '張三');
+  const resp = sb.apiSaveWeek(plain({ isoDate: W, lastSavedAt: tab.lastSavedAt, payloadVersion: SAVE_PAYLOAD_VERSION,
+    week: {}, baseWeek: {}, dutyEdits: [{ postId: 'CHAIR', slotIndex: 1, name: '陳大文', baseName: '李小明', followRoster: 'true' }] }));
+  assert.strictEqual(resp.ok, true, JSON.stringify(resp.error));
+  assert.strictEqual(activeChair(sb, W).OVERRIDE_NAME, '陳大文', '字串不算明確意圖');
+
+  const sb2 = makeEnv();
+  const tab2 = load(sb2, W);
+  const before = JSON.stringify([sb2.readSheet('DutyOverride'), sb2.readSheet('AuditLog')]);
+  const resp2 = sb2.apiSaveWeek(plain({ isoDate: W, lastSavedAt: tab2.lastSavedAt, payloadVersion: SAVE_PAYLOAD_VERSION,
+    week: {}, baseWeek: {}, dutyEdits: [{ postId: 'CHAIR', slotIndex: 1, name: '陳大文', baseName: '陳大文', followRoster: true }] }));
+  assert.strictEqual(resp2.ok, true, JSON.stringify(resp2.error));
+  assert.ok(resp2.data.message.text.indexOf('沒有偵測到任何改動') !== -1, resp2.data.message.text);
+  assert.strictEqual(JSON.stringify([sb2.readSheet('DutyOverride'), sb2.readSheet('AuditLog')]), before, '一格都沒有寫');
+});
+
+test('RV1-4 computeDutyOverridePlan_()：followRoster 不看名字、不看職事表現值，那一格全部生效中的覆寫都停用（同一格兩行亦然）；不新增、不更新；與 keepOverride 同時是 true 以 followRoster 為準', function () {
+  const sb = makeEnv();
+  const row = function (rowNo, name, active) {
+    return { __rowNo: rowNo, POST_ID: 'A', SLOT_INDEX: 1, OVERRIDE_NAME: name, ROSTER_VALUE_AT_OVERRIDE: '舊', ROSTER_VERSION_AT_OVERRIDE: 1, ACTIVE: active };
+  };
+  const plan = plain(sb.computeDutyOverridePlan_({
+    edits: [{ postId: 'A', slotIndex: 1, name: '某個不同的名字', baseName: '甲', followRoster: true, keepOverride: true }],
+    existingRows: [row(3, '甲', true), row(4, '甲', true), row(5, '乙', false)],
+    rosterNameByKey: { 'A#1': '丙' }, rosterVersion: 2
+  }));
+  assert.deepStrictEqual(plan.updates, []);
+  assert.deepStrictEqual(plan.appends, []);
+  assert.deepStrictEqual(plan.deactivations.map(function (d) { return [d.rowNo, d.oldValue, d.rosterName, d.autoCaughtUp]; }),
+    [[3, '甲', '丙', false], [4, '甲', '丙', false]]);
+});
+
+test('RV1-5 前端按鈕路徑：分頁載入之後職事表換人 → 對有覆寫的主席按「還原」→ 算未儲存、按「儲存」送 followRoster → 後端停用覆寫；儲存之後重新載入，輸入框是職事表現在的張三', function () {
+  const sb = makeOverriddenEnv();
+  const ui = makeUi(sb);
+  ui.open(W);
+  const s = ui.slot('dutyBoxPage1Body');
+  assert.strictEqual(s.input.value, '李小明', '前提：載入時是覆寫的名字');
+  rosterChangesChair(sb, W, '張三');
+  s.click(s.restoreButton());
+  assert.strictEqual(s.input.value, '陳大文', '「還原」填的是載入時的職事表名字');
+  assert.strictEqual(ui.ctx.hasUnsavedWeekChanges(), true);
+  const r = ui.clickSave();
+  assert.strictEqual(r.resp.ok, true, JSON.stringify(r.resp.error));
+  assert.deepStrictEqual(r.payload.dutyEdits, [{ postId: 'CHAIR', slotIndex: 1, name: '陳大文', baseName: '李小明', followRoster: true }]);
+  assert.strictEqual(activeChair(sb, W), null);
+  assert.strictEqual(overrideRows(sb, W).length, 1);
+  assert.strictEqual(ui.slot('dutyBoxPage1Body').input.value, '張三');
+  assert.strictEqual(ui.message(), '已儲存，更新了 1 個欄位。');
+});
+
+test('RV1-6 前端：「還原」之後改名 → 撤回 followRoster，送的是新名字；載入時沒有覆寫的格按「還原」只是改回，不送 followRoster、不算改動', function () {
+  const sb = makeOverriddenEnv();
+  const ui = makeUi(sb);
+  ui.open(W);
+  const s = ui.slot('dutyBoxPage1Body');
+  s.click(s.restoreButton());
+  s.type('王五');
+  assert.deepStrictEqual(plain(ui.ctx.buildSavePayload().dutyEdits), [{ postId: 'CHAIR', slotIndex: 1, name: '王五', baseName: '李小明' }]);
+
+  const sb2 = makeEnv();
+  const ui2 = makeUi(sb2);
+  ui2.open(W);
+  const s2 = ui2.slot('dutyBoxPage1Body');
+  s2.type('王五');
+  s2.click(s2.restoreButton());
+  assert.strictEqual(s2.input.value, '陳大文');
+  assert.strictEqual(ui2.ctx.hasUnsavedWeekChanges(), false);
+  assert.deepStrictEqual(plain(ui2.ctx.buildSavePayload().dutyEdits), []);
+});
+
+test('RV1-7 前端：衝突格按「還原」再按「保留我的」→ 輸入框填回你的名字、撤回 followRoster、送 keepOverride → 後端衝突解除而名字不變（不會把職事表名字釘成覆寫）', function () {
+  const sb = makeConflictEnv();
+  const ui = makeUi(sb);
+  ui.open(W);
+  const s = ui.slot('dutyBoxPage1Body');
+  s.click(s.restoreButton());
+  assert.strictEqual(s.input.value, '張三');
+  s.click(s.keepButton());
+  assert.strictEqual(s.input.value, '李小明', '保留的是你的名字');
+  assert.strictEqual(s.hint(), '已選擇保留「李小明」，按「儲存」之後生效；要改主意就按「取消保留」。');
+  const r = ui.clickSave();
+  assert.strictEqual(r.resp.ok, true, JSON.stringify(r.resp.error));
+  assert.deepStrictEqual(r.payload.dutyEdits, [{ postId: 'CHAIR', slotIndex: 1, name: '李小明', baseName: '李小明', keepOverride: true }]);
+  assert.strictEqual(activeChair(sb, W).OVERRIDE_NAME, '李小明');
+  assert.strictEqual(conflictCount(sb, W), 0);
+});
+
+test('RV1-8 下週事奉框：W 的分頁載入之後職事表把 W+7 的主席改了 → 在下週事奉框對有覆寫的主席按「還原」→ 送 nextWeekDutyEdits 的 followRoster → W+7 覆寫停用，W 一筆都沒有；重新載入顯示職事表的新名字', function () {
+  const sb = makeEnv();
+  const made = save(sb, W, { next: { 'CHAIR#1': '下週李' } });
+  assert.strictEqual(made.resp.ok, true, JSON.stringify(made.resp.error));
+  rewindLastSavedAt(sb, W, '2026-10-02');
+  const ui = makeUi(sb);
+  ui.open(W);
+  const s = ui.slot('nextWeekDutyBody');
+  assert.strictEqual(s.input.value, '下週李');
+  rosterChangesChair(sb, W_AFTER, '下週張');
+  s.click(s.restoreButton());
+  const r = ui.clickSave();
+  assert.strictEqual(r.resp.ok, true, JSON.stringify(r.resp.error));
+  assert.deepStrictEqual(r.payload.dutyEdits, []);
+  assert.deepStrictEqual(r.payload.nextWeekDutyEdits, [{ postId: 'CHAIR', slotIndex: 1, name: '陳大文', baseName: '下週李', followRoster: true }]);
+  assert.strictEqual(activeChair(sb, W_AFTER), null);
+  assert.deepStrictEqual(overrideRows(sb, W), []);
+  assert.strictEqual(ui.slot('nextWeekDutyBody').input.value, '下週張');
+});
+
+test('RV1-9 changedDutyEdits()：followRoster 只認布林 true；帶 followRoster 的格即使名字與載入時相同亦送，而且不帶 keepOverride（與 changedDutyCells() 同一套規則）', function () {
+  const sb = makeEnv();
+  const ui = makeUi(sb);
+  const edits = {
+    'A#1': { postId: 'A', slotIndex: 1, name: '甲', keepOverride: false, followRoster: true },
+    'B#1': { postId: 'B', slotIndex: 1, name: '乙', keepOverride: true, followRoster: true },
+    'C#1': { postId: 'C', slotIndex: 1, name: '丙', keepOverride: false, followRoster: 'true' }
+  };
+  const loaded = { 'A#1': '甲', 'B#1': '乙', 'C#1': '丙' };
+  assert.deepStrictEqual(plain(ui.ctx.changedDutyEdits(edits, loaded)), [
+    { postId: 'A', slotIndex: 1, name: '甲', baseName: '甲', followRoster: true },
+    { postId: 'B', slotIndex: 1, name: '乙', baseName: '乙', followRoster: true }
+  ]);
 });
 
 console.log('\n通過 ' + pass + ' 項，失敗 ' + fail + ' 項。');

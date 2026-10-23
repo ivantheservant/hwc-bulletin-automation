@@ -43,7 +43,7 @@
     speakerForm: null,
     lists: { announcements: [], prayers: [], fellowships: [], finance: [] },
     // 第六輪：事奉框每一格目前的值，鍵是「崗位#位次」。每一格是
-    // { postId, slotIndex, name, keepOverride }。D9：儲存時只送載入之後改過的格
+    // { postId, slotIndex, name, keepOverride, followRoster }。D9：儲存時只送載入之後改過的格
     // （與 loadedDutyNames 比，見 changedDutyEdits()），以及按了「保留我的」的衝突格；
     // 沒有改的格不送，伺服器亦一律不動（以前整批送回，FF-17／FF-26）。
     dutyEdits: {},
@@ -1318,6 +1318,12 @@
    *   儲存時送 `keepOverride:true`，伺服器把覆寫對照的職事表值更新到現在，衝突解除而名字不變；再按一次
    *   （「取消保留」）撤回。改了名字或按「還原」會自動撤回保留。職事表已經改成與覆寫相同的名字時，不顯示
    *   這粒按鈕，改為講明下次儲存會自動改回跟隨職事表。
+   *
+   *   審查後修正 1：對載入時有覆寫的格按「還原」，除了把輸入框填回載入時的職事表名字，另記
+   *   `followRoster:true`，儲存時伺服器不論名字與職事表現值，一律停用那一格的覆寫。不可以只靠名字：
+   *   分頁開着期間職事表換了人，輸入框的舊名字與職事表現值不同，伺服器會把它當成新覆寫釘死。
+   *   改名、按「保留我的」都會撤回 `followRoster`；按「保留我的」同時把輸入框填回你的名字（保留的
+   *   就是那個名字）。載入時沒有覆寫的格按「還原」只是把輸入框改回，沒有東西要停用，不記 `followRoster`。
    * Args:
    *   slot {Object} `buildDutyBoxSlotDetail_()` 的輸出。
    *   rowEl {HTMLElement} 整行的容器，用來即時加／減橙色標示。
@@ -1331,7 +1337,7 @@
     // ⚠️ R-040：本週與下週兩個事奉框共用這一支，但**各自一個 edits map**
     //    ——共用一個的話，下週那一格會蓋走本週同一個崗位那一格。
     var edits = editsMap || state.dutyEdits;
-    edits[key] = { postId: slot.postId, slotIndex: slot.slotIndex, name: slot.bulletinName, keepOverride: false };
+    edits[key] = { postId: slot.postId, slotIndex: slot.slotIndex, name: slot.bulletinName, keepOverride: false, followRoster: false };
 
     // ⚠️ R-039：**逐格**標示「已覆寫」。本來只有整行有橙色左邊，
     //    而一行可以有幾格（例如司事 #1 #2 #3）——幹事分不出係邊一格
@@ -1352,6 +1358,13 @@
     var keepHint = null;
     function setKeep(on) {
       edits[key].keepOverride = on === true;
+      if (on === true) {
+        // 審查後修正 1：保留的是你的名字。之前按過「還原」的話，輸入框要填回你的名字，並撤回「跟隨職事表」。
+        edits[key].followRoster = false;
+        input.value = slot.bulletinName || '';
+        edits[key].name = input.value;
+        refreshSlotMarkers();
+      }
       if (!keepBtn) return;
       keepBtn.textContent = on === true ? '取消保留' : '保留我的';
       wrap.classList.toggle('is-kept', on === true);
@@ -1361,6 +1374,8 @@
     var restoreBtn = makeSmallButton('還原', function () {
       input.value = slot.rosterName || '';
       edits[key].name = input.value;
+      // 審查後修正 1：明確的意圖，不靠名字（見上面的說明）。
+      edits[key].followRoster = slot.hasOverride === true;
       setKeep(false);
       refreshSlotMarkers();
     });
@@ -1383,7 +1398,8 @@
     input.dataset.rosterName = slot.rosterName || '';
     input.addEventListener('input', function () {
       edits[key].name = input.value;
-      // D9：改了名字就不再是「保留我的」——送的是新名字。
+      // D9：改了名字就不再是「保留我的」——送的是新名字。審查後修正 1：亦不再是「還原」。
+      edits[key].followRoster = false;
       setKeep(false);
       refreshSlotMarkers();
       // R-039：改到與職事表不同就即時加上逐格標示。
@@ -2242,17 +2258,21 @@
   var SAVE_PAYLOAD_VERSION = 2;
 
   /**
-   * 用途：D9：一個事奉框（本週或下週）之中，儲存要送的格——載入之後名字改過的格，以及按了「保留我的」
-   *   的格。純函式，不碰 DOM。「有沒有未儲存的改動」與「儲存送甚麼」都用這一支，規則只有一份。
+   * 用途：D9：一個事奉框（本週或下週）之中，儲存要送的格——載入之後名字改過的格、按了「保留我的」
+   *   的格，以及對有覆寫的格按了「還原」的格（審查後修正 1）。純函式，不碰 DOM。「有沒有未儲存的改動」
+   *   與「儲存送甚麼」都用這一支，規則只有一份。
    *
-   *   名字前後的空白不算改動（伺服器亦先去空白再比）。`keepOverride` 只認布林 true；名字改過的格即使
-   *   仍帶 keepOverride 亦當作一般的改名（介面改名時本來就會撤回保留）。
+   *   名字前後的空白不算改動（伺服器亦先去空白再比）。`keepOverride`、`followRoster` 只認布林 true；
+   *   名字改過的格即使仍帶 keepOverride 亦當作一般的改名（介面改名時本來就會撤回保留）。帶
+   *   `followRoster:true` 的格一定送（即使名字與載入時相同），而且不帶 keepOverride。
    * Args:
    *   edits {Object} `state.dutyEdits` 或 `state.nextWeekDutyEdits`（鍵 `postId#slotIndex`）。
    *   loadedNames {Object} 載入完成那一刻的名字（`dutyNameMap()` 的結果，鍵相同）。
    * Returns:
-   *   {{postId:string, slotIndex:number, name:string, baseName:string, keepOverride:(boolean|undefined)}[]}
-   *     `baseName` 是載入時的名字；只有「保留我的」的格才有 `keepOverride:true`。
+   *   {{postId:string, slotIndex:number, name:string, baseName:string, keepOverride:(boolean|undefined),
+   *     followRoster:(boolean|undefined)}[]}
+   *     `baseName` 是載入時的名字；只有「保留我的」的格才有 `keepOverride:true`，只有「還原」有覆寫的格
+   *     才有 `followRoster:true`。
    */
   function changedDutyEdits(edits, loadedNames) {
     var out = [];
@@ -2261,10 +2281,12 @@
       var now = String(e.name === null || e.name === undefined ? '' : e.name).trim();
       var raw = loadedNames ? loadedNames[key] : undefined;
       var loaded = String(raw === null || raw === undefined ? '' : raw).trim();
-      var keep = e.keepOverride === true && now === loaded;
-      if (now === loaded && !keep) return;
+      var follow = e.followRoster === true;
+      var keep = !follow && e.keepOverride === true && now === loaded;
+      if (now === loaded && !keep && !follow) return;
       var entry = { postId: e.postId, slotIndex: e.slotIndex, name: now, baseName: loaded };
       if (keep) entry.keepOverride = true;
+      if (follow) entry.followRoster = true;
       out.push(entry);
     });
     return out;

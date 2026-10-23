@@ -25,14 +25,16 @@ const SAVE_PAYLOAD_VERSION = 2;
 
 /**
  * 用途：D9：照前端 `changedDutyEdits()` 的規則，由載入時的事奉框算出儲存要送的格——只送名字
- *   （去掉前後空白）與載入時不同的格，以及要「保留我的」的格；每格帶 `baseName`。
+ *   （去掉前後空白）與載入時不同的格、要「保留我的」的格，以及按了「還原」的格（`followRoster`，
+ *   審查後修正 1）；每格帶 `baseName`。
  *   給「由程式叫儲存入口」的測試用，免得測試又回到「送全部格」的舊做法（FF-17、FF-26）。
  * Args:
  *   loadedRows {Object[]} `loadWeekForWebApp_(iso).readOnly.dutyBoxPage1` 或 `.nextWeekDuty`。
- *   wanted {Object<string,(string|{name:string,keepOverride:boolean})>} 鍵 `postId#slotIndex`，
- *     值是畫面上的新名字，或 `{name, keepOverride}`。沒有列出的格當作沒有動。
+ *   wanted {Object<string,(string|{name:string,keepOverride:boolean,followRoster:boolean})>} 鍵
+ *     `postId#slotIndex`，值是畫面上的新名字，或 `{name, keepOverride, followRoster}`。沒有列出的格當作沒有動。
  * Returns:
- *   {{postId:string, slotIndex:number, name:string, baseName:string, keepOverride:(boolean|undefined)}[]}
+ *   {{postId:string, slotIndex:number, name:string, baseName:string, keepOverride:(boolean|undefined),
+ *     followRoster:(boolean|undefined)}[]}
  * Raises:
  *   Error 如果 `wanted` 列了一格載入時沒有的格（測試寫錯）。
  */
@@ -48,10 +50,12 @@ function changedDutyCells(loadedRows, wanted) {
     const w = typeof wanted[key] === 'string' ? { name: wanted[key] } : wanted[key];
     const now = String(w.name === undefined || w.name === null ? '' : w.name).trim();
     const base = String(slot.bulletinName || '').trim();
-    const keep = w.keepOverride === true && now === base;
-    if (now === base && !keep) return;
+    const follow = w.followRoster === true;
+    const keep = !follow && w.keepOverride === true && now === base;
+    if (now === base && !keep && !follow) return;
     const entry = { postId: slot.postId, slotIndex: slot.slotIndex, name: now, baseName: base };
     if (keep) entry.keepOverride = true;
+    if (follow) entry.followRoster = true;
     out.push(entry);
   });
   return out;
