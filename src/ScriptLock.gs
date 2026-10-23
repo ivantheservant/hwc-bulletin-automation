@@ -26,7 +26,7 @@
  *      時會留下一個「以為仍然拿着鎖」的假狀態）；
  *   3. 用參數一層層傳「已經拿着鎖」要改一整條呼叫鏈（講員表格、重設、匯入、選單……），漏傳一處
  *      就回到 FF-23 的問題；而計數只有這一個檔案讀寫，範圍最小。
- * 只准本檔案讀寫 `SCRIPT_LOCK_DEPTH_`；tests/writeaction.test.js 的 D12 核對其他 `src` 檔案一處都沒有用到它。
+ * 只准本檔案讀寫 `SCRIPT_LOCK_DEPTH_`；tests/writeaction.test.js 的 G23b-2 核對其他 `src` 檔案一處都沒有用到它。
  * 見 docs/已知bug類型.md bug class 144。
  */
 
