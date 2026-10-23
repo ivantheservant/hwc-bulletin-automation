@@ -37,6 +37,14 @@
 
 'use strict';
 
+/**
+ * D3：介面可覆寫、以內容表為來源的欄位（`FieldOverride`）在給幹事看的字眼裏一律叫這個名字：
+ * 版本摘要、看差異的項目名稱、還原與重設的完成訊息都用它。以前同一樣東西有兩個叫法
+ * （完成訊息講「手動覆寫」，重設對話框講「在介面改過的內容表」欄位），見 docs/待確認事項.md FF-7。重設對話框在前端
+ * （src/ui/Script.html 的 buildResetDialogLines()）另寫一次同一個叫法，tests/stage2.test.js D3 核對兩邊一致。
+ */
+var WEEK_FIELD_OVERRIDE_TERM_ = '在介面改過的欄位';
+
 // =====================================================================
 // 純函式層
 // =====================================================================
@@ -200,7 +208,7 @@ function summarizeWeekSnapshotPayload_(payload) {
   }).join('、');
 
   return '填寫欄位 ' + filled + ' 格有內容；事奉框覆寫 ' + (payload.dutyOverrides || []).length
-    + ' 項；手動覆寫的欄位 ' + (payload.fieldOverrides || []).length + ' 項；'
+    + ' 項；' + WEEK_FIELD_OVERRIDE_TERM_ + ' ' + (payload.fieldOverrides || []).length + ' 項；'
     + listText + '（四項以內容表為準，只記條數）';
 }
 
@@ -370,7 +378,7 @@ function diffWeekSnapshotState_(payload, current, postDisplayRows) {
     var sameOverrideState = Boolean(snapFields[key]) === Boolean(curFields[key]);
     if (sameOverrideState && snapValue === curValue && snapSource === curSource) return;
     rows.push({
-      kind: 'FIELD_OVERRIDE', label: '手動覆寫的欄位：' + (labels[key] || key),
+      kind: 'FIELD_OVERRIDE', label: WEEK_FIELD_OVERRIDE_TERM_ + '：' + (labels[key] || key),
       snapshotValue: snapValue, currentValue: curValue
     });
   });
@@ -973,7 +981,7 @@ function restoreWeekSnapshotFromWebApp_(payload) {
     message: {
       type: 'success',
       text: '已還原到版本「' + versionLabel + '」：週報欄位 ' + plan.fieldChanges.length
-        + ' 格、事奉框覆寫 ' + dutyCount + ' 項、手動覆寫的欄位 ' + fieldOverrideCount
+        + ' 格、事奉框覆寫 ' + dutyCount + ' 項、' + WEEK_FIELD_OVERRIDE_TERM_ + ' ' + fieldOverrideCount
         + ' 項。還原前的現況已另存成一個版本，萬一揀錯可以再還原回來。'
     }
   };
@@ -1207,7 +1215,7 @@ function resetWeekFromWebApp_(isoDate, lastSavedAt) {
     message: {
       type: 'success',
       text: '已重設這一週：週報欄位 ' + plan.fieldChanges.length + ' 格改回預設值，事奉框覆寫停用 '
-        + dutyCleared + ' 項，手動覆寫的欄位停用 ' + fieldOverrideCleared + ' 項。'
+        + dutyCleared + ' 項，' + WEEK_FIELD_OVERRIDE_TERM_ + '停用 ' + fieldOverrideCleared + ' 項。'
         + (importMessage ? importMessage : '本季還沒有內容表，所以沒有重新匯入。')
         + '重設前的現況已另存成一個版本，可以在版本記錄還原。'
     }

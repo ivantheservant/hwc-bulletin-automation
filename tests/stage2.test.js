@@ -611,7 +611,8 @@ test('看差異（apiDiffWeekSnapshot）：逐項列出版本值與現在值，�
   assert.strictEqual(duty.snapshotValue, '王某');
   assert.strictEqual(duty.currentValue, '李某');
   const override = rows.filter(function (r) { return r.kind === 'FIELD_OVERRIDE'; })[0];
-  assert.strictEqual(override.label, '手動覆寫的欄位：證道講題');
+  // D3：「手動覆寫的欄位」與「在介面改過的內容表欄位」統一為「在介面改過的欄位」。不要改回去。
+  assert.strictEqual(override.label, '在介面改過的欄位：證道講題');
   assert.strictEqual(override.snapshotValue, '');
   assert.strictEqual(override.currentValue, '自己改的');
   assert.strictEqual(resp.data.noteLine,
@@ -1091,12 +1092,13 @@ test('重設對話框內容：五點照指定字眼', function () {
   const t = loadSnapshotPanel();
   const lines = Array.from(t.api.resetLines(false));
   // ⚠️ 第二批測試修正 G6：第 3 點原本寫「第三種欄位覆寫」（開發用語），幹事不會明白，
-  //    改為「在介面改過的內容表欄位（例如講題、讀經經文）」。不要改回去。
+  //    改為「在介面改過的內容表欄位（例如講題、讀經經文）」；D3 再統一為「在介面改過的欄位」
+  //    （與版本摘要、看差異、還原及重設完成訊息同一個叫法）。不要改回去。
   assert.deepStrictEqual(lines, [
     '重設這一週會：',
     '1. 先自動存一個版本，之後可以在版本記錄還原；',
     '2. 這一週所有人手填的欄位改回建立時的預設值（例如序樂的範本預設值）；',
-    '3. 這一週的事奉框覆寫（包括上一週「下週事奉」改到這一週的）、在介面改過的內容表欄位（例如講題、讀經經文）全部停用（不刪行）；',
+    '3. 這一週的事奉框覆寫（包括上一週「下週事奉」改到這一週的）、在介面改過的欄位（例如講題、讀經經文）全部停用（不刪行）；',
     '4. 如果本季已有內容表，由內容表重新匯入這一週；',
     '5. 職事表一格都不會改；已發佈的 PDF、已寄出的郵件、已產生的 Word 檔都不受影響。'
   ]);
@@ -1180,6 +1182,34 @@ test('G12-1 待填說明的分頁名稱跟內容表對應走（經 apiLoadWeek�
   });
 });
 
+test('D3 同一樣東西只有一個叫法「在介面改過的欄位」：重設對話框、版本摘要、看差異、還原與重設的完成訊息（經真正入口）；舊叫法不再出現', function () {
+  const t = loadSnapshotPanel();
+  const third = Array.from(t.api.resetLines(false))[3];
+  const env = makeHistoryEnv();
+  const sb = env.sandbox;
+  assert.strictEqual(sb.WEEK_FIELD_OVERRIDE_TERM_, '在介面改過的欄位');
+  assert.ok(third.indexOf(sb.WEEK_FIELD_OVERRIDE_TERM_ + '（例如講題、讀經經文）') !== -1, '前端與後端同一個叫法：' + third);
+
+  const target = versionsOf(env, D)[0];
+  assert.ok(target.summary.indexOf('在介面改過的欄位 ') !== -1, target.summary);
+  ageSaveToken(env, D);
+  const diff = sb.diffWeekSnapshotForWebApp_(D, target.snapshotId);
+  const restored = sb.apiRestoreWeekSnapshot({ isoDate: D, snapshotId: target.snapshotId, lastSavedAt: diff.lastSavedAt });
+  assert.strictEqual(restored.ok, true, JSON.stringify(restored.error));
+  assert.ok(restored.data.message.text.indexOf('、在介面改過的欄位 ') !== -1, restored.data.message.text);
+
+  const reset = sb.apiResetWeek({ isoDate: D });
+  assert.strictEqual(reset.ok, true, JSON.stringify(reset.error));
+  assert.ok(reset.data.message.text.indexOf('，在介面改過的欄位停用 ') !== -1, reset.data.message.text);
+  assertWrittenChinese(assert, 'D3', [third, target.summary, restored.data.message.text, reset.data.message.text]);
+
+  ['src/WeekSnapshots.gs', 'src/ui/Script.html', 'docs/幹事操作說明.md'].forEach(function (rel) {
+    const text = readSrc(rel);
+    assert.strictEqual(text.indexOf('手動覆寫的欄位'), -1, rel + ' 仍有舊叫法');
+    assert.strictEqual(text.indexOf('在介面改過的內容表欄位'), -1, rel + ' 仍有舊叫法');
+  });
+});
+
 test('G12-2 對應不到內容表分頁時，退回寫明工作表名稱，不會變成空白', function () {
   const env = makeEnv({});
   assert.strictEqual(env.sandbox.emptyContentListReason_('不存在的表'), '「不存在的表」工作表這一週沒有任何有效的行。');
@@ -1188,7 +1218,7 @@ test('G12-2 對應不到內容表分頁時，退回寫明工作表名稱，不�
 test('G6-2 重設對話框第 3 點不再用開發用語「第三種欄位覆寫」；Script.html 使用者字串也沒有', function () {
   const t = loadSnapshotPanel();
   const third = Array.from(t.api.resetLines(false))[3];
-  assert.ok(third.indexOf('在介面改過的內容表欄位（例如講題、讀經經文）') !== -1, third);
+  assert.ok(third.indexOf('在介面改過的欄位（例如講題、讀經經文）') !== -1, third);
   assert.strictEqual(third.indexOf('第三種'), -1, third);
   const js = readSrc('src/ui/Script.html');
   assert.strictEqual(js.indexOf("第三種欄位覆寫全部停用"), -1);
