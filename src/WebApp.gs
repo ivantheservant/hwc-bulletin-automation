@@ -719,40 +719,58 @@ function assertSheetSchemaUpToDate_(actionWord) {
 }
 
 /**
- * 用途：前端呼叫，取得「講員表格」區塊要顯示的現況（是否已建立、連結、
- *   觸發器狀態）。唯讀，不用 `FormApp`。
+ * 用途：內容表 v2：講員表格已停用，三個講員表格 api 共用的回覆——一律回 `SPEAKER_FORM_RETIRED`，
+ *   一格都不寫。填寫介面已經沒有「講員表格」區塊，但這三支是不帶底線的公開函式，舊分頁或瀏覽器
+ *   主控台仍然叫得到（bug class 33、47），所以後端要自己把關。
+ * Args:
+ *   functionName {string} api 名稱（ErrorLog 用）。
+ * Returns:
+ *   {{ok:boolean, error:{code:string, message:string}}} `ok` 一律是 `false`。
+ * Raises:
+ *   （無）錯誤由 `withApiResult_()` 轉成回傳值。
+ */
+function speakerFormRetiredApiResult_(functionName) {
+  return withApiResult_(function () {
+    var err = new Error(speakerFormRetiredApiMessage_());
+    err.code = 'SPEAKER_FORM_RETIRED';
+    throw err;
+  }, { functionName: functionName });
+}
+
+/**
+ * 用途：（內容表 v2 起已停用）以前取「講員表格」區塊的現況。一律回 `SPEAKER_FORM_RETIRED`。
  * Args: （無）
  * Returns:
- *   {{ok:boolean, data:Object, error?:Object}} `data` 形狀見 `speakerFormStatusForWebApp_()`。
+ *   {{ok:boolean, error:Object}}
+ * Raises:
+ *   （無）
  */
 function apiGetSpeakerFormStatus() {
-  return withApiResult_(function () { return speakerFormStatusForWebApp_(); },
-    { functionName: 'apiGetSpeakerFormStatus' });
+  return speakerFormRetiredApiResult_('apiGetSpeakerFormStatus');
 }
 
 /**
- * 用途：前端呼叫，建立講員表格（寫入 Config、建立表單、安裝觸發器）。詳細行為見
- *   `createSpeakerFormForWebApp_()`。工作表結構落後時拒絕。
+ * 用途：（內容表 v2 起已停用）以前建立講員表格。一律回 `SPEAKER_FORM_RETIRED`，不建表格、不裝觸發器。
  * Args: （無）
  * Returns:
- *   {{ok:boolean, data:Object, error?:Object}}
+ *   {{ok:boolean, error:Object}}
+ * Raises:
+ *   （無）
  */
 function apiCreateSpeakerForm() {
-  return withApiResult_(function () {
-    assertSheetSchemaUpToDate_('建立講員表格');
-    return createSpeakerFormForWebApp_();
-  }, { functionName: 'apiCreateSpeakerForm' });
+  return speakerFormRetiredApiResult_('apiCreateSpeakerForm');
 }
 
 /**
- * 用途：前端呼叫，刷新講員表格的「主日日期」下拉選項。
+ * 用途：（內容表 v2 起已停用）以前刷新講員表格的日期選項。一律回 `SPEAKER_FORM_RETIRED`，不改表格。
  * Args: （無）
  * Returns:
- *   {{ok:boolean, data:Object, error?:Object}}
+ *   {{ok:boolean, error:Object}}
+ * Raises:
+ *   （無）
  */
 function apiRefreshSpeakerFormDates() {
-  return withApiResult_(function () { return refreshSpeakerFormDatesForWebApp_(); },
-    { functionName: 'apiRefreshSpeakerFormDates' });
+  return speakerFormRetiredApiResult_('apiRefreshSpeakerFormDates');
 }
 
 /**

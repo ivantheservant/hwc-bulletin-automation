@@ -176,7 +176,7 @@ function between(js, from, to) {
 
 /**
  * 建立一個「已載入 D、可以操作」的填寫介面。真正的程式碼包括：訊息列、忙碌狀態、
- * callServer() 與 G13 的補救、確認對話框、版本記錄的還原與重設、講員表格的建立、
+ * callServer() 與 G13 的補救、確認對話框、版本記錄的還原與重設（內容表 v2：講員表格已停用，那一段已拿走）、
  * loadWeek()、未儲存改動的判斷（week-diff／week-switch-guard）、儲存（連
  * buildSavePayload()）、發佈、季度作業、wireStaticEvents()。表單本身用 ctx.form 代替
  * （collectWeekFieldsFromForm() 的替身讀它）；其餘函式用記錄呼叫的替身。
@@ -188,7 +188,7 @@ function makeUi(options) {
   const dom = makeFakeDom();
   const timers = makeFakeTimers();
   const calls = [];
-  const log = { weekLoaded: [], selectorLabels: 0, publishPanel: 0, speakerStatus: 0, quarterOpsPanel: 0 };
+  const log = { weekLoaded: [], selectorLabels: 0, publishPanel: 0, quarterOpsPanel: 0 };
   const ctx = {
     console: console,
     google: makeFakeGoogle(calls),
@@ -202,7 +202,7 @@ function makeUi(options) {
       isoDate: D, showArchived: false, quarters: [], quarterId: '2028T2', lastSavedAt: '2026-10-22 09:00:00',
       loaded: true, inFlight: 0, previewInFlight: 0, week: {}, loadedWeek: { PRELUDE: '' }, snapshotsLoadedFor: null,
       dutyEdits: {}, nextWeekDutyEdits: {}, loadedDutyNames: {}, loadedNextDutyNames: {},
-      speakerForm: null, fetchCandidates: [],
+      fetchCandidates: [],
       quarterOps: { quarterId: '2028T2', dryRun: true },
       publish: { pdfBase64: '', pdfName: '', pdfIsoDate: '', panel: { maxPdfMb: 10 }, confirmButton: '' }
     },
@@ -210,7 +210,6 @@ function makeUi(options) {
     onWeekLoaded: function (isoDate) { log.weekLoaded.push(isoDate); ctx.state.isoDate = isoDate; ctx.setLoaded(true); },
     refreshWeekSelectorLabels: function () { log.selectorLabels++; },
     loadPublishPanel: function () { log.publishPanel++; },
-    loadSpeakerFormStatus: function () { log.speakerStatus++; },
     refreshQuarterOpsPanel: function () { log.quarterOpsPanel++; },
     // 表單：測試直接改 ctx.form 等於幹事在畫面上打字。
     form: { PRELUDE: '' },
@@ -225,7 +224,7 @@ function makeUi(options) {
     stepWeek: function () {}, backfillRoster: function () {}, reloadRosterOnly: function () {},
     openFetchFromRosterDialog: function () {}, closeFetchDialog: function () {}, confirmFetchFromRoster: function () {},
     setAllFetchCheckboxes: function () {}, applyPublishSubStates: function () {}, savePublishPrefs: function () {},
-    downloadWord: function () {}, onSpeakerFormCopyClicked: function () {}, renderFlowerHints: function () {},
+    downloadWord: function () {}, renderFlowerHints: function () {},
     schedulePreviewRefresh: function () {}, toggleQuarterOps: function () {}
   };
   vm.createContext(ctx);
@@ -235,9 +234,8 @@ function makeUi(options) {
     region(js, 'call-server'),
     region(js, 'confirm-dialog'),
     region(js, 'snapshot-panel'),
-    between(js, 'function onSnapshotRestoreClicked(', '// BEGIN speaker-form'),
-    region(js, 'speaker-form'),
-    between(js, 'function onSpeakerFormCreateClicked(', 'function onSpeakerFormCopyClicked('),
+    // 內容表 v2：講員表格已停用，speaker-form 一段已拿走；還原與重設之後緊接的是 word-file。
+    between(js, 'function onSnapshotRestoreClicked(', '// BEGIN word-file'),
     region(js, 'load-week'),
     region(js, 'week-diff'),
     region(js, 'week-switch-guard'),
@@ -484,7 +482,7 @@ test('G21-2 版本記錄展開着 → 發佈沒有回應之後一併重新載入
   assert.strictEqual(closedLoads, 0);
 });
 
-test('G21-3 其他種類與成功時一致：還原、重設、匯入、補抓、由職事表重新取數、整季匯入成功時本來就重新載入主日，沒有回應亦重新載入；講員表格、季度作業不載入', function () {
+test('G21-3 其他種類與成功時一致：還原、重設、匯入、補抓、由職事表重新取數、整季匯入成功時本來就重新載入主日，沒有回應亦重新載入；季度作業不載入', function () {
   const ui = makeUi();
   const table = JSON.parse(JSON.stringify(ui.ctx.WRITE_ACTION_RECOVERY));
   const reloadsWeek = Object.keys(table).filter(function (k) { return table[k] === 'week' || table[k] === 'quarterImport'; }).sort();
@@ -494,7 +492,7 @@ test('G21-3 其他種類與成功時一致：還原、重設、匯入、補抓�
   const js = readSrc('src/ui/Script.html');
   [['function onContentImportDone(', 'function applyBaptismPanelVisibility('],
     ['function onSnapshotRestoreClicked(', 'function onResetWeekClicked('],
-    ['function onResetWeekClicked(', '// BEGIN speaker-form'],
+    ['function onResetWeekClicked(', '// BEGIN word-file'],
     ['function confirmFetchFromRoster(', 'function schedulePreviewRefresh('],
     ['function backfillRoster(', 'function wireStaticEvents('],
     ["previewApi: 'apiPreviewQuarterContentImport'", "document.getElementById('opMissingBtn')"]].forEach(function (pair) {
@@ -518,16 +516,8 @@ test('G13-5 季度作業「建立本季空白週報」按「確定」→ apiRunC
   assert.strictEqual(ui.count('apiLoadWeek'), 0, '成功時亦不重新載入主日，這裏照樣不載入（免得丟失未儲存的改動）');
 });
 
-test('G13-6 「建立講員表格」按「確定」→ apiCreateSpeakerForm 收到 HTTP 502 → 重新載入講員表格的現況；不重新載入主日', function () {
-  const ui = makeUi();
-  ui.click('speakerFormCreateBtn');
-  ui.click('confirmOkBtn');
-  ui.take('apiCreateSpeakerForm').fail(new Error(NETWORK_502));
-  ui.timers.run(ui.delayMs);
-  assert.deepStrictEqual(ui.message(), { type: 'error', text: '伺服器沒有回應（apiCreateSpeakerForm），這個動作可能已經完成。系統已重新載入講員表格的現況，請先看「講員表格」區塊。' + WAIT_ENDING });
-  assert.strictEqual(ui.log.speakerStatus, 1);
-  assert.strictEqual(ui.count('apiLoadWeek'), 0);
-});
+// 內容表 v2：G13-6（「建立講員表格」沒有回應）拿走——講員表格已停用，填寫介面沒有那粒按鈕，
+//    apiCreateSpeakerForm 在伺服器一律回 SPEAKER_FORM_RETIRED（見 tests/retire.test.js）。
 
 test('G13-7 其他看來是連線問題的錯誤：Failed to fetch、timed out、HTTP 503、錯誤物件沒有訊息、callServer() 自己的逾時 → 重設走等候再重新載入；儲存即時出儲存那一句、不重新載入', function () {
   [new Error('TypeError: Failed to fetch'), new Error('Request timed out'), new Error('Connection failure due to HTTP 503'),
@@ -609,7 +599,7 @@ test('G13-10 分類：Script.html 用到的每一個 api 名稱都分了寫入�
   // 讀取類（以及刻意不納入的三個，理由見 Script.html 的 WRITE_ACTION_RECOVERY 說明）。
   const notWrite = [
     'apiListWeeks', 'apiLoadWeek', 'apiPreviewProgram', 'apiPreviewContentImport', 'apiListWeekSnapshots',
-    'apiDiffWeekSnapshot', 'apiGetSpeakerFormStatus', 'apiGetRosterFetchCandidates', 'apiGetPublishStatus',
+    'apiDiffWeekSnapshot', 'apiGetRosterFetchCandidates', 'apiGetPublishStatus',
     'apiGetQuarterOpsPanel', 'apiPreviewCreateWeeks', 'apiPreviewContentSheetBuild', 'apiPreviewContentSheetInvite',
     'apiPreviewQuarterContentImport', 'apiQuarterMissingReport', 'apiRosterDiffReport', 'apiGoLiveReport',
     'apiPublishRevisionsReport', 'apiDownloadBulletinDocx', 'apiSavePublishPrefs', 'apiLogClientError'
@@ -629,7 +619,8 @@ test('G13-10 分類：Script.html 用到的每一個 api 名稱都分了寫入�
     assert.ok(typeof hints[table[name]] === 'string' && hints[table[name]].length > 0, name + ' 的種類 ' + table[name] + ' 沒有提示句');
   });
   assert.deepStrictEqual(Object.keys(table).sort(), [
-    'apiBackfillRoster', 'apiCreateSpeakerForm', 'apiFetchFromRoster', 'apiRefreshSpeakerFormDates', 'apiResetWeek',
+    // 內容表 v2：apiCreateSpeakerForm、apiRefreshSpeakerFormDates 隨講員表格停用拿走。
+    'apiBackfillRoster', 'apiFetchFromRoster', 'apiResetWeek',
     'apiRestoreWeekSnapshot', 'apiRunContentImport', 'apiRunContentSheetBuild', 'apiRunContentSheetInvite',
     'apiRunCreateWeeks', 'apiRunPublish', 'apiRunQuarterContentImport', 'apiSaveWeek'
   ]);
@@ -1361,19 +1352,7 @@ test('G19-1 「重新匯入（只限這一個主日）」→ 對話框按「取�
   assert.strictEqual(ui.count('apiRunContentImport'), 0);
 });
 
-test('G19-2 「建立講員表格」→ 對話框按「取消」或 Esc → 同一句（以前甚麼都不顯示），沒有送出 apiCreateSpeakerForm', function () {
-  const ui = makeUi();
-  ui.click('speakerFormCreateBtn');
-  ui.click('confirmCancelBtn');
-  assert.deepStrictEqual(ui.message(), { type: 'info', text: CANCELLED });
-  assert.strictEqual(ui.count('apiCreateSpeakerForm'), 0);
-
-  const ui2 = makeUi();
-  ui2.click('speakerFormCreateBtn');
-  ui2.dom.docListeners.keydown({ key: 'Escape' });
-  assert.deepStrictEqual(ui2.message(), { type: 'info', text: CANCELLED });
-  assert.strictEqual(ui2.count('apiCreateSpeakerForm'), 0);
-});
+// 內容表 v2：G19-2（「建立講員表格」按取消）拿走——講員表格已停用，那個對話框已不存在。
 
 test('G19-3 「由職事表重新取數」對話框、發佈前檢查視窗按「取消」→ 同一句，對話框關閉，沒有送出寫入請求', function () {
   const ui = makeUi();
@@ -1409,7 +1388,8 @@ test('G19-4 Script.html 內每一個 openConfirmDialog() 的取消分支：會�
     }
     assert.ok(callback.indexOf('CANCELLED_NOTHING_WRITTEN_MESSAGE') !== -1, m[1] + ' 的取消分支要用共用常數');
   }
-  assert.deepStrictEqual(titles, ["'由內容表匯入'", "'還原到這個版本'", "'重設這一週'", "'建立講員表格'", "'換週'", "'重讀職事表'", "data.title || '季度作業'"],
+  // 內容表 v2：「建立講員表格」隨講員表格停用拿走。
+  assert.deepStrictEqual(titles, ["'由內容表匯入'", "'還原到這個版本'", "'重設這一週'", "'換週'", "'重讀職事表'", "data.title || '季度作業'"],
     '對話框有增減：先檢查取消分支，再更新這裏');
   assert.strictEqual(js.indexOf('已取消，沒有寫入任何資料。'), -1, '舊字眼不再出現');
 });
@@ -1844,7 +1824,7 @@ console.log('\n寫入類沒有回應的結尾（G24）');
 
 test('G24-1 連線錯誤：每一個寫入種類（儲存除外）的句子都以「如果仍未見到結果……不要即時再做一次。」作結（只寄出改講再寄），不再有「確認未完成才再做一次」', function () {
   const ui = makeUi();
-  ['week', 'publish', 'speakerForm', 'quarterOps', 'quarterImport'].forEach(function (kind) {
+  ['week', 'publish', 'quarterOps', 'quarterImport'].forEach(function (kind) {
     const text = ui.ctx.describeNoResponseFailure('apiX', kind, []);
     assert.ok(text.indexOf('確認未完成才再做一次') === -1, kind + '：' + text);
     assert.ok(text.indexOf(WAIT_ENDING) !== -1, kind + '：' + text);
@@ -1858,16 +1838,8 @@ test('G24-1 連線錯誤：每一個寫入種類（儲存除外）的句子都�
   assertWrittenChinese(assert, 'G24 連線錯誤結尾', [WAIT_ENDING, EXPECTED_SEND_ONLY_MESSAGE, EXPECTED_PUBLISH_AND_SEND_MESSAGE]);
 });
 
-test('G24-2 逾時（120 秒）：建立講員表格、季度作業、只寄出、發佈加寄出都講「伺服器可能仍在處理（最長約 6 分鐘）……請等 6 分鐘後重新載入頁面……執行項目」；秒數跟 Config', function () {
-  const speaker = makeUi();
-  speaker.click('speakerFormCreateBtn');
-  speaker.click('confirmOkBtn');
-  speaker.take('apiCreateSpeakerForm');
-  speaker.timers.run(120000);
-  speaker.timers.run(speaker.delayMs);
-  assert.deepStrictEqual(speaker.message(), { type: 'error', text: expectedTimeoutMessage('apiCreateSpeakerForm', '「講員表格」區塊') });
-  assert.strictEqual(speaker.log.speakerStatus, 1, '照舊重新載入講員表格的現況');
-
+test('G24-2 逾時（120 秒）：季度作業、只寄出、發佈加寄出都講「伺服器可能仍在處理（最長約 6 分鐘）……請等 6 分鐘後重新載入頁面……執行項目」；秒數跟 Config', function () {
+  // 內容表 v2：「建立講員表格」那一段隨講員表格停用拿走。
   const ops = makeUi();
   ops.click('opCreateWeeksBtn');
   ops.take('apiPreviewCreateWeeks').ok({ ok: true, data: { ok: true, title: '建立本季空白週報', lines: ['會新增 13 個主日。'] } });
@@ -1889,7 +1861,7 @@ test('G24-2 逾時（120 秒）：建立講員表格、季度作業、只寄出�
   assert.strictEqual(both.ctx.describeNoResponseFailure('apiRunPublish', 'publish', [{ doPublish: true, doSend: true }], true, 120),
     expectedTimeoutMessage('apiRunPublish', '頁頂「目前已發佈」和試算表的 SendLog', null, '已經發佈而未寄出的話，再做時只勾「寄出」。'));
   assert.ok(both.ctx.describeNoResponseFailure('apiResetWeek', 'week', [], true, 90).indexOf('伺服器在 90 秒內沒有回應（apiResetWeek）') === 0);
-  assertWrittenChinese(assert, 'G24 逾時', [expectedTimeoutMessage('apiCreateSpeakerForm', '「講員表格」區塊'), EXPECTED_SAVE_TIMEOUT_MESSAGE]);
+  assertWrittenChinese(assert, 'G24 逾時', [expectedTimeoutMessage('apiRunCreateWeeks', '「季度作業」區塊'), EXPECTED_SAVE_TIMEOUT_MESSAGE]);
 });
 
 test('G24-3 儲存：連線錯誤照舊即時再按（G23 之後第二次要等第一次寫完才讀，會回 STALE）；逾時講「伺服器可能仍在處理，請等一兩分鐘才再按「儲存」」', function () {
@@ -1928,19 +1900,20 @@ function assertReportedAsIs(ui, fnName, text) {
   assert.strictEqual(reports[0].args[0].message, text);
 }
 
-test('G17-1 講員表格現況（真正的 loadSpeakerFormStatus()，唯讀）120 秒沒有回應 → 區塊內寫「這是讀取資料，沒有改動週報內容」；不講「可能已經做了」；沒有排重新載入；ErrorLog 照舊記錄', function () {
-  const ui = makeUi({ extra: [['function loadSpeakerFormStatus(', 'function onSpeakerFormCreateClicked(']] });
-  ui.ctx.loadSpeakerFormStatus();
-  ui.take('apiGetSpeakerFormStatus');
+// 內容表 v2：G17-1 以前用「講員表格現況」做讀取類的例子；講員表格停用之後改用版本記錄（同樣在自己的區塊顯示失敗）。
+test('G17-1 版本記錄（真正的 loadSnapshotPanel()，唯讀）120 秒沒有回應 → 區塊內寫「這是讀取資料，沒有改動週報內容」；不講「可能已經做了」；沒有排重新載入；ErrorLog 照舊記錄', function () {
+  const ui = makeUi({ extra: [['function setSnapshotStatus(', 'function refreshSnapshotPanel(']] });
+  ui.ctx.loadSnapshotPanel();
+  ui.take('apiListWeekSnapshots');
   assert.strictEqual(ui.timers.run(120000), 1, '前提：逾時計時器是 120 秒');
 
-  const expected = expectedReadTimeout('apiGetSpeakerFormStatus');
-  assert.strictEqual(ui.els.speakerFormStatus.textContent, '講員表格現況載入失敗：' + expected);
-  assert.ok(ui.els.speakerFormStatus.textContent.indexOf('可能已經') === -1);
+  const expected = expectedReadTimeout('apiListWeekSnapshots');
+  assert.strictEqual(ui.els.snapshotStatus.textContent, '版本記錄載入失敗：' + expected);
+  assert.ok(ui.els.snapshotStatus.textContent.indexOf('可能已經') === -1);
   assert.strictEqual(ui.timers.pending(ui.delayMs), 0, '讀取類不可以排重新載入');
   assert.strictEqual(ui.count('apiLoadWeek'), 0);
-  assert.strictEqual(ui.count('apiGetSpeakerFormStatus'), 1, '不自動再載入講員表格現況');
-  assertReportedAsIs(ui, 'apiGetSpeakerFormStatus', expected);
+  assert.strictEqual(ui.count('apiListWeekSnapshots'), 1, '不自動再載入版本記錄');
+  assertReportedAsIs(ui, 'apiListWeekSnapshots', expected);
   assertWrittenChinese(assert, 'G17 讀取類逾時', [expected]);
 });
 
@@ -1987,7 +1960,7 @@ test('G17-5 分類：讀取類每一個都是 read、三個例外各有自己的
   const ui = makeUi();
   const reads = [
     'apiListWeeks', 'apiLoadWeek', 'apiPreviewProgram', 'apiPreviewContentImport', 'apiListWeekSnapshots',
-    'apiDiffWeekSnapshot', 'apiGetSpeakerFormStatus', 'apiGetRosterFetchCandidates', 'apiGetPublishStatus',
+    'apiDiffWeekSnapshot', 'apiGetRosterFetchCandidates', 'apiGetPublishStatus',
     'apiGetQuarterOpsPanel', 'apiPreviewCreateWeeks', 'apiPreviewContentSheetBuild', 'apiPreviewContentSheetInvite',
     'apiPreviewQuarterContentImport', 'apiQuarterMissingReport', 'apiRosterDiffReport', 'apiGoLiveReport',
     'apiPublishRevisionsReport'
@@ -2008,11 +1981,11 @@ test('G17-5 分類：讀取類每一個都是 read、三個例外各有自己的
   });
 
   // 秒數由 serverCallTimeoutMs() 計出來，不是寫死 120。
-  const ui90 = makeUi({ extra: [['function loadSpeakerFormStatus(', 'function onSpeakerFormCreateClicked(']] });
+  const ui90 = makeUi({ extra: [['function setSnapshotStatus(', 'function refreshSnapshotPanel(']] });
   ui90.dom.document.getElementById('app').setAttribute('data-call-timeout-sec', '90');
-  ui90.ctx.loadSpeakerFormStatus();
+  ui90.ctx.loadSnapshotPanel();
   assert.strictEqual(ui90.timers.run(90000), 1, '逾時計時器跟 Config 改成 90 秒');
-  assert.strictEqual(ui90.els.speakerFormStatus.textContent, '講員表格現況載入失敗：' + expectedReadTimeout('apiGetSpeakerFormStatus', 90));
+  assert.strictEqual(ui90.els.snapshotStatus.textContent, '版本記錄載入失敗：' + expectedReadTimeout('apiListWeekSnapshots', 90));
 });
 
 test('G17-7 G17 補充：apiRosterDiffReport、apiLoadWeek、apiQuarterMissingReport 會順手寫系統記錄（ROSTER_FOLLOW、推算的程序範本 ID），所以讀取類那一句講「沒有改動週報內容」，不講「沒有改動任何東西」', function () {
@@ -2029,10 +2002,11 @@ test('G17-7 G17 補充：apiRosterDiffReport、apiLoadWeek、apiQuarterMissingRe
 });
 
 test('G17-6 讀取類遇到連線錯誤（HTTP 502）照舊即時顯示「呼叫伺服器失敗（…）」，不講「可能已經完成」、不排重新載入', function () {
-  const ui = makeUi({ extra: [['function loadSpeakerFormStatus(', 'function onSpeakerFormCreateClicked(']] });
-  ui.ctx.loadSpeakerFormStatus();
-  ui.take('apiGetSpeakerFormStatus').fail(new Error(NETWORK_502));
-  assert.strictEqual(ui.els.speakerFormStatus.textContent, '講員表格現況載入失敗：呼叫伺服器失敗（apiGetSpeakerFormStatus）：' + NETWORK_502);
+  // 內容表 v2：以前用講員表格現況做例子，講員表格停用之後改用版本記錄。
+  const ui = makeUi({ extra: [['function setSnapshotStatus(', 'function refreshSnapshotPanel(']] });
+  ui.ctx.loadSnapshotPanel();
+  ui.take('apiListWeekSnapshots').fail(new Error(NETWORK_502));
+  assert.strictEqual(ui.els.snapshotStatus.textContent, '版本記錄載入失敗：呼叫伺服器失敗（apiListWeekSnapshots）：' + NETWORK_502);
   assert.strictEqual(ui.timers.pending(ui.delayMs), 0);
   assert.ok(ui.take('apiLogClientError').args[0].message.indexOf('可能已') === -1);
 });

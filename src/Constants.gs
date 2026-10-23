@@ -744,7 +744,9 @@ var CONFIG_KEYS = Object.freeze({
   SPEAKER_FORM_Q_NOTES: 'SPEAKER_FORM_Q_NOTES',
   SPEAKER_FORM_DATE_SPECIAL_PATTERN: 'SPEAKER_FORM_DATE_SPECIAL_PATTERN',
   SPEAKER_FORM_NOTIFY_SUBJECT: 'SPEAKER_FORM_NOTIFY_SUBJECT',
-  SPEAKER_NAME_HONORIFICS: 'SPEAKER_NAME_HONORIFICS'
+  SPEAKER_NAME_HONORIFICS: 'SPEAKER_NAME_HONORIFICS',
+  // 內容表 v2：講員表格停用時表格上顯示的一句
+  SPEAKER_FORM_CLOSED_MESSAGE: 'SPEAKER_FORM_CLOSED_MESSAGE'
 });
 
 // =====================================================================
@@ -924,7 +926,8 @@ var DEFAULTS = Object.freeze([
   { key: CONFIG_KEYS.SPEAKER_FORM_Q_NOTES, value: '備註', note: '講員表格題目字眼：備註（段落，選填）。只記在 SpeakerFormSubmissions 和通知信，不寫進週報' },
   { key: CONFIG_KEYS.SPEAKER_FORM_DATE_SPECIAL_PATTERN, value: '{{DATE}}（{{SPECIAL}}）', note: '講員表格「主日日期」下拉選項的字眼樣式。{{DATE}} 換成日期（例如 2028-04-09），{{SPECIAL}} 換成特別主日名稱；沒有特別主日的主日只顯示日期' },
   { key: CONFIG_KEYS.SPEAKER_FORM_NOTIFY_SUBJECT, value: '{{CHURCH}}週報：講員表格新答案（{{SERVICE_DATE}}，{{RESULT}}）', note: '講員表格通知信的主旨樣式。可用 {{CHURCH}}（教會名稱）、{{SERVICE_DATE}}（主日日期）、{{RESULT}}（處理結果）' },
-  { key: CONFIG_KEYS.SPEAKER_NAME_HONORIFICS, value: '牧師,傳道,弟兄,姊妹,博士,老師,先生,女士,長老,執事', note: '講員核對：比較「表格填的講員」與「事奉框的講員」之前，先從名字去掉的尊稱（逗號分隔）。兩邊的空白也會先去掉。名字相同才不出警告' }
+  { key: CONFIG_KEYS.SPEAKER_NAME_HONORIFICS, value: '牧師,傳道,弟兄,姊妹,博士,老師,先生,女士,長老,執事', note: '講員核對：比較「表格填的講員」與「事奉框的講員」之前，先從名字去掉的尊稱（逗號分隔）。兩邊的空白也會先去掉。名字相同才不出警告（內容表 v2 起講員表格已停用，這一項不再使用）' },
+  { key: CONFIG_KEYS.SPEAKER_FORM_CLOSED_MESSAGE, value: '講員資料改為在內容表「崇拜程序」填寫，請聯絡幹事。', note: '內容表 v2：講員表格已停用。「季度工具 ▸ 停用舊功能」關閉表格收件時，講員用舊連結打開會見到這一句。表格不會刪除' }
 ]);
 
 // =====================================================================
@@ -1041,6 +1044,7 @@ var RECIPIENT_GROUP = Object.freeze({
  * | `SKIPPED_PAST` | 主日已過去，不寫週報 |
  * | `NO_WEEK` | 週報工作表沒有這個主日的資料行 |
  * | `ERROR` | 處理過程出錯（詳情見 `DETAIL` 與 `ErrorLog`） |
+ * | `RETIRED` | 內容表 v2：講員表格已停用，答案只記下，沒有寫入內容表或週報 |
  */
 var SPEAKER_FORM_RESULTS = Object.freeze({
   APPLIED: '已寫入週報',
@@ -1048,7 +1052,8 @@ var SPEAKER_FORM_RESULTS = Object.freeze({
   BLOCKED_BY_OVERRIDE: '有人手覆寫，沒有蓋過',
   SKIPPED_PAST: '主日已過，沒有寫入',
   NO_WEEK: '找不到這個主日的週報',
-  ERROR: '處理出錯'
+  ERROR: '處理出錯',
+  RETIRED: '講員表格已停用，沒有寫入'
 });
 
 /**

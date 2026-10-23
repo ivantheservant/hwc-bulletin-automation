@@ -4,6 +4,22 @@
  * 講員表格（Google Form）：讓講員自己填證道講題與讀經經文，答案直接寫進週報。
  *
  * ─────────────────────────────────────────────────────────────────────
+ * 內容表 v2（2026-10）：講員表格已停用
+ * ─────────────────────────────────────────────────────────────────────
+ *
+ *   講員改在本季內容表「崇拜程序」填讀經經文與證道講題（多數講員已有堂委權限；沒有權限的由幹事
+ *   代填），再由填寫介面匯入，與家事報告同一做法。所以：
+ *     - 填寫介面的「講員表格」區塊已拿走；三個公開 api 一律回錯誤碼 `SPEAKER_FORM_RETIRED`
+ *       （`src/WebApp.gs`），後端把關；
+ *     - 星期一與「建立本季週報」不再刷新日期選項；
+ *     - 表單提交觸發器拆走之前萬一仍然收到答案：照舊拿鎖、記一行 `SpeakerFormSubmissions`
+ *       （結果 `RETIRED`）並照 `DRY_RUN` 通知管理員，不寫內容表、不寫週報——答案不可以憑空消失
+ *       （bug class 2），亦不可以成為「崇拜程序」以外的第二個寫入入口（bug class 123）；
+ *     - 週報不再產生 `SPEAKER_FORM_MISMATCH` 警告（舊答案仍在 `SpeakerFormSubmissions`，但不再核對）；
+ *     - 「季度工具 ▸ 停用舊功能」會拆觸發器並關閉表格收件（不刪表格，見 `closeSpeakerFormResponses_()`）。
+ *   下面停用之前的說明與寫入邏輯（`applySpeakerFormAnswer_()` 等）保留到日後清理死碼時才刪，但已經沒有入口。
+ *
+ * ─────────────────────────────────────────────────────────────────────
  * 三個已定的決定（見 docs/需求登記_第二批.md）
  * ─────────────────────────────────────────────────────────────────────
  *
@@ -636,7 +652,8 @@ function refreshSpeakerFormDatesQuietly_(source) {
 
 /**
  * 用途：講員表格的表單提交觸發器處理函式。真正入口。
- *   用 `LockService` 鎖住整個處理過程（兩份答案同時到達不會互相踩）。
+ *   用 `LockService` 鎖住整個處理過程（兩份答案同時到達不會互相踩）。內容表 v2 起只記錄、不寫週報
+ *   （見 `handleSpeakerFormSubmission_()`）；觸發器由「季度工具 ▸ 停用舊功能」拆走。
  * Args:
  *   e {Object} 表單提交事件（`e.response` 是 `FormResponse`）。
  * Returns:
@@ -661,32 +678,23 @@ function onSpeakerFormSubmit_(e) {
 }
 
 /**
- * 用途：處理一份講員表格答案：寫進週報（或決定不寫）、記進
- *   `SpeakerFormSubmissions`、寫 `AuditLog`、通知管理員。
+ * 用途：處理一份講員表格答案。內容表 v2 起講員表格已停用：不寫內容表、不寫週報，只把答案記進
+ *   `SpeakerFormSubmissions`（結果 `RETIRED`）、寫 `AuditLog`、照 `DRY_RUN` 通知管理員，讓幹事知道
+ *   有講員仍然用舊連結，要把內容填進內容表「崇拜程序」。
  *
- *   每一份答案都一定會被記下來：處理過程出錯也記一行（結果 `ERROR`）並通知，
- *   不可以讓一份答案憑空消失。
+ *   每一份答案都一定會被記下來（bug class 2）：題目字眼對不上、日期認不出亦照樣記一行。
  * Args:
  *   e {Object} 表單提交事件。
- *   todayIso {string} 今日，yyyy-MM-dd（主日已不已過去的基準）。
+ *   todayIso {string} 今日，yyyy-MM-dd（停用之後不再用來判斷主日已過，只為保留簽章）。
  * Returns:
- *   {{result:string, detail:string, isoDate:string, published:boolean}}
+ *   {{result:string, detail:string, isoDate:string, published:boolean}} `result` 一律是 `'RETIRED'`。
+ * Raises:
+ *   Error 事件不是表單提交事件（`extractSpeakerFormAnswers_()` 拋出），或者寫 `SpeakerFormSubmissions`／
+ *     `AuditLog` 失敗時原樣拋出。通知信失敗只記 `ErrorLog`。
  */
 function handleSpeakerFormSubmission_(e, todayIso) {
   var answer = extractSpeakerFormAnswers_(e, speakerFormQuestionTitles_());
-
-  var outcome;
-  try {
-    outcome = applySpeakerFormAnswer_(answer, todayIso);
-  } catch (err) {
-    var message = (err && err.message) ? err.message : String(err);
-    appendErrorLog_({
-      source: ERROR_LOG_SOURCE.TRIGGER, functionName: 'handleSpeakerFormSubmission_',
-      errorCode: (err && err.code) || 'SPEAKER_FORM_ERROR',
-      message: '處理講員表格答案失敗（主日 ' + (answer.isoDate || '日期不明') + '）：' + message
-    });
-    outcome = { result: 'ERROR', detail: message, published: false, special: '' };
-  }
+  var outcome = { result: 'RETIRED', detail: speakerFormRetiredSubmissionDetail_(), published: false, special: '' };
 
   writeSheet(SHEETS.SPEAKER_FORM_SUBMISSIONS, [{
     TIMESTAMP: answer.timestamp instanceof Date ? answer.timestamp : new Date(),
@@ -714,11 +722,49 @@ function handleSpeakerFormSubmission_(e, todayIso) {
     appendErrorLog_({
       source: ERROR_LOG_SOURCE.TRIGGER, functionName: 'notifySpeakerFormAnswer_',
       errorCode: 'SPEAKER_FORM_NOTICE_FAILED',
-      message: '講員表格答案已經處理，但通知信失敗：' + ((noticeErr && noticeErr.message) ? noticeErr.message : String(noticeErr))
+      message: '講員表格答案已經記下，但通知信失敗：' + ((noticeErr && noticeErr.message) ? noticeErr.message : String(noticeErr))
     });
   }
 
   return { result: outcome.result, detail: outcome.detail, isoDate: answer.isoDate, published: outcome.published };
+}
+
+/**
+ * 用途：講員表格已停用時，一份答案的處理說明（記進 `SpeakerFormSubmissions` 與通知信）。純函式。
+ * Args: （無）
+ * Returns:
+ *   {string}
+ * Raises:
+ *   （無）
+ */
+function speakerFormRetiredSubmissionDetail_() {
+  return '講員表格已停用（2026-10），這份答案已經記下，但沒有寫入內容表或週報。'
+    + '請把讀經經文與證道講題填進本季內容表「崇拜程序」該主日那一行，再在填寫介面匯入。';
+}
+
+/**
+ * 用途：講員表格已停用時，三個公開 api 回給填寫介面（或瀏覽器主控台）的一句。純函式。
+ * Args: （無）
+ * Returns:
+ *   {string}
+ * Raises:
+ *   （無）
+ */
+function speakerFormRetiredApiMessage_() {
+  return '講員表格已停用，請在本季內容表「崇拜程序」填寫讀經經文與證道講題。這個動作一格都沒有寫。';
+}
+
+/**
+ * 用途：關閉講員表格收件時，表格上顯示給講員看的一句（Config `SPEAKER_FORM_CLOSED_MESSAGE`）。
+ * Args: （無）
+ * Returns:
+ *   {string} Config 留空時退回預設句，不會回空字串（空的停止訊息會令講員以為表格壞了）。
+ * Raises:
+ *   Error 讀 Config 失敗時原樣拋出。
+ */
+function speakerFormClosedMessage_() {
+  var raw = String(getConfig(CONFIG_KEYS.SPEAKER_FORM_CLOSED_MESSAGE, '') || '').trim();
+  return raw || '講員資料改為在內容表「崇拜程序」填寫，請聯絡幹事。';
 }
 
 /**

@@ -98,10 +98,7 @@ function weeklyBulletinSendTrigger_() {
       });
     }
 
-    // 第二批階段 3：講員表格的「主日日期」下拉每週跟着更新（滾動列出未來 N 個主日）。
-    // refreshSpeakerFormDatesQuietly_() 本身不拋錯：還沒建立表格就什麼都不做，
-    // 失敗只記 ErrorLog，不可以連累寄週報。
-    refreshSpeakerFormDatesQuietly_('weeklyBulletinSendTrigger_');
+    // 內容表 v2：講員表格已停用，星期一不再刷新它的日期選項（第二批階段 3 的那一步）。
 
     // R-035：順手整理舊季度（封存超出保留範圍那幾季）。包一層 try/catch
     //    ——整理失敗不應該連累寄週報，那是兩件獨立的事。

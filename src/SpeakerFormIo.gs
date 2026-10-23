@@ -153,6 +153,42 @@ function inspectSpeakerFormFile_(formId) {
 }
 
 /**
+ * 用途：內容表 v2：關閉講員表格收件（講員改在內容表「崇拜程序」填）。不刪表格——表格與舊答案
+ *   留給 Ivan 自己處理。講員用舊連結打開時會見到 `message`。冪等：已經關閉的照樣設一次訊息。
+ * Args:
+ *   formId {string} 表單檔案 ID。
+ *   message {string} 表格停止收件時顯示的一句（`speakerFormClosedMessage_()`）。
+ * Returns:
+ *   {{wasAccepting:boolean}} 關閉之前是不是仍然收件。
+ * Raises:
+ *   Error 開不到表單（被刪、未授權 forms 範圍）或設定失敗時原樣拋出。
+ */
+function closeSpeakerFormResponses_(formId, message) {
+  var form = FormApp.openById(formId);
+  var wasAccepting = form.isAcceptingResponses();
+  form.setCustomClosedFormMessage(String(message || ''));
+  form.setAcceptingResponses(false);
+  return { wasAccepting: wasAccepting };
+}
+
+/**
+ * 用途：內容表 v2：講員表格現時是不是仍然收件（唯讀，「停用舊功能」的預覽與檢測用）。
+ * Args:
+ *   formId {string} 表單檔案 ID。
+ * Returns:
+ *   {?boolean} 開不到表單時回 `null`（查不到不等於已關閉）。
+ * Raises:
+ *   （無）
+ */
+function isSpeakerFormAcceptingResponses_(formId) {
+  try {
+    return FormApp.openById(formId).isAcceptingResponses() === true;
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
  * 用途：數目前專案內有幾個講員表格的表單提交觸發器。
  * Args: （無）
  * Returns:

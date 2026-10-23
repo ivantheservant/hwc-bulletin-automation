@@ -39,8 +39,6 @@
     flowerRoster: { thisWeek: '', nextWeek: '' },
     // 階段 2：版本記錄區塊現時載入的是哪一個主日（null＝還沒載入或需要重新載入）。
     snapshotsLoadedFor: null,
-    // 階段 3：講員表格現況（apiGetSpeakerFormStatus 的結果）。
-    speakerForm: null,
     lists: { announcements: [], prayers: [], fellowships: [], finance: [] },
     // 第六輪：事奉框每一格目前的值，鍵是「崗位#位次」。每一格是
     // { postId, slotIndex, name, keepOverride, followRoster }。D9：儲存時只送載入之後改過的格
@@ -335,7 +333,6 @@
    *     week：重新載入這一個主日，並刷新主日下拉的標籤；
    *     publish：重新載入頁頂「目前已發佈」；版本記錄展開着的話一併重新載入（上方有
    *       「已發佈」一段）。不重新載入這一個主日（G21）；
-   *     speakerForm：重新載入「講員表格」區塊；
    *     quarterOps：重新載入「季度作業」區塊；
    *     quarterImport：同 quarterOps，另外重新載入這一個主日。
    *   每一種重新載入的，就是該動作成功之後會刷新的區塊。G21：重新載入這一個主日會換走
@@ -363,8 +360,6 @@
     apiFetchFromRoster: 'week',
     apiBackfillRoster: 'week',
     apiRunPublish: 'publish',
-    apiCreateSpeakerForm: 'speakerForm',
-    apiRefreshSpeakerFormDates: 'speakerForm',
     apiRunCreateWeeks: 'quarterOps',
     apiRunContentSheetBuild: 'quarterOps',
     apiRunContentSheetInvite: 'quarterOps',
@@ -383,7 +378,6 @@
     // G18／G22(a)：發佈加寄出（以及不知道這一次做甚麼）用這一句；只發佈、只寄出見
     // PUBLISH_NO_RESPONSE_HINTS。
     publish: '這個動作可能已經完成。系統已重新載入頁頂「目前已發佈」，請先看它的主日、版本和發佈時間是否已經是剛才這一次；寄出不會在填寫介面留下記錄，請看試算表的 SendLog 有沒有剛才這一次的寄出記錄。',
-    speakerForm: '這個動作可能已經完成。系統已重新載入講員表格的現況，請先看「講員表格」區塊。',
     quarterOps: '這個動作可能已經完成。系統已重新載入季度作業的現況，請先看「季度作業」區塊。',
     quarterImport: '這個動作可能已經完成。系統已重新載入這一個主日和季度作業的現況，請先看「季度作業」區塊。'
   };
@@ -395,7 +389,6 @@
   var NO_RESPONSE_CHECK_WHERE = {
     week: '「最後儲存時間」和「版本記錄」',
     publish: '頁頂「目前已發佈」和試算表的 SendLog',
-    speakerForm: '「講員表格」區塊',
     quarterOps: '「季度作業」區塊',
     quarterImport: '「季度作業」區塊'
   };
@@ -404,7 +397,7 @@
    * 用途：第二批測試修正 G24：連線錯誤時，寫入類（儲存除外）提示句的結尾。
    *
    *   以前結尾是「確認未完成才再做一次」，但連線斷了之後伺服器多數仍在處理（上限約 6 分鐘），
-   *   20 秒之後重新載入看不到結果，不等於沒有做；建立講員表格、建立內容表、建立本季週報、
+   *   20 秒之後重新載入看不到結果，不等於沒有做；建立內容表、建立本季週報、
    *   寄出內容表連結這幾個沒有防重複，照提示再做就會重複。所以改叫人等 5 分鐘再核對。
    */
   var NO_RESPONSE_WAIT_ENDING = '如果仍未見到結果，伺服器可能仍在處理，請等 5 分鐘再重新載入核對，不要即時再做一次。';
@@ -536,7 +529,7 @@
    * 用途：第二批測試修正 G17：callServer() 自己逾時（serverCallTimeoutMs() 之內沒有回應）
    *   的訊息，按 serverCallKind() 分。
    *
-   *   以前一律講「這一次的動作可能已經做了、也可能沒有做」。唯讀的載入（例如講員表格現況）
+   *   以前一律講「這一次的動作可能已經做了、也可能沒有做」。唯讀的載入（例如版本記錄、報告）
    *   逾時也這樣講，幹事會以為改了東西，所以讀取類改講「沒有改動週報內容」；下載 Word 講
    *   沒有下載到。寫入類與 quiet 照舊（寫入類給使用者看的是 describeNoResponseFailure()，
    *   這一句只記入 ErrorLog）。
@@ -753,7 +746,6 @@
         loadPublishPanel();
         if (isSnapshotPanelOpen()) loadSnapshotPanel();
       }
-      if (kind === 'speakerForm') loadSpeakerFormStatus();
       if (reloadsQuarterOps) refreshQuarterOpsPanel({ failureNotice: message });
     }, NO_RESPONSE_RELOAD_DELAY_MS);
   }
@@ -1106,7 +1098,7 @@
   /**
    * 用途：第二批測試修正 G15：會改資料的確認對話框按「取消」（或 Esc）之後顯示的一句。
    *   重設這一週、還原到這個版本、季度作業共用這一個，字眼只有一處。
-   *   G19：由內容表匯入（只限這一個主日）、建立講員表格、由職事表重新取數、發佈前檢查
+   *   G19：由內容表匯入（只限這一個主日）、由職事表重新取數、發佈前檢查
    *   視窗亦用這一句。換週的確認不是寫入，按取消只把下拉改回，不用這一句；「重讀職事表」的確認
    *   （審查後修正 7）亦不是寫入，按取消甚麼都不做，同樣不用這一句。
    */
@@ -1933,203 +1925,8 @@
     });
   }
 
-  // BEGIN speaker-form（測試會把這一段抽出來在假 DOM 上執行，請保持自足）
-  /**
-   * 用途：算出「講員表格」區塊要顯示什麼。純函式。
-   *   連結只接受 `https://docs.google.com/forms/` 開頭的網址（講員表格的固定連結與
-   *   編輯連結都是這個開頭），其他一律不畫成連結。
-   * Args:
-   *   status {{created:boolean, url:string, editUrl:string, triggerCount:?number,
-   *     triggerOk:boolean, folderConfigured:boolean, weeksAhead:number}} 後端的現況。
-   * Returns:
-   *   {{created:boolean, statusText:string, triggerText:string, triggerOk:boolean,
-   *     fillUrl:string, editUrl:string}}
-   */
-  function speakerFormPanelModel(status) {
-    var prefix = 'https://docs.google.com/forms/';
-    function safe(url) { return String(url || '').indexOf(prefix) === 0 ? String(url) : ''; }
-
-    if (!status.created) {
-      return {
-        created: false, fillUrl: '', editUrl: '', triggerOk: false, triggerText: '',
-        statusText: status.folderConfigured
-          ? '還沒有建立講員表格。建立之後，把固定的填寫連結交給講員收藏即可（只限教會帳戶填寫）。'
-          : '還沒有建立講員表格，而且 Config 還沒有設定表格要放的資料夾（SPEAKER_FORM_FOLDER_ID，留空會用內容表的資料夾）。'
-      };
-    }
-
-    var triggerText;
-    if (status.triggerCount === null || status.triggerCount === undefined) {
-      triggerText = '觸發器：查不到（可能還沒有授權）。';
-    } else if (status.triggerCount === 1) {
-      triggerText = '觸發器：正常（剛好 1 個）。';
-    } else if (status.triggerCount === 0) {
-      triggerText = '⚠️ 觸發器：沒有安裝，講員的答案不會寫進週報。';
-    } else {
-      triggerText = '⚠️ 觸發器：有 ' + status.triggerCount + ' 個，同一份答案會被處理 ' + status.triggerCount + ' 次。';
-    }
-    return {
-      created: true, fillUrl: safe(status.url), editUrl: safe(status.editUrl),
-      triggerOk: status.triggerOk === true, triggerText: triggerText,
-      statusText: '講員表格已建立。日期選項列出從今日起的 ' + status.weeksAhead + ' 個主日，每個星期一與「建立本季週報」之後會自動更新。'
-    };
-  }
-
-  /**
-   * 用途：按現況畫出「講員表格」區塊（只動文字、連結與按鈕的顯示，全部 `textContent`）。
-   * Args:
-   *   status {Object} 後端的現況，見 `speakerFormPanelModel()`。
-   * Returns:
-   *   {void}
-   */
-  function renderSpeakerFormPanel(status) {
-    var model = speakerFormPanelModel(status);
-    document.getElementById('speakerFormStatus').textContent = model.statusText;
-    document.getElementById('speakerFormTrigger').textContent = model.triggerText;
-
-    document.getElementById('speakerFormCreateBtn').classList[model.created ? 'add' : 'remove']('hidden');
-    document.getElementById('speakerFormCreated').classList[model.created ? 'remove' : 'add']('hidden');
-
-    var fill = document.getElementById('speakerFormLink');
-    var edit = document.getElementById('speakerFormEditLink');
-    [[fill, model.fillUrl], [edit, model.editUrl]].forEach(function (pair) {
-      if (pair[1]) {
-        pair[0].setAttribute('href', pair[1]);
-        pair[0].classList.remove('hidden');
-      } else {
-        pair[0].removeAttribute('href');
-        pair[0].classList.add('hidden');
-      }
-    });
-    document.getElementById('speakerFormCopyBtn').classList[model.fillUrl ? 'remove' : 'add']('hidden');
-  }
-
-  /**
-   * 用途：「建立講員表格」確認對話框的內容行。純函式。
-   * Args: （無）
-   * Returns:
-   *   {string[]}
-   */
-  function buildSpeakerFormCreateDialogLines() {
-    return [
-      '將會建立一個長期使用的講員表格（不是每季一個），連結固定。',
-      '1. 只有教會帳戶登入才可以填，並自動收集已驗證的電郵，也不會讓人看到別人的答案；',
-      '2. 表格放進 Config 指定的 Shared Drive 資料夾；',
-      '3. 講員填的「讀經經文」「證道講題」會直接寫進該主日的週報；「講員」只作核對，不會改事奉框；',
-      '4. 會安裝一個表單提交觸發器，把答案交給系統處理。',
-      '部署新版本之後，需要由部署者按試算表選單「週報系統 ▸ 重新授權（新增權限之後用）」重新授權一次（表單權限），否則建立會失敗。'
-    ];
-  }
-  /**
-   * 用途：把文字複製到剪貼簿。先用 `navigator.clipboard`（有些嵌入環境會被擋），
-   *   失敗再退回隱藏的 textarea 加 `execCommand('copy')`。
-   * Args:
-   *   text {string} 要複製的文字。
-   *   nav {Object} `navigator`。
-   *   doc {Object} `document`。
-   *   onDone {function(boolean):void} 成功傳 `true`，兩種方法都失敗傳 `false`。
-   * Returns:
-   *   {void}
-   */
-  function copyTextToClipboard(text, nav, doc, onDone) {
-    function fallback() {
-      var area = doc.createElement('textarea');
-      area.value = text;
-      area.setAttribute('readonly', '');
-      doc.body.appendChild(area);
-      area.select();
-      var ok = false;
-      try { ok = doc.execCommand('copy') === true; } catch (err) { ok = false; }
-      doc.body.removeChild(area);
-      onDone(ok);
-    }
-    if (nav && nav.clipboard && nav.clipboard.writeText) {
-      nav.clipboard.writeText(text).then(function () { onDone(true); }, fallback);
-      return;
-    }
-    fallback();
-  }
-  // END speaker-form
-
-  // =====================================================================
-  // 第二批階段 3：講員表格
-  //
-  // ⚠️ 建立、刷新都由伺服器做；前端只負責顯示現況、確認、呼叫。
-  //    確認一律用頁內對話框 openConfirmDialog()，不用瀏覽器原生確認視窗。
-  // =====================================================================
-
-  /**
-   * 用途：向伺服器取講員表格現況並畫出來（不用 FormApp，沒授權 forms 範圍也看得到）。
-   * Returns:
-   *   {void}
-   */
-  function loadSpeakerFormStatus() {
-    callServer('apiGetSpeakerFormStatus', [], function (resp) {
-      if (!resp.ok) {
-        document.getElementById('speakerFormStatus').textContent = '講員表格現況載入失敗：' + resp.error.message;
-        return;
-      }
-      state.speakerForm = resp.data;
-      renderSpeakerFormPanel(resp.data);
-    }, {
-      busy: 'preview',
-      onError: function (message) {
-        document.getElementById('speakerFormStatus').textContent = '講員表格現況載入失敗：' + message;
-      }
-    });
-  }
-
-  /**
-   * 用途：「建立講員表格」——先用頁內對話框講明會發生什麼，確定之後才建立。
-   * Returns:
-   *   {void}
-   */
-  function onSpeakerFormCreateClicked() {
-    hideMessage();
-    openConfirmDialog('建立講員表格', buildSpeakerFormCreateDialogLines(), function (confirmed) {
-      if (!confirmed) {
-        // G19：與其他會寫入的確認對話框同一句。
-        showMessage('info', CANCELLED_NOTHING_WRITTEN_MESSAGE);
-        return;
-      }
-      callServer('apiCreateSpeakerForm', [], function (resp) {
-        if (!resp.ok) { showMessage('error', resp.error.message); return; }
-        var result = resp.data;
-        if (!result.ok) { showMessage('error', result.message); return; }
-        showMessage(result.warnings.length > 0 ? 'error' : 'success',
-          result.message + (result.warnings.length > 0 ? '　⚠️ ' + result.warnings.join('　') : ''));
-        loadSpeakerFormStatus();
-      }, { busyText: '建立講員表格中…' });
-    });
-  }
-
-  /**
-   * 用途：「刷新日期選項」。
-   * Returns:
-   *   {void}
-   */
-  function onSpeakerFormRefreshClicked() {
-    hideMessage();
-    callServer('apiRefreshSpeakerFormDates', [], function (resp) {
-      if (!resp.ok) { showMessage('error', resp.error.message); return; }
-      showMessage(resp.data.ok ? 'success' : 'error', resp.data.message);
-    }, { busyText: '更新日期選項中…' });
-  }
-
-  /**
-   * 用途：「複製填寫連結」。
-   * Returns:
-   *   {void}
-   */
-  function onSpeakerFormCopyClicked() {
-    var url = state.speakerForm ? String(state.speakerForm.url || '') : '';
-    if (!url) { showMessage('error', '還沒有填寫連結。'); return; }
-    copyTextToClipboard(url, window.navigator, document, function (ok) {
-      // 兩種方法都複製不到時，把連結直接顯示出來讓人手複製，不要靜靜失敗。
-      if (ok) showMessage('success', '已複製填寫連結。');
-      else showMessage('info', '瀏覽器不讓網頁複製，請手動複製這條連結：' + url);
-    });
-  }
+  // 內容表 v2：講員表格已停用（講員改在內容表「崇拜程序」填讀經經文與證道講題），填寫介面的
+  // 「講員表格」區塊與它的 speaker-form 程式碼已拿走；三個講員表格 api 在伺服器一律回已停用。
 
   // BEGIN word-file（測試會把這一段抽出來在假 DOM 上執行，請保持自足）
   /**
@@ -3885,10 +3682,6 @@
       if (isSnapshotPanelOpen() && state.isoDate && state.snapshotsLoadedFor !== state.isoDate) loadSnapshotPanel();
     });
     document.getElementById('resetWeekBtn').addEventListener('click', onResetWeekClicked);
-    // 階段 3：講員表格。
-    document.getElementById('speakerFormCreateBtn').addEventListener('click', onSpeakerFormCreateClicked);
-    document.getElementById('speakerFormRefreshBtn').addEventListener('click', onSpeakerFormRefreshClicked);
-    document.getElementById('speakerFormCopyBtn').addEventListener('click', onSpeakerFormCopyClicked);
     document.getElementById('confirmOkBtn').addEventListener('click', function () {
       // G25：處理中不算數（按鈕已停用；這裏是第二道）。
       if (state.inFlight > 0) return;
@@ -4243,7 +4036,6 @@
     document.getElementById('conflictPanel').classList.add('hidden');
     applyBusyState();
     loadPublishPanel();
-    loadSpeakerFormStatus();
     callServer('apiListWeeks', [state.showArchived], onWeeksLoaded, { busyText: '載入中…' });
   }
 

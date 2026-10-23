@@ -236,6 +236,55 @@ test('R2-10 onFillGridEdit_：Config 那一格照舊記 CONFIG_MANUAL_EDIT（同
   assert.strictEqual(audit.length, 1, 'Config 稽核要照舊運作');
 });
 
+// =====================================================================
+// Commit 3：停用講員表格（處理答案、核對警告、三個 api 的行為見 tests/stage3.test.js）
+// =====================================================================
+
+console.log('\n停用講員表格');
+
+const SPEAKER_FORM_APIS = ['apiCreateSpeakerForm', 'apiRefreshSpeakerFormDates', 'apiGetSpeakerFormStatus'];
+
+test('R3-1 填寫介面：Index.html、Style.html 沒有「講員表格」區塊；Script.html（註解以外）不再呼叫三個講員表格 api', function () {
+  const index = readSrc('src/ui/Index.html');
+  const style = readSrc('src/ui/Style.html');
+  const script = readSrc('src/ui/Script.html');
+  const scriptCode = script.split('\n').filter(function (l) { return !/^\s*(\/\/|\*|\/\*)/.test(l); }).join('\n');
+  ['speakerForm', 'speaker-form', '講員表格'].forEach(function (needle) {
+    assert.strictEqual(index.indexOf(needle), -1, 'Index.html 仍然有 ' + needle);
+    assert.strictEqual(style.indexOf(needle), -1, 'Style.html 仍然有 ' + needle);
+    assert.strictEqual(scriptCode.indexOf(needle), -1, 'Script.html 仍然有 ' + needle);
+  });
+  SPEAKER_FORM_APIS.forEach(function (api) {
+    assert.strictEqual(scriptCode.indexOf(api), -1, 'Script.html 仍然呼叫 ' + api);
+  });
+});
+
+test('R3-2 三個講員表格 api（不帶底線的公開函式）：回 SPEAKER_FORM_RETIRED，一格都不寫', function () {
+  SPEAKER_FORM_APIS.forEach(function (api) {
+    const env = makeFillEnv({ withGrid: false, config: { SPEAKER_FORM_FOLDER_ID: 'FOLDER' } });
+    const before = snapshotSheets(env);
+    const configBefore = JSON.stringify(env.sandbox.readSheet('Config'));
+    const resp = env.sandbox[api]();
+    assert.strictEqual(resp.ok, false, api);
+    assert.strictEqual(resp.error.code, 'SPEAKER_FORM_RETIRED', api);
+    assert.ok(resp.error.message.indexOf('講員表格已停用') !== -1, resp.error.message);
+    assertSame(before, snapshotSheets(env), api);
+    assert.strictEqual(JSON.stringify(env.sandbox.readSheet('Config')), configBefore, api + '：Config 不可以變');
+  });
+});
+
+test('R3-3 週報資料模型（buildBulletinModel_）不再呼叫講員核對；SPEAKER_FORM_MISMATCH 只剩純函式本身', function () {
+  const model = readSrc('src/BulletinModel.gs').split('\n').filter(function (l) { return !/^\s*(\/\/|\*|\/\*)/.test(l); }).join('\n');
+  assert.strictEqual(model.indexOf('speakerMismatchWarningForModel_('), -1);
+  const env = makeFillEnv({ withGrid: false });
+  env.sandbox.writeSheet('SpeakerFormSubmissions', [{
+    TIMESTAMP: new Date(), SERVICE_DATE: env.sandbox.normalizeDate_(SERVICE_DATES[0]), RESPONDENT_EMAIL: 'a@x.com',
+    SPEAKER_NAME: '完全不同的名字', SCRIPTURE_REF: '', SERMON_TITLE: '', NOTES: '', RESULT: 'APPLIED', DETAIL: '', ACTIVE: true
+  }]);
+  const codes = env.sandbox.buildBulletinModel_(SERVICE_DATES[0]).warnings.map(function (w) { return w.code; });
+  assert.strictEqual(codes.indexOf('SPEAKER_FORM_MISMATCH'), -1, codes.join('、'));
+});
+
 console.log('');
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exit(fail === 0 ? 0 : 1);

@@ -132,13 +132,8 @@ function buildBulletinModel_(isoDate) {
 
   snapshot.slotsByPost = applyDutyOverridesToSlots_(snapshot.slotsByPost, buildDutyOverrideIndex_(overrides));
 
-  // ⚠️ 第二批階段 3：講員核對。表格填的講員只作核對，不改事奉框——跟事奉框
-  //    （職事表值套用覆寫之後）不同就出警告，由人決定是否換講員。
-  //    一定要排在上面套用覆寫之後：核對的對象是「週報上實際會印的講員」。
-  if (snapshot.found) {
-    var speakerWarning = speakerMismatchWarningForModel_(isoDate, snapshot.slotsByPost);
-    if (speakerWarning) warnings.push(speakerWarning);
-  }
+  // 內容表 v2：講員表格已停用，不再拿表格答案核對事奉框的講員（以前的 SPEAKER_FORM_MISMATCH 警告）。
+  //    SpeakerFormSubmissions 的舊答案保留，但停用之後仍然出警告只會令幹事去核對一份已經不用的表格。
 
   var dutyBoxPage1 = buildDutyBox_(snapshot, 1, warnings, diffByKey);
   var nextWeekDuty = [];
