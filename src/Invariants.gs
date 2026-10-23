@@ -746,7 +746,7 @@ function invariantSendGroupsForStatus_(status) {
   if (text === PUBLISH_SEND_STATUS_ || text === SEND_ONLY_SEND_STATUS_) {
     return getConfigTextList_(CONFIG_KEYS.PUBLISH_SEND_GROUPS, 'CC,DB,ADMIN');
   }
-  if (text === 'CONTENT_SHEET_INVITE') return getConfigTextList_(CONFIG_KEYS.CONTENT_SHEET_INVITE_GROUPS, 'CC,DB,ADMIN,IT');
+  if (text === 'CONTENT_SHEET_INVITE') return getConfigTextList_(CONFIG_KEYS.CONTENT_SHEET_INVITE_GROUPS, 'CC,DB,ADMIN,IT,WORSHIP');
   if (text === 'FILL_INVITE') return getConfigTextList_(CONFIG_KEYS.FILL_INVITE_GROUPS, 'CC,DB,ADMIN,IT,WORSHIP');
   return getConfigTextList_(CONFIG_KEYS.SEND_GROUPS, 'CC,DB,ADMIN');
 }

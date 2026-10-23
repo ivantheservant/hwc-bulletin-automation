@@ -516,23 +516,15 @@ function selfCheckFeatureItems_() {
   var items = [];
   var S = SELF_CHECK_STATUS_;
 
-  var handlers = {};
-  ScriptApp.getProjectTriggers().forEach(function (t) {
-    var h = t.getHandlerFunction();
-    handlers[h] = (handlers[h] || 0) + 1;
+  // 內容表 v2：觸發器一律按 src/TriggerInventory.gs 的預期清單判斷（與「上線前檢查」、
+  // 「查看觸發器狀態」同一個來源）。以前的「填寫表同步」「填寫表對帳」兩項改為「Config 人手改動
+  // 稽核」與「季度填寫表對帳（已停用）」（預期 0 個）；「下一季提示」已隨季度填寫表停用。
+  var triggerReport = inspectProjectTriggers_();
+  triggerReport.items.forEach(function (t) {
+    items.push(selfCheckItem_('觸發器：' + t.label, t.status, t.message));
   });
-
-  var sendInstalled = Boolean(handlers['weeklyBulletinSendTrigger_']);
-  items.push(selfCheckItem_('觸發器：自動寄送', sendInstalled ? S.GREEN : S.YELLOW, sendInstalled ? '已安裝。' : '尚未安裝，需要人手按選單安裝。'));
-
-  var fillEditInstalled = Boolean(handlers['onFillGridEdit_']);
-  items.push(selfCheckItem_('觸發器：填寫表同步', fillEditInstalled ? S.GREEN : S.YELLOW, fillEditInstalled ? '已安裝。' : '尚未安裝。'));
-
-  var reconcileInstalled = Boolean(handlers['fillReconcileTrigger_']);
-  items.push(selfCheckItem_('觸發器：填寫表對帳', reconcileInstalled ? S.GREEN : S.YELLOW, reconcileInstalled ? '已安裝。' : '尚未安裝。'));
-
-  // 內容表 v2：「下一季提示」（autoCreateNextQuarterFillGrids_，星期一自動建立季度填寫表並寄邀請）
-  // 已隨季度填寫表停用，這一項拿走。新季度由內容表那一步自動建立並寄邀請（R-015）。
+  var unknownTriggers = buildUnknownTriggersVerdict_(triggerReport, S);
+  if (unknownTriggers) items.push(selfCheckItem_('觸發器：不在預期清單內', unknownTriggers.status, unknownTriggers.message));
 
   var webAppUrl = getConfig(CONFIG_KEYS.WEBAPP_URL, '');
   items.push(selfCheckItem_('Web App 部署', webAppUrl ? S.GREEN : S.YELLOW, webAppUrl ? '已部署（' + webAppUrl + '）。' : 'WEBAPP_URL 是空的，尚未填入部署後的網址。'));

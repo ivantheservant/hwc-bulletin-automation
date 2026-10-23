@@ -563,6 +563,19 @@ function sheetProtectionEditors_() {
 }
 
 /**
+ * 用途：本系統設的工作表保護的說明文字。`protectSheetForSystem_()` 設保護與「停用舊功能」
+ *   （src/RetireLegacy.gs）判斷「已經設過」共用這一句，一改兩處一齊改。純函式。
+ * Args: （無）
+ * Returns:
+ *   {string}
+ * Raises:
+ *   （無）
+ */
+function systemSheetProtectionDescription_() {
+  return '週報系統：系統維護用工作表，請勿人手編輯';
+}
+
+/**
  * 用途：替一張工作表套用本系統的保護：先移走本系統之前設過的保護（避免重複
  *   疊加），再設「只有擁有者與例外編輯者可以改」。選單「設定工作表保護」與
  *   「初始化工作表」新建的表共用這一支，保護只有一套。
@@ -579,7 +592,7 @@ function protectSheetForSystem_(sheet, editors) {
     if (p.canEdit()) p.remove();
   });
 
-  var protection = sheet.protect().setDescription('週報系統：系統維護用工作表，請勿人手編輯');
+  var protection = sheet.protect().setDescription(systemSheetProtectionDescription_());
   protection.removeEditors(protection.getEditors());
   if ((editors || []).length > 0) protection.addEditors(editors);
 }

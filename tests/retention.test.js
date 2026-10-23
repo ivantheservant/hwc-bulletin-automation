@@ -462,10 +462,13 @@ function goLiveItem(env, keyword) {
   })[0];
 }
 
-test('九項齊備，一項都不可以少（第九項是階段 3 的講員表格）', function () {
+// 內容表 v2：第 4 項之後加了「上線前：其他觸發器」（Config 人手改動稽核＝1、兩個已停用的＝0，
+// 預期清單在 src/TriggerInventory.gs），所以由九項變十項。
+test('十項齊備，一項都不可以少（第九項是階段 3 的講員表格；內容表 v2 加了「其他觸發器」）', function () {
   const env = makeEnv({});
   const items = env.sandbox.buildGoLiveChecklist_();
-  assert.strictEqual(items.length, 9, '實際：' + items.map(function (i) { return i.label; }).join('、'));
+  assert.strictEqual(items.length, 10, '實際：' + items.map(function (i) { return i.label; }).join('、'));
+  assert.ok(items.some(function (i) { return i.label === '上線前：其他觸發器'; }));
   items.forEach(function (i) {
     assert.ok(i.label && i.status && i.message, '每一項都要有標題、燈色、說明：' + JSON.stringify(i));
   });

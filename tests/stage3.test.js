@@ -8,7 +8,8 @@
  *   - 週報不再出講員核對警告；
  *   - 三個公開 api 回 SPEAKER_FORM_RETIRED，一次都不碰 FormApp；
  *   - 星期一觸發器與「建立本季空白週報」不再刷新表格的日期選項；
- *   - 純函式與兩個檢測（「季度工具 ▸ 停用舊功能」之前仍然看表格現況）保留，日後清理死碼時一併刪。
+ *   - 兩個檢測改為檢「停用得乾不乾淨」（提交觸發器 0 個、表格已停止收件）；
+ *   - 純函式保留，日後清理死碼時一併刪。
  *
  * 一律經真正入口：`onSpeakerFormSubmit_(e)`、`apiCreateSpeakerForm()` 等三個 api、
  * `weeklyBulletinSendTrigger_()`、`createBlankBulletinWeeks_()`、`buildBulletinModel_()`／`apiLoadWeek()`、
@@ -617,70 +618,80 @@ function checkEnvCreated(extra) {
   return env;
 }
 
-test('尚未建立 → 兩個檢測都是 🟡 並講明下一步；建立好、設定齊全 → 🟢', function () {
-  const none = makeEnv({ weekRows: futureWeekRows() });
-  const S = none.sandbox.SELF_CHECK_STATUS_;
-  assert.strictEqual(none.sandbox.selfCheckSpeakerFormItem_().status, S.YELLOW);
-  const goLiveNone = none.sandbox.buildGoLiveChecklist_().filter(function (i) { return i.label === '上線前：講員表格'; })[0];
-  assert.strictEqual(goLiveNone.status, S.YELLOW);
-  assert.ok(goLiveNone.message.indexOf('建立講員表格') !== -1);
+// 內容表 v2：講員表格已停用，兩個檢測改為檢「停用得乾不乾淨」（提交觸發器 0 個、表格已停止收件）。
+// 以前「未建立 → 🟡 叫人建立」「限教會帳戶／已驗證電郵／資料夾」那幾條已經沒有意義，改寫如下。
 
-  const ok = checkEnvCreated();
-  const item = ok.sandbox.selfCheckSpeakerFormItem_();
-  assert.strictEqual(item.status, ok.sandbox.SELF_CHECK_STATUS_.GREEN, item.message);
-  assert.strictEqual(item.label, '講員表格');
-  const goLive = ok.sandbox.buildGoLiveChecklist_().filter(function (i) { return i.label === '上線前：講員表格'; })[0];
-  assert.strictEqual(goLive.status, ok.sandbox.SELF_CHECK_STATUS_.GREEN, goLive.message);
-  assert.strictEqual(goLive.message, item.message, '兩個檢測共用同一個判斷');
-  assertWrittenChinese(assert, '檢測說明', [item.message, goLiveNone.message]);
+/** 經真入口取兩個檢測的「講員表格」一項。 */
+function speakerChecks(env) {
+  const self = plain(env.sandbox.runSelfCheck_().items).filter(function (i) { return i.label === '講員表格'; })[0];
+  const goLive = plain(env.sandbox.buildGoLiveChecklist_()).filter(function (i) { return i.label === '上線前：講員表格'; })[0];
+  return { self: self, goLive: goLive };
+}
+
+/** 選單 UI 替身：每一個「是／否」都答「是」，對話框內容記下來。 */
+function yesUi(store) {
+  store.alerts = [];
+  return {
+    alert: function (title, message) { store.alerts.push({ title: title, message: message }); return 'YES'; },
+    ButtonSet: { OK: 'OK', OK_CANCEL: 'OK_CANCEL', YES_NO: 'YES_NO' },
+    Button: { OK: 'OK', CANCEL: 'CANCEL', YES: 'YES', NO: 'NO' }
+  };
+}
+
+test('從未建立講員表格 → 兩個檢測都是 🟢（已停用，不用處理），判斷一致', function () {
+  const env = makeEnv({ weekRows: futureWeekRows() });
+  const S = env.sandbox.SELF_CHECK_STATUS_;
+  const c = speakerChecks(env);
+  assert.strictEqual(c.self.status, S.GREEN, c.self.message);
+  assert.strictEqual(c.goLive.status, S.GREEN);
+  assert.strictEqual(c.goLive.message, c.self.message, '兩個檢測共用同一個判斷');
+  assert.ok(c.self.message.indexOf('已停用') !== -1 && c.self.message.indexOf('「崇拜程序」') !== -1, c.self.message);
+  assertWrittenChinese(assert, '檢測說明', [c.self.message]);
 });
 
-test('🔴：沒有限教會帳戶、沒有收集已驗證電郵、觸發器不是剛好一個、資料夾不在 Shared Drive、表單開不到', function () {
-  const S = makeEnv().sandbox.SELF_CHECK_STATUS_;
-
-  const openLogin = checkEnvCreated();
-  openLogin.forms.forms[0].__settings.requireLogin = false;
-  const r1 = openLogin.sandbox.selfCheckSpeakerFormItem_();
-  assert.strictEqual(r1.status, S.RED);
-  assert.ok(r1.message.indexOf('沒有限制只有教會帳戶可以填') !== -1, r1.message);
-
-  const noEmail = checkEnvCreated();
-  noEmail.forms.forms[0].__settings.emailCollectionType = 'DO_NOT_COLLECT';
-  assert.ok(noEmail.sandbox.selfCheckSpeakerFormItem_().message.indexOf('已驗證的電郵') !== -1);
-
-  const noTrigger = checkEnvCreated();
-  noTrigger.triggers.installed.length = 0;
-  const r3 = noTrigger.sandbox.selfCheckSpeakerFormItem_();
-  assert.strictEqual(r3.status, S.RED);
-  assert.ok(r3.message.indexOf('沒有表單提交觸發器') !== -1);
-
-  const twoTriggers = checkEnvCreated();
-  twoTriggers.triggers.installed.push({ getHandlerFunction: function () { return 'onSpeakerFormSubmit_'; } });
-  const r4 = twoTriggers.sandbox.selfCheckSpeakerFormItem_();
-  assert.strictEqual(r4.status, S.RED);
-  assert.ok(r4.message.indexOf('有 2 個表單提交觸發器') !== -1);
-
-  const notShared = checkEnvCreated();
-  notShared.sandbox.setConfig('SPEAKER_FORM_FOLDER_ID', 'MY_DRIVE_FOLDER', '測試');
-  const r5 = notShared.sandbox.selfCheckSpeakerFormItem_();
-  assert.strictEqual(r5.status, S.RED);
-  assert.ok(r5.message.indexOf('不在 Shared Drive') !== -1);
-
-  const gone = checkEnvCreated();
-  gone.forms.setOption('failOpen', true);
-  const r6 = gone.sandbox.selfCheckSpeakerFormItem_();
-  assert.strictEqual(r6.status, S.RED);
-  assert.ok(r6.message.indexOf('表格開不到') !== -1 && r6.message.indexOf('forms 範圍') !== -1, r6.message);
-});
-
-test('🟡：查不到（Drive 進階服務查詢失敗）不等於沒問題', function () {
+test('已建立、提交觸發器仍在、表格仍然收件 → 🟡 叫人按「季度工具 ▸ 停用舊功能」；按了之後（真入口選單）→ 🟢', function () {
   const env = checkEnvCreated();
-  env.drive.calls.get.length = 0;
-  const failing = makeAdvancedDrive({ failGet: true });
-  env.sandbox.Drive = failing;
-  const item = env.sandbox.selfCheckSpeakerFormItem_();
+  const S = env.sandbox.SELF_CHECK_STATUS_;
+  const before = speakerChecks(env);
+  assert.strictEqual(before.self.status, S.YELLOW, before.self.message);
+  assert.strictEqual(before.goLive.message, before.self.message);
+  ['仍然有 1 個表單提交觸發器', '表格仍然接受回應', '季度工具 ▸ 停用舊功能（季度填寫表、講員表格）'].forEach(function (piece) {
+    assert.ok(before.self.message.indexOf(piece) !== -1, '缺少：' + piece + '\n' + before.self.message);
+  });
+  assertWrittenChinese(assert, '檢測說明', [before.self.message]);
+
+  const store = {};
+  env.sandbox.SpreadsheetApp.getUi = function () { return yesUi(store); };
+  env.sandbox.menuRetireLegacyFeatures_();
+  const after = speakerChecks(env);
+  assert.strictEqual(after.self.status, S.GREEN, after.self.message + '\n' + JSON.stringify(store.alerts));
+  assert.ok(after.self.message.indexOf('沒有刪除') !== -1, after.self.message);
+  assert.strictEqual(env.forms.forms[0].__settings.acceptingResponses, false);
+});
+
+test('只剩其中一樣（觸發器已拆但仍然收件；或已停止收件但觸發器仍在）→ 仍然是 🟡，講明是哪一樣', function () {
+  const S = makeEnv().sandbox.SELF_CHECK_STATUS_;
+  const onlyAccepting = checkEnvCreated();
+  onlyAccepting.triggers.installed.length = 0;
+  const a = speakerChecks(onlyAccepting).self;
+  assert.strictEqual(a.status, S.YELLOW);
+  assert.ok(a.message.indexOf('表格仍然接受回應') !== -1 && a.message.indexOf('觸發器') === -1, a.message);
+
+  const onlyTrigger = checkEnvCreated();
+  onlyTrigger.forms.forms[0].__settings.acceptingResponses = false;
+  const b = speakerChecks(onlyTrigger).self;
+  assert.strictEqual(b.status, S.YELLOW);
+  assert.ok(b.message.indexOf('仍然有 1 個表單提交觸發器') !== -1 && b.message.indexOf('接受回應') === -1, b.message);
+});
+
+test('🟡：表格開不到（查不到是否已停止收件）不等於沒問題', function () {
+  const env = checkEnvCreated();
+  env.triggers.installed.length = 0;
+  env.forms.setOption('failOpen', true);
+  const item = speakerChecks(env).self;
   assert.strictEqual(item.status, env.sandbox.SELF_CHECK_STATUS_.YELLOW, item.message);
-  assert.ok(item.message.indexOf('「查不到」不等於「沒問題」') !== -1);
+  assert.ok(item.message.indexOf('「查不到」不等於「沒問題」') !== -1, item.message);
+  assert.ok(item.message.indexOf('SPEAKER_FORM_ID') !== -1, '要講明表格已刪除時可以怎樣做：' + item.message);
 });
 
 test('完成度自我檢測（真入口 runSelfCheck_）包含「講員表格」這一項', function () {

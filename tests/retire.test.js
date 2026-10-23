@@ -18,6 +18,8 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const { makeFillEnv, QUARTER_ID, SERVICE_DATES } = require('./helpers/fillEnv');
+const { makeFakeFormApp } = require('./helpers/fakeForm');
+const { assertWrittenChinese } = require('./helpers/writtenChinese');
 
 let pass = 0;
 let fail = 0;
@@ -113,8 +115,10 @@ test('R2-1 onOpen：子選單叫「季度工具」，沒有填寫表各項；稽
 
   const retiredInMenu = items.filter(function (i) { return RETIRED_FILL_MENU_HANDLERS.indexOf(i.fn) !== -1; });
   assert.deepStrictEqual(retiredInMenu, [], '選單仍然引用已停用的項目');
-  assert.strictEqual(items.filter(function (i) { return i.label.indexOf('填寫表') !== -1; }).length, 0,
-    '選單不可以再有任何「填寫表」字眼：' + items.map(function (i) { return i.label; }).join('、'));
+  // 唯一例外是 Commit 4 的「停用舊功能（季度填寫表、講員表格）」——它正是把舊功能收起的那一項。
+  assert.strictEqual(items.filter(function (i) {
+    return i.label.indexOf('填寫表') !== -1 && i.fn !== 'menuRetireLegacyFeatures_';
+  }).length, 0, '選單不可以再有任何「填寫表」字眼：' + items.map(function (i) { return i.label; }).join('、'));
 
   const tools = items.filter(function (i) { return i.parent === '季度工具'; }).map(function (i) { return i.label + '→' + i.fn; });
   assert.ok(tools.indexOf('安裝 Config 改動稽核觸發器→menuInstallFillEditTrigger_') !== -1, tools.join('、'));
@@ -283,6 +287,262 @@ test('R3-3 週報資料模型（buildBulletinModel_）不再呼叫講員核對�
   }]);
   const codes = env.sandbox.buildBulletinModel_(SERVICE_DATES[0]).warnings.map(function (w) { return w.code; });
   assert.strictEqual(codes.indexOf('SPEAKER_FORM_MISMATCH'), -1, codes.join('、'));
+});
+
+// =====================================================================
+// Commit 4：觸發器預期清單（唯一真相）＋「季度工具 ▸ 停用舊功能」
+// =====================================================================
+
+console.log('\n觸發器清單與停用舊功能');
+
+const OLD_DEFAULT_INVITE_GROUPS = 'CC,DB,ADMIN,IT';
+const OLD_DEFAULT_OWNERS = '家事報告=幹事,代禱事項=堂委,團契聚會=堂委,財政報告=執事,崇拜人數=幹事,宣召=幹事';
+
+/** 一個假觸發器（inspectProjectTriggers_ 用得到的兩個方法）。 */
+function fakeTrigger(handler) {
+  return { getHandlerFunction: function () { return handler; }, getEventType: function () { return 'CLOCK'; } };
+}
+
+/**
+ * 部署前的樣子：四種觸發器各 1 個、季度填寫表分頁未隱藏、講員表格已建立並仍然收件、
+ * Config 仍然是舊預設值。UI 替身按 `answers` 逐個回答「是／否」，對話框內容記在 `store.alerts`。
+ */
+function makeLegacyEnv(options) {
+  const o = options || {};
+  const store = { alerts: [] };
+  const answers = (o.answers || ['YES']).slice();
+  const forms = makeFakeFormApp(o.formOptions);
+  const form = forms.FormApp.create('粵語堂主日講員資料');
+  const env = makeFillEnv({
+    config: Object.assign({
+      SPEAKER_FORM_ID: form.getId(),
+      CONTENT_SHEET_INVITE_GROUPS: OLD_DEFAULT_INVITE_GROUPS,
+      CONTENT_SHEET_OWNERS: OLD_DEFAULT_OWNERS
+    }, o.config || {}),
+    extraStubs: { FormApp: forms.FormApp },
+    ui: {
+      alert: function (title, message, buttons) {
+        store.alerts.push({ title: title, message: message, buttons: buttons });
+        return buttons === 'YES_NO' ? (answers.shift() || 'NO') : 'OK';
+      }
+    }
+  });
+  (o.triggers || ['weeklyBulletinSendTrigger_', 'onFillGridEdit_', 'fillReconcileTrigger_', 'onSpeakerFormSubmit_'])
+    .forEach(function (h) { env.triggers.installed.push(fakeTrigger(h)); });
+  env.store = store;
+  env.form = form;
+  env.forms = forms;
+  return env;
+}
+
+function handlersOf(env) {
+  return env.triggers.installed.map(function (t) { return t.getHandlerFunction(); }).sort();
+}
+
+function grid(env) {
+  return env.sheets['Fill_' + QUARTER_ID];
+}
+
+function retireAudit(env) {
+  return env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'RETIRE_LEGACY_FEATURES'; });
+}
+
+/** 停用動作會碰到的一切（比較「一格都沒有寫」）。 */
+function retireSnapshot(env) {
+  const g = grid(env);
+  return {
+    config: JSON.stringify(env.sandbox.readSheet('Config')),
+    audit: JSON.stringify(env.sandbox.readSheet('AuditLog')),
+    errors: JSON.stringify(env.sandbox.readSheet('ErrorLog')),
+    weeks: JSON.stringify(env.sandbox.readSheet('BulletinWeeks')),
+    grid: JSON.stringify(g.__data) + JSON.stringify(g.__notes) + g.__hidden + JSON.stringify(g.__protections),
+    triggers: JSON.stringify(handlersOf(env)),
+    form: JSON.stringify(env.form.__settings)
+  };
+}
+
+test('R4-1 三處同一份觸發器清單：留着兩個舊觸發器 → 自我檢測、上線前檢查、查看觸發器狀態都報出來；停用之後三處都 🟢', function () {
+  const env = makeLegacyEnv({});
+  const S = env.sandbox.SELF_CHECK_STATUS_;
+  const self = function () { return env.sandbox.runSelfCheck_().items.filter(function (i) { return i.label.indexOf('觸發器：') === 0; }); };
+  const goLive = function (label) { return env.sandbox.buildGoLiveChecklist_().filter(function (i) { return i.label === label; })[0]; };
+  const statusDialog = function () {
+    env.store.alerts = [];
+    env.sandbox.menuShowTriggerStatus_();
+    return env.store.alerts[0];
+  };
+
+  const before = self();
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(before.map(function (i) { return i.label + i.status; }))), [
+    '觸發器：自動寄送' + S.GREEN, '觸發器：Config 人手改動稽核' + S.GREEN,
+    '觸發器：季度填寫表對帳（已停用）' + S.YELLOW, '觸發器：講員表格提交（已停用）' + S.YELLOW
+  ]);
+  assert.ok(before[2].message.indexOf('季度工具 ▸ 停用舊功能（季度填寫表、講員表格）') !== -1, before[2].message);
+  assert.strictEqual(goLive('上線前：星期一觸發器').status, S.GREEN);
+  const other = goLive('上線前：其他觸發器');
+  assert.strictEqual(other.status, S.YELLOW);
+  assert.ok(other.message.indexOf('季度填寫表對帳（已停用）') !== -1 && other.message.indexOf('講員表格提交（已停用）') !== -1, other.message);
+  const dialog = statusDialog();
+  assert.strictEqual(dialog.title, '查看觸發器狀態（共 4 個）');
+  assert.ok(dialog.message.indexOf('季度填寫表對帳（已停用）（fillReconcileTrigger_）：預期 0 個，實際 1 個。') !== -1, dialog.message);
+  assert.ok(dialog.message.indexOf('Config 人手改動稽核（onFillGridEdit_）：預期 1 個，實際 1 個。') !== -1, dialog.message);
+  assertWrittenChinese(assert, '觸發器狀態', [dialog.message, other.message]);
+
+  env.sandbox.menuRetireLegacyFeatures_();
+  assert.ok(self().every(function (i) { return i.status === S.GREEN; }), JSON.stringify(self()));
+  assert.strictEqual(goLive('上線前：其他觸發器').status, S.GREEN);
+  assert.ok(statusDialog().message.indexOf('實際 1 個') !== -1);
+  assert.strictEqual(statusDialog().title, '查看觸發器狀態（共 2 個）');
+});
+
+test('R4-2 清單以外的觸發器、讀不到清單：兩個檢測與對話框都講出來（讀不到不等於 0 個）', function () {
+  const env = makeLegacyEnv({ triggers: ['weeklyBulletinSendTrigger_', 'onFillGridEdit_', 'someoneElsesHandler'] });
+  const S = env.sandbox.SELF_CHECK_STATUS_;
+  const unknown = env.sandbox.runSelfCheck_().items.filter(function (i) { return i.label === '觸發器：不在預期清單內'; })[0];
+  assert.strictEqual(unknown.status, S.YELLOW);
+  assert.ok(unknown.message.indexOf('someoneElsesHandler（1 個）') !== -1, unknown.message);
+  assert.strictEqual(env.sandbox.buildGoLiveChecklist_().filter(function (i) { return i.label === '上線前：其他觸發器'; })[0].status, S.YELLOW);
+
+  const broken = makeLegacyEnv({});
+  broken.sandbox.ScriptApp.getProjectTriggers = function () { throw new Error('未授權'); };
+  const items = broken.sandbox.runSelfCheck_().items.filter(function (i) { return i.label.indexOf('觸發器：') === 0; });
+  assert.ok(items.length === 4 && items.every(function (i) { return i.status === S.YELLOW && i.message.indexOf('讀不到') !== -1; }), JSON.stringify(items));
+  assert.strictEqual(broken.sandbox.buildGoLiveChecklist_().filter(function (i) { return i.label === '上線前：星期一觸發器'; })[0].status, S.YELLOW);
+
+  const before = retireSnapshot(broken);
+  broken.sandbox.menuRetireLegacyFeatures_();
+  assert.deepStrictEqual(retireSnapshot(broken), before, '讀不到觸發器清單 → 整次不做');
+  assert.ok(broken.store.alerts[0].message.indexOf('讀不到觸發器清單') !== -1, broken.store.alerts[0].message);
+});
+
+test('R4-3 停用舊功能（選單，答「是」）：只拆兩個舊觸發器；Fill_ 內容不改、加註解、隱藏、設系統保護；講員表格停止收件；Config 移轉；逐步 AuditLog；預覽項數等於實際', function () {
+  const env = makeLegacyEnv({});
+  const weeksBefore = JSON.stringify(env.sandbox.readSheet('BulletinWeeks'));
+  const gridBefore = JSON.stringify(grid(env).__data);
+  env.sandbox.menuRetireLegacyFeatures_();
+
+  const preview = env.store.alerts[0];
+  assert.strictEqual(preview.buttons, 'YES_NO');
+  ['以下 6 項會停用', '拆走「季度填寫表對帳（已停用）」（fillReconcileTrigger_）1 個', '拆走「講員表格提交（已停用）」（onSpeakerFormSubmit_）1 個',
+    '「自動寄送」與「Config 人手改動稽核」兩個觸發器不會動', 'Fill_' + QUARTER_ID + '：A1 加註解、隱藏、設系統保護',
+    '【講員表格】停止收件', '講員資料改為在內容表「崇拜程序」填寫，請聯絡幹事。',
+    'CONTENT_SHEET_INVITE_GROUPS：「CC,DB,ADMIN,IT」→「CC,DB,ADMIN,IT,WORSHIP」',
+    '移走「宣召=幹事」', '加上「崇拜程序=講員、領詩、幹事」'
+  ].forEach(function (piece) { assert.ok(preview.message.indexOf(piece) !== -1, '預覽缺少：' + piece + '\n' + preview.message); });
+  assertWrittenChinese(assert, '停用舊功能預覽', [preview.message]);
+
+  assert.deepStrictEqual(handlersOf(env), ['onFillGridEdit_', 'weeklyBulletinSendTrigger_']);
+  const g = grid(env);
+  assert.strictEqual(JSON.stringify(g.__data), gridBefore, 'Fill_ 內容一格都不改');
+  assert.ok(g.getRange(1, 1).getNote().indexOf('季度填寫表已停用（2026-10）') === 0, g.getRange(1, 1).getNote());
+  assert.strictEqual(g.isSheetHidden(), true);
+  assert.deepStrictEqual(g.__protections.map(function (p) { return p.description; }), ['週報系統：系統維護用工作表，請勿人手編輯']);
+  assert.strictEqual(env.sheets['Fill_' + QUARTER_ID], g, '不刪分頁');
+  assert.strictEqual(env.form.__settings.acceptingResponses, false);
+  assert.strictEqual(env.form.__settings.closedMessage, '講員資料改為在內容表「崇拜程序」填寫，請聯絡幹事。');
+  assert.strictEqual(env.forms.forms.length, 1, '不刪表格、不建新表格');
+  assert.strictEqual(env.sandbox.getConfig('CONTENT_SHEET_INVITE_GROUPS'), 'CC,DB,ADMIN,IT,WORSHIP');
+  assert.strictEqual(env.sandbox.getConfig('CONTENT_SHEET_OWNERS'), '崇拜程序=講員、領詩、幹事,家事報告=幹事,代禱事項=堂委,團契聚會=堂委,財政報告=執事,崇拜人數=幹事');
+  assert.strictEqual(JSON.stringify(env.sandbox.readSheet('BulletinWeeks')), weeksBefore, '週報一格都不寫');
+
+  const audit = retireAudit(env);
+  assert.strictEqual(audit.length, 6, '預覽講 6 項，AuditLog 亦是 6 行');
+  const result = env.store.alerts[1];
+  assert.ok(result.message.indexOf('已完成 6 項') !== -1, result.message);
+  assert.strictEqual(result.message.indexOf('失敗'), -1);
+  assert.strictEqual(env.sandbox.readSheet('ErrorLog').length, 0);
+  assertWrittenChinese(assert, '停用舊功能結果', [result.message]);
+});
+
+test('R4-4 冪等：第二次只見「沒有需要停用的項目」，不問「是／否」，一格都不寫', function () {
+  const env = makeLegacyEnv({ answers: ['YES', 'YES'] });
+  env.sandbox.menuRetireLegacyFeatures_();
+  const before = retireSnapshot(env);
+  env.store.alerts = [];
+  env.sandbox.menuRetireLegacyFeatures_();
+  assert.deepStrictEqual(retireSnapshot(env), before);
+  assert.strictEqual(env.store.alerts.length, 1);
+  assert.strictEqual(env.store.alerts[0].buttons, 'OK');
+  assert.ok(env.store.alerts[0].message.indexOf('沒有需要停用的項目') !== -1, env.store.alerts[0].message);
+  assert.strictEqual(env.sandbox.planRetireLegacy_().changeCount, 0);
+});
+
+test('R4-5 答「否」→ 一格都不寫', function () {
+  const env = makeLegacyEnv({ answers: ['NO'] });
+  const before = retireSnapshot(env);
+  env.sandbox.menuRetireLegacyFeatures_();
+  assert.deepStrictEqual(retireSnapshot(env), before);
+  assert.ok(env.store.alerts[1].message.indexOf('已取消，一格都沒有寫') !== -1);
+});
+
+test('R4-6 其中一步失敗（表格開不到）→ 其餘步驟照做、ErrorLog 有一行、結果講明；處理好之後再按一次只補做那一步', function () {
+  const env = makeLegacyEnv({ answers: ['YES', 'YES'], formOptions: { failOpen: true } });
+  env.sandbox.menuRetireLegacyFeatures_();
+  const preview = env.store.alerts[0].message;
+  assert.ok(preview.indexOf('現時查不到表格狀態') !== -1, preview);
+  assert.deepStrictEqual(handlersOf(env), ['onFillGridEdit_', 'weeklyBulletinSendTrigger_'], '其餘步驟照做');
+  assert.strictEqual(grid(env).isSheetHidden(), true);
+  const errors = env.sandbox.readSheet('ErrorLog').filter(function (r) { return r.ERROR_CODE === 'RETIRE_LEGACY_STEP_FAILED'; });
+  assert.strictEqual(errors.length, 1);
+  assert.ok(errors[0].MESSAGE.indexOf('講員表格停止收件') !== -1, errors[0].MESSAGE);
+  const result = env.store.alerts[1].message;
+  assert.ok(result.indexOf('已完成 5 項') !== -1 && result.indexOf('失敗 1 項') !== -1, result);
+  assert.strictEqual(retireAudit(env).length, 5, '失敗那一步不寫 AuditLog');
+
+  env.forms.setOption('failOpen', false);
+  env.store.alerts = [];
+  env.sandbox.menuRetireLegacyFeatures_();
+  assert.ok(env.store.alerts[0].message.indexOf('以下 1 項會停用') !== -1, env.store.alerts[0].message);
+  assert.strictEqual(env.form.__settings.acceptingResponses, false);
+  assert.strictEqual(retireAudit(env).length, 6);
+});
+
+test('R4-7 Config 移轉：人手改過的值照樣保留，只加缺的組別、只動宣召／浸禮合堂／崇拜程序三項；空白或沒有這個鍵就不動', function () {
+  const sb = makeFillEnv({}).sandbox;
+  const invite = sb.planRetireInviteGroupsChange_('CC，DB', 'ADMIN,WORSHIP,CC,WORSHIP');
+  assert.strictEqual(invite.newValue, 'CC,DB,ADMIN,WORSHIP');
+  assert.strictEqual(sb.planRetireInviteGroupsChange_('CC,DB,ADMIN,IT,WORSHIP', 'ADMIN,CC,DB,IT,WORSHIP'), null, '已經齊');
+  assert.strictEqual(sb.planRetireInviteGroupsChange_('', 'WORSHIP'), null, '空白＝刻意清走，不動');
+  assert.strictEqual(sb.planRetireInviteGroupsChange_(null, 'WORSHIP'), null, '沒有這個鍵 → 由初始化種新預設值');
+
+  const owners = sb.planRetireOwnersChange_('家事報告=甲,崇拜程序=乙,浸禮合堂=丙,宣召=丁,打錯了');
+  assert.strictEqual(owners.newValue, '家事報告=甲,崇拜程序=乙,打錯了', '已有崇拜程序就不加；格式不符的原樣保留');
+  assert.strictEqual(sb.planRetireOwnersChange_('崇拜程序=乙,家事報告=甲'), null);
+  assert.strictEqual(sb.planRetireOwnersChange_(''), null);
+  assert.strictEqual(sb.planRetireOwnersChange_(null), null);
+  assertWrittenChinese(assert, 'Config 移轉說明', [invite.summary, owners.summary]);
+});
+
+test('R4-8 DEFAULTS 同步：舊預設值移轉之後剛好等於新的 DEFAULTS（新舊安裝結果一樣）', function () {
+  const sb = makeFillEnv({}).sandbox;
+  const def = function (k) { return sb.defaultConfigValueFor_(k); };
+  assert.strictEqual(sb.planRetireInviteGroupsChange_(OLD_DEFAULT_INVITE_GROUPS, def('FILL_INVITE_GROUPS')).newValue, def('CONTENT_SHEET_INVITE_GROUPS'));
+  assert.strictEqual(sb.planRetireOwnersChange_(OLD_DEFAULT_OWNERS).newValue, def('CONTENT_SHEET_OWNERS'));
+  assert.strictEqual(sb.planRetireOwnersChange_(def('CONTENT_SHEET_OWNERS')), null, '新預設值不用再移轉');
+  assert.strictEqual(sb.planRetireInviteGroupsChange_(def('CONTENT_SHEET_INVITE_GROUPS'), def('FILL_INVITE_GROUPS')), null);
+});
+
+test('R4-9 Fill_ 的 A1 本來已有註解 → 停用註解加在前面，原有的保留', function () {
+  const env = makeLegacyEnv({});
+  grid(env).getRange(1, 1).setNote('原有的群組說明');
+  env.sandbox.menuRetireLegacyFeatures_();
+  const note = grid(env).getRange(1, 1).getNote();
+  assert.ok(note.indexOf('季度填寫表已停用（2026-10）') === 0 && note.indexOf('原有的群組說明') !== -1, note);
+});
+
+test('R4-10 接線：只由選單「季度工具 ▸ 停用舊功能」觸發；初始化工作表、星期一觸發器、任何其他檔案都不會呼叫它', function () {
+  const store = {};
+  const env = makeFillEnv({ ui: recordingUi(store) });
+  env.sandbox.onOpen();
+  const item = flattenMenu(store.top).filter(function (i) { return i.fn === 'menuRetireLegacyFeatures_'; });
+  assert.strictEqual(item.length, 1);
+  assert.strictEqual(item[0].parent, '季度工具');
+  assert.strictEqual(item[0].label, '停用舊功能（季度填寫表、講員表格）');
+  const dir = path.join(__dirname, '..', 'src');
+  fs.readdirSync(dir).filter(function (f) { return /\.gs$/.test(f) && f !== 'RetireLegacy.gs'; }).forEach(function (f) {
+    const code = readSrc('src/' + f).split('\n').filter(function (l) { return !/^\s*(\/\/|\*|\/\*)/.test(l); }).join('\n');
+    assert.strictEqual(code.indexOf('applyRetireLegacy_('), -1, f + ' 不可以呼叫 applyRetireLegacy_()');
+  });
 });
 
 console.log('');

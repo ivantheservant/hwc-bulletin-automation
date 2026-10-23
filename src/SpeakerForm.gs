@@ -351,55 +351,55 @@ function buildSpeakerFormNotice_(input) {
 }
 
 /**
- * 用途：講員表格現況的檢查結果轉成一個檢測項目（狀態＋說明）。純函式。
- *   「上線前檢查」與「完成度自我檢測」共用，判斷只有一處。
+ * 用途：講員表格現況轉成一個檢測項目（狀態＋說明）。純函式。「上線前檢查」與「完成度自我檢測」
+ *   共用，判斷只有一處。
  *
- *   紅燈＝一定會出問題（開不到、沒有限教會帳戶、觸發器不是剛好一個、資料夾不在
- *   Shared Drive）；黃燈＝還沒建立，或者查不到（⚠️ 「查不到」不等於「沒問題」）。
+ *   內容表 v2 起講員表格已停用，檢的是「停用得乾不乾淨」：
+ *     - 從未建立 → 🟢（不用處理）；
+ *     - 表單提交觸發器 0 個、表格已停止收件 → 🟢；
+ *     - 仍然有觸發器或者表格仍然收件 → 🟡，叫人按「季度工具 ▸ 停用舊功能」（處理函式已經不寫入，
+ *       所以不是 🔴；但講員以為填了，其實沒有人會用）；
+ *     - 查不到 → 🟡（⚠️ 「查不到」不等於「沒問題」）。
  * Args:
- *   state {{created:boolean, folderId:string, folderIsSharedDrive:?boolean,
- *     triggerCount:?number, form:?Object}} `inspectSpeakerFormState_()` 的輸出。
+ *   state {{created:boolean, triggerCount:?number, accepting:?boolean}} `inspectSpeakerFormState_()` 的輸出。
  *   statuses {Object} `SELF_CHECK_STATUS_`。
  * Returns:
  *   {{status:string, message:string}}
+ * Raises:
+ *   （無）
  */
 function buildSpeakerFormCheckItem_(state, statuses) {
   if (!state.created) {
     return {
-      status: statuses.YELLOW,
-      message: '尚未建立講員表格。要讓講員自己填證道講題與經文，請在填寫介面「講員表格」區塊按「建立講員表格」。'
+      status: statuses.GREEN,
+      message: '講員表格已停用（講員改在內容表「崇拜程序」填讀經經文與證道講題）；從未建立表格，不用處理。'
     };
   }
 
-  var problems = [];
+  var leftovers = [];
   var unknown = [];
-  var form = state.form;
-  if (!form || form.reachable !== true) {
-    problems.push('表格開不到（' + ((form && form.error) || '原因不明') + '）。可能被刪除、沒有權限，或者部署後還沒有重新授權 forms 範圍');
-  } else {
-    if (form.requireLogin === false) problems.push('表格沒有限制只有教會帳戶可以填');
-    else if (form.requireLogin === null) unknown.push('查不到表格有沒有限制只有教會帳戶可以填');
-    if (form.emailVerified === false) problems.push('表格沒有收集已驗證的電郵');
-    else if (form.emailVerified === null) unknown.push('查不到表格有沒有收集已驗證的電郵');
+  if (state.triggerCount === null) unknown.push('讀不到觸發器清單');
+  else if (state.triggerCount > 0) leftovers.push('仍然有 ' + state.triggerCount + ' 個表單提交觸發器');
+  if (state.accepting === null) {
+    unknown.push('查不到表格是否已停止收件（表格開不到，或者部署後還沒有重新授權 forms 範圍；'
+      + '表格已經刪除的話，可以把 Config ' + CONFIG_KEYS.SPEAKER_FORM_ID + ' 清空）');
+  } else if (state.accepting === true) {
+    leftovers.push('表格仍然接受回應（講員填了也不會寫入）');
   }
 
-  if (state.triggerCount === null) unknown.push('讀不到觸發器清單');
-  else if (state.triggerCount === 0) problems.push('沒有表單提交觸發器，答案不會寫進週報');
-  else if (state.triggerCount > 1) problems.push('有 ' + state.triggerCount + ' 個表單提交觸發器，同一份答案會被處理 ' + state.triggerCount + ' 次');
-
-  if (!state.folderId) problems.push('沒有設定表格資料夾（SPEAKER_FORM_FOLDER_ID 與 CONTENT_SHEET_FOLDER_ID 都是空的）');
-  else if (state.folderIsSharedDrive === false) problems.push('表格資料夾不在 Shared Drive 內');
-  else if (state.folderIsSharedDrive === null) unknown.push('查不到表格資料夾是不是在 Shared Drive 內');
-
-  if (problems.length > 0) {
-    return { status: statuses.RED, message: '⚠️ ' + problems.join('；') + '。' };
+  if (leftovers.length > 0) {
+    return {
+      status: statuses.YELLOW,
+      message: '講員表格已停用，但' + leftovers.join('、') + '。請按選單「' + retireLegacyMenuPath_() + '」。'
+        + (unknown.length > 0 ? '另外：' + unknown.join('；') + '。' : '')
+    };
   }
   if (unknown.length > 0) {
-    return { status: statuses.YELLOW, message: unknown.join('；') + '。⚠️ 「查不到」不等於「沒問題」。' };
+    return { status: statuses.YELLOW, message: '講員表格已停用。' + unknown.join('；') + '。⚠️ 「查不到」不等於「沒問題」。' };
   }
   return {
     status: statuses.GREEN,
-    message: '已建立，只限教會帳戶填寫、收集已驗證電郵，表單提交觸發器剛好 1 個，表格資料夾在 Shared Drive 內。'
+    message: '講員表格已停用：表單提交觸發器已拆走、表格已停止收件（表格與舊答案保留，沒有刪除）。'
   };
 }
 
@@ -445,23 +445,23 @@ function currentSpeakerFormDateOptions_() {
 }
 
 /**
- * 用途：收集講員表格現況（Config、表單設定、觸發器、資料夾），給檢測用。
- *   唯讀。 任何一項查不到都用 `null` 表示，不當成「正常」。
+ * 用途：收集講員表格現況給兩個檢測用（內容表 v2 起檢的是「停用得乾不乾淨」）：有沒有建立過、
+ *   表單提交觸發器還有幾個、表格是否仍然接受回應。唯讀。任何一項查不到都用 `null` 表示，不當成「正常」。
+ *   觸發器數目取自 `inspectProjectTriggers_()`（src/TriggerInventory.gs），與其他觸發器檢測同一個來源。
  * Args: （無）
  * Returns:
- *   {{created:boolean, formId:string, folderId:string, folderIsSharedDrive:?boolean,
- *     triggerCount:?number, form:?Object}}
+ *   {{created:boolean, formId:string, triggerCount:?number, accepting:?boolean}}
+ * Raises:
+ *   Error 讀 Config 失敗時原樣拋出。
  */
 function inspectSpeakerFormState_() {
   var formId = String(getConfig(CONFIG_KEYS.SPEAKER_FORM_ID, '') || '').trim();
-  var folderId = resolveSpeakerFormFolderId_();
+  var trigger = inspectProjectTriggers_().items.filter(function (t) { return t.handler === 'onSpeakerFormSubmit_'; })[0];
   return {
     created: formId !== '',
     formId: formId,
-    folderId: folderId,
-    folderIsSharedDrive: folderId ? driveIsInSharedDrive_(folderId) : null,
-    triggerCount: countSpeakerFormTriggers_(),
-    form: formId ? inspectSpeakerFormFile_(formId) : null
+    triggerCount: trigger ? trigger.actual : null,
+    accepting: formId ? isSpeakerFormAcceptingResponses_(formId) : null
   };
 }
 

@@ -53,8 +53,14 @@ function makeFakeFormApp(options) {
       __settings: {
         requireLogin: false, emailCollectionType: 'DO_NOT_COLLECT', limitOne: true,
         publishingSummary: true, showLinkToRespondAgain: true, allowResponseEdits: false,
-        description: '', confirmation: ''
+        description: '', confirmation: '',
+        // 內容表 v2：「停用舊功能」關閉收件（setAcceptingResponses(false)＋停止訊息）。
+        acceptingResponses: true, closedMessage: ''
       },
+      isAcceptingResponses: function () { return form.__settings.acceptingResponses; },
+      setAcceptingResponses: function (b) { form.__settings.acceptingResponses = b === true; return form; },
+      setCustomClosedFormMessage: function (t) { form.__settings.closedMessage = String(t); return form; },
+      getCustomClosedFormMessage: function () { return form.__settings.closedMessage; },
       setDescription: function (t) { form.__settings.description = t; return form; },
       setConfirmationMessage: function (t) { form.__settings.confirmation = t; return form; },
       setRequireLogin: function (b) { form.__settings.requireLogin = b; return form; },

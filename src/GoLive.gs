@@ -91,36 +91,13 @@ function buildGoLiveChecklist_() {
         + '請在「部署 ▸ 管理部署作業」複製網頁應用程式網址填進去。'
   });
 
-  // ---- 4. 星期一觸發器只安裝了一個 ----
-  var triggerCount = null;
-  try {
-    triggerCount = ScriptApp.getProjectTriggers().filter(function (t) {
-      return t.getHandlerFunction() === 'weeklyBulletinSendTrigger_';
-    }).length;
-  } catch (err) {
-    triggerCount = null;
-  }
-  if (triggerCount === null) {
-    items.push({
-      label: '上線前：星期一觸發器',
-      status: S.YELLOW,
-      message: '讀不到觸發器清單（可能未授權）。⚠️ 「讀不到」不等於「沒問題」。'
-    });
-  } else if (triggerCount === 1) {
-    items.push({ label: '上線前：星期一觸發器', status: S.GREEN, message: '剛好安裝了 1 個。' });
-  } else if (triggerCount === 0) {
-    items.push({
-      label: '上線前：星期一觸發器', status: S.YELLOW,
-      message: '一個都沒有安裝——星期一不會自動寄週報。請按選單「安裝自動寄送觸發器」。'
-    });
-  } else {
-    items.push({
-      label: '上線前：星期一觸發器', status: S.RED,
-      message: '⚠️ 安裝了 ' + triggerCount + ' 個！每一個都會各自跑一次，'
-        + '即是同一期週報會寄 ' + triggerCount + ' 次給全教會。'
-        + '請按選單「移除自動寄送觸發器」再按一次「安裝自動寄送觸發器」。'
-    });
-  }
+  // ---- 4. 星期一觸發器只安裝了一個；4b. 其他觸發器 ----
+  //    ⚠️ 內容表 v2：判斷一律按 src/TriggerInventory.gs 的預期清單（與「完成度自我檢測」、
+  //    「查看觸發器狀態」同一個來源），不在這裏再寫一次。
+  var triggerReport = inspectProjectTriggers_();
+  var weekly = triggerReport.items.filter(function (t) { return t.handler === 'weeklyBulletinSendTrigger_'; })[0];
+  items.push({ label: '上線前：星期一觸發器', status: weekly.status, message: weekly.message });
+  items.push(buildGoLiveOtherTriggersItem_(triggerReport, S));
 
   // ---- 5. 正式 master ≠ 沙盒 master ----
   //    ⚠️ 與 I12／自我檢測共用同一支 checkMasterFileIdsDistinct_()，
@@ -155,13 +132,48 @@ function buildGoLiveChecklist_() {
   // ---- 8. 沙盒季度不在使用者可見範圍 ----
   items.push(buildSandboxVisibilityItem_(S));
 
-  // ---- 9. 講員表格 ----
+  // ---- 9. 講員表格（內容表 v2 起已停用：檢的是提交觸發器 0 個、表格已停止收件）----
   //    ⚠️ 與「完成度自我檢測」共用同一支 buildSpeakerFormCheckItem_()，不在這裏
   //    再寫一次判斷。
   var speakerVerdict = buildSpeakerFormCheckItem_(inspectSpeakerFormState_(), S);
   items.push({ label: '上線前：講員表格', status: speakerVerdict.status, message: speakerVerdict.message });
 
   return items;
+}
+
+/**
+ * 用途：「上線前：其他觸發器」一項：星期一觸發器以外的預期清單（Config 人手改動稽核＝1、
+ *   兩個已停用的＝0）加上清單以外的觸發器。取最差的狀態，逐項列出不是 🟢 的原因。純函式。
+ * Args:
+ *   report {Object} `inspectProjectTriggers_()` 的輸出。
+ *   S {Object} `SELF_CHECK_STATUS_`。
+ * Returns:
+ *   {{label:string, status:string, message:string}}
+ * Raises:
+ *   （無）
+ */
+function buildGoLiveOtherTriggersItem_(report, S) {
+  var others = report.items.filter(function (t) { return t.handler !== 'weeklyBulletinSendTrigger_'; });
+  var verdicts = others.map(function (t) { return { label: t.label, status: t.status, message: t.message }; });
+  var unknown = buildUnknownTriggersVerdict_(report, S);
+  if (unknown) verdicts.push({ label: '不在預期清單內', status: unknown.status, message: unknown.message });
+
+  var rank = {};
+  rank[S.GREEN] = 0;
+  rank[S.YELLOW] = 1;
+  rank[S.RED] = 2;
+  var worst = verdicts.reduce(function (acc, v) { return rank[v.status] > rank[acc] ? v.status : acc; }, S.GREEN);
+  if (worst === S.GREEN) {
+    return {
+      label: '上線前：其他觸發器', status: S.GREEN,
+      message: others.map(function (t) { return t.label + ' ' + t.actual + ' 個'; }).join('；') + '，全部與預期相符。'
+    };
+  }
+  return {
+    label: '上線前：其他觸發器', status: worst,
+    message: verdicts.filter(function (v) { return v.status !== S.GREEN; })
+      .map(function (v) { return v.label + '：' + v.message; }).join('　')
+  };
 }
 
 /**

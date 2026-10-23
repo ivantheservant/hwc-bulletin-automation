@@ -857,11 +857,14 @@ var DEFAULTS = Object.freeze([
   // 亦會直接擋住 commit。留空時 createContentSpreadsheet_() 不設分享權限，
   // 由人手處理，並在對話框講明。見 docs/待確認事項.md J-8。
   { key: CONFIG_KEYS.CONTENT_SHEET_DOMAIN, value: '', note: '⚠️ 必填：內容表分享給哪一個網域（網域內任何人可編輯），例如教會的 Google Workspace 網域。留空時不會自動設定分享權限，要人手設。一律不設成「任何知道連結的人」' },
-  { key: CONFIG_KEYS.CONTENT_SHEET_INVITE_GROUPS, value: 'CC,DB,ADMIN,IT', note: '「寄出內容表連結」要寄給哪幾個 Recipients.GROUP_NAME' },
+  // 內容表 v2：加上 WORSHIP（領詩）——季度填寫表停用之後，領詩改在內容表「崇拜程序」填詩歌。
+  //    已有 Config 的由「季度工具 ▸ 停用舊功能」移轉一次（src/RetireLegacy.gs）。
+  { key: CONFIG_KEYS.CONTENT_SHEET_INVITE_GROUPS, value: 'CC,DB,ADMIN,IT,WORSHIP', note: '「寄出內容表連結」要寄給哪幾個 Recipients.GROUP_NAME' },
   { key: CONFIG_KEYS.CONTENT_SHEET_INVITE_LEAD_DAYS, value: '21', note: '距離新一季第一個主日少於幾多日，就自動建立內容表並寄出邀請（同一季只寄一次）' },
   {
     key: CONFIG_KEYS.CONTENT_SHEET_OWNERS,
-    value: '家事報告=幹事,代禱事項=堂委,團契聚會=堂委,財政報告=執事,崇拜人數=幹事,宣召=幹事',
+    // 內容表 v2：加上崇拜程序、移走宣召（併入崇拜程序）。已有 Config 的由「停用舊功能」移轉一次。
+    value: '崇拜程序=講員、領詩、幹事,家事報告=幹事,代禱事項=堂委,團契聚會=堂委,財政報告=執事,崇拜人數=幹事',
     note: '內容表每一張分頁由誰負責，格式「分頁名稱=負責人」，逗號分隔。會印在內容表的 _說明 分頁與邀請信內'
   },
   { key: CONFIG_KEYS.CONTENT_SHEET_DEADLINE_NOTE, value: '請於該主日之前的星期三下午 5 時前填妥', note: '內容表的截止日期說明，印在 _說明 分頁與邀請信內' },

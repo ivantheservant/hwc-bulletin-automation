@@ -34,7 +34,7 @@ function contentSheetConfig_() {
     deadlineNote: getConfig(CONFIG_KEYS.CONTENT_SHEET_DEADLINE_NOTE, ''),
     seedSample: normalizeBoolean_(getConfig(CONFIG_KEYS.CONTENT_SHEET_SEED_SAMPLE, 'TRUE')) === true,
     adminContact: getConfig(CONFIG_KEYS.CONTENT_SHEET_ADMIN_CONTACT, ''),
-    inviteGroups: getConfigTextList_(CONFIG_KEYS.CONTENT_SHEET_INVITE_GROUPS, 'CC,DB,ADMIN,IT'),
+    inviteGroups: getConfigTextList_(CONFIG_KEYS.CONTENT_SHEET_INVITE_GROUPS, 'CC,DB,ADMIN,IT,WORSHIP'),
     leadDays: (leadDays === null || leadDays < 0) ? 21 : leadDays
   };
 }

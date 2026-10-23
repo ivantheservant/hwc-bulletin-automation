@@ -98,12 +98,15 @@ function makeFillGridSheet(sandbox, rows) {
     hideSheet: function () { sheet.__hidden = true; return sheet; },
     showSheet: function () { sheet.__hidden = false; return sheet; },
     isSheetHidden: function () { return sheet.__hidden; },
-    getProtections: function () { return sheet.__protections.slice(); },
+    // 真正的 getProtections() 回 Protection 物件（有 getDescription／canEdit／remove），不是記錄本身；
+    // 回記錄的話「已經設過保護嗎」「先移走舊保護」兩件事在測試裏會靜靜失效（bug class 80）。
+    getProtections: function () { return sheet.__protections.map(function (record) { return record.__handle; }); },
     protect: function () {
       const record = { description: '', warningOnly: false };
       sheet.__protections.push(record);
       const p = {
         setDescription: function (d) { record.description = d; return p; },
+        getDescription: function () { return record.description; },
         setWarningOnly: function (b) { record.warningOnly = b === true; return p; },
         removeEditors: function () { return p; },
         addEditors: function () { return p; },
@@ -114,6 +117,7 @@ function makeFillGridSheet(sandbox, rows) {
           if (i !== -1) sheet.__protections.splice(i, 1);
         }
       };
+      Object.defineProperty(record, '__handle', { value: p, enumerable: false });
       return p;
     },
     getRange: function (r, c, numRows, numCols) {

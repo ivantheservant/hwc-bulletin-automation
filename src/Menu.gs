@@ -118,7 +118,10 @@ function onOpen() {
       .addItem('設定工作表保護', 'menuApplySheetProtection_')
       .addSeparator()
       .addItem('安裝 Config 改動稽核觸發器', 'menuInstallFillEditTrigger_')
-      .addItem('移除 Config 改動稽核觸發器', 'menuRemoveFillEditTrigger_'))
+      .addItem('移除 Config 改動稽核觸發器', 'menuRemoveFillEditTrigger_')
+      .addSeparator()
+      // 內容表 v2：部署之後按一次（先預覽、後「是／否」，可以重複執行）。見 src/RetireLegacy.gs。
+      .addItem(RETIRE_LEGACY_MENU_LABEL_, 'menuRetireLegacyFeatures_'))
     .addItem('試寄下週週報（依 DRY_RUN 設定）', 'menuTestSendBulletin_')
     .addItem('預覽週報郵件內容', 'menuPreviewBulletinEmail_')
     .addItem('安裝自動寄送觸發器', 'menuInstallSendTrigger_')

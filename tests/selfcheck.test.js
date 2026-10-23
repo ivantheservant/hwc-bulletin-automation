@@ -370,12 +370,17 @@ test('17f. WEBAPP_URL 是空的 → Web App 部署那一項是 🟡', function (
   assert.strictEqual(findItem(summary, 'Web App 部署')[0].status, '🟡');
 });
 
-test('17g. 沒有安裝任何觸發器 → 三個觸發器項目都是 🟡', function () {
+// 內容表 v2：觸發器項目按 src/TriggerInventory.gs 的預期清單：自動寄送與 Config 人手改動稽核
+// 預期各 1 個（沒有裝 → 🟡）；季度填寫表對帳、講員表格提交已停用，預期 0 個（沒有裝 → 🟢）。
+// 以前的「填寫表同步」就是今日的「Config 人手改動稽核」（同一個 onFillGridEdit_ 觸發器）。
+test('17g. 沒有安裝任何觸發器 → 自動寄送、Config 人手改動稽核 🟡；兩個已停用的 🟢', function () {
   const env = makeEnv({});
   const summary = env.sandbox.runSelfCheck_();
   assert.strictEqual(findItem(summary, '觸發器：自動寄送')[0].status, '🟡');
-  assert.strictEqual(findItem(summary, '觸發器：填寫表同步')[0].status, '🟡');
-  assert.strictEqual(findItem(summary, '觸發器：填寫表對帳')[0].status, '🟡');
+  assert.strictEqual(findItem(summary, '觸發器：Config 人手改動稽核')[0].status, '🟡');
+  assert.strictEqual(findItem(summary, '觸發器：季度填寫表對帳（已停用）')[0].status, '🟢');
+  assert.strictEqual(findItem(summary, '觸發器：講員表格提交（已停用）')[0].status, '🟢');
+  assert.strictEqual(findItem(summary, '觸發器：填寫表同步').length, 0);
   // 內容表 v2：「下一季提示」（星期一自動建立季度填寫表）已隨季度填寫表停用，這一項不再存在。
   assert.strictEqual(findItem(summary, '下一季提示').length, 0);
 });

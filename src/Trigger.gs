@@ -321,24 +321,20 @@ function menuRemoveSendTrigger_() {
 }
 
 /**
- * 用途：選單項目「查看觸發器狀態」的處理函式。唯讀，只列出目前專案
- *   內全部觸發器，不限於本系統安裝的那一個。
+ * 用途：選單項目「查看觸發器狀態」的處理函式。唯讀。內容表 v2 起每一種觸發器一行，寫明預期
+ *   與實際數目及狀態（預期清單見 src/TriggerInventory.gs）；清單以外的觸發器另列。
  * Args: （無）
  * Returns:
  *   {void}
+ * Raises:
+ *   （無）失敗時寫 `ErrorLog` 並用對話框顯示。
  */
 function menuShowTriggerStatus_() {
   var ui = SpreadsheetApp.getUi();
   try {
-    var triggers = ScriptApp.getProjectTriggers();
-    if (triggers.length === 0) {
-      ui.alert('查看觸發器狀態', '目前沒有安裝任何觸發器。', ui.ButtonSet.OK);
-      return;
-    }
-    var lines = triggers.map(function (t) {
-      return '　' + t.getHandlerFunction() + '（' + t.getEventType() + '）';
-    });
-    ui.alert('查看觸發器狀態（共 ' + triggers.length + ' 個）', lines.join('\n'), ui.ButtonSet.OK);
+    // 內容表 v2：每一行寫明預期數目與狀態（src/TriggerInventory.gs，與兩個檢測同一個來源）。
+    var status = buildTriggerStatusLines_(inspectProjectTriggers_());
+    ui.alert(status.title, status.lines.join('\n'), ui.ButtonSet.OK);
   } catch (err) {
     logMenuError_('menuShowTriggerStatus_', err);
     ui.alert('查看觸發器狀態失敗', enrichAuthError_(err), ui.ButtonSet.OK);
