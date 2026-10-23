@@ -22,6 +22,13 @@
 'use strict';
 
 /**
+ * 審查 F10：`ScriptApp.getProjectTriggers()` 只列目前帳戶自己安裝的觸發器。用另一個帳戶（例如日後的
+ * 幹事帳戶）安裝的舊觸發器不會計入、亦不會被「停用舊功能」拆走，要用那個帳戶再看一次。
+ */
+var TRIGGER_OWNER_SCOPE_NOTE_ = '注意：這裏只計你這個帳戶自己安裝的觸發器。其他帳戶（例如幹事帳戶）安裝的，'
+  + '要用那個帳戶登入再看一次。';
+
+/**
  * 用途：本專案每一種觸發器的預期數目與說明。純函式；唯一真相來源。
  * Args: （無）
  * Returns:
@@ -190,5 +197,8 @@ function buildTriggerStatusLines_(report) {
       lines.push('　' + u.handler + (u.eventType ? '（' + u.eventType + '）' : '') + '：' + u.count + ' 個');
     });
   }
+  // 審查 F10：Apps Script 只列得出目前帳戶自己安裝的觸發器。
+  lines.push('');
+  lines.push(TRIGGER_OWNER_SCOPE_NOTE_);
   return { title: '查看觸發器狀態（共 ' + report.total + ' 個）', lines: lines };
 }

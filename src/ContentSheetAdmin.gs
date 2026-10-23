@@ -71,6 +71,10 @@ function applyContentTabLayout_(sheet, tabDef, options) {
   if (sheet.getFrozenRows() < CONTENT_SHEET_HEADER_ROWS_) {
     sheet.setFrozenRows(CONTENT_SHEET_HEADER_ROWS_);
   }
+  // 內容表 v2（決定 6）：「崇拜程序」有十多欄，凍結 A 欄（主日日期），向右捲動仍然看得到是哪一個主日。
+  if (tabDef.frozenColumns && sheet.getFrozenColumns() < tabDef.frozenColumns) {
+    sheet.setFrozenColumns(tabDef.frozenColumns);
+  }
 
   // ---- A1 說明（誰負責、幾時要填好）----
   // ⚠️ 實作成 A1 嘅**儲存格註解**：第 1、2 行係標題同機器鍵（規格寫死咗），
@@ -180,7 +184,7 @@ function applyContentInstructionsTab_(sheet, lines) {
  *     sharingApplied:boolean, sharingError:string,
  *     reason:(string|undefined), message:(string|undefined)}}
  *     `ok:false` 時一定有 `reason` 同一句人睇得明嘅 `message`（內容表 v2 加
- *     `NEEDS_MIGRATION`、`LAYOUT_UNKNOWN`、`LEGACY_LAYOUT_UNKNOWN`）；`migration` 是移轉計畫
+ *     `NEEDS_MIGRATION`、`LAYOUT_UNKNOWN`、`LEGACY_LAYOUT_UNKNOWN`、`NEW_COLUMNS_NOT_EMPTY`）；`migration` 是移轉計畫
  *     （`planContentSheetV2Migration_()` 的輸出）。
  * Raises:
  *   Error 如果職事表讀取失敗（`listQuarterServiceDates_()` 拋出嚟嘅）；拿不到指令碼鎖
@@ -687,7 +691,8 @@ function autoCreateContentSheetsForUpcomingQuarters_() {
     var built = buildOrRefreshContentSheet_(qid);
     if (!built.ok) {
       // 內容表 v2：舊版內容表要人手移轉（先看預覽），自動流程略過並留一筆紀錄（照 RETENTION_NEEDS_CONFIRMATION 的先例）。
-      if (built.reason === 'NEEDS_MIGRATION') {
+      //    審查 A6：新欄位置原本有字（NEW_COLUMNS_NOT_EMPTY）同樣是「要人手處理才可以移轉」。
+      if (built.reason === 'NEEDS_MIGRATION' || built.reason === 'NEW_COLUMNS_NOT_EMPTY') {
         appendErrorLog_({
           source: ERROR_LOG_SOURCE.TRIGGER, functionName: 'autoCreateContentSheetsForUpcomingQuarters_',
           errorCode: 'CONTENT_SHEET_NEEDS_MIGRATION', message: built.message

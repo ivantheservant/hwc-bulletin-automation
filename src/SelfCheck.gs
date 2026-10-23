@@ -798,6 +798,18 @@ function selfCheckSpeakerFormItem_() {
 }
 
 /**
+ * 用途：「內容表版本」這一項檢測（內容表 v2，審查 F8）。判斷在 `buildContentSheetVersionItem_()`
+ *   （與「上線前檢查」共用），這裏只負責收集現況。唯讀。
+ * Args: （無）
+ * Returns:
+ *   {{label:string, status:string, message:string, detail:string[]}}
+ */
+function selfCheckContentSheetVersionItem_() {
+  var verdict = buildContentSheetVersionItem_(inspectContentSheetVersions_(), SELF_CHECK_STATUS_);
+  return selfCheckItem_('內容表版本', verdict.status, verdict.message);
+}
+
+/**
  * 用途：「完成度自我檢測」的真正入口。跑完設定／資料／功能／紀錄四大類
  *   全部檢測項目，寫入 `Diagnostics`（報告名稱「完成度自我檢測」）。
  *   **唯讀**，不寫入任何資料。
@@ -824,7 +836,7 @@ function runSelfCheck_() {
     // 自測機那一輪：不變量收成一個大項。
     .concat(selfCheckInvariantItems_())
     // 第二批階段 3：講員表格（建立了沒有、限教會帳戶、觸發器剛好一個、資料夾在 Shared Drive）。
-    .concat([selfCheckSpeakerFormItem_()])
+    .concat([selfCheckSpeakerFormItem_(), selfCheckContentSheetVersionItem_()])
     // 第一輪自測之後：未完成的需求排在最後——看報告的人最後見到的
     // 應該是「還有什麼未做」，不是一堆綠燈。
     .concat([selfCheckRosterGapItem_()])

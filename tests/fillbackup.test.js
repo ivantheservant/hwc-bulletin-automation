@@ -355,19 +355,21 @@ test('4h. previewFillRestore_：找不到備份 → ok:false，不拋錯', funct
   assert.ok(preview.message.indexOf('找不到') !== -1);
 });
 
-test('4i. 還原之後 FillSnapshot 跟着更新（避免下次同步產生一堆沒有意義的 PULL）', function () {
+test('4i. 季度填寫表已停用（內容表 v2，審查 D1）：還原之後不再更新 FillSnapshot', function () {
   const env = makeFillEnv({ withGrid: false });
   env.sandbox.createOrRefreshFillGrid_(QUARTER_ID);
   env.sandbox.writeBulletinWeekField_('2027-11-07', 'SERMON_TITLE', '原本的');
 
   const backup = env.sandbox.createFillBackup_(QUARTER_ID, FILL_BACKUP_REASON.MANUAL);
   env.sandbox.writeBulletinWeekField_('2027-11-07', 'SERMON_TITLE', '改過');
+  const before = JSON.stringify(env.sandbox.readSheet('FillSnapshot'));
   env.sandbox.restoreFillBackup_(QUARTER_ID, backup.backupId);
 
-  const snapshot = env.sandbox.readSheet('FillSnapshot').filter(function (r) {
-    return r.FIELD_KEY === 'SERMON_TITLE' && env.sandbox.fillGridCellText_(r.SERVICE_DATE) === '2027-11-07';
+  assert.strictEqual(JSON.stringify(env.sandbox.readSheet('FillSnapshot')), before, 'FillSnapshot 一格不變');
+  const week = env.sandbox.readSheet('BulletinWeeks').filter(function (r) {
+    return env.sandbox.fillGridCellText_(r.SERVICE_DATE) === '2027-11-07';
   })[0];
-  assert.strictEqual(env.sandbox.fillGridCellText_(snapshot.VALUE), '原本的');
+  assert.strictEqual(week.SERMON_TITLE, '原本的', '還原照樣寫入 BulletinWeeks');
 });
 
 // =====================================================================

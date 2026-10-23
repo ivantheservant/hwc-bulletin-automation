@@ -268,8 +268,8 @@ function writeContentCellAsText_(sheet, rowNo, colNo, value) {
 }
 
 /**
- * 用途：內容表 v2：停用一張已併入「崇拜程序」的舊分頁：改名、隱藏、A1 加註解、設警告式保護。
- *   **不刪**，資料原封不動（決定 14）。
+ * 用途：內容表 v2：停用一張已併入「崇拜程序」的舊分頁：改名，然後隱藏、A1 加註解、設警告式保護
+ *   （`ensureRetiredContentTabState_()`）。**不刪**，資料原封不動（決定 14）。
  * Args:
  *   sheet {Sheet} 舊分頁。
  *   newName {string} 新名稱（呼叫方已確保沒有撞名）。
@@ -278,15 +278,58 @@ function writeContentCellAsText_(sheet, rowNo, colNo, value) {
  * Returns:
  *   {void}
  * Raises:
- *   Error 任何一步失敗時原樣拋出（呼叫方的次序保證失敗時下一次仍然判定要移轉）。
+ *   Error 任何一步失敗時原樣拋出。改名之後才失敗的話，下一次由 `inspectRetiredContentTab_()`
+ *     找出缺了哪幾樣，再補做（審查 B2）。
  */
 function retireContentTab_(sheet, newName, note, protectionDescription) {
   sheet.setName(newName);
-  sheet.hideSheet();
-  var cell = sheet.getRange(1, 1, 1, 1);
-  var oldNote = String(cell.getNote() || '');
-  cell.setNote(note + (oldNote && oldNote.indexOf(note) !== 0 ? '\n\n' + oldNote : ''));
-  sheet.protect().setDescription(protectionDescription).setWarningOnly(true);
+  ensureRetiredContentTabState_(sheet, inspectRetiredContentTab_(sheet, note, protectionDescription),
+    note, protectionDescription);
+}
+
+/**
+ * 用途：已改名的舊分頁還缺哪幾樣（隱藏、A1 註解、警告式保護）。唯讀。
+ * Args:
+ *   sheet {Sheet} 已改名（或者準備改名）的舊分頁。
+ *   note {string} A1 註解應有的開頭。
+ *   protectionDescription {string} 保護應有的說明。
+ * Returns:
+ *   {{needsHide:boolean, needsNote:boolean, needsProtect:boolean}}
+ * Raises:
+ *   Error 讀分頁狀態失敗時原樣拋出。
+ */
+function inspectRetiredContentTab_(sheet, note, protectionDescription) {
+  var currentNote = String(sheet.getRange(1, 1, 1, 1).getNote() || '');
+  var protectedOk = (sheet.getProtections(SpreadsheetApp.ProtectionType.SHEET) || []).some(function (p) {
+    return typeof p.getDescription === 'function' && p.getDescription() === protectionDescription;
+  });
+  return {
+    needsHide: sheet.isSheetHidden() !== true,
+    needsNote: currentNote.indexOf(note) !== 0,
+    needsProtect: !protectedOk
+  };
+}
+
+/**
+ * 用途：把已改名的舊分頁補齊「隱藏、A1 註解、警告式保護」三樣，缺哪樣補哪樣。冪等。
+ * Args:
+ *   sheet {Sheet} 已改名的舊分頁。
+ *   state {{needsHide:boolean, needsNote:boolean, needsProtect:boolean}} `inspectRetiredContentTab_()` 的輸出。
+ *   note {string} A1 註解。
+ *   protectionDescription {string} 保護的說明。
+ * Returns:
+ *   {void}
+ * Raises:
+ *   Error 任何一步失敗時原樣拋出（已做的保留；下一次再檢查，只補未做的）。
+ */
+function ensureRetiredContentTabState_(sheet, state, note, protectionDescription) {
+  if (state.needsHide) sheet.hideSheet();
+  if (state.needsNote) {
+    var cell = sheet.getRange(1, 1, 1, 1);
+    var oldNote = String(cell.getNote() || '');
+    cell.setNote(note + (oldNote ? '\n\n' + oldNote : ''));
+  }
+  if (state.needsProtect) sheet.protect().setDescription(protectionDescription).setWarningOnly(true);
 }
 
 /**

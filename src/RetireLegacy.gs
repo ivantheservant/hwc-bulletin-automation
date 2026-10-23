@@ -155,6 +155,27 @@ function readConfigOrNull_(key) {
 }
 
 /**
+ * 用途：之前「停用舊功能」已經成功移轉過的 Config 鍵（AuditLog `RETIRE_LEGACY_FEATURES`、工作表
+ *   Config、欄位 VALUE）。純函式。
+ * Args:
+ *   auditRows {Object[]} `readSheet(SHEETS.AUDIT_LOG)` 的輸出。
+ * Returns:
+ *   {Object<string,boolean>} 設定鍵 → true。
+ * Raises:
+ *   （無）
+ */
+function retireLegacyDoneConfigKeys_(auditRows) {
+  var out = {};
+  (auditRows || []).forEach(function (r) {
+    if (String(r.ACTION || '') !== RETIRE_LEGACY_AUDIT_ACTION_) return;
+    if (String(r.SHEET_NAME || '') !== SHEETS.CONFIG || String(r.FIELD || '') !== 'VALUE') return;
+    var key = String(r.ROW_KEY || '').trim();
+    if (key) out[key] = true;
+  });
+  return out;
+}
+
+/**
  * 用途：一張 `Fill_*` 分頁還要做哪幾件事（加註解、隱藏、設系統保護）。唯讀。
  * Args:
  *   sheet {Sheet} 分頁。
@@ -213,11 +234,14 @@ function planRetireLegacy_() {
     if (accepting !== false) speakerForm = { formId: formId, accepting: accepting };
   }
 
+  // 審查 F7：Config 移轉只做一次。AuditLog 已經有這一項（之前按過「停用舊功能」並成功）就不再做——
+  //    否則幹事之後刻意從邀請組別拿走 WORSHIP，再因為別的原因按一次，又會被加回去。
+  var doneConfigKeys = retireLegacyDoneConfigKeys_(readSheet(SHEETS.AUDIT_LOG));
   var configChanges = [
     planRetireInviteGroupsChange_(readConfigOrNull_(CONFIG_KEYS.CONTENT_SHEET_INVITE_GROUPS),
       readConfigOrNull_(CONFIG_KEYS.FILL_INVITE_GROUPS)),
     planRetireOwnersChange_(readConfigOrNull_(CONFIG_KEYS.CONTENT_SHEET_OWNERS))
-  ].filter(function (c) { return c; });
+  ].filter(function (c) { return c && !doneConfigKeys[c.key]; });
 
   return {
     ok: true, message: '',
@@ -269,6 +293,7 @@ function buildRetireLegacyPreviewLines_(plan) {
     plan.configChanges.forEach(function (c) {
       lines.push('　' + c.key + '：「' + c.oldValue + '」→「' + c.newValue + '」（' + c.summary + '）');
     });
+    lines.push('　（Config 只會移轉一次：之後人手再改，再按這個選單亦不會改回。）');
   }
   lines.push('');
   lines.push('每一步都會寫入 AuditLog（' + RETIRE_LEGACY_AUDIT_ACTION_ + '）。可以重複執行：已經做過的步驟不會再做。');

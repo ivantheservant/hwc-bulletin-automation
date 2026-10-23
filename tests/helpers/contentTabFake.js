@@ -143,7 +143,8 @@ function makeContentTab(keys, headers, rows, opts) {
     hideSheet: function () { hidden = true; return sheet; },
     showSheet: function () { hidden = false; return sheet; },
     isSheetHidden: function () { return hidden; },
-    getProtections: function () { return protections.slice(); },
+    // 真正的 getProtections() 回 Protection 物件（有 getDescription 等），不是記錄本身（與 fillEnv.js 一樣）。
+    getProtections: function () { return protections.map(function (record) { return record.handle; }); },
     protect: function () {
       const record = { description: '', warningOnly: false, removed: false };
       protections.push(record);

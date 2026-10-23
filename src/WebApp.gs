@@ -1893,6 +1893,9 @@ function previewProgramForWebApp_(isoDate, draftFields) {
   var weekRows = readSheet(SHEETS.BULLETIN_WEEKS);
   var weekRow = findBulletinWeekRow_(weekRows, isoDate) || {};
   var draftWeek = Object.assign({}, weekRow, draftFields || {});
+  // 內容表 v2（審查 C5）：序樂留空時與 Word、電郵一樣印 Config PRELUDE_DEFAULT（同一支 applyPreludeDefault_()，
+  //    見 buildBulletinModel_()），否則填寫介面的程序預覽與印出來的不一樣。
+  draftWeek = applyPreludeDefault_(draftWeek, getConfig(CONFIG_KEYS.PRELUDE_DEFAULT, ''));
   var program = buildProgramTable_(draftWeek, snapshot);
   return { templateId: program.templateId, rows: program.rows };
 }

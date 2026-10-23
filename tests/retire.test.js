@@ -530,6 +530,29 @@ test('R4-9 Fill_ 的 A1 本來已有註解 → 停用註解加在前面，原有
   assert.ok(note.indexOf('季度填寫表已停用（2026-10）') === 0 && note.indexOf('原有的群組說明') !== -1, note);
 });
 
+test('R4-11（審查 F7）Config 移轉只做一次：之後幹事刻意拿走 WORSHIP，再因為別的原因（Fill_ 被取消隱藏）按一次 → 只補隱藏，WORSHIP 不會被加回去', function () {
+  const env = makeLegacyEnv({ answers: ['YES', 'YES'] });
+  env.sandbox.menuRetireLegacyFeatures_();
+  assert.ok(String(env.sandbox.getConfig('CONTENT_SHEET_INVITE_GROUPS')).indexOf('WORSHIP') !== -1, '第一次照常移轉');
+  env.sandbox.setConfig('CONTENT_SHEET_INVITE_GROUPS', OLD_DEFAULT_INVITE_GROUPS, '人手拿走 WORSHIP');
+  grid(env).showSheet();
+  env.store.alerts = [];
+  env.sandbox.menuRetireLegacyFeatures_();
+  const preview = env.store.alerts[0].message;
+  assert.strictEqual(preview.indexOf('【Config】'), -1, preview);
+  assert.ok(preview.indexOf('隱藏') !== -1, preview);
+  assert.strictEqual(env.sandbox.getConfig('CONTENT_SHEET_INVITE_GROUPS'), OLD_DEFAULT_INVITE_GROUPS, '人手的改動保留');
+  assert.strictEqual(grid(env).isSheetHidden(), true);
+});
+
+test('R4-12（審查 F10）查看觸發器狀態：講明只計目前帳戶自己安裝的觸發器', function () {
+  const env = makeLegacyEnv({});
+  const status = env.sandbox.buildTriggerStatusLines_(env.sandbox.inspectProjectTriggers_());
+  const text = Array.from(status.lines).join('\n');
+  assert.ok(text.indexOf('只計你這個帳戶自己安裝的觸發器') !== -1, text);
+  assertWrittenChinese(assert, '觸發器狀態', text);
+});
+
 test('R4-10 接線：只由選單「季度工具 ▸ 停用舊功能」觸發；初始化工作表、星期一觸發器、任何其他檔案都不會呼叫它', function () {
   const store = {};
   const env = makeFillEnv({ ui: recordingUi(store) });

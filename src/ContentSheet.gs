@@ -209,6 +209,7 @@ function contentSheetWorshipTabDef_() {
       { key: 'CHILD_DEDICATION_CHILDREN', width: 300 }
     ],
     activeKey: 'ACTIVE',
+    frozenColumns: 1,
     note: '一個主日一行，每個主日已經預先開好一行，請直接修改，不要另加一行。'
       + '「讀經經文」是經文出處（例如「約翰福音 3:16」），不是讀經的人——讀經那位肢體由職事表決定。'
       + '序樂留空時週報印預設序樂；詩班曲名留空時週報那一行整行不會出現；'

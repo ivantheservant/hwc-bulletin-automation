@@ -502,9 +502,13 @@ function previewFillRestore_(quarterId, backupId) {
  *   ⚠️ **還原之前一定會再做一次備份**（原因 `BEFORE_RESTORE`）——還原
  *   本身也是一次大規模改動，如果揀錯了備份，要有得再還原回來。
  *
- *   逐格寫入並逐格記 `AuditLog`，最後更新 `FillSnapshot`（否則下一次
- *   同步會把還原誤判成「系統單方面改過」而去刷新格子表——雖然結果一樣，
- *   但會產生一堆沒有意義的 `PULL` 記錄）。
+ *   逐格寫入並逐格記 `AuditLog`。
+ *
+ *   ⚠️ 內容表 v2（審查 D1）：以內容表為來源、介面可覆寫的欄（`CONTENT_SHEET_OVERRIDABLE_FIELDS`，
+ *   序樂、宣召、講題等）還原時**同時寫 `FieldOverride`**，規則與填寫介面儲存完全相同
+ *   （`planFieldOverridesFromPayload_()`：還原的值與內容表不同 → 覆寫；相同 → 取消覆寫）。否則只寫
+ *   `BulletinWeeks`，下一次匯入就靜靜改回內容表的值（同一格兩個真相來源）。
+ *   季度填寫表已停用，不再更新 `FillSnapshot`。
  * Args:
  *   quarterId {string} 季度 ID。
  *   backupId {string} 要還原的備份編號。
@@ -521,7 +525,19 @@ function restoreFillBackup_(quarterId, backupId) {
   // ⚠️ 先備份現況再還原。
   var safety = createFillBackup_(quarterId, FILL_BACKUP_REASON.BEFORE_RESTORE);
 
-  var snapshotEntries = [];
+  // 覆寫計畫一定要在寫 BulletinWeeks **之前**算：來源值用寫入之前那一行（與儲存同一個道理，
+  // 見 applyFieldOverridesFromPayload_()）。
+  var weeksBefore = readBulletinWeekRowsByIso_(quarterId);
+  var overridableByDate = {};
+  preview.changes.forEach(function (change) {
+    if (CONTENT_SHEET_OVERRIDABLE_FIELDS.indexOf(change.fieldKey) === -1) return;
+    if (!overridableByDate[change.isoDate]) overridableByDate[change.isoDate] = {};
+    overridableByDate[change.isoDate][change.fieldKey] = change.newValue;
+  });
+  var overridePlans = Object.keys(overridableByDate).sort().map(function (iso) {
+    return { isoDate: iso, plan: planFieldOverridesFromPayload_(iso, overridableByDate[iso], weeksBefore[iso] || {}) };
+  });
+
   preview.changes.forEach(function (change) {
     writeBulletinWeekField_(change.isoDate, change.fieldKey, change.newValue);
     appendAuditLog_({
@@ -530,10 +546,14 @@ function restoreFillBackup_(quarterId, backupId) {
       oldValue: change.oldValue, newValue: change.newValue,
       notes: '由備份「' + backupId + '」還原。還原前的現況已經另外備份成「' + safety.backupId + '」。'
     });
-    snapshotEntries.push({ isoDate: change.isoDate, fieldKey: change.fieldKey, value: change.newValue });
   });
 
-  if (snapshotEntries.length > 0) writeFillSnapshotEntries_(quarterId, snapshotEntries);
+  var overrideAudit = [];
+  overridePlans.forEach(function (p) {
+    if (!p.plan) return;
+    applyFieldOverridePlan_(p.plan, normalizeDate_(p.isoDate), p.isoDate, getCallerEmail_(), overrideAudit);
+  });
+  overrideAudit.forEach(function (entry) { appendAuditLog_(entry); });
 
   return { ok: true, restoredCount: preview.changes.length, safetyBackupId: safety.backupId };
 }

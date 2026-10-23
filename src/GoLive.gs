@@ -25,7 +25,7 @@
 // =====================================================================
 
 /**
- * 用途：一次過跑完「上線前檢查」那八項，逐項回 🟢／🟡／🔴。
+ * 用途：一次過跑完「上線前檢查」各項（現在十一項），逐項回 🟢／🟡／🔴。
  *
  *   ⚠️ 這一組與「完成度自我檢測」的其餘項目分開，因為它們答的是**另一條
  *   問題**：不是「系統設定齊不齊」，而是「**今日可不可以真的上線**」。
@@ -138,7 +138,85 @@ function buildGoLiveChecklist_() {
   var speakerVerdict = buildSpeakerFormCheckItem_(inspectSpeakerFormState_(), S);
   items.push({ label: '上線前：講員表格', status: speakerVerdict.status, message: speakerVerdict.message });
 
+  // ---- 10. 內容表版本（內容表 v2，審查 F8）：仍有主日未過的季度，內容表是否已經移轉成新版 ----
+  //    ⚠️ 與「完成度自我檢測」共用同一支 inspectContentSheetVersions_()／buildContentSheetVersionItem_()。
+  var versionVerdict = buildContentSheetVersionItem_(inspectContentSheetVersions_(), S);
+  items.push({ label: '上線前：內容表版本', status: versionVerdict.status, message: versionVerdict.message });
+
   return items;
+}
+
+/**
+ * 用途：今日或以後仍然有主日的季度，逐季核對內容表第 2 行與舊分頁（與匯入同一支
+ *   `checkQuarterContentSheetSchema_()`）。唯讀：只開內容表讀第 2 行，一格都不寫。
+ * Args: （無）
+ * Returns:
+ *   {{ok:boolean, error:string, checked:string[],
+ *     problems:{quarterId:string, reason:string}[]}}
+ *     `ok:false`＝讀不到 BulletinWeeks（不知道要核對哪幾季）。某一季開不到內容表或讀失敗，記入
+ *     `problems`（`reason:'UNREADABLE'`），不當成正常。
+ * Raises:
+ *   （無）
+ */
+function inspectContentSheetVersions_() {
+  var out = { ok: true, error: '', checked: [], problems: [] };
+  var lastDateByQuarter = {};
+  var todayIso;
+  try {
+    var timezone = getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland');
+    todayIso = Utilities.formatDate(new Date(), timezone, 'yyyy-MM-dd');
+    readSheet(SHEETS.BULLETIN_WEEKS).forEach(function (w) {
+      var q = String(w.QUARTER_ID || '').trim();
+      var iso = fieldOverrideIsoOf_(w.SERVICE_DATE);
+      if (!q || !iso) return;
+      if (!lastDateByQuarter[q] || iso > lastDateByQuarter[q]) lastDateByQuarter[q] = iso;
+    });
+  } catch (err) {
+    return { ok: false, error: (err && err.message) ? err.message : String(err), checked: [], problems: [] };
+  }
+  Object.keys(lastDateByQuarter).sort().forEach(function (q) {
+    if (lastDateByQuarter[q] < todayIso) return;
+    out.checked.push(q);
+    try {
+      var check = checkQuarterContentSheetSchema_(q);
+      if (!check.ok) out.problems.push({ quarterId: q, reason: check.reason });
+    } catch (err) {
+      out.problems.push({ quarterId: q, reason: 'UNREADABLE' });
+    }
+  });
+  return out;
+}
+
+/**
+ * 用途：「內容表版本」一項的燈色與說明。純函式；上線前檢查與完成度自我檢測共用。
+ * Args:
+ *   state {Object} `inspectContentSheetVersions_()` 的輸出。
+ *   S {Object} `SELF_CHECK_STATUS_`。
+ * Returns:
+ *   {{status:string, message:string}}
+ * Raises:
+ *   （無）
+ */
+function buildContentSheetVersionItem_(state, S) {
+  if (!state.ok) {
+    return { status: S.YELLOW, message: '讀不到週報資料，不知道要核對哪幾季（' + state.error + '）。⚠️ 「讀不到」不等於「沒問題」。' };
+  }
+  if (state.checked.length === 0) {
+    return { status: S.GREEN, message: '沒有仍未過完的季度，不用核對。' };
+  }
+  if (state.problems.length === 0) {
+    return { status: S.GREEN, message: '已核對 ' + state.checked.join('、') + '：內容表都是新版（或者未建立）。' };
+  }
+  var describe = function (p) {
+    if (p.reason === 'CONTENT_SHEET_HEADER_CHANGED') return p.quarterId + '（第 2 行被改過，要人手復原）';
+    if (p.reason === 'UNREADABLE') return p.quarterId + '（內容表讀不到）';
+    return p.quarterId + '（舊版，未移轉）';
+  };
+  return {
+    status: S.YELLOW,
+    message: '⚠️ ' + state.problems.map(describe).join('、') + '：這幾季從內容表匯入、「重設這一週」都會被整次拒絕。'
+      + '請在填寫介面「季度作業」揀那一季，按「建立／刷新本季內容表」，先看預覽再確定。'
+  };
 }
 
 /**
