@@ -40,7 +40,7 @@
 'use strict';
 
 /** 沒有任何可見季度時，季度下拉旁邊要顯示的那一句。 */
-var RETENTION_EMPTY_HINT_ = '目前沒有未封存的季度，請撳「顯示已封存」或建立新一季。';
+var RETENTION_EMPTY_HINT_ = '目前沒有未封存的季度，請按「顯示已封存」或建立新一季。';
 
 /**
  * 用途：讀出封存相關的 Config。
@@ -318,7 +318,7 @@ function archiveQuarter_(quarterId, options) {
     out.message = '季度「' + qid + '」有 ' + blockers.length
       + ' 個主日未發佈但已經有內容，所以沒有封存。'
       + '那一季看來還在做，收起它等於把正在填的東西藏走。'
-      + '確認過真的可以收起，請再撳一次並選擇「照樣封存」。';
+      + '確認過真的可以收起，請再按一次並選擇「照樣封存」。';
     return out;
   }
 
@@ -332,7 +332,7 @@ function archiveQuarter_(quarterId, options) {
     rowKey: qid, field: 'ARCHIVED', oldValue: 'FALSE', newValue: 'TRUE',
     notes: '封存季度 ' + qid + '：' + out.weekRows + ' 行標記 ARCHIVED、'
       + out.fillGrid.message + out.contentSheet.message
-      + '　⚠️ 一格資料都沒有刪，撳「取消封存」可以完全還原。'
+      + '　⚠️ 一格資料都沒有刪，按「取消封存」可以完全還原。'
       + (blockers.length > 0 ? ('　⚠️ 有 ' + blockers.length + ' 個未發佈但有內容的主日，使用者已確認照樣封存。') : '')
   });
 
@@ -443,7 +443,7 @@ function buildRetentionSummary_(archived, skipped, plan) {
     parts.push('封存了 ' + archived.length + ' 季，略過 ' + skipped.length + ' 季。');
   }
   parts.push('目前可見：' + (plan.visible.length > 0 ? plan.visible.join('、') : '（沒有）') + '。');
-  parts.push('⚠️ 封存只是「預設不顯示」，一格資料都沒有刪；撳「取消封存」可以完全還原。');
+  parts.push('⚠️ 封存只是「預設不顯示」，一格資料都沒有刪；按「取消封存」可以完全還原。');
   return parts.join('　');
 }
 
@@ -591,8 +591,8 @@ function menuRunQuarterRetention_() {
       var again = ui.alert('有季度未封存',
         '以下季度有未發佈但已經有內容的主日，所以沒有封存：\n\n'
           + detail + '\n\n'
-          + '那幾季看來還在做。確認過真的可以收起，撳「是」照樣封存；\n'
-          + '撳「否」就維持現狀（其餘季度已經封存好）。',
+          + '那幾季看來還在做。確認過真的可以收起，按「是」照樣封存；\n'
+          + '按「否」就維持現狀（其餘季度已經封存好）。',
         ui.ButtonSet.YES_NO);
       if (again === ui.Button.YES) {
         result = runQuarterRetention_({ force: true });

@@ -712,7 +712,7 @@ function assertSheetSchemaUpToDate_(actionWord) {
   if (schema.ok) return;
   var err = new Error(
     '工作表結構落後於程式碼（' + buildSchemaMismatchSummary_(schema)
-    + '），請先在試算表撳「週報系統 ▸ 初始化工作表」。寧可拒絕' + actionWord + '，也不要寫壞資料。'
+    + '），請先在試算表按「週報系統 ▸ 初始化工作表」。寧可拒絕' + actionWord + '，也不要寫壞資料。'
   );
   err.code = 'SCHEMA_OUTDATED';
   throw err;
@@ -1695,7 +1695,7 @@ function buildNextWeekDutyNotice_(model) {
   var nextIso = String((model || {}).nextIsoDate || '');
   return '下一個主日（' + (nextIso || '？') + '）尚未在職事表出現，'
     + '多數是因為下一季還沒有生成。這一區暫時改不到——'
-    + '等下一季的職事表出咗，再開這一頁就可以填。'
+    + '等下一季的職事表建立之後，再開這一頁就可以填。'
     + '（週報照樣產生得到，下週事奉那一欄會留白。）';
 }
 
@@ -2089,7 +2089,7 @@ function menuCheckSheetSchema_() {
     }
     ui.alert(
       '檢查工作表結構：發現落差',
-      buildSchemaMismatchSummary_(result) + '\n\n請撳「初始化工作表」補齊。',
+      buildSchemaMismatchSummary_(result) + '\n\n請按「初始化工作表」補齊。',
       ui.ButtonSet.OK
     );
   } catch (err) {

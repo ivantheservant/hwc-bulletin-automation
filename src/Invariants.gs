@@ -288,7 +288,7 @@ function numberRegistryProbes_(ctx) {
             ok: false,
             reason: SHEETS.BULLETIN_WEEKS + ' 還未有季度「' + quarterId + '」的任何一行。'
               + '「未建立」與「建立錯數量」是兩件事，未建立不算對不上——'
-              + '請先撳「建立本季空白週報」。'
+              + '請先按「建立本季空白週報」。'
           };
         }
         return { ok: true, reason: '' };
@@ -971,8 +971,8 @@ function checkPublishChannelFingerprint_(channel) {
       + '　（發佈當時的指紋來自' + expected.sourceLabel + '）'
       + '　成因通常是：有人手動上載覆寫了 master 檔案，或者有一次發佈換了內容'
       + '但沒有寫 PublishLog。'
-      + '　下一步：撳選單「診斷 I06（唯讀）」看完整證據；'
-      + '確認那一次覆寫是有意的話，撳「重新對齊 I06」把目前內容記回 PublishLog'
+      + '　下一步：按選單「診斷 I06（唯讀）」看完整證據；'
+      + '確認那一次覆寫是有意的話，按「重新對齊 I06」把目前內容記回 PublishLog'
   };
 }
 

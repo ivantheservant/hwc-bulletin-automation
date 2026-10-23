@@ -373,7 +373,7 @@ function sendFillInvite_(quarterId) {
   var gridRows = readFillGridRows_(quarterId);
   if (gridRows.length === 0) {
     return { sent: false, dryRun: dryRun, recipientCount: 0, reason: 'NO_FILL_GRID',
-      message: '季度填寫表「' + fillGridSheetName_(quarterId) + '」還未建立或沒有資料。請先撳「建立／刷新季度填寫表」。' };
+      message: '季度填寫表「' + fillGridSheetName_(quarterId) + '」還未建立或沒有資料。請先按「建立／刷新季度填寫表」。' };
   }
 
   var allowedGroups = getConfigTextList_(CONFIG_KEYS.FILL_INVITE_GROUPS, 'ADMIN,CC,DB,IT,WORSHIP');

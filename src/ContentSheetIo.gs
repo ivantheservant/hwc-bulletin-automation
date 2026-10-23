@@ -285,7 +285,7 @@ function moveContentSheetFileToFolder_(fileId, folderId) {
       ok: false,
       message: '⚠️ 搬動檔案失敗（' + maskContentFileId_(id) + '）：'
         + ((err && err.message) ? err.message : String(err))
-        + '　檔案仍然在原本的資料夾，登記行的「有效」已經改咗。'
+        + '　檔案仍然在原本的資料夾，登記行的「有效」已經改了。'
     };
   }
 }

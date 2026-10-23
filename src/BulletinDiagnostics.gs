@@ -199,7 +199,7 @@ function buildCreateWeeksMessage_(input) {
         + '，事奉欄位全部留空。');
     }
     lines.push('本季職事表未有資料，主日清單由曆法推算（該季全部星期日）。');
-    lines.push('職事表建立好之後，撳「補抓空白的事奉欄位」就會把空格補回去。');
+    lines.push('職事表建立好之後，按「補抓空白的事奉欄位」就會把空格補回去。');
     lines.push('目前職事表狀態：' + describeRosterStatusCounts_(input.statusCounts));
   } else {
     lines.push('季度 ' + input.quarterId + '：新增 ' + input.added + ' 行，略過 '
@@ -207,7 +207,7 @@ function buildCreateWeeksMessage_(input) {
     var gaps = (input.statusCounts.PARTIAL || 0) + (input.statusCounts.NOT_FOUND || 0);
     if (gaps > 0) {
       lines.push('⚠️ 其中 ' + gaps + ' 個主日在職事表找不到資料，那幾期的事奉欄位留空。');
-      lines.push('職事表補齊之後，撳「補抓空白的事奉欄位」。');
+      lines.push('職事表補齊之後，按「補抓空白的事奉欄位」。');
     }
   }
   return lines.join('\n');

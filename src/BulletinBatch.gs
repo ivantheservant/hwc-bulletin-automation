@@ -258,7 +258,7 @@ function buildBulletinBatchReportLines_(summary) {
   if (summary.stoppedForTime) {
     lines.push('');
     lines.push('⚠️ 接近 Apps Script 執行時間上限，已安全中止。');
-    lines.push('已完成 ' + (summary.succeeded + summary.skipped) + '／' + summary.total + '，請再撳一次「產生本季全部週報」繼續（已經產生過的不會重做）。');
+    lines.push('已完成 ' + (summary.succeeded + summary.skipped) + '／' + summary.total + '，請再按一次「產生本季全部週報」繼續（已經產生過的不會重做）。');
   }
 
   if (summary.failed > 0) {
@@ -317,7 +317,7 @@ function menuGenerateQuarterBulletinsBatch_() {
     if (sourceNote) lines.push('', sourceNote);
     lines.push('', '完整結果已寫入 Diagnostics 工作表。');
     if (summary.stoppedForTime) {
-      lines.splice(2, 0, '', '⚠️ 接近執行時間上限，已安全中止，請再撳一次繼續（已完成的不會重做）。');
+      lines.splice(2, 0, '', '⚠️ 接近執行時間上限，已安全中止，請再按一次繼續（已完成的不會重做）。');
     }
 
     ui.alert('產生本季全部週報', lines.join('\n'), ui.ButtonSet.OK);

@@ -155,11 +155,11 @@ function previewCreateBlankWeeks_(quarterId) {
     // ⚠️ 這是「未到時候」，不是錯誤——文案要跟填寫介面那條黃色橫幅一致。
     lines.push('');
     lines.push('職事表暫時未有這一季的資料，事奉欄位會先留空。'
-      + '職事表出咗之後，撳「補抓空白的事奉欄位」就會補回，不會覆寫你填過的東西。');
+      + '職事表建立之後，按「補抓空白的事奉欄位」就會補回，不會覆寫你填過的東西。');
   }
   if (willAdd.length === 0) {
     lines.push('');
-    lines.push('本季每一個主日都已經有週報，撳落去不會有任何改動。');
+    lines.push('本季每一個主日都已經有週報，按下去不會有任何改動。');
   } else {
     lines.push('');
     lines.push('將會新增：' + willAdd.slice(0, 20).join('、')
@@ -253,7 +253,7 @@ function previewContentSheetBuild_(quarterId) {
     return {
       ok: false, quarterId: qid, title: title, reason: 'NO_SERVICE_DATES', lines: [],
       message: '季度「' + qid + '」找不到任何主日：' + (dateResolution.message || '（沒有說明）')
-        + '　請先撳「建立本季週報」。'
+        + '　請先按「建立本季週報」。'
     };
   }
 
@@ -426,7 +426,7 @@ function previewContentSheetInvite_(quarterId) {
     return {
       ok: false, quarterId: qid, title: title, reason: 'NO_CONTENT_SHEET', lines: [],
       message: '季度「' + qid + '」尚未建立內容表，沒有連結可以寄。'
-        + '請先撳「建立／刷新本季內容表」。'
+        + '請先按「建立／刷新本季內容表」。'
     };
   }
 
@@ -446,7 +446,7 @@ function previewContentSheetInvite_(quarterId) {
     return {
       ok: false, quarterId: qid, title: title, reason: 'NO_RECIPIENTS', lines: lines,
       message: 'Recipients 找不到屬於 ' + config.inviteGroups.join('／')
-        + ' 的有效收件人——即是話，就算撳落去，也不會寄到任何人。'
+        + ' 的有效收件人——即是說，就算按下去，也不會寄到任何人。'
         + '請先在 Recipients 工作表加入收件人，並確認「有效」是 TRUE。'
     };
   }
@@ -541,7 +541,7 @@ function quarterContentImport_(quarterId, apply) {
     return {
       ok: false, quarterId: qid, title: title, reason: 'NO_BULLETIN_WEEKS', lines: [],
       message: '季度「' + qid + '」的週報尚未建立，沒有地方可以匯入。'
-        + '請先撳「建立本季週報」，然後再匯入。'
+        + '請先按「建立本季週報」，然後再匯入。'
     };
   }
 
@@ -599,7 +599,7 @@ function quarterMissingFieldsReport_(quarterId) {
   if (countBulletinWeeksInQuarter_(qid) === 0) {
     return {
       ok: false, quarterId: qid, title: title, reason: 'NO_BULLETIN_WEEKS', lines: [],
-      message: '季度「' + qid + '」的週報尚未建立，沒有東西可以檢查。請先撳「建立本季週報」。'
+      message: '季度「' + qid + '」的週報尚未建立，沒有東西可以檢查。請先按「建立本季週報」。'
     };
   }
 
@@ -625,7 +625,7 @@ function rosterDiffReport_(isoDate) {
   if (!iso) {
     return {
       ok: false, title: title, reason: 'NO_DATE', lines: [],
-      message: '未選擇主日。請先在上方選一個主日，然後再撳一次。'
+      message: '未選擇主日。請先在上方選一個主日，然後再按一次。'
     };
   }
 

@@ -269,7 +269,7 @@ function backfillRosterForQuarter_(quarterId) {
   if (targets.length === 0) {
     empty.ok = true;
     empty.message = '季度「' + qid + '」在 ' + SHEETS.BULLETIN_WEEKS
-      + ' 一行都沒有，沒有東西可以補。請先撳「建立本季空白週報」。';
+      + ' 一行都沒有，沒有東西可以補。請先按「建立本季空白週報」。';
     return empty;
   }
 
@@ -447,7 +447,7 @@ function buildRosterBackfillMessage_(input) {
     // ⚠️ D-2 第一種情況：**整個季度**在職事表找不到。
     lines.push('職事表仍然未有季度「' + input.quarterId + '」的資料。');
     lines.push('已經補了 ' + input.filled + ' 格，仍有 ' + input.stillBlank + ' 格未能填。');
-    lines.push('職事表準備好之後，再撳一次「補抓空白的事奉欄位」就可以。'
+    lines.push('職事表準備好之後，再按一次「補抓空白的事奉欄位」就可以。'
       + '（隨時可以重試，不限次數；人手填過的一格都不會被覆寫。）');
   } else {
     lines.push('已經由職事表補了 ' + input.filled + ' 格。');
@@ -535,20 +535,20 @@ function rosterGapBannerForQuarter_(quarterId) {
   if (notFound > 0 && partial === 0 && unknown === 0) {
     return {
       show: true, notFound: notFound, partial: partial, unknown: unknown,
-      text: '本季職事表未有資料，事奉欄位全部留空。職事表建立好之後，撳「補抓空白的事奉欄位」。'
+      text: '本季職事表未有資料，事奉欄位全部留空。職事表建立好之後，按「補抓空白的事奉欄位」。'
     };
   }
   if (unknown > 0 && notFound === 0 && partial === 0) {
     return {
       show: true, notFound: notFound, partial: partial, unknown: unknown,
       text: '本季有 ' + unknown + ' 個主日未查證過職事表狀態（多數是舊資料）。'
-        + '撳「補抓空白的事奉欄位」就會逐個查證並更新。'
+        + '按「補抓空白的事奉欄位」就會逐個查證並更新。'
     };
   }
   return {
     show: true, notFound: notFound, partial: partial, unknown: unknown,
     text: '本季有 ' + (notFound + partial + unknown) + ' 個主日在職事表找不到資料或未查證過，'
-      + '那幾期的事奉欄位留空。職事表補齊之後，撳「補抓空白的事奉欄位」。'
+      + '那幾期的事奉欄位留空。職事表補齊之後，按「補抓空白的事奉欄位」。'
   };
 }
 
@@ -564,7 +564,7 @@ function menuBackfillRoster_() {
     var defaultQuarter = resolution.ok ? resolution.quarterId : '';
     var resp = ui.prompt('補抓空白的事奉欄位',
       '⚠️ 不會覆寫你填過的任何一格。這一支只把「現在是空白」的事奉欄位，\n'
-        + '用職事表的資料補回去；有值的一律不動，所以隨時可以重試，撳幾多次都一樣。\n\n'
+        + '用職事表的資料補回去；有值的一律不動，所以隨時可以重試，按幾多次都一樣。\n\n'
         + '範圍：整個季度（不是單一主日）。\n'
         + '⚠️ 職事表全程唯讀，一格都不會寫進去。\n\n'
         + '（想看某一個主日最新的職事表內容而不寫入，請用填寫介面的\n'
@@ -615,7 +615,7 @@ function buildRosterBackfillReportLines_(result) {
   lines.push('職事表全程唯讀，一格都不會寫進去。');
   if (!result.rosterFound) {
     lines.push('');
-    lines.push('職事表建立好那一季之後，再撳一次「補抓空白的事奉欄位」就可以。');
+    lines.push('職事表建立好那一季之後，再按一次「補抓空白的事奉欄位」就可以。');
   }
   return lines;
 }

@@ -854,13 +854,8 @@ test('這一輪新增的使用者可見文字，一律書面語繁體中文', fu
     (r.lines || []).forEach(function (line) { texts.push(line); });
   });
 
-  // ⚠️ 「撳」在 tests/helpers/writtenChinese.js 列為口語字，但整個介面
-  //    現時有 56 處使用者可見字串都用「撳」（例如頁頂「撳一下展開待填
-  //    清單」）。這一輪只改新加的那一段，會令同一個畫面一半「撳」一半
-  //    「按」——比全部一致地用「撳」更差。所以這裏先遮走它，並把「要不要
-  //    全盤改成『按』」記入 docs/待確認事項.md BB-4 由 Ivan 決定。
-  const masked = texts.map(function (t) { return String(t).split('撳').join('按'); });
-  assertWrittenChinese(assert, 'R-038 季度作業的使用者可見文字', masked);
+  // 審查後修正 6：全部「撳」已經改成「按」（docs/待確認事項.md BB-4），不再遮走。
+  assertWrittenChinese(assert, 'R-038 季度作業的使用者可見文字', texts);
 });
 
 // =====================================================================

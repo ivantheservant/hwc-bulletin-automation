@@ -481,7 +481,7 @@ function menuBuildPersonDisplaySkeleton_() {
         '略過（已存在）：' + result.skippedExisting + ' 行',
         '目前 HONORIFIC 仍空白：' + result.blankHonorific + ' 人',
         '',
-        '接下來可以撳「套用尊稱對照表」自動填入尊稱。'
+        '接下來可以按「套用尊稱對照表」自動填入尊稱。'
       ].join('\n'),
       ui.ButtonSet.OK
     );

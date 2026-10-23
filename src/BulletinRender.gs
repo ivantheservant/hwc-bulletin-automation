@@ -712,7 +712,7 @@ function buildResidualPlaceholderMessage_(fileName, templateLabel, residual) {
     + '頭 ' + head.length + ' 個：' + head.join('　')
     + '　所在部件：' + residual.parts.join('、')
     + '　多數成因：範本那一段被 Word 切成多個格式不同的 run，或者佔位符名稱打錯字。'
-    + '修法：在 Word 把那一段整段刪掉重新打一次，再撳「檢查範本佔位符」確認。';
+    + '修法：在 Word 把那一段整段刪掉重新打一次，再按「檢查範本佔位符」確認。';
 }
 
 /**
@@ -1112,7 +1112,7 @@ function buildGenerateResultDialogLines_(isoDate, result) {
     lines.push('殘留佔位符：' + residual.count + ' 個　⚠️⚠️ 這些會原封不動印在紙上');
     residual.samples.slice(0, 3).forEach(function (s) { lines.push('　　' + s); });
     lines.push('　修法：在 Word 把那一段整段刪掉、一口氣重新打一次，');
-    lines.push('　再撳「檢查範本佔位符」確認。詳情已寫入 ErrorLog。');
+    lines.push('　再按「檢查範本佔位符」確認。詳情已寫入 ErrorLog。');
     lines.push('');
   } else {
     lines.push('殘留佔位符：0 個（已回頭掃描產出檔案確認）');

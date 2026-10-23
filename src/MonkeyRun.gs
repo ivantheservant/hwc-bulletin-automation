@@ -658,7 +658,7 @@ function runMonkey_(options) {
     if (!pending) {
       // ⚠️ 不可以靜靜開新一輪：使用者以為自己在續跑，實際上每一次都由頭
       //    開始，目標步數永遠跑不滿——而且完全沒有提示。
-      return monkeyRefused_('沒有未完成的執行，請先撳〔跑亂行機〕。'
+      return monkeyRefused_('沒有未完成的執行，請先按〔跑亂行機〕。'
         + '（〔繼續亂行〕只會接住上一次未跑完那一輪；'
         + '上一次如果已經跑滿目標步數，就沒有東西可以接。）');
     }
@@ -1186,7 +1186,7 @@ function menuRunMonkey_() {
       + '每一步之後檢查一次全部不變量。\n\n'
       + '目前 DRY_RUN＝' + (config.dryRun ? 'TRUE（不會真的寄出）' : 'FALSE（⚠️ 會真的寄出）') + '\n\n'
       + '⚠️ 這是開新一輪（新的執行編號與種子）。要接住上一次未跑完那一輪，'
-      + '請撳〔繼續亂行〕。\n\n'
+      + '請按〔繼續亂行〕。\n\n'
       + '目標走幾多步？（直接按確定＝50 步）',
       ui.ButtonSet.OK_CANCEL);
     if (resp.getSelectedButton() !== ui.Button.OK) return;
@@ -1217,7 +1217,7 @@ function menuResumeMonkey_() {
     var pending = monkeyLatestPausedState_();
     if (!pending) {
       ui.alert('繼續亂行',
-        '沒有未完成的執行，請先撳〔跑亂行機〕。\n\n'
+        '沒有未完成的執行，請先按〔跑亂行機〕。\n\n'
           + '（〔繼續亂行〕只會接住上一次未跑完那一輪；'
           + '上一次如果已經跑滿目標步數，就沒有東西可以接。）',
         ui.ButtonSet.OK);

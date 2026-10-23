@@ -111,14 +111,14 @@ function buildGoLiveChecklist_() {
   } else if (triggerCount === 0) {
     items.push({
       label: '上線前：星期一觸發器', status: S.YELLOW,
-      message: '一個都沒有安裝——星期一不會自動寄週報。請撳選單「安裝自動寄送觸發器」。'
+      message: '一個都沒有安裝——星期一不會自動寄週報。請按選單「安裝自動寄送觸發器」。'
     });
   } else {
     items.push({
       label: '上線前：星期一觸發器', status: S.RED,
       message: '⚠️ 安裝了 ' + triggerCount + ' 個！每一個都會各自跑一次，'
         + '即是同一期週報會寄 ' + triggerCount + ' 次給全教會。'
-        + '請撳選單「移除自動寄送觸發器」再撳一次「安裝自動寄送觸發器」。'
+        + '請按選單「移除自動寄送觸發器」再按一次「安裝自動寄送觸發器」。'
     });
   }
 
@@ -232,7 +232,7 @@ function countProtectedSheets_() {
         : ('⚠️ ' + done + '／' + wanted + ' 張已設定保護，未設定的：'
           + missing.slice(0, 8).join('、')
           + (missing.length > 8 ? ('　（另有 ' + (missing.length - 8) + ' 張）') : '')
-          + '　請撳選單「設定工作表保護」。')
+          + '　請按選單「設定工作表保護」。')
     };
   } catch (err) {
     return {

@@ -132,7 +132,7 @@ function weeklyBulletinSendTrigger_() {
           errorCode: 'RETENTION_NEEDS_CONFIRMATION',
           message: '有 ' + blockedQuarters.length + ' 季未封存，因為仍然有未發佈而且有內容的主日：'
             + blockedQuarters.map(function (s) { return s.quarterId; }).join('、')
-            + '　請撳選單「立即整理舊季度（封存，不刪資料）」人手確認。'
+            + '　請按選單「立即整理舊季度（封存，不刪資料）」人手確認。'
         });
       }
     } catch (retentionErr) {

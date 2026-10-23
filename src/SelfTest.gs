@@ -1151,7 +1151,7 @@ function selfTestS32_(ctx) {
     '保留 2 季（Config ' + CONFIG_KEYS.RETENTION_QUARTERS_VISIBLE + '）。'
       + '　⚠️ 覆蓋缺口：這一條只驗「決定封存哪一季」那一段，沒有真的封存'
       + '——封存是整季操作，會動到沙盒範圍以外的資料。真正的寫入要靠'
-      + '十二月真數據演練，或者人手撳選單「立即整理舊季度」。');
+      + '十二月真數據演練，或者人手按選單「立即整理舊季度」。');
 }
 
 /**
@@ -1227,7 +1227,7 @@ function selfTestS34_(ctx) {
 
   return selfTestOutcome_(ok,
     '四張紀錄表一行都沒有多',
-    changed.length === 0 ? '四張都沒有變' : ('變咗：' + changed.join('、')),
+    changed.length === 0 ? '四張都沒有變' : ('變了：' + changed.join('、')),
     'Diagnostics ' + before.diagnostics + '→' + after.diagnostics
       + '、PublishLog ' + before.publishLog + '→' + after.publishLog
       + '、AuditLog ' + before.auditLog + '→' + after.auditLog
@@ -1349,7 +1349,7 @@ function selfTestS37_(ctx) {
     '可見 ' + visible.length + ' 季、勾之後 ' + withArchived.length + ' 季、'
       + '提示語' + (hintHasAction ? '有' : '沒有') + '講下一步',
     '提示語：「' + RETENTION_EMPTY_HINT_ + '」'
-      + '　⚠️ 提示語一定要講得出下一步（撳「顯示已封存」或者建立新一季），'
+      + '　⚠️ 提示語一定要講得出下一步（按「顯示已封存」或者建立新一季），'
       + '只講「沒有季度」等於把人留在原地。');
 }
 

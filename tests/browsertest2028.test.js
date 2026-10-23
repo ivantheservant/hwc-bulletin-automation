@@ -24,7 +24,7 @@ const path = require('path');
 const vm = require('vm');
 const { makeFillEnv, QUARTER_ID } = require('./helpers/fillEnv');
 const { extractStringLiterals } = require('./helpers/stringLiterals');
-const { assertWrittenChinese } = require('./helpers/writtenChinese');
+const { assertWrittenChinese, findColloquial } = require('./helpers/writtenChinese');
 
 let pass = 0;
 let fail = 0;
@@ -613,6 +613,22 @@ test('D4-3 填寫介面（Index.html 標籤外文字、title、placeholder；Scr
   assert.deepStrictEqual(offenders, []);
   assert.ok(indexVisibleTexts().some(function (t) { return t.indexOf('尊稱對照表（試算表的 PersonDisplay 工作表）') !== -1; }),
     'PersonDisplay 是幹事要維護的表，保留名稱讓人找得到，但先講中文');
+});
+
+test('RV6-1 審查後修正 6：src/ 全部 .gs 與 src/ui/ 全部 .html 的中文字串常值（給人看的字）沒有口語字（撳、嘅、呢、係、唔、冇、咗……；「關係」等正常詞除外）', function () {
+  const files = fs.readdirSync(path.join(__dirname, '..', 'src')).filter(function (f) { return /\.gs$/.test(f); })
+    .map(function (f) { return 'src/' + f; })
+    .concat(fs.readdirSync(path.join(__dirname, '..', 'src', 'ui')).map(function (f) { return 'src/ui/' + f; }));
+  const offenders = [];
+  files.forEach(function (rel) {
+    extractStringLiterals(readSrc(rel)).forEach(function (lit) {
+      if (!/[一-鿿]/.test(lit.text)) return;
+      findColloquial(lit.text).forEach(function (hit) {
+        offenders.push(rel + ' 第 ' + lit.line + ' 行「' + hit.char + '」：' + hit.context);
+      });
+    });
+  });
+  assert.deepStrictEqual(offenders, []);
 });
 
 test('D4-4 經真正入口：週報試算表未有那一個主日時，載入的警告、還原、重設的訊息不用「BulletinWeeks」', function () {

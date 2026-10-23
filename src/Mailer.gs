@@ -54,7 +54,7 @@ function sendBulletinForDate_(isoDate, options) {
     var schema = checkSheetSchema_();
     if (!schema.ok) {
       var schemaErr = new Error(
-        '工作表結構落後於程式碼（' + buildSchemaMismatchSummary_(schema) + '），拒絕寄送。請先在試算表撳「初始化工作表」。'
+        '工作表結構落後於程式碼（' + buildSchemaMismatchSummary_(schema) + '），拒絕寄送。請先在試算表按「初始化工作表」。'
       );
       schemaErr.code = 'SCHEMA_OUTDATED';
       throw schemaErr;

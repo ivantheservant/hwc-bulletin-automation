@@ -405,7 +405,7 @@ function selfCheckRosterGapItem_() {
   });
   return selfCheckItem_('職事表缺口', S.YELLOW,
     '有 ' + gaps.length + ' 個季度的事奉資料未齊（那幾期的事奉欄位留空）。'
-      + '職事表補齊之後，撳選單「補抓空白的事奉欄位」。',
+      + '職事表補齊之後，按選單「補抓空白的事奉欄位」。',
     detail);
 }
 
@@ -523,7 +523,7 @@ function selfCheckFeatureItems_() {
   });
 
   var sendInstalled = Boolean(handlers['weeklyBulletinSendTrigger_']);
-  items.push(selfCheckItem_('觸發器：自動寄送', sendInstalled ? S.GREEN : S.YELLOW, sendInstalled ? '已安裝。' : '尚未安裝，需要人手撳選單安裝。'));
+  items.push(selfCheckItem_('觸發器：自動寄送', sendInstalled ? S.GREEN : S.YELLOW, sendInstalled ? '已安裝。' : '尚未安裝，需要人手按選單安裝。'));
 
   var fillEditInstalled = Boolean(handlers['onFillGridEdit_']);
   items.push(selfCheckItem_('觸發器：填寫表同步', fillEditInstalled ? S.GREEN : S.YELLOW, fillEditInstalled ? '已安裝。' : '尚未安裝。'));
@@ -623,7 +623,7 @@ function selfCheckPublishItems_(quarterResolution) {
 
   // ---- master 發佈檔案已建立且開得到 ----
   if (!config.masterFileId) {
-    items.push(selfCheckItem_('master 發佈檔案', S.YELLOW, '尚未建立，請撳選單「建立 master 發佈檔案」。'));
+    items.push(selfCheckItem_('master 發佈檔案', S.YELLOW, '尚未建立，請按選單「建立 master 發佈檔案」。'));
   } else {
     var probe = probeMasterPdfFile_(config.masterFileId);
     if (probe.exists) {

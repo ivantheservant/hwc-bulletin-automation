@@ -873,7 +873,7 @@ var DEFAULTS = Object.freeze([
   { key: CONFIG_KEYS.PUBLISH_SEND_GROUPS, value: 'CC,DB,ADMIN', note: '「發佈及匯出」內收件組別的預設勾選（逗號分隔的 Recipients.GROUP_NAME）' },
   { key: CONFIG_KEYS.PUBLISH_ATTACH_PDF, value: 'TRUE', note: '發佈通知郵件要不要把 PDF 一併附上（FALSE 就只放連結）' },
   { key: CONFIG_KEYS.PUBLISH_MAX_PDF_MB, value: '10', note: '上載的 PDF 檔案大小上限（MB），超過會被拒絕' },
-  { key: CONFIG_KEYS.PUBLISH_DEDUP_SEC, value: '30', note: '同一個主日在幾多秒內重複發佈會被視為「撳多了一次」，直接回報上一次的版本號，不再產生新版本' },
+  { key: CONFIG_KEYS.PUBLISH_DEDUP_SEC, value: '30', note: '同一個主日在幾多秒內重複發佈會被視為「多按了一次」，直接回報上一次的版本號，不再產生新版本' },
   { key: CONFIG_KEYS.SEND_ONLY_DEDUP_SEC, value: '600', note: '只寄出（不發佈）時，同一期、同一組收件人在幾多秒內已經寄過（包括「發佈加寄出」那一次），就擋下不再寄，以免重複寄信。預設 600 秒（10 分鐘）；設成 0 等於關掉。發佈本身的防重複仍用 PUBLISH_DEDUP_SEC' },
   { key: CONFIG_KEYS.WEBAPP_CALL_TIMEOUT_SEC, value: '120', note: '填寫介面等候伺服器回應的上限（秒）；超過就顯示逾時訊息，不會一直轉圈' },
   { key: CONFIG_KEYS.TEST_MODE_BANNER, value: '', note: '填寫介面頂部要顯示的藍色提示文字（例如「這是測試系統，資料可以隨便改」）；留空就不顯示這一條橫幅' },
@@ -899,7 +899,7 @@ var DEFAULTS = Object.freeze([
   // ---- R-032：內容過多的提示 ----
   { key: CONFIG_KEYS.BULLETIN_CONTENT_WARN_CHARS, value: '5600', note: 'R-032：內容份量估算的提示門檻（字元數）。門檻的來歷：88 期真實週報之中，4 頁的中位數約 4,500 字元、5 頁的約 6,000 至 6,500 字元，取中間偏保守。⚠️ 這只是估算——Apps Script 算不到準確頁數，頁數要靠 Word 的排版引擎，所以超過門檻只會提示「請用 Word 開啟確認」，一定不會擋住產生' },
   // ---- R-035：舊季度自動封存 ----
-  { key: CONFIG_KEYS.RETENTION_QUARTERS_VISIBLE, value: '2', note: 'R-035：季度下拉預設顯示最近幾多季（2 ＝ 本季 ＋ 前一季）。更早的季度會被標記 ARCHIVED=TRUE、Fill_* 隱藏、內容表登記行 ACTIVE=FALSE。⚠️ 一格資料都不會刪——封存只是「預設不顯示」，撳「顯示已封存」就見得返，亦可以用選單「取消封存」完全還原' },
+  { key: CONFIG_KEYS.RETENTION_QUARTERS_VISIBLE, value: '2', note: 'R-035：季度下拉預設顯示最近幾多季（2 ＝ 本季 ＋ 前一季）。更早的季度會被標記 ARCHIVED=TRUE、Fill_* 隱藏、內容表登記行 ACTIVE=FALSE。⚠️ 一格資料都不會刪——封存只是「預設不顯示」，按「顯示已封存」就見得返，亦可以用選單「取消封存」完全還原' },
   { key: CONFIG_KEYS.CONTENT_SHEET_ARCHIVE_FOLDER_ID, value: '', note: 'R-035：封存時把內容表檔案搬去哪一個資料夾（Shared Drive 內的子資料夾 ID）。⚠️ 留空就只改 ContentSheets 那一行的 ACTIVE，不搬檔案，並在報告講明——搬檔案是 Drive 操作，設定未填就靜靜不搬而不講，下次找不到檔案會查半日' },
 
   { key: CONFIG_KEYS.DUPLICATE_PARAGRAPH_MIN_CHARS, value: '25', note: 'R-032：重複段落偵測的最短長度（字元）。短過這個數的段落（例如「本週」「阿們」）重複是正常的，不當成問題' },
