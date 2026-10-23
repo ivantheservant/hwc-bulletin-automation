@@ -175,7 +175,9 @@ function monkeyActions_() {
       run: function (ctx) {
         var result = buildOrRefreshContentSheet_(ctx.config.quarterId, {
           fileNameSuffix: SELF_TEST_CONTENT_SUFFIX_,
-          serviceDates: selfTestSandboxDates_(ctx.config)
+          serviceDates: selfTestSandboxDates_(ctx.config),
+          // 內容表 v2：沙盒內容表（舊版）照樣移轉（只碰沙盒季度，DRY_RUN 已斷言）。
+          migrate: true
         });
         if (!result.ok) return monkeyStepResult_(false, '失敗：' + (result.message || result.reason));
         return monkeyStepResult_(true, result.created ? '建立了' : '已更新，未重建');

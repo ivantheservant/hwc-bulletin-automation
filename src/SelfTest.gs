@@ -1454,7 +1454,9 @@ function selfTestOpenSandboxContentSheet_(config) {
 function selfTestRefreshSandboxContentSheet_(config) {
   var result = buildOrRefreshContentSheet_(config.quarterId, {
     fileNameSuffix: SELF_TEST_CONTENT_SUFFIX_,
-    serviceDates: selfTestSandboxDates_(config)
+    serviceDates: selfTestSandboxDates_(config),
+    // 內容表 v2：沙盒內容表（舊版）照樣移轉——只碰沙盒季度，而且開跑前已斷言 DRY_RUN=TRUE。
+    migrate: true
   });
   if (!result.ok) {
     return {
@@ -1688,7 +1690,9 @@ function selfTestS03_(ctx) {
 
   var result = buildOrRefreshContentSheet_(config.quarterId, {
     fileNameSuffix: SELF_TEST_CONTENT_SUFFIX_,
-    serviceDates: selfTestSandboxDates_(config)
+    serviceDates: selfTestSandboxDates_(config),
+    // 內容表 v2：沙盒內容表（舊版）照樣移轉——只碰沙盒季度，而且開跑前已斷言 DRY_RUN=TRUE。
+    migrate: true
   });
   if (!result.ok) {
     return selfTestOutcome_(false, '建立成功', '失敗：' + result.reason, result.message || '');
@@ -1732,7 +1736,8 @@ function selfTestS04_(ctx) {
 
   // 先在內容表寫一格「人手資料」，再建立一次，看它有沒有被清走。
   var spreadsheet = openContentSpreadsheet_(before.FILE_ID);
-  var tabDef = contentSheetTabDefs_()[0];
+  // 內容表 v2：第一張改為「崇拜程序」（沒有 TEXT 欄），改用「家事報告」。
+  var tabDef = selfTestFindTabDef_('家事報告');
   var sheet = spreadsheet.getSheetByName(tabDef.tabName);
   var marker = '自測標記 ' + ctx.runId;
   var textColIndex = tabDef.keys.indexOf('TEXT');
@@ -1741,7 +1746,9 @@ function selfTestS04_(ctx) {
 
   var result = buildOrRefreshContentSheet_(config.quarterId, {
     fileNameSuffix: SELF_TEST_CONTENT_SUFFIX_,
-    serviceDates: selfTestSandboxDates_(config)
+    serviceDates: selfTestSandboxDates_(config),
+    // 內容表 v2：沙盒內容表（舊版）照樣移轉——只碰沙盒季度，而且開跑前已斷言 DRY_RUN=TRUE。
+    migrate: true
   });
   var after = findContentSheetRow_(config.quarterId);
   var stillThere = String(sheet.getRange(CONTENT_SHEET_FIRST_DATA_ROW_ + 50, textColIndex + 1).getValue() || '');
@@ -1980,11 +1987,12 @@ function selfTestS09_(ctx) {
       }
     },
     {
-      label: '週欄位（宣召經文）',
+      // 內容表 v2：宣召經文已改為可覆寫，唯讀週欄位改用人數欄。
+      label: '週欄位（英語堂崇拜人數）',
       payload: {
         isoDate: isoDate, lastSavedAt: loaded.lastSavedAt,
-        week: { CALL_TEXT: '這是唯讀欄位，不應該存得到' },
-        baseWeek: { CALL_TEXT: '' },
+        week: { ATT_ENG_WORSHIP: '這是唯讀欄位，不應該存得到' },
+        baseWeek: { ATT_ENG_WORSHIP: '' },
         dutyEdits: []
       }
     },

@@ -41,8 +41,18 @@ var RETIRED_FILL_GRID_NOTE_ = '季度填寫表已停用（2026-10）。這張分
 /** Config 移轉：要加入 `CONTENT_SHEET_OWNERS` 的一項（決定 9）。 */
 var RETIRE_LEGACY_OWNER_ADD_ = { tab: '崇拜程序', owner: '講員、領詩、幹事' };
 
-/** Config 移轉：要由 `CONTENT_SHEET_OWNERS` 移走的分頁（內容併入崇拜程序）。 */
-var RETIRE_LEGACY_OWNER_REMOVE_TABS_ = ['宣召', '浸禮合堂'];
+/**
+ * 用途：Config 移轉：要由 `CONTENT_SHEET_OWNERS` 移走的分頁（內容併入崇拜程序）。由內容表 v2 的
+ *   `legacyMergedTabDefs_()` 衍生，分頁名稱只寫在那一處。
+ * Args: （無）
+ * Returns:
+ *   {string[]}
+ * Raises:
+ *   （無）
+ */
+function retireLegacyOwnerRemoveTabs_() {
+  return legacyMergedTabDefs_().map(function (def) { return def.tabName; });
+}
 
 /**
  * 用途：選單路徑全名（各處提示叫人去按的那一句）。
@@ -107,8 +117,9 @@ function planRetireOwnersChange_(ownersRaw) {
     var pair = part.split('=');
     return pair.length === 2 ? pair[0].trim() : '';
   };
-  var removed = parts.filter(function (p) { return RETIRE_LEGACY_OWNER_REMOVE_TABS_.indexOf(tabOf(p)) !== -1; });
-  var kept = parts.filter(function (p) { return RETIRE_LEGACY_OWNER_REMOVE_TABS_.indexOf(tabOf(p)) === -1; });
+  var removeTabs = retireLegacyOwnerRemoveTabs_();
+  var removed = parts.filter(function (p) { return removeTabs.indexOf(tabOf(p)) !== -1; });
+  var kept = parts.filter(function (p) { return removeTabs.indexOf(tabOf(p)) === -1; });
   var hasWorship = kept.some(function (p) { return tabOf(p) === RETIRE_LEGACY_OWNER_ADD_.tab; });
   if (removed.length === 0 && hasWorship) return null;
 

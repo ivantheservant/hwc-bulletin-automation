@@ -1,9 +1,10 @@
 /**
  * ContentSheet.gs
  *
- * 每季一個「內容表」——一個**獨立的試算表**，放在 Shared Drive，交給堂委
- * 與執事輸入七項內容（家事報告、代禱事項、團契聚會、財政報告、崇拜人數、
- * 宣召出處、宣召經文）。實作 R-010／R-013／R-014／R-015。
+ * 每季一個「內容表」——一個**獨立的試算表**，放在 Shared Drive，交給講員、領詩、堂委、
+ * 執事與幹事輸入週報內容。內容表 v2（2026-10）起六張資料分頁：崇拜程序（一個主日一行，
+ * 宣召與浸禮合堂兩張舊分頁已併入）、家事報告、代禱事項、團契聚會、財政報告、崇拜人數。
+ * 實作 R-010／R-013／R-014／R-015、R-054。
  *
  * ─────────────────────────────────────────────────────────────────────
  * 分層
@@ -62,6 +63,7 @@ var CONTENT_SHEET_INSTRUCTIONS_TAB_ = '_說明';
  */
 function contentSheetTabDefs_() {
   return [
+    contentSheetWorshipTabDef_(),
     {
       tabName: '家事報告',
       // ⚠️ R-030 在**最尾**加了兩欄。系統會自動加夏令時間轉換提示，而
@@ -161,71 +163,105 @@ function contentSheetTabDefs_() {
       activeKey: 'ACTIVE',
       note: '⚠️ 「崇拜日期」是崇拜當日，並非週報那一個主日——週報會自動對應到「崇拜日期加七天」那一期。'
         + '因此下拉選單額外包含該季第一個主日之前的那個主日。十二格全部為純文字，可以輸入「--」、「前:5 / 後:120」。'
-    },
+    }
+  ];
+}
+
+/**
+ * 用途：內容表 v2 的「崇拜程序」分頁定義——一個主日一行，宣召與浸禮合堂兩張舊分頁併入這裏
+ *   （docs/待確認事項.md 內容表 v2 決定 4、6）。由 `contentSheetTabDefs_()` 放在第一張。
+ *
+ *   欄位次序（決定 6，方案 A）：v1 原有七欄**位置不變**，新欄**只加在最後**——匯入按位置讀，
+ *   而且 `checkContentSheetSchema_()` 只接受「第 2 行是定義的前綴」作為「未移轉」，
+ *   插在中間的話舊內容表的資料會整排錯位。新欄：序樂、宣召出處、宣召經文、詩歌頌讚，
+ *   再接浸禮副框六欄。中文標題由 `COLUMNS.BULLETIN_WEEKS` 與 `baptismBoxFieldDefs_()` 衍生，
+ *   不另抄一份。
+ *
+ *   純文字欄只列新加的欄（建立或移轉時那幾欄是空白的）。原有四欄不列：已有內容的格改成純文字，
+ *   被試算表轉成時間的值（例如「3:16」）會變成一個數字，匯入就會靜靜寫入那個數字；保持原狀的話
+ *   匯入讀到日期／時間會略過並警告（`classifyContentTypeIssues_()`）。系統自己寫入這一張分頁時
+ *   一律先把那一格設成純文字。
+ * Args: （無）
+ * Returns:
+ *   {Object} 形狀同 `contentSheetTabDefs_()` 其中一項。
+ * Raises:
+ *   （無）
+ */
+function contentSheetWorshipTabDef_() {
+  var v1 = legacyWorshipTabDefV1_();
+  var addedWeekKeys = ['PRELUDE', 'CALL_REF', 'CALL_TEXT', 'HYMN_PRAISE'];
+  var baptismDefs = baptismBoxFieldDefs_();
+  var weekKeys = COLUMNS.BULLETIN_WEEKS.keys;
+  var weekHeaders = COLUMNS.BULLETIN_WEEKS.headers;
+  var addedHeaders = addedWeekKeys.map(function (key) { return weekHeaders[weekKeys.indexOf(key)]; })
+    .concat(baptismDefs.map(function (d) { return d.label; }));
+  var addedKeys = addedWeekKeys.concat(baptismDefs.map(function (d) { return d.key; }));
+  return {
+    tabName: '崇拜程序',
+    headers: v1.headers.concat(addedHeaders),
+    keys: v1.keys.concat(addedKeys),
+    dateColumns: ['SERVICE_DATE'],
+    attendanceDates: false,
+    plainTextColumns: addedKeys.slice(),
+    wrapColumns: [
+      { key: 'SERMON_TITLE', width: 260 }, { key: 'NOTES', width: 260 }, { key: 'CALL_TEXT', width: 600 },
+      { key: 'BAPTISM_MEMBERS', width: 300 }, { key: 'MEMBERSHIP_MEMBERS', width: 300 },
+      { key: 'CHILD_DEDICATION_CHILDREN', width: 300 }
+    ],
+    activeKey: 'ACTIVE',
+    note: '一個主日一行，每個主日已經預先開好一行，請直接修改，不要另加一行。'
+      + '「讀經經文」是經文出處（例如「約翰福音 3:16」），不是讀經的人——讀經那位肢體由職事表決定。'
+      + '序樂留空時週報印預設序樂；詩班曲名留空時週報那一行整行不會出現；'
+      + '浸禮六欄只填浸禮合堂那一個主日，其餘主日留空。'
+      + '⚠️ 各欄在填寫介面仍然改得到：改了之後那一格就不再跟隨內容表，匯入報告會標示「沒有蓋過」。'
+  };
+}
+
+/**
+ * 用途：v1「崇拜程序」分頁（七欄）的定義，凍結。v2 的頭七欄就是這七欄；移轉時用來判斷
+ *   「第 2 行仍然是 v1」。寫成函式延遲求值（事故一），內容以後不可以再改。
+ * Args: （無）
+ * Returns:
+ *   {{tabName:string, headers:string[], keys:string[]}}
+ * Raises:
+ *   （無）
+ */
+function legacyWorshipTabDefV1_() {
+  return {
+    tabName: '崇拜程序',
+    headers: ['主日日期', '讀經經文', '證道講題', '回應詩歌', '詩班曲名', '有效', '備註'],
+    keys: ['SERVICE_DATE', 'SCRIPTURE_REF', 'SERMON_TITLE', 'RESPONSE_HYMN', 'CHOIR_TITLE', 'ACTIVE', 'NOTES']
+  };
+}
+
+/** 已併入「崇拜程序」的舊分頁改名時加的字尾（決定 14）。 */
+var CONTENT_SHEET_RETIRED_TAB_SUFFIX_ = '（已停用）';
+
+/**
+ * 用途：v1 兩張已併入「崇拜程序」的舊分頁（宣召、浸禮合堂）的定義，凍結。移轉時按這份定義讀舊
+ *   分頁（第 2 行要完全相同才讀），改名、隱藏之後亦認得出來。內容以後不可以再改。
+ * Args: （無）
+ * Returns:
+ *   {{kind:string, tabName:string, headers:string[], keys:string[], valueKeys:string[]}[]}
+ *     `kind`：`'CALL'`／`'BAPTISM'`；`valueKeys` 是要搬入崇拜程序的欄（機器鍵兩邊相同）。
+ * Raises:
+ *   （無）
+ */
+function legacyMergedTabDefs_() {
+  return [
     {
-      tabName: '宣召',
+      kind: 'CALL', tabName: '宣召',
       headers: ['主日日期', '宣召出處', '宣召經文', '有效'],
       keys: ['SERVICE_DATE', 'CALL_REF', 'CALL_TEXT', 'ACTIVE'],
-      dateColumns: ['SERVICE_DATE'],
-      attendanceDates: false,
-      plainTextColumns: [],
-      wrapColumns: [{ key: 'CALL_TEXT', width: 600 }],
-      activeKey: 'ACTIVE',
-      note: '一個主日一行。「宣召出處」例如「詩篇 100:1-2」，「宣召經文」為整段經文。'
+      valueKeys: ['CALL_REF', 'CALL_TEXT']
     },
     {
-      // R-043：本來這四欄是純介面填。搬入內容表之後改用**第三種模式**
-      // ——內容表為來源，但填寫介面仍然改得到，改了就寫一筆 FieldOverride，
-      // 之後匯入不會蓋過去（見 src/FieldOverride.gs 檔頭）。
-      //
-      // ⚠️「讀經經文」刻意**不叫「讀經」**：事奉框那個「讀經」是
-      //    **人**，這個是**經文**。2026-09-08 實測就是因為同名而漏填了經文
-      //    卻以為已經填好（R-046）。
-      tabName: '崇拜程序',
-      headers: ['主日日期', '讀經經文', '證道講題', '回應詩歌', '詩班曲名', '有效', '備註'],
-      keys: ['SERVICE_DATE', 'SCRIPTURE_REF', 'SERMON_TITLE', 'RESPONSE_HYMN', 'CHOIR_TITLE', 'ACTIVE', 'NOTES'],
-      dateColumns: ['SERVICE_DATE'],
-      attendanceDates: false,
-      plainTextColumns: [],
-      wrapColumns: [{ key: 'SERMON_TITLE', width: 260 }, { key: 'NOTES', width: 260 }],
-      activeKey: 'ACTIVE',
-      note: '一個主日一行。「讀經經文」是經文出處（例如「約翰福音 3:16」），'
-        + '不是讀經的人——讀經那位肢體由職事表決定，在週報的事奉框顯示為「讀經」。'
-        + '「詩班曲名」留空時，週報那一行整行不會出現。'
-        + '⚠️ 這四欄在填寫介面仍然改得到：改了之後那一格就不再跟隨內容表，'
-        + '差異報告會標示為「已覆寫」。想改回跟隨內容表，把介面那一格改成與內容表相同即可。'
-    },
-    {
-      // R-045：浸禮合堂副框六欄。職事表完全沒有浸禮相關崗位（16 個 PostID
-      // 逐個核對過），所以只可能經內容表。同樣是第三種模式。
-      tabName: '浸禮合堂',
-      headers: [
-        '主日日期', '浸禮主禮', '入會禮主禮', '孩童奉獻禮主禮',
-        '受浸肢體', '入會肢體', '奉獻孩童', '有效', '備註'
-      ],
-      keys: [
-        'SERVICE_DATE', 'BAPTISM_OFFICIANT', 'MEMBERSHIP_OFFICIANT', 'CHILD_DEDICATION_OFFICIANT',
-        'BAPTISM_MEMBERS', 'MEMBERSHIP_MEMBERS', 'CHILD_DEDICATION_CHILDREN', 'ACTIVE', 'NOTES'
-      ],
-      dateColumns: ['SERVICE_DATE'],
-      attendanceDates: false,
-      // ⚠️ 六欄全部純文字。多人欄位是「一格內多位、空格分隔」，一被試算表
-      //    自動轉換就會變成別的東西（見 src/BaptismBox.gs 檔頭）。
-      plainTextColumns: [
-        'BAPTISM_OFFICIANT', 'MEMBERSHIP_OFFICIANT', 'CHILD_DEDICATION_OFFICIANT',
-        'BAPTISM_MEMBERS', 'MEMBERSHIP_MEMBERS', 'CHILD_DEDICATION_CHILDREN'
-      ],
-      wrapColumns: [
-        { key: 'BAPTISM_MEMBERS', width: 300 },
-        { key: 'MEMBERSHIP_MEMBERS', width: 300 },
-        { key: 'CHILD_DEDICATION_CHILDREN', width: 300 }
-      ],
-      activeKey: 'ACTIVE',
-      note: '⚠️ 整季通常只有一個主日是浸禮合堂，只填那一行，其餘主日留空。'
-        + '其餘主日全部空白是正常的，系統不會當成錯誤，也不會提示。'
-        + '「受浸肢體」「入會肢體」「奉獻孩童」三欄可以一格填多位，用空格分隔'
-        + '（例如「陳大文 李小明」），系統會原樣印出，不會加尊稱、不會重新排序。'
-        + '三位「主禮」會在 PersonDisplay 找得到的才自動套用尊稱，找不到就原樣印出。'
+      kind: 'BAPTISM', tabName: '浸禮合堂',
+      headers: ['主日日期', '浸禮主禮', '入會禮主禮', '孩童奉獻禮主禮', '受浸肢體', '入會肢體', '奉獻孩童', '有效', '備註'],
+      keys: ['SERVICE_DATE', 'BAPTISM_OFFICIANT', 'MEMBERSHIP_OFFICIANT', 'CHILD_DEDICATION_OFFICIANT',
+        'BAPTISM_MEMBERS', 'MEMBERSHIP_MEMBERS', 'CHILD_DEDICATION_CHILDREN', 'ACTIVE', 'NOTES'],
+      valueKeys: ['BAPTISM_OFFICIANT', 'MEMBERSHIP_OFFICIANT', 'CHILD_DEDICATION_OFFICIANT',
+        'BAPTISM_MEMBERS', 'MEMBERSHIP_MEMBERS', 'CHILD_DEDICATION_CHILDREN']
     }
   ];
 }
@@ -347,13 +383,13 @@ function buildContentSheetInstructionLines_(input) {
 
   // ⚠️ R-043／R-045：第三種模式要在 _說明 講清楚，否則同工改完發現值
   //    「無端端變返舊嘅」，而其實是幹事在填寫介面覆寫過。
-  lines.push('【「崇拜程序」與「浸禮合堂」兩張分頁】');
-  lines.push('　這兩張的內容，幹事在週報填寫介面也改得到。');
+  lines.push('【「崇拜程序」分頁】');
+  lines.push('　這一張的內容，幹事在週報填寫介面也改得到。');
   lines.push('　幹事改過的那一格，之後匯入不會被這裏的值蓋過去，');
   lines.push('　匯入報告會列出來（寫住「沒有蓋過」），由幹事決定。');
   lines.push('　所以如果你改了而週報沒有跟著變，多數就是那一格已經被覆寫，請直接問幹事。');
   lines.push('');
-  lines.push('　⚠️ 「浸禮合堂」：整季通常只有一個主日是浸禮合堂，只填那一行，');
+  lines.push('　⚠️ 浸禮六欄：整季通常只有一個主日是浸禮合堂，只填那一行，');
   lines.push('　其餘主日留空。其餘全部空白是正常的，系統不會當成錯誤。');
   lines.push('');
 
@@ -444,11 +480,8 @@ function buildContentSheetSampleRows_(serviceDates) {
     ATT_ENG_CHILD: '27', ATT_CANE_CHILD: '--', ATT_CANN_CHILD: '5', ATT_MAN_CHILD: '10'
   }];
 
-  rows['宣召'] = [{
-    SERVICE_DATE: first, ACTIVE: true,
-    CALL_REF: '詩篇 100:1-2',
-    CALL_TEXT: '普天下當向耶和華歡呼！你們當樂意事奉耶和華，當來向他歌唱！'
-  }];
+  // 內容表 v2（決定 12）：不再預填宣召樣本——宣召併入「崇拜程序」之後，樣本行會被匯入真週報，
+  //    而且會令那個主日多一行，與系統預先開好的那一行重複。
 
   rows['財政報告'] = [
     {

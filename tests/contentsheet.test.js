@@ -371,7 +371,11 @@ function makeEnv(options) {
           };
           return menu;
         },
-        alert: function (a, b) { uiAlerts.push({ title: a, body: b }); return 'OK'; },
+        // 內容表 v2：「建立本季內容表」選單先預覽再問「是／否」；預設答「是」（o.uiConfirm 可以改）。
+        alert: function (a, b, buttons) {
+          uiAlerts.push({ title: a, body: b });
+          return buttons === 'YES_NO' ? (o.uiConfirm === undefined ? 'YES' : o.uiConfirm) : 'OK';
+        },
         prompt: function (title) {
           uiPrompts.push(title);
           return {
@@ -381,7 +385,7 @@ function makeEnv(options) {
         },
         showModalDialog: function () {},
         ButtonSet: { OK: 'OK', OK_CANCEL: 'OK_CANCEL', YES_NO: 'YES_NO' },
-        Button: { OK: 'OK', CANCEL: 'CANCEL' }
+        Button: { OK: 'OK', CANCEL: 'CANCEL', YES: 'YES', NO: 'NO' }
       };
     }
   };
@@ -466,7 +470,7 @@ function nextExecution(env) {
 // 1-2. 建立：分頁齊備、標題正確
 // =====================================================================
 
-test('1. 建立：八張表加 _說明 都在，次序正確', function () {
+test('1. 建立：六張表加 _說明 都在，次序正確（內容表 v2）', function () {
   const env = makeEnv({});
   const result = env.sandbox.buildOrRefreshContentSheet_(QUARTER_ID);
   assert.strictEqual(result.ok, true, JSON.stringify(result));
@@ -474,9 +478,8 @@ test('1. 建立：八張表加 _說明 都在，次序正確', function () {
 
   assertArrayEqual(
     env.contentSpreadsheet().__tabNames(),
-    // R-043 加「崇拜程序」、R-045 加「浸禮合堂」，兩張都排喺最後——
-    // 加喺中間會令既有內容表刷新之後分頁次序同新建的唔同。
-    ['_說明', '家事報告', '代禱事項', '團契聚會', '財政報告', '崇拜人數', '宣召', '崇拜程序', '浸禮合堂'],
+    // 內容表 v2（決定 7）：「宣召」「浸禮合堂」併入「崇拜程序」，崇拜程序排第一。
+    ['_說明', '崇拜程序', '家事報告', '代禱事項', '團契聚會', '財政報告', '崇拜人數'],
     '分頁次序要同 contentSheetTabNames_() 一致，而且預設嗰張 Sheet1 要被清走'
   );
 });
@@ -492,8 +495,37 @@ test('2. 建立：每張表第 1、2 行正確，資料由第 3 行開始', func
     assertArrayEqual(row(sheet, 1, def.headers.length), def.headers, def.tabName + ' 第 1 行');
     assertArrayEqual(row(sheet, 2, def.keys.length), def.keys, def.tabName + ' 第 2 行');
     assert.strictEqual(sheet.getFrozenRows(), 2, def.tabName + ' 應該凍結頭兩行');
-    assert.strictEqual(sheet.getLastRow(), 2, def.tabName + ' 冇樣本時唔應該有第 3 行資料');
+    // 內容表 v2：「崇拜程序」每個主日預先開好一行（由週報帶入現有的值），其餘冇樣本就冇資料。
+    const expectedLastRow = def.tabName === '崇拜程序' ? 2 + SERVICE_DATES.length : 2;
+    assert.strictEqual(sheet.getLastRow(), expectedLastRow, def.tabName + ' 第 3 行起的資料行數');
   });
+});
+
+test('M11（內容表 v2）新建：「崇拜程序」每個主日一行、值由週報帶入、備註留空；沒有宣召／浸禮合堂分頁；冇宣召樣本', function () {
+  const env = makeEnv({
+    config: { CONTENT_SHEET_SEED_SAMPLE: 'TRUE' },
+    weekRows: SERVICE_DATES.map(function (iso, i) {
+      return { SERVICE_DATE: iso, QUARTER_ID: QUARTER_ID, WEEK_OF_MONTH: i + 1, STATUS: 'DRAFT', PRELUDE: '預設序樂', SERMON_TITLE: i === 0 ? '第一週講題' : '' };
+    })
+  });
+  const result = env.sandbox.buildOrRefreshContentSheet_(QUARTER_ID);
+  assert.strictEqual(result.ok, true, JSON.stringify(result));
+  const ss = env.contentSpreadsheet();
+  assert.strictEqual(ss.getSheetByName('宣召'), null);
+  assert.strictEqual(ss.getSheetByName('浸禮合堂'), null);
+  const def = env.sandbox.contentSheetWorshipTabDef_();
+  const sheet = ss.getSheetByName('崇拜程序');
+  assert.strictEqual(sheet.getLastRow(), 2 + SERVICE_DATES.length);
+  SERVICE_DATES.forEach(function (iso, i) {
+    const r = 3 + i;
+    assert.strictEqual(cell(sheet, r, 1), iso, '第 ' + r + ' 行的主日');
+    assert.strictEqual(cell(sheet, r, def.keys.indexOf('PRELUDE') + 1), '預設序樂', '序樂由週報帶入');
+    assert.strictEqual(cell(sheet, r, def.keys.indexOf('NOTES') + 1), '', '新建內容表不寫「系統移轉建立」');
+    assert.strictEqual(cell(sheet, r, def.keys.indexOf('CALL_REF') + 1), '', '冇宣召樣本');
+  });
+  assert.strictEqual(cell(sheet, 3, def.keys.indexOf('SERMON_TITLE') + 1), '第一週講題');
+  const text = env.sandbox.buildContentSheetResultLines_(result).join('\n');
+  assert.ok(text.indexOf('「崇拜程序」已預先開好 ' + SERVICE_DATES.length + ' 行（每個主日一行）') !== -1, text);
 });
 
 // =====================================================================
@@ -533,8 +565,9 @@ test('5. 季度多咗一個主日 → 下拉選單跟住更新，舊資料唔郁
   const env = makeEnv({ config: { CONTENT_SHEET_SEED_SAMPLE: 'FALSE' } });
   env.sandbox.buildOrRefreshContentSheet_(QUARTER_ID);
 
-  const sheet = env.contentSpreadsheet().getSheetByName('宣召');
-  sheet.getRange(3, 1, 1, 4).setValues([['2027-11-07', '詩篇 100:1', '測試經文', 'TRUE']]);
+  // 內容表 v2：「宣召」分頁已併入「崇拜程序」，改用「家事報告」驗同一件事。
+  const sheet = env.contentSpreadsheet().getSheetByName('家事報告');
+  sheet.getRange(3, 1, 1, 5).setValues([['2027-11-07', 10, '測試報告', '', 'TRUE']]);
 
   // 職事表加多一個主日。
   const roster = env.sandbox.SpreadsheetApp.openById(FAKE_ROSTER_ID).getSheetByName('ServiceDates');
@@ -548,7 +581,11 @@ test('5. 季度多咗一個主日 → 下拉選單跟住更新，舊資料唔郁
   assert.ok(validation, '主日日期欄應該有下拉');
   assert.ok(validation.__values.indexOf('2027-12-12') !== -1,
     '新增嘅主日要出現喺下拉：' + JSON.stringify(validation.__values));
-  assertArrayEqual(row(sheet, 3, 4), ['2027-11-07', '詩篇 100:1', '測試經文', 'TRUE'], '舊資料唔可以郁');
+  assertArrayEqual(row(sheet, 3, 5), ['2027-11-07', 10, '測試報告', '', 'TRUE'], '舊資料唔可以郁');
+  // 新增嘅主日喺「崇拜程序」亦預先開好一行（其他主日嘅行一格都唔郁）。
+  const worship = env.contentSpreadsheet().getSheetByName('崇拜程序');
+  assert.strictEqual(worship.getLastRow(), 2 + SERVICE_DATES.length + 1);
+  assert.strictEqual(cell(worship, 2 + SERVICE_DATES.length + 1, 1), '2027-12-12');
 });
 
 // =====================================================================
@@ -612,8 +649,9 @@ test('8. 下拉選單拒絕清單以外嘅日期（setAllowInvalid(false)）', f
 test('8b. 「有效」欄有 TRUE／FALSE 下拉', function () {
   const env = makeEnv({});
   env.sandbox.buildOrRefreshContentSheet_(QUARTER_ID);
-  const sheet = env.contentSpreadsheet().getSheetByName('宣召');
-  const validation = sheet.__validations['3,4'];
+  // 內容表 v2：改用「崇拜程序」（「有效」係第 6 欄）。
+  const sheet = env.contentSpreadsheet().getSheetByName('崇拜程序');
+  const validation = sheet.__validations['3,6'];
   assert.ok(validation);
   assertArrayEqual(validation.__values, ['TRUE', 'FALSE']);
 });
@@ -660,14 +698,19 @@ test('11. 樣本嘅「連續到」指向該季第四個主日', function () {
   assert.strictEqual(cell(sheet, 3, 5), true, '樣本嘅「有效」要係 TRUE');
 });
 
-test('11b. 樣本：崇拜人數填喺第一個主日減七天、宣召同財政都有', function () {
+test('11b. 樣本：崇拜人數填喺第一個主日減七天、財政都有；內容表 v2 起冇宣召樣本', function () {
   const env = makeEnv({});
   env.sandbox.buildOrRefreshContentSheet_(QUARTER_ID);
   const ss = env.contentSpreadsheet();
 
   assert.strictEqual(cell(ss.getSheetByName('崇拜人數'), 3, 1), '2027-10-31');
   assert.strictEqual(cell(ss.getSheetByName('崇拜人數'), 3, 2), '57');
-  assert.strictEqual(cell(ss.getSheetByName('宣召'), 3, 2), '詩篇 100:1-2');
+  assert.strictEqual(ss.getSheetByName('宣召'), null, '內容表 v2：冇「宣召」分頁');
+  const worship = ss.getSheetByName('崇拜程序');
+  const callCol = env.sandbox.contentSheetWorshipTabDef_().keys.indexOf('CALL_REF') + 1;
+  for (let r = 3; r <= worship.getLastRow(); r++) {
+    assert.strictEqual(cell(worship, r, callCol), '', '決定 12：唔再預填宣召樣本（第 ' + r + ' 行）');
+  }
   assert.strictEqual(ss.getSheetByName('財政報告').getLastRow(), 4, '兩行財政樣本');
   assert.strictEqual(ss.getSheetByName('代禱事項').getLastRow(), 4, '兩行代禱樣本');
 });

@@ -170,16 +170,45 @@ function applyContentInstructionsTab_(sheet, lines) {
  *     - `serviceDates`：職事表**冇**呢一季資料時改用呢個主日清單。
  *       沙盒季度刻意揀一個職事表冇資料嘅季度，冇呢個參數就連內容表都
  *       建立唔到。
+ *     - `migrate`（內容表 v2）：`true`＝已有的舊版內容表照樣移轉成新版（「宣召」「浸禮合堂」併入
+ *       「崇拜程序」，見 src/ContentSheetMigrate.gs）。人手入口（填寫介面「季度作業」、選單）先給人看
+ *       預覽再傳 `true`；自動流程（星期一）不傳——遇到要移轉的就回 `NEEDS_MIGRATION`，一格都不寫
+ *       （bug class 113）。新建的內容表不算移轉，照樣預先開好每個主日一行。
  * Returns:
  *   {{ok:boolean, created:boolean, quarterId:string, fileId:string, fileUrl:string,
  *     tabsCreated:string[], serviceDateCount:number, seededSample:boolean,
  *     sharingApplied:boolean, sharingError:string,
  *     reason:(string|undefined), message:(string|undefined)}}
- *     `ok:false` 時一定有 `reason` 同一句人睇得明嘅 `message`。
+ *     `ok:false` 時一定有 `reason` 同一句人睇得明嘅 `message`（內容表 v2 加
+ *     `NEEDS_MIGRATION`、`LAYOUT_UNKNOWN`、`LEGACY_LAYOUT_UNKNOWN`）；`migration` 是移轉計畫
+ *     （`planContentSheetV2Migration_()` 的輸出）。
  * Raises:
- *   Error 如果職事表讀取失敗（`listQuarterServiceDates_()` 拋出嚟嘅）。
+ *   Error 如果職事表讀取失敗（`listQuarterServiceDates_()` 拋出嚟嘅）；拿不到指令碼鎖
+ *     （`code:'LOCK_TIMEOUT'`，一格都未寫）。
  */
 function buildOrRefreshContentSheet_(quarterId, options) {
+  // 內容表 v2：整段在指令碼鎖之內（D12 的 withScriptLock_()）——兩個分頁同時按「建立／刷新」
+  //    會各自新增一次「崇拜程序」的行（bug class 38、134）。
+  return withScriptLock_('buildOrRefreshContentSheet_', 30000, function () {
+    return buildOrRefreshContentSheetLocked_(quarterId, options);
+  }, function () {
+    var lockErr = new Error('建立／刷新內容表：30 秒內拿不到指令碼鎖，可能有另一個建立、匯入或儲存正在執行。'
+      + '請稍後再試一次。這次一格都沒有寫。');
+    lockErr.code = 'LOCK_TIMEOUT';
+    throw lockErr;
+  });
+}
+
+/**
+ * 用途：`buildOrRefreshContentSheet_()` 拿到指令碼鎖之後的那一段。只可以由它呼叫。
+ * Args:
+ *   quarterId {string}　options {Object=} 同 `buildOrRefreshContentSheet_()`。
+ * Returns:
+ *   {Object} 同 `buildOrRefreshContentSheet_()`。
+ * Raises:
+ *   Error 同 `buildOrRefreshContentSheet_()`。
+ */
+function buildOrRefreshContentSheetLocked_(quarterId, options) {
   var buildOptions = options || {};
   var qid = String(quarterId || '').trim();
   if (!qid) {
@@ -218,11 +247,26 @@ function buildOrRefreshContentSheet_(quarterId, options) {
   if (existing && !spreadsheet) {
     return {
       ok: false, created: false, quarterId: qid, reason: 'FILE_MISSING',
-      message: 'ContentSheets 已登記季度「' + qid + '」的內容表（檔案 ID 開頭 '
-        + maskContentFileId_(existing.FILE_ID) + '），但現在無法開啟——可能已被刪除、'
-        + '移到沒有權限的位置，或者 ID 不正確。請人手確認該檔案，或將 ContentSheets '
-        + '該一行的「有效」改為 FALSE，然後再按一次建立。'
+      message: contentSheetFileMissingMessage_(qid, existing.FILE_ID)
     };
+  }
+
+  // 內容表 v2：已有的內容表在寫任何一格之前先算好移轉計畫——認不出版面就整次不做；要移轉而
+  //    呼叫方沒有說可以（自動流程）就回 NEEDS_MIGRATION，一格都不寫。
+  var migrationPlan = null;
+  if (spreadsheet) {
+    migrationPlan = planContentSheetV2Migration_(Object.assign(readContentSheetV2Inputs_(spreadsheet),
+      { serviceDates: serviceDates, created: false }));
+    if (!migrationPlan.ok) {
+      return { ok: false, created: false, quarterId: qid, reason: migrationPlan.reason, message: migrationPlan.message };
+    }
+    if (migrationPlan.needsMigration && buildOptions.migrate !== true) {
+      return {
+        ok: false, created: false, quarterId: qid, reason: 'NEEDS_MIGRATION',
+        message: '季度「' + qid + '」的內容表是舊版（「宣召」「浸禮合堂」仍未併入「崇拜程序」）。'
+          + '自動流程不會替你移轉，這次一格都沒有寫。請在填寫介面「季度作業」按「建立／刷新本季內容表」，先看預覽再確定。'
+      };
+    }
   }
 
   if (!spreadsheet) {
@@ -235,6 +279,9 @@ function buildOrRefreshContentSheet_(quarterId, options) {
     sharingApplied = createdFile.sharingApplied;
     sharingError = createdFile.sharingError;
     created = true;
+    // 新建的內容表亦經同一個 planner：沒有舊分頁、崇拜程序是空的 → 每個主日預先開好一行，由週報帶入現有的值。
+    migrationPlan = planContentSheetV2Migration_(Object.assign(readContentSheetV2Inputs_(spreadsheet),
+      { serviceDates: serviceDates, created: true }));
   }
 
   // ---- 分頁：補齊 ＋ 套版面 ----
@@ -247,12 +294,19 @@ function buildOrRefreshContentSheet_(quarterId, options) {
 
   var sampleRows = (created && config.seedSample) ? buildContentSheetSampleRows_(serviceDates) : {};
   var seededSample = false;
-  // §4.0：新分頁首次建立時由 BulletinWeeks 回填了幾多行。
-  var backfilledTabs = [];
+  var worshipTabName = contentSheetWorshipTabDef_().tabName;
 
   contentSheetTabDefs_().forEach(function (tabDef) {
     var ensured = ensureContentTab_(spreadsheet, tabDef.tabName);
     if (ensured.created) tabsCreated.push(tabDef.tabName);
+
+    // ⚠️⚠️ 內容表 v2：「崇拜程序」先移轉（補欄、回填、新增行、舊分頁改名），之後才套版面——
+    //    applyContentTabLayout_() 寫第 1、2 行是提交點，一定要排最後（見 src/ContentSheetMigrate.gs）。
+    //    這一步取代了以前 R-043 的 backfillContentTabFromWeeks_()：新分頁、舊分頁、新建內容表全部
+    //    由同一個 planner 決定寫甚麼。
+    if (tabDef.tabName === worshipTabName && contentSheetPlanHasWrites_(migrationPlan)) {
+      applyContentSheetV2Migration_(spreadsheet, ensured.sheet, migrationPlan, qid);
+    }
 
     applyContentTabLayout_(ensured.sheet, tabDef, {
       dateOptions: dateOptions,
@@ -267,25 +321,6 @@ function buildOrRefreshContentSheet_(quarterId, options) {
     if (created && rows && rows.length > 0 && ensured.sheet.getLastRow() < CONTENT_SHEET_FIRST_DATA_ROW_) {
       writeContentRows_(ensured.sheet, tabDef.keys, rows, CONTENT_SHEET_FIRST_DATA_ROW_);
       seededSample = true;
-    }
-
-    // ⚠️⚠️ §4.0：**新分頁首次建立時，一定要把 BulletinWeeks 現有的值
-    //    回填落去。** 唔回填嘅話，下一次整季匯入會即刻**清空**嗰九欄。
-    //
-    //    點解會咁：R-043／R-045 把九個本來「介面填」嘅欄位改成「內容表
-    //    為來源」。第三種模式規則 2 係「冇覆寫嘅欄位自動跟隨內容表最新
-    //    值」——而全新分頁係空嘅，所以「最新值」就係空白。
-    //
-    //    現時嘅分頁層空白保護擋唔到：佢只擋「整張分頁全空」，一旦有人
-    //    填咗其中一個主日，其餘主日就唔再受保護。
-    //
-    //    ⚠️ 只喺**新建**嗰陣做。已經存在嘅分頁一格都唔可以覆蓋——
-    //    覆蓋就等於用週報嘅舊值蓋走同工啱啱喺內容表填嘅嘢。
-    if (ensured.created && isOverridableContentTab_(tabDef)) {
-      var filled = backfillContentTabFromWeeks_(ensured.sheet, tabDef, serviceDates);
-      if (filled > 0) {
-        backfilledTabs.push({ tabName: tabDef.tabName, rows: filled });
-      }
     }
   });
 
@@ -325,86 +360,25 @@ function buildOrRefreshContentSheet_(quarterId, options) {
     seededSample: seededSample,
     sharingApplied: sharingApplied,
     sharingError: sharingError,
-    backfilledTabs: backfilledTabs
+    migration: migrationPlan
   };
 }
 
 /**
- * 用途：這一張分頁是不是**第三種模式**（內容表為來源、介面可覆寫）。
- *   **純函式。**
- *
- *   ⚠️ 由 `contentImportTargets_()` 的 `overridable` 推出來，**不在這裏
- *   另抄一份分頁名單**——抄一份就多一個會不同步的地方。
+ * 用途：「已登記但開不到」的內容表的說明（建立／刷新與預覽共用一句）。純函式。
  * Args:
- *   tabDef {Object} `contentSheetTabDefs_()` 其中一項。
+ *   quarterId {string} 季度 ID。
+ *   fileId {string} ContentSheets 登記的檔案 ID（只顯示開頭幾個字）。
  * Returns:
- *   {boolean}
+ *   {string}
+ * Raises:
+ *   （無）
  */
-function isOverridableContentTab_(tabDef) {
-  var name = String((tabDef || {}).tabName || '');
-  var hit = false;
-  contentImportTargets_().forEach(function (def) {
-    if (def.tabName === name && def.overridable === true) hit = true;
-  });
-  return hit;
-}
-
-/**
- * 用途：**§4.0 的核心**——把 `BulletinWeeks` 該季現有的值，逐行回填到一張
- *   **剛剛建立**的第三種模式分頁。
- *
- *   ⚠️ 這一步做錯的代價是**清空真實資料**：不回填的話，下一次整季匯入
- *   會把那九欄全部變成空白（新分頁是空的，而規則 2 是「沒有覆寫就跟隨
- *   內容表最新值」）。
- *
- *   ⚠️ **全空的主日不寫行。** 整季只有一個主日是浸禮合堂，其餘十二個
- *   主日六欄全空——寫十二行空白落去只會令幹事以為要填。
- * Args:
- *   sheet {Sheet} 剛剛建立的分頁。
- *   tabDef {Object} `contentSheetTabDefs_()` 其中一項。
- *   serviceDates {string[]} 該季主日。
- * Returns:
- *   {number} 回填了幾多行。
- */
-function backfillContentTabFromWeeks_(sheet, tabDef, serviceDates) {
-  // 已經有資料就一格都不碰——這一支只准對全新的空分頁做。
-  if (sheet.getLastRow() >= CONTENT_SHEET_FIRST_DATA_ROW_) return 0;
-
-  var weekByDate = {};
-  readSheet(SHEETS.BULLETIN_WEEKS).forEach(function (w) {
-    weekByDate[formatIsoDate_(w.SERVICE_DATE)] = w;
-  });
-
-  var valueKeys = tabDef.keys.filter(function (k) {
-    return k !== 'SERVICE_DATE' && k !== 'ACTIVE' && k !== 'NOTES';
-  });
-
-  var rows = [];
-  (serviceDates || []).forEach(function (iso) {
-    var week = weekByDate[iso];
-    if (!week) return;
-
-    var row = { SERVICE_DATE: iso, ACTIVE: true, NOTES: '' };
-    var hasAny = false;
-    valueKeys.forEach(function (key) {
-      var v = String(week[key] === null || week[key] === undefined ? '' : week[key]).trim();
-      row[key] = v;
-      if (v !== '') hasAny = true;
-    });
-
-    if (hasAny) rows.push(row);
-  });
-
-  if (rows.length === 0) return 0;
-  writeContentRows_(sheet, tabDef.keys, rows, CONTENT_SHEET_FIRST_DATA_ROW_);
-  appendAuditLog_({
-    action: 'CONTENT_SHEET_BACKFILL',
-    sheetName: SHEETS.CONTENT_SHEETS, rowKey: tabDef.tabName,
-    newValue: String(rows.length),
-    notes: '新分頁「' + tabDef.tabName + '」首次建立，由 BulletinWeeks 回填 '
-      + rows.length + ' 行現有資料——不回填的話，下一次匯入會把那些欄位清空。'
-  });
-  return rows.length;
+function contentSheetFileMissingMessage_(quarterId, fileId) {
+  return 'ContentSheets 已登記季度「' + quarterId + '」的內容表（檔案 ID 開頭 '
+    + maskContentFileId_(fileId) + '），但現在無法開啟——可能已被刪除、'
+    + '移到沒有權限的位置，或者 ID 不正確。請人手確認該檔案，或將 ContentSheets '
+    + '該一行的「有效」改為 FALSE，然後再按一次建立。';
 }
 
 /**
@@ -709,7 +683,17 @@ function autoCreateContentSheetsForUpcomingQuarters_() {
     }
 
     var built = buildOrRefreshContentSheet_(qid);
-    if (!built.ok) { result.skipped.push(qid); return; }
+    if (!built.ok) {
+      // 內容表 v2：舊版內容表要人手移轉（先看預覽），自動流程略過並留一筆紀錄（照 RETENTION_NEEDS_CONFIRMATION 的先例）。
+      if (built.reason === 'NEEDS_MIGRATION') {
+        appendErrorLog_({
+          source: ERROR_LOG_SOURCE.TRIGGER, functionName: 'autoCreateContentSheetsForUpcomingQuarters_',
+          errorCode: 'CONTENT_SHEET_NEEDS_MIGRATION', message: built.message
+        });
+      }
+      result.skipped.push(qid);
+      return;
+    }
     if (built.created) result.created.push(qid);
 
     var invite = sendContentSheetInvite_(qid);
@@ -751,10 +735,13 @@ function recordContentSheetInviteFingerprint_(quarterId, fingerprint) {
 // =====================================================================
 
 /**
- * 用途：選單項目「建立本季內容表」嘅處理函式。
+ * 用途：選單項目「建立本季內容表」嘅處理函式。內容表 v2 起先顯示預覽（`previewContentSheetBuild_()`），
+ *   撳「是」才建立／刷新（舊版內容表會移轉）。
  * Args: （無）
  * Returns:
  *   {void}
+ * Raises:
+ *   （無）失敗時寫 `ErrorLog` 並用對話框顯示。
  */
 function menuCreateContentSheet_() {
   var ui = SpreadsheetApp.getUi();
@@ -774,7 +761,20 @@ function menuCreateContentSheet_() {
       return;
     }
 
-    var result = buildOrRefreshContentSheet_(quarterId);
+    // 內容表 v2：撳之前先講會做甚麼（建立還是刷新、會不會移轉、移轉會搬甚麼），與填寫介面
+    //    「季度作業」同一份預覽（事故四十七：撳之前要講）。
+    var preview = previewContentSheetBuild_(quarterId);
+    if (!preview.ok) {
+      ui.alert('未能建立內容表', preview.message, ui.ButtonSet.OK);
+      return;
+    }
+    var confirmed = ui.alert('建立／刷新本季內容表', preview.lines.join('\n') + '\n\n確定要繼續嗎？', ui.ButtonSet.YES_NO);
+    if (confirmed !== ui.Button.YES) {
+      ui.alert('已取消', '一格都沒有寫。', ui.ButtonSet.OK);
+      return;
+    }
+
+    var result = buildOrRefreshContentSheet_(quarterId, { migrate: true });
     if (!result.ok) {
       ui.alert('未能建立內容表', result.message, ui.ButtonSet.OK);
       return;
@@ -823,14 +823,12 @@ function buildContentSheetResultLines_(result) {
     }
   }
 
-  // ⚠️ §4.0：回填了幾多行一定要講出來。幹事撳之前那一刻不知道系統會
-  //    幫他填東西入內容表，見到之後會以為同工已經填過。
-  if ((result.backfilledTabs || []).length > 0) {
+  // ⚠️ 內容表 v2：移轉（或新建時預先開好的行）寫了甚麼一定要講出來。幹事見到崇拜程序多了
+  //    內容，會以為是同工已經填過。
+  var migrationLines = buildContentSheetMigrationLines_(result.migration, { applied: true, created: result.created });
+  if (migrationLines.length > 0) {
     lines.push('');
-    result.backfilledTabs.forEach(function (b) {
-      lines.push('已由週報回填「' + b.tabName + '」' + b.rows + ' 行現有資料——'
-        + '那幾欄本來就已經填好，回填之後匯入才不會把它們清空。');
-    });
+    migrationLines.forEach(function (line) { lines.push(line); });
   }
 
   lines.push('');

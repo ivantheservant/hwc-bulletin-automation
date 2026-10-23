@@ -1140,8 +1140,8 @@ var FILL_SYNC_STATUS = Object.freeze({
  */
 var CONTENT_SHEET_READONLY_FIELDS = Object.freeze({
   // BulletinWeeks 的機器鍵。
+  // 內容表 v2：宣召兩欄併入「崇拜程序」之後改為第三種模式（可覆寫），不再在這裏（15 → 13 項）。
   WEEK: Object.freeze([
-    'CALL_REF', 'CALL_TEXT',
     'ATT_ENG_WORSHIP', 'ATT_CANE_WORSHIP', 'ATT_CANN_WORSHIP', 'ATT_MAN_WORSHIP',
     'ATT_ENG_PRAYER', 'ATT_CANE_PRAYER', 'ATT_CANN_PRAYER', 'ATT_MAN_PRAYER',
     'ATT_ENG_CHILD', 'ATT_CANE_CHILD', 'ATT_CANN_CHILD', 'ATT_MAN_CHILD',
@@ -1170,7 +1170,9 @@ var CONTENT_SHEET_READONLY_FIELDS = Object.freeze({
 var CONTENT_SHEET_OVERRIDABLE_FIELDS = Object.freeze([
   // R-043：崇拜程序分頁
   'SCRIPTURE_REF', 'SERMON_TITLE', 'RESPONSE_HYMN', 'CHOIR_TITLE',
-  // R-045：浸禮合堂分頁（次序同 baptismBoxFieldDefs_()）
+  // 內容表 v2（決定 4）：崇拜程序新加的四欄（宣召兩欄由唯讀改為可覆寫）
+  'PRELUDE', 'CALL_REF', 'CALL_TEXT', 'HYMN_PRAISE',
+  // R-045：浸禮六欄（內容表 v2 起亦在崇拜程序分頁；次序同 baptismBoxFieldDefs_()）
   'BAPTISM_OFFICIANT', 'MEMBERSHIP_OFFICIANT', 'CHILD_DEDICATION_OFFICIANT',
   'BAPTISM_MEMBERS', 'MEMBERSHIP_MEMBERS', 'CHILD_DEDICATION_CHILDREN'
 ]);
@@ -1180,8 +1182,7 @@ var CONTENT_SHEET_OVERRIDABLE_FIELDS = Object.freeze([
  * 來說沒有意義。沒有列出的鍵會原樣顯示機器鍵（總好過不講）。
  */
 var CONTENT_SHEET_READONLY_LABELS = Object.freeze({
-  CALL_REF: '宣召出處',
-  CALL_TEXT: '宣召經文',
+  // 內容表 v2：宣召兩欄已改為可覆寫，名稱移到 webAppWeekFieldLabels_() 的短表。
   ATTENDANCE_DATE: '人數統計日期',
   ATT_ENG_WORSHIP: '英語堂崇拜人數',
   ATT_CANE_WORSHIP: '粵語堂主堂崇拜人數',

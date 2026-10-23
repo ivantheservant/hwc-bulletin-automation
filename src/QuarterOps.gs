@@ -225,8 +225,9 @@ function runCreateBlankWeeks_(quarterId) {
  *   **唯讀，一格不寫、一個檔案都不建。**
  *
  *   ⚠️ 「會建立」與「會刷新」對幹事是兩件很不同的事：後者的意思是
- *   「同工已經填落去的東西一格都不會動」。不講清楚的話，撳之前那一刻
- *   沒有人知道自己在做哪一件。
+ *   「同工已經填落去的東西一格都不會動」。不講清楚的話，按之前那一刻
+ *   沒有人知道自己在做哪一件。內容表 v2 起亦講明會不會移轉、移轉會搬甚麼
+ *   （與執行共用 `planContentSheetV2Migration_()`）。
  * Args:
  *   quarterId {string}
  * Returns:
@@ -260,23 +261,42 @@ function previewContentSheetBuild_(quarterId) {
   var existing = findContentSheetRow_(qid);
   var lines = ['季度：' + qid, '本季主日：' + serviceDates.length + ' 個'];
 
-  // ⚠️ §4.0：如果有第三種模式的分頁尚未建立，刷新時會由 BulletinWeeks
-  //    回填現有資料。撳之前一定要講——幹事不知道系統會幫他填東西入內容表，
-  //    見到之後會以為同工已經填過。
-  var willBackfill = previewContentTabBackfill_(qid, existing, serviceDates);
-  if (willBackfill.length > 0) {
-    lines.push('');
-    willBackfill.forEach(function (b) {
-      lines.push('將會新建分頁「' + b.tabName + '」，並由週報回填 ' + b.rows + ' 行現有資料。');
+  // 內容表 v2：用與「建立／刷新」同一個讀取函式與同一個 planner 算移轉計畫（bug class 120），
+  //    預覽講的數字就是確定之後真正寫的數字。
+  var migration;
+  if (existing) {
+    var spreadsheet = openContentSpreadsheet_(existing.FILE_ID);
+    if (!spreadsheet) {
+      return {
+        ok: false, quarterId: qid, title: title, reason: 'FILE_MISSING', lines: [],
+        message: contentSheetFileMissingMessage_(qid, existing.FILE_ID)
+      };
+    }
+    migration = planContentSheetV2Migration_(Object.assign(readContentSheetV2Inputs_(spreadsheet),
+      { serviceDates: serviceDates, created: false }));
+  } else {
+    migration = planContentSheetV2Migration_({
+      serviceDates: serviceDates, worship: { exists: false, headerKeys: [], rows: [] }, legacy: [],
+      weeks: readSheet(SHEETS.BULLETIN_WEEKS), created: true
     });
-    lines.push('（那幾欄本來就已經填好，回填之後匯入才不會把它們清空。）');
+  }
+  if (!migration.ok) {
+    return { ok: false, quarterId: qid, title: title, reason: migration.reason, lines: [], message: migration.message };
   }
 
   if (existing) {
     lines.push('');
     lines.push('這一季已經有內容表，所以是「刷新」，不是重建。');
     lines.push('會刷新：欄位、日期下拉選單、版面。');
-    lines.push('⚠️ 同工已經填落去的資料一格都不會改。');
+    if (migration.needsMigration) {
+      lines.push('');
+      buildContentSheetMigrationLines_(migration, { applied: false, created: false }).forEach(function (l) { lines.push(l); });
+      lines.push('⚠️ 除了上面列出的空白格與新增行，同工已經填落去的資料一格都不會改。');
+    } else {
+      lines.push('已經是新版，沒有需要移轉。');
+      buildContentSheetMigrationLines_(migration, { applied: false, created: false }).forEach(function (l) { lines.push(l); });
+      lines.push('⚠️ 同工已經填落去的資料一格都不會改。');
+    }
     lines.push('現有連結：' + String(existing.FILE_URL || '（沒有記錄）'));
   } else {
     lines.push('');
@@ -284,6 +304,7 @@ function previewContentSheetBuild_(quarterId) {
     lines.push('建立之後會把連結記入 ContentSheets，並自動設定分享權限'
       + (config.domain ? ('（' + config.domain + ' 網域內可編輯）')
         : ('（⚠️ 未設定 ' + CONFIG_KEYS.CONTENT_SHEET_DOMAIN + '，要人手分享）')));
+    buildContentSheetMigrationLines_(migration, { applied: false, created: true }).forEach(function (l) { lines.push(l); });
   }
 
   return {
@@ -292,67 +313,10 @@ function previewContentSheetBuild_(quarterId) {
       exists: Boolean(existing), willCreate: !existing,
       serviceDateCount: serviceDates.length,
       fileUrl: existing ? String(existing.FILE_URL || '') : '',
-      backfillTabs: willBackfill
+      needsMigration: Boolean(existing) && migration.needsMigration,
+      migration: contentSheetPlanHasWrites_(migration) ? migration.counts : null
     }
   };
-}
-
-/**
- * 用途：預覽「刷新會回填幾多行」。**唯讀，一格不寫、一張分頁都不建。**
- *
- *   ⚠️ 數法要跟 `backfillContentTabFromWeeks_()` 一模一樣（該季有週報、
- *   而且該分頁那幾欄至少有一格非空的主日），否則預覽講 8 行、實際回填
- *   7 行，沒有人查得出差在哪裏。
- * Args:
- *   quarterId {string}
- *   contentSheetRow {?Object} `findContentSheetRow_()` 的結果。
- *   serviceDates {string[]}
- * Returns:
- *   {{tabName:string, rows:number}[]}
- */
-function previewContentTabBackfill_(quarterId, contentSheetRow, serviceDates) {
-  var out = [];
-  var spreadsheet = null;
-  if (contentSheetRow) {
-    try {
-      spreadsheet = openContentSpreadsheet_(contentSheetRow.FILE_ID);
-    } catch (err) {
-      spreadsheet = null;
-    }
-  }
-
-  var weekByDate = {};
-  readSheet(SHEETS.BULLETIN_WEEKS).forEach(function (w) {
-    weekByDate[formatIsoDate_(w.SERVICE_DATE)] = w;
-  });
-
-  contentSheetTabDefs_().forEach(function (tabDef) {
-    if (!isOverridableContentTab_(tabDef)) return;
-
-    // 分頁已經存在（而且有資料）就不會回填。開不到檔案時當成「會新建」——
-    // 寧可多講一句，好過撳完先發現系統幫你填咗嘢。
-    if (spreadsheet) {
-      var sheet = spreadsheet.getSheetByName(tabDef.tabName);
-      if (sheet && sheet.getLastRow() >= CONTENT_SHEET_FIRST_DATA_ROW_) return;
-    }
-
-    var valueKeys = tabDef.keys.filter(function (k) {
-      return k !== 'SERVICE_DATE' && k !== 'ACTIVE' && k !== 'NOTES';
-    });
-    var count = 0;
-    (serviceDates || []).forEach(function (iso) {
-      var week = weekByDate[iso];
-      if (!week) return;
-      var hasAny = valueKeys.some(function (key) {
-        return String(week[key] === null || week[key] === undefined ? '' : week[key]).trim() !== '';
-      });
-      if (hasAny) count++;
-    });
-
-    if (count > 0) out.push({ tabName: tabDef.tabName, rows: count });
-  });
-
-  return out;
 }
 
 /**
@@ -368,7 +332,8 @@ function runContentSheetBuild_(quarterId) {
   if (guard) return guard;
 
   var qid = String(quarterId).trim();
-  var result = buildOrRefreshContentSheet_(qid);
+  // 內容表 v2：填寫介面已經先給人看過預覽（apiPreviewContentSheetBuild），所以舊版內容表照樣移轉。
+  var result = buildOrRefreshContentSheet_(qid, { migrate: true });
   if (!result.ok) {
     return {
       ok: false, quarterId: qid, title: title,
@@ -392,7 +357,9 @@ function runContentSheetBuild_(quarterId) {
       serviceDateCount: result.serviceDateCount,
       fileUrl: String(result.fileUrl || ''),
       sharingApplied: result.sharingApplied === true,
-      sharingError: String(result.sharingError || '')
+      sharingError: String(result.sharingError || ''),
+      // 內容表 v2：移轉（或預先開好的行）寫了幾多，與預覽 summary.migration 同一個形狀，可以直接對數。
+      migration: contentSheetPlanHasWrites_(result.migration) ? result.migration.counts : null
     }
   };
 }

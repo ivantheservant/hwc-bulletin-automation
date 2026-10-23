@@ -190,6 +190,106 @@ function readContentTabHeaderKeys_(sheet, n) {
 }
 
 /**
+ * 用途：內容表 v2：讀一張分頁第 3 行起全部資料（頭 `n` 欄）。純 IO。欄數夾住 `getMaxColumns()`，
+ *   不夠的欄當作空白，每一行補足 `n` 格。
+ * Args:
+ *   sheet {Sheet} 內容表其中一張分頁。
+ *   n {number} 要讀幾欄。
+ * Returns:
+ *   {Array[]} 由第 3 行開始的原始格值（可以有 Date 物件，由 `parseContentTabRows_()` 處理）。
+ * Raises:
+ *   Error 讀取失敗時原樣拋出。
+ */
+function readContentTabDataValues_(sheet, n) {
+  var want = Math.max(0, Number(n) || 0);
+  var lastRow = sheet.getLastRow();
+  if (want === 0 || lastRow < CONTENT_SHEET_FIRST_DATA_ROW_) return [];
+  var available = Math.min(want, Math.max(0, Number(sheet.getMaxColumns()) || 0));
+  var numRows = lastRow - CONTENT_SHEET_FIRST_DATA_ROW_ + 1;
+  var values = available > 0 ? sheet.getRange(CONTENT_SHEET_FIRST_DATA_ROW_, 1, numRows, available).getValues() : [];
+  var out = [];
+  for (var r = 0; r < numRows; r++) {
+    var row = (values[r] || []).slice();
+    while (row.length < want) row.push('');
+    out.push(row);
+  }
+  return out;
+}
+
+/**
+ * 用途：內容表 v2：分頁欄數不夠 `n` 就在最右邊補欄（`insertColumnsAfter`）。已經夠的一格都不動。
+ * Args:
+ *   sheet {Sheet} 分頁。
+ *   n {number} 至少要有幾欄。
+ * Returns:
+ *   {number} 補了幾欄。
+ * Raises:
+ *   Error 插欄失敗時原樣拋出。
+ */
+function ensureContentTabColumns_(sheet, n) {
+  var have = Number(sheet.getMaxColumns()) || 0;
+  var need = Number(n) || 0;
+  if (have >= need) return 0;
+  sheet.insertColumnsAfter(Math.max(have, 1), need - have);
+  return need - have;
+}
+
+/**
+ * 用途：內容表 v2：把一段範圍設成純文字格式（`@`）。寫入之前用，否則「3:16」之類的值會被試算表
+ *   轉成時間。
+ * Args:
+ *   sheet {Sheet} 分頁。
+ *   row {number}　col {number}　numRows {number}　numCols {number} 範圍（1 起算）。
+ * Returns:
+ *   {void}
+ * Raises:
+ *   Error 設定失敗時原樣拋出。
+ */
+function setContentRangePlainText_(sheet, row, col, numRows, numCols) {
+  if (numRows < 1 || numCols < 1) return;
+  sheet.getRange(row, col, numRows, numCols).setNumberFormat('@');
+}
+
+/**
+ * 用途：內容表 v2：寫一格文字——先設純文字格式，再寫入（已經過 `sanitizeCellText_()`）。
+ * Args:
+ *   sheet {Sheet} 分頁。
+ *   rowNo {number}　colNo {number} 位置（1 起算）。
+ *   value {string} 要寫的文字。
+ * Returns:
+ *   {void}
+ * Raises:
+ *   Error 寫入失敗時原樣拋出。
+ */
+function writeContentCellAsText_(sheet, rowNo, colNo, value) {
+  var cell = sheet.getRange(rowNo, colNo, 1, 1);
+  cell.setNumberFormat('@');
+  cell.setValue(sanitizeCellText_(value));
+}
+
+/**
+ * 用途：內容表 v2：停用一張已併入「崇拜程序」的舊分頁：改名、隱藏、A1 加註解、設警告式保護。
+ *   **不刪**，資料原封不動（決定 14）。
+ * Args:
+ *   sheet {Sheet} 舊分頁。
+ *   newName {string} 新名稱（呼叫方已確保沒有撞名）。
+ *   note {string} A1 註解。
+ *   protectionDescription {string} 保護的說明。
+ * Returns:
+ *   {void}
+ * Raises:
+ *   Error 任何一步失敗時原樣拋出（呼叫方的次序保證失敗時下一次仍然判定要移轉）。
+ */
+function retireContentTab_(sheet, newName, note, protectionDescription) {
+  sheet.setName(newName);
+  sheet.hideSheet();
+  var cell = sheet.getRange(1, 1, 1, 1);
+  var oldNote = String(cell.getNote() || '');
+  cell.setNote(note + (oldNote && oldNote.indexOf(note) !== 0 ? '\n\n' + oldNote : ''));
+  sheet.protect().setDescription(protectionDescription).setWarningOnly(true);
+}
+
+/**
  * 用途：把一批「以機器鍵為 key 嘅資料列」寫入內容表某張分頁嘅指定位置。
  * Args:
  *   sheet {Sheet} 目標分頁。

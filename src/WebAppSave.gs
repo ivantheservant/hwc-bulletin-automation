@@ -112,8 +112,8 @@ function webAppWeekFieldKeys_() {
  *   錯誤訊息要用。使用者看不懂機器鍵，訊息講「PRELUDE」等於沒有講。
  *
  *   名稱的來源只有三處，不另抄第二份：
- *     - 宣召出處／宣召經文／人數統計日期／十二個人數欄：重用
- *       `Constants.gs` 的 `CONTENT_SHEET_READONLY_LABELS`；
+ *     - 人數統計日期／十二個人數欄：重用 `Constants.gs` 的 `CONTENT_SHEET_READONLY_LABELS`
+ *       （內容表 v2 起宣召兩欄可覆寫，名稱在下面的短表）；
  *     - 浸禮合堂副框六欄：重用 `baptismBoxFieldDefs_()` 的 `label`；
  *     - 其餘欄位：下面這張短表（與 `src/ui/Index.html` 的標籤一致）。
  *
@@ -126,6 +126,7 @@ function webAppWeekFieldKeys_() {
 function webAppWeekFieldLabels_() {
   var labels = {
     PAGE_TITLE: '程序表大標題', PROGRAM_TEMPLATE_ID: '程序範本', PRELUDE: '序樂',
+    CALL_REF: '宣召出處', CALL_TEXT: '宣召經文',
     RECITATION_OVERRIDE: '誦讀（覆寫）',
     HYMN_PRAISE: '詩歌頌讚', CHOIR_LABEL: '詩班項目名稱', CHOIR_TITLE: '詩班曲名',
     SCRIPTURE_REF: '讀經經文', SERMON_TITLE: '證道講題', RESPONSE_HYMN: '回應詩歌',

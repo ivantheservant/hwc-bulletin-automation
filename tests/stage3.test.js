@@ -582,18 +582,19 @@ test('程式碼裏（註解以外）再沒有地方呼叫 refreshSpeakerFormDate
 console.log('\n匯入的分頁篩選');
 
 test('匯入的分頁篩選：previewContentImport_ 的 tabNames 只處理選定的分頁，其他分頁一格都不動', function () {
+  // 內容表 v2：「宣召」已併入「崇拜程序」，篩選外的分頁改用「崇拜人數」。
   const env = makeContentEnv({
     content: {
       崇拜程序: [{ SERVICE_DATE: '2027-10-10', SERMON_TITLE: '新講題', ACTIVE: 'TRUE' }],
-      宣召: [{ SERVICE_DATE: '2027-10-10', CALL_REF: '新出處', CALL_TEXT: '新經文', ACTIVE: 'TRUE' }]
+      崇拜人數: [{ SERVICE_DATE: '2027-10-03', ATT_ENG_WORSHIP: '57', ACTIVE: 'TRUE' }]
     }
   });
   const only = env.sandbox.applyContentImport_(contentEnv.QUARTER_ID, { isoDate: '2027-10-10', tabNames: [TAB] });
   assert.strictEqual(only.ok, true, JSON.stringify(only));
   assert.strictEqual(contentWeekOf(env, '2027-10-10').SERMON_TITLE, '新講題');
-  assert.strictEqual(contentWeekOf(env, '2027-10-10').CALL_REF || '', '', '「宣召」分頁不在篩選內，一格都不動');
+  assert.strictEqual(contentWeekOf(env, '2027-10-10').ATT_ENG_WORSHIP || '', '', '「崇拜人數」分頁不在篩選內，一格都不動');
   const all = env.sandbox.applyContentImport_(contentEnv.QUARTER_ID, { isoDate: '2027-10-10' });
-  assert.strictEqual(contentWeekOf(env, '2027-10-10').CALL_REF, '新出處', '不篩選時照舊匯入全部分頁');
+  assert.strictEqual(contentWeekOf(env, '2027-10-10').ATT_ENG_WORSHIP, '57', '不篩選時照舊匯入全部分頁');
   assert.ok(all.ok);
 });
 

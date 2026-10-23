@@ -308,7 +308,8 @@ test('真正入口：第一次儲存（lastSavedAt 皆空）→ 成功，仍然�
   const weekRows = auditRows.filter(function (r) { return r.ACTION === 'WEBAPP_SAVE_WEEK'; });
   const overrideRows = auditRows.filter(function (r) { return r.ACTION === 'FIELD_OVERRIDE_SET'; });
   assert.strictEqual(weekRows.length, 4, '前提：四個欄位各一筆');
-  assert.strictEqual(overrideRows.length, 2, '前提：講題、讀經經文各多一筆覆寫記錄');
+  // 內容表 v2：詩歌頌讚併入內容表「崇拜程序」，亦是第三種模式，所以多一筆。
+  assert.strictEqual(overrideRows.length, 3, '前提：講題、讀經經文、詩歌頌讚各多一筆覆寫記錄');
   assert.strictEqual(result.changedFieldCount, weekRows.length,
     'changedFieldCount 是使用者改了幾個欄位，由同一批 AuditLog 條目數出來，覆寫記錄不計');
   assert.strictEqual(result.sideRecordCount, overrideRows.length);

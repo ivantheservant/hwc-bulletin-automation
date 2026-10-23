@@ -211,13 +211,15 @@ test('planWeekSnapshotRestore_：該版本有、現在完全沒有那一行的�
   assert.strictEqual(plan.fieldChanges.length, 0);
 });
 
-test('planWeekSnapshotRestore_：內容表接管的欄位與系統欄不在還原範圍', function () {
+// 內容表 v2：宣召兩欄由「內容表接管、唯讀」改為「內容表為來源、可覆寫」，與序樂一樣照樣還原；
+// 仍然唯讀的是十二個人數欄與人數統計日期。
+test('planWeekSnapshotRestore_：內容表接管的欄位（人數）與系統欄不在還原範圍；可覆寫的宣召照樣還原', function () {
   const sb = makeEnv().sandbox;
   const plan = sb.planWeekSnapshotRestore_({
     week: { ATT_ENG_WORSHIP: '99', CALL_REF: '舊', STATUS: 'SENT', DOC_ID: 'OLD', PRELUDE: '舊序樂' },
     dutyOverrides: [], fieldOverrides: []
   }, { weekRow: { ATT_ENG_WORSHIP: '1', CALL_REF: '新', STATUS: 'DRAFT', DOC_ID: 'NEW', PRELUDE: '新序樂' }, dutyRowsAll: [], fieldRowsAll: [] });
-  assert.deepStrictEqual(plain(plan.fieldChanges.map(function (c) { return c.field; })), ['PRELUDE']);
+  assert.deepStrictEqual(plain(plan.fieldChanges.map(function (c) { return c.field; })), ['PRELUDE', 'CALL_REF']);
 });
 
 // =====================================================================
@@ -578,10 +580,12 @@ test('apiListWeekSnapshots：格式不對的日期 → 錯誤；WeekSnapshots �
 console.log('\n看差異與還原');
 
 /** 造一個有兩次儲存歷史的環境：S0 → S1 → S2。 */
+// 內容表 v2：序樂改為第三種模式（存一次就多一筆欄位覆寫），所以「純介面欄位」改用「詩班項目名稱」
+// （決定 4：只在填寫介面填）。下面幾條測試驗的是還原機制本身，用哪一個純介面欄位都一樣。
 function makeHistoryEnv() {
-  const env = makeEnv({ week: { PRELUDE: 'P0', SERMON_TITLE: '內容表講題', STATUS: 'DRAFT', DOC_ID: 'DOC_KEEP' } });
-  save(env, D, { PRELUDE: 'P1' }, { dutyEdits: CHAIR_EDIT('王某') });
-  save(env, D, { PRELUDE: 'P2', SERMON_TITLE: '自己改的' }, { dutyEdits: CHAIR_EDIT('李某') });
+  const env = makeEnv({ week: { CHOIR_LABEL: 'P0', SERMON_TITLE: '內容表講題', STATUS: 'DRAFT', DOC_ID: 'DOC_KEEP' } });
+  save(env, D, { CHOIR_LABEL: 'P1' }, { dutyEdits: CHAIR_EDIT('王某') });
+  save(env, D, { CHOIR_LABEL: 'P2', SERMON_TITLE: '自己改的' }, { dutyEdits: CHAIR_EDIT('李某') });
   return env;
 }
 
@@ -594,8 +598,8 @@ test('看差異（apiDiffWeekSnapshot）：逐項列出版本值與現在值，�
   const rows = resp.data.rows;
   const byLabel = {};
   rows.forEach(function (r) { byLabel[r.label] = r; });
-  assert.strictEqual(byLabel['序樂'].snapshotValue, 'P1');
-  assert.strictEqual(byLabel['序樂'].currentValue, 'P2');
+  assert.strictEqual(byLabel['詩班項目名稱'].snapshotValue, 'P1');
+  assert.strictEqual(byLabel['詩班項目名稱'].currentValue, 'P2');
   assert.strictEqual(byLabel['證道講題'].snapshotValue, '內容表講題');
   assert.strictEqual(byLabel['證道講題'].currentValue, '自己改的');
   const duty = rows.filter(function (r) { return r.kind === 'DUTY'; })[0];
@@ -610,7 +614,7 @@ test('看差異（apiDiffWeekSnapshot）：逐項列出版本值與現在值，�
   assert.strictEqual(resp.data.noteLine,
     '家事報告、代禱、團契、財政以內容表為準，不會還原；要改請到內容表（試算表本身也有版本記錄）。');
   assert.ok(resp.data.lastSavedAt, '要帶出鎖定值');
-  rows.forEach(function (r) { assert.ok(r.label.indexOf('PRELUDE') === -1 && r.label.indexOf('SERMON_TITLE') === -1, '不可以只講機器鍵：' + r.label); });
+  rows.forEach(function (r) { assert.ok(r.label.indexOf('CHOIR_LABEL') === -1 && r.label.indexOf('SERMON_TITLE') === -1, '不可以只講機器鍵：' + r.label); });
   assertWrittenChinese(assert, '差異', rows.map(function (r) { return r.label; }).concat([resp.data.noteLine]));
 });
 
@@ -635,12 +639,12 @@ test('看差異：找不到的版本編號 → SNAPSHOT_NOT_FOUND；內容被改
   assert.ok(broken.error.message.indexOf('解析失敗') !== -1, broken.error.message);
   const restore = env.sandbox.apiRestoreWeekSnapshot({ isoDate: D, snapshotId: id });
   assert.strictEqual(restore.ok, false, '壞掉的版本不可以拿來還原');
-  assert.strictEqual(rowOf(env, D).PRELUDE, 'P2', '一格都沒有動');
+  assert.strictEqual(rowOf(env, D).CHOIR_LABEL, 'P2', '一格都沒有動');
 });
 
 test('還原（真入口 restoreWeekSnapshotFromWebApp_）：欄位只寫有差異的格、覆寫改回、先存 BEFORE_RESTORE、不刪行、系統欄不動', function () {
   const env = makeHistoryEnv();
-  const target = versionsOf(env, D)[0]; // S1：PRELUDE P1、覆寫 王某、沒有欄位覆寫
+  const target = versionsOf(env, D)[0]; // S1：CHOIR_LABEL P1、覆寫 王某、沒有欄位覆寫
   ageSaveToken(env, D);
   const diff = env.sandbox.diffWeekSnapshotForWebApp_(D, target.snapshotId);
   const dutyBefore = dutyRows(env).length;
@@ -649,10 +653,10 @@ test('還原（真入口 restoreWeekSnapshotFromWebApp_）：欄位只寫有差�
 
   const result = env.sandbox.restoreWeekSnapshotFromWebApp_({ isoDate: D, snapshotId: target.snapshotId, lastSavedAt: diff.lastSavedAt });
   assert.strictEqual(result.message.type, 'success', JSON.stringify(result.message));
-  assert.strictEqual(result.restoredFieldCount, 2, '序樂與證道講題兩格');
+  assert.strictEqual(result.restoredFieldCount, 2, '詩班項目名稱與證道講題兩格');
 
   const row = rowOf(env, D);
-  assert.strictEqual(row.PRELUDE, 'P1');
+  assert.strictEqual(row.CHOIR_LABEL, 'P1');
   assert.strictEqual(row.SERMON_TITLE, '內容表講題');
   assert.strictEqual(row.STATUS, 'DRAFT');
   assert.strictEqual(row.DOC_ID, 'DOC_KEEP', '系統欄不還原');
@@ -670,12 +674,12 @@ test('還原（真入口 restoreWeekSnapshotFromWebApp_）：欄位只寫有差�
   const safety = versionsOf(env, D).filter(function (v) { return v.reason === 'BEFORE_RESTORE'; });
   assert.strictEqual(safety.length, 1);
   assert.strictEqual(safety[0].snapshotId, result.safetySnapshotId);
-  assert.strictEqual(payloadOf(env, D, safety[0].snapshotId).week.PRELUDE, 'P2', '安全版本記的是還原之前的現況');
+  assert.strictEqual(payloadOf(env, D, safety[0].snapshotId).week.CHOIR_LABEL, 'P2', '安全版本記的是還原之前的現況');
 
   // AuditLog
   const restoreAudit = env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'WEEK_RESTORE'; });
   const keys = restoreAudit.map(function (r) { return r.SHEET_NAME + '|' + r.FIELD; });
-  assert.ok(keys.indexOf('BulletinWeeks|PRELUDE') !== -1, keys.join(','));
+  assert.ok(keys.indexOf('BulletinWeeks|CHOIR_LABEL') !== -1, keys.join(','));
   assert.ok(keys.indexOf('BulletinWeeks|SERMON_TITLE') !== -1);
   assert.ok(restoreAudit.some(function (r) { return r.SHEET_NAME === 'DutyOverride'; }));
   assert.ok(restoreAudit.some(function (r) { return r.SHEET_NAME === 'FieldOverride'; }));
@@ -688,7 +692,7 @@ test('還原可以再還原：回到「還原之前」那個安全版本，停�
   const result = env.sandbox.restoreWeekSnapshotFromWebApp_({ isoDate: D, snapshotId: s1.snapshotId });
   env.sandbox.restoreWeekSnapshotFromWebApp_({ isoDate: D, snapshotId: result.safetySnapshotId });
   const row = rowOf(env, D);
-  assert.strictEqual(row.PRELUDE, 'P2');
+  assert.strictEqual(row.CHOIR_LABEL, 'P2');
   assert.strictEqual(row.SERMON_TITLE, '自己改的');
   assert.strictEqual(dutyRows(env).length, 1);
   assert.strictEqual(dutyRows(env)[0].OVERRIDE_NAME, '李某');
@@ -701,7 +705,7 @@ test('還原到最舊的版本：版本裏沒有的事奉框覆寫全部停用�
   const env = makeHistoryEnv();
   const oldest = versionsOf(env, D)[1]; // S0：沒有任何覆寫
   env.sandbox.restoreWeekSnapshotFromWebApp_({ isoDate: D, snapshotId: oldest.snapshotId });
-  assert.strictEqual(rowOf(env, D).PRELUDE, 'P0');
+  assert.strictEqual(rowOf(env, D).CHOIR_LABEL, 'P0');
   assert.strictEqual(dutyRows(env).length, 1);
   assert.strictEqual(dutyRows(env)[0].ACTIVE, false);
 });
@@ -725,11 +729,11 @@ test('還原：別的分頁在看差異之後改過 → 拒絕（STALE），一�
   const target = versionsOf(env, D)[0];
   ageSaveToken(env, D);
   const diff = env.sandbox.diffWeekSnapshotForWebApp_(D, target.snapshotId);
-  save(env, D, { PRELUDE: '別人剛改的' });
+  save(env, D, { CHOIR_LABEL: '別人剛改的' });
   const resp = env.sandbox.apiRestoreWeekSnapshot({ isoDate: D, snapshotId: target.snapshotId, lastSavedAt: diff.lastSavedAt });
   assert.strictEqual(resp.ok, false);
   assert.strictEqual(resp.error.code, 'STALE');
-  assert.strictEqual(rowOf(env, D).PRELUDE, '別人剛改的');
+  assert.strictEqual(rowOf(env, D).CHOIR_LABEL, '別人剛改的');
   assert.strictEqual(versionsOf(env, D).filter(function (v) { return v.reason === 'BEFORE_RESTORE'; }).length, 0);
 });
 
@@ -747,18 +751,19 @@ test('還原：版本與現在一樣 → 什麼都不寫（不存安全版本、
 });
 
 test('還原不動內容表接管的欄位與四張清單', function () {
-  const env = makeEnv({ week: { PRELUDE: 'P0', ATT_ENG_WORSHIP: '10', CALL_REF: '舊宣召' } });
+  // 內容表 v2：宣召已改為可覆寫（照樣還原），內容表接管、不還原的週欄位改用兩個人數欄。
+  const env = makeEnv({ week: { PRELUDE: 'P0', ATT_ENG_WORSHIP: '10', ATT_CANE_WORSHIP: '舊人數' } });
   env.sandbox.createWeekSnapshot_(D, 'WEBAPP_SAVE');
   const snap = versionsOf(env, D)[0];
   // 之後內容表匯入改了內容表接管的欄位，幹事也改了序樂
   env.sandbox.writeBulletinWeekField_(D, 'ATT_ENG_WORSHIP', '99');
-  env.sandbox.writeBulletinWeekField_(D, 'CALL_REF', '新宣召');
+  env.sandbox.writeBulletinWeekField_(D, 'ATT_CANE_WORSHIP', '新人數');
   save(env, D, { PRELUDE: 'P9' });
   env.sandbox.restoreWeekSnapshotFromWebApp_({ isoDate: D, snapshotId: snap.snapshotId });
   const row = rowOf(env, D);
   assert.strictEqual(row.PRELUDE, 'P0', '可編輯欄位還原');
   assert.strictEqual(String(row.ATT_ENG_WORSHIP), '99', '以內容表為準，不還原');
-  assert.strictEqual(row.CALL_REF, '新宣召');
+  assert.strictEqual(row.ATT_CANE_WORSHIP, '新人數');
 });
 
 test('apiRestoreWeekSnapshot：工作表結構落後時拒絕，不寫任何一格', function () {
@@ -768,7 +773,7 @@ test('apiRestoreWeekSnapshot：工作表結構落後時拒絕，不寫任何一�
   const resp = env.sandbox.apiRestoreWeekSnapshot({ isoDate: D, snapshotId: target.snapshotId });
   assert.strictEqual(resp.ok, false);
   assert.strictEqual(resp.error.code, 'SCHEMA_OUTDATED');
-  assert.strictEqual(rowOf(env, D).PRELUDE, 'P2');
+  assert.strictEqual(rowOf(env, D).CHOIR_LABEL, 'P2');
 });
 
 // =====================================================================
@@ -897,11 +902,11 @@ test('重設（本季已有內容表）：由內容表重新匯入這一週，�
       { SERVICE_DATE: '2027-10-10', QUARTER_ID: contentEnv.QUARTER_ID, SERMON_TITLE: '另一週不可以動' }
     ],
     content: {
+      // 內容表 v2：宣召併入「崇拜程序」同一行。
       崇拜程序: [
-        { SERVICE_DATE: '2027-10-03', SERMON_TITLE: '內容表講題', ACTIVE: 'TRUE' },
+        { SERVICE_DATE: '2027-10-03', SERMON_TITLE: '內容表講題', CALL_REF: '內容表出處', CALL_TEXT: '內容表經文', ACTIVE: 'TRUE' },
         { SERVICE_DATE: '2027-10-10', SERMON_TITLE: '內容表另一週', ACTIVE: 'TRUE' }
-      ],
-      宣召: [{ SERVICE_DATE: '2027-10-03', CALL_REF: '內容表出處', CALL_TEXT: '內容表經文', ACTIVE: 'TRUE' }]
+      ]
     },
     config: { PRELUDE_DEFAULT: '預設序樂' }
   });
@@ -914,7 +919,10 @@ test('重設（本季已有內容表）：由內容表重新匯入這一週，�
   assert.strictEqual(result.message.type, 'success', JSON.stringify(result));
   assert.ok(result.importMessage.indexOf('已由內容表重新匯入') !== -1, result.importMessage);
   const row = contentWeekOf(env, '2027-10-03');
-  assert.strictEqual(row.PRELUDE, '預設序樂');
+  // 內容表 v2：序樂亦由內容表「崇拜程序」帶回——內容表那一格空白，週報那一格就是空白；
+  //    印出來的是預設序樂（applyPreludeDefault_，決定 11）。
+  assert.strictEqual(row.PRELUDE, '');
+  assert.strictEqual(env.sandbox.buildBulletinModel_('2027-10-03').weekFields.PRELUDE, '預設序樂');
   assert.strictEqual(row.SERMON_TITLE, '內容表講題', '覆寫停用之後，內容表的值回來了');
   assert.strictEqual(row.CALL_REF, '內容表出處', '內容表接管的欄位也由內容表帶回來');
   assert.strictEqual(contentWeekOf(env, '2027-10-10').SERMON_TITLE, '另一週不可以動', '只重設這一週');
@@ -1315,7 +1323,7 @@ test('G11-1 還原（真入口 restoreWeekSnapshotFromWebApp_）：顯示時間�
   });
   assert.strictEqual(result.message.type, 'success', JSON.stringify(result.message));
   assert.ok(result.message.text.indexOf('已還原到版本「（時間不明）（填寫介面儲存）」：') === 0, result.message.text);
-  assert.strictEqual(rowOf(env, D).PRELUDE, 'P1', '還原真的做完了');
+  assert.strictEqual(rowOf(env, D).CHOIR_LABEL, 'P1', '還原真的做完了');
   assert.ok(result.safetySnapshotId, '安全版本照存');
 
   const errors = env.sandbox.readSheet('ErrorLog').filter(function (r) { return r.ERROR_CODE === 'SNAPSHOT_LABEL_FAILED'; });
@@ -1330,7 +1338,7 @@ test('G11-2 經填寫介面 API（apiRestoreWeekSnapshot）同一情況 → 回 
     return env.sandbox.apiRestoreWeekSnapshot({ isoDate: D, snapshotId: target.snapshotId });
   });
   assert.strictEqual(resp.ok, true, JSON.stringify(resp.error));
-  assert.strictEqual(rowOf(env, D).PRELUDE, 'P1');
+  assert.strictEqual(rowOf(env, D).CHOIR_LABEL, 'P1');
 });
 
 test('G11-3 版本名稱排在任何寫入之前算（源碼次序：restoreVersionLabel_ 在 createWeekSnapshot_ 之前）', function () {

@@ -98,6 +98,11 @@ function buildBulletinModel_(isoDate) {
   //    CHOIR_TITLE 這幾欄，用未套覆寫的值就會印錯。
   week = applyFieldOverrides_(week, isoDate, readFieldOverrideIndexForDate_(isoDate));
 
+  // 內容表 v2（決定 11）：序樂空白時印 Config PRELUDE_DEFAULT。序樂改由內容表「崇拜程序」匯入之後，
+  //    內容表那一格空白就會把週報的序樂清空（以前預設值只在「建立本季空白週報」寫一次）。這裏只改
+  //    週報資料模型（印出來的值），不寫工作表；填寫介面讀的是工作表，照樣顯示空白。
+  week = applyPreludeDefault_(week, getConfig(CONFIG_KEYS.PRELUDE_DEFAULT, ''));
+
   // ⚠️ R-042：獻花兩欄接上職事表的 `FLOWER` 崗位。
   //
   //    `FLOWER` **一直都有讀入職事表快照**（所以分歧報告見到「獻花 #1」），
@@ -269,6 +274,26 @@ function emptyBulletinModel_(isoDate, overrides) {
     warnings: []
   };
   return Object.assign(base, overrides || {});
+}
+
+/**
+ * 用途：內容表 v2（決定 11）：序樂空白時改用預設序樂。純函式，不改傳入的物件。
+ * Args:
+ *   week {Object} 週報那一行（已套用欄位覆寫）。
+ *   preludeDefault {string} Config `PRELUDE_DEFAULT`。
+ * Returns:
+ *   {Object} 序樂有值、預設值空白、或者這一週根本沒有那一行（沒有 `PRELUDE` 這一欄）時原樣回傳；
+ *     否則回一份 `PRELUDE` 換成預設值的副本。
+ * Raises:
+ *   （無）
+ */
+function applyPreludeDefault_(week, preludeDefault) {
+  var w = week || {};
+  if (!Object.prototype.hasOwnProperty.call(w, 'PRELUDE')) return w;
+  var current = String(w.PRELUDE === null || w.PRELUDE === undefined ? '' : w.PRELUDE).trim();
+  var fallback = String(preludeDefault === null || preludeDefault === undefined ? '' : preludeDefault).trim();
+  if (current !== '' || fallback === '') return w;
+  return Object.assign({}, w, { PRELUDE: fallback });
 }
 
 /**

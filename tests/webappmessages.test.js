@@ -199,7 +199,7 @@ function makeG16Env() {
   return makeEnv({
     bulletinWeeks: [{
       SERVICE_DATE: G16_DATE, QUARTER_ID: '2027T4', WEEK_OF_MONTH: 1, STATUS: 'DRAFT',
-      RESPONSE_HYMN: '內容表的詩歌', PRELUDE: ''
+      RESPONSE_HYMN: '內容表的詩歌', PRELUDE: '', CHOIR_LABEL: ''
     }]
   });
 }
@@ -231,11 +231,13 @@ test('G16-1 真正入口 apiSaveWeek：只改一個內容表欄位（回應詩�
   assert.deepStrictEqual(JSON.parse(JSON.stringify(data.message)), { type: 'success', text: '已儲存，更新了 1 個欄位。' });
 });
 
-test('G16-2 真正入口 apiSaveWeek：改兩個（一個內容表欄位、一個普通欄位「序樂」）→「已儲存，更新了 2 個欄位。」', function () {
+// 內容表 v2：序樂併入內容表「崇拜程序」（第三種模式），不再是「普通欄位」；改用仍然只在填寫介面
+// 填的「詩班項目名稱」（決定 4）。
+test('G16-2 真正入口 apiSaveWeek：改兩個（一個內容表欄位、一個普通欄位「詩班項目名稱」）→「已儲存，更新了 2 個欄位。」', function () {
   var sb = makeG16Env();
   var data = g16Save(sb,
-    { RESPONSE_HYMN: '幹事改的詩歌', PRELUDE: '新序樂' },
-    { RESPONSE_HYMN: '內容表的詩歌', PRELUDE: '' });
+    { RESPONSE_HYMN: '幹事改的詩歌', CHOIR_LABEL: '詩班獻詩' },
+    { RESPONSE_HYMN: '內容表的詩歌', CHOIR_LABEL: '' });
   assert.strictEqual(g16Actions(sb).length, 3, '前提：兩個欄位加一筆覆寫記錄');
   assert.strictEqual(data.changedFieldCount, 2);
   assert.strictEqual(data.message.text, '已儲存，更新了 2 個欄位。');

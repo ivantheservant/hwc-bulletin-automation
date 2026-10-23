@@ -245,10 +245,12 @@ test('1e. 每一個唯讀欄位都有給人看的名稱（訊息不可以只講�
 // 2. 每一個唯讀欄位單獨送 → 整次拒絕、零寫入
 // =====================================================================
 
-test('2a. 十五個唯讀週欄位，逐個單獨送，全部被拒且一筆 AuditLog 都沒有', function () {
+// 內容表 v2：宣召兩欄併入「崇拜程序」之後改為第三種模式（可覆寫），唯讀週欄位由十五個變十三個
+// （十二個人數欄＋人數統計日期）。這裏釘死剛好十三個——多了或少了都要有人想過為甚麼。
+test('2a. 十三個唯讀週欄位，逐個單獨送，全部被拒且一筆 AuditLog 都沒有', function () {
   const env0 = makeEnv({});
   const keys = env0.sandbox.CONTENT_SHEET_READONLY_FIELDS.WEEK;
-  assert.ok(keys.length >= 15, '應該有十五個：' + keys.length);
+  assert.strictEqual(keys.length, 13, '應該有十三個：' + keys.length);
 
   const bad = [];
   keys.forEach(function (key) {
@@ -326,7 +328,7 @@ test('3b. 只送可寫欄位：照樣存得到（防線不可以擋錯人）', f
 test('3c. 唯讀欄位帶空值：不算送出，不會擋住整次儲存', function () {
   const env = makeEnv({});
   const r = attemptSave(env, basicPayload({
-    week: { ATT_ENG_WORSHIP: '', CALL_TEXT: '   ', SERMON_TITLE: '正常的講題' },
+    week: { ATT_ENG_WORSHIP: '', ATT_CANE_WORSHIP: '   ', SERMON_TITLE: '正常的講題' },
     announcements: []
   }));
   assert.strictEqual(r.rejected, false, r.message);
@@ -341,10 +343,10 @@ test('3c. 唯讀欄位帶空值：不算送出，不會擋住整次儲存', func
 test('4a. 訊息講得出是哪幾個欄位，而且講明「一格都沒有寫入」', function () {
   const env = makeEnv({});
   const r = attemptSave(env, basicPayload({
-    week: { ATT_ENG_WORSHIP: '99', CALL_REF: '詩篇 100' }
+    week: { ATT_ENG_WORSHIP: '99', ATT_CANE_WORSHIP: '120' }
   }));
   assert.ok(r.message.indexOf('英語堂崇拜人數') !== -1, r.message);
-  assert.ok(r.message.indexOf('宣召出處') !== -1, r.message);
+  assert.ok(r.message.indexOf('粵語堂主堂崇拜人數') !== -1, r.message);
   assert.ok(r.message.indexOf('一格都沒有寫入') !== -1, r.message);
   assert.ok(r.message.indexOf('重新匯入') !== -1, '要講清楚下一步做什麼');
 });
@@ -353,16 +355,29 @@ test('4b. 錯誤物件帶 readOnlyFields，呼叫方不需要靠解析文字', f
   const env = makeEnv({});
   let caught = null;
   try {
-    env.sandbox.saveWeekFromWebApp_(basicPayload({ week: { CALL_TEXT: '經文' } }));
+    env.sandbox.saveWeekFromWebApp_(basicPayload({ week: { ATT_MAN_CHILD: '10' } }));
   } catch (err) { caught = err; }
   assert.ok(caught);
-  assert.strictEqual(JSON.stringify(caught.readOnlyFields), JSON.stringify(['CALL_TEXT']));
+  assert.strictEqual(JSON.stringify(caught.readOnlyFields), JSON.stringify(['ATT_MAN_CHILD']));
 });
 
 test('4c. 拒絕訊息是書面語繁體中文', function () {
   const env = makeEnv({});
-  const r = attemptSave(env, basicPayload({ week: { CALL_TEXT: '經文' } }));
+  const r = attemptSave(env, basicPayload({ week: { ATT_MAN_CHILD: '10' } }));
+  assert.strictEqual(r.rejected, true, '前提：真的被拒（否則下面查的是空字串）');
   assertWrittenChinese(assert, '唯讀欄位拒絕訊息', r.message);
+});
+
+test('4d. 內容表 v2：宣召兩欄、序樂、詩歌頌讚經真入口儲存得到，並各寫一筆 FieldOverride（第三種模式）', function () {
+  const env = makeEnv({});
+  const week = { CALL_REF: '詩篇 100:1-2', CALL_TEXT: '普天下當向耶和華歡呼！', PRELUDE: '介面序樂', HYMN_PRAISE: '介面詩歌' };
+  const r = attemptSave(env, basicPayload({ week: week }));
+  assert.strictEqual(r.rejected, false, r.message);
+  const saved = env.sandbox.readBulletinWeekRowWithRowNo_(ISO);
+  Object.keys(week).forEach(function (k) { assert.strictEqual(saved[k], week[k], k); });
+  const overrides = env.sandbox.readSheet('FieldOverride').filter(function (o) { return o.ACTIVE === true; })
+    .map(function (o) { return o.FIELD_KEY; }).sort();
+  assert.strictEqual(JSON.stringify(overrides), JSON.stringify(['CALL_REF', 'CALL_TEXT', 'HYMN_PRAISE', 'PRELUDE']));
 });
 
 // =====================================================================

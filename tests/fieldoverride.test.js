@@ -227,97 +227,113 @@ function tabRows(env, tabName) {
 // 第 1 組：§4.0 首次刷新必須回填（做錯會清空真實資料）
 // =====================================================================
 
-console.log('\n第 1 組：§4.0 首次刷新回填');
+console.log('\n第 1 組：§4.0 首次刷新回填（內容表 v2 起由移轉 planner 做）');
 
-test('⚠️ 新分頁首次建立 → 由 BulletinWeeks 逐行回填現有值', function () {
+// 內容表 v2：R-043 的 backfillContentTabFromWeeks_() 已由 src/ContentSheetMigrate.gs 的移轉 planner 取代——
+// 「崇拜程序」未建立或者是舊版，都經同一個 planner 決定寫甚麼；而且每個主日都預先開好一行
+// （所有欄由週報帶齊），不再只寫「有值的主日」。舊內容表要人手入口（migrate:true）才會移轉。
+// 這一組驗的承諾不變：回填之後整季匯入，週報一格不變；已經有資料的格一格不覆蓋；預覽與實際一致。
+
+/** 某張內容表分頁某個主日那一行（第 3 行起）。 */
+function tabRowOf(env, tabName, iso) {
+  return tabRows(env, tabName).filter(function (r) { return r.SERVICE_DATE === iso; })[0];
+}
+
+test('⚠️ 新分頁首次建立 → 每個主日一行，由 BulletinWeeks 帶入現有值', function () {
   const env = makeEnv({
-    missingTabs: ['崇拜程序', '浸禮合堂'],
+    missingTabs: ['崇拜程序'],
     weekRows: [
       {
         SERVICE_DATE: D1, QUARTER_ID: QUARTER_ID, STATUS: 'DRAFT',
         SERMON_TITLE: '要有愛', RESPONSE_HYMN: '活出愛', CHOIR_TITLE: '愛中有主',
-        SCRIPTURE_REF: '約翰福音 3:16'
+        SCRIPTURE_REF: '約翰福音 3:16', PRELUDE: '序樂一', CALL_REF: '詩篇 100'
       },
       { SERVICE_DATE: D2, QUARTER_ID: QUARTER_ID, STATUS: 'DRAFT' }
     ]
   });
 
-  const result = env.sandbox.buildOrRefreshContentSheet_(QUARTER_ID);
+  const refused = env.sandbox.buildOrRefreshContentSheet_(QUARTER_ID);
+  assert.strictEqual(refused.ok, false, '舊內容表（未有崇拜程序）要人手入口才移轉');
+  assert.strictEqual(refused.reason, 'NEEDS_MIGRATION');
+  assert.strictEqual(env.contentTabs['崇拜程序'], undefined, '拒絕時一張分頁都不建');
+
+  const result = env.sandbox.buildOrRefreshContentSheet_(QUARTER_ID, { migrate: true });
   assert.strictEqual(result.ok, true, JSON.stringify(result));
 
   const filled = tabRows(env, '崇拜程序');
-  assert.strictEqual(filled.length, 1, '只有真的有值那一個主日才寫一行');
-  assert.strictEqual(filled[0].SERMON_TITLE, '要有愛');
-  assert.strictEqual(filled[0].RESPONSE_HYMN, '活出愛');
-  assert.strictEqual(filled[0].CHOIR_TITLE, '愛中有主');
-  assert.strictEqual(filled[0].SCRIPTURE_REF, '約翰福音 3:16');
+  assert.strictEqual(filled.length, SERVICE_DATES.length, '每個主日一行');
+  const d1 = tabRowOf(env, '崇拜程序', D1);
+  assert.strictEqual(d1.SERMON_TITLE, '要有愛');
+  assert.strictEqual(d1.RESPONSE_HYMN, '活出愛');
+  assert.strictEqual(d1.CHOIR_TITLE, '愛中有主');
+  assert.strictEqual(d1.SCRIPTURE_REF, '約翰福音 3:16');
+  assert.strictEqual(d1.PRELUDE, '序樂一');
+  assert.strictEqual(d1.CALL_REF, '詩篇 100');
+  assert.strictEqual(tabRowOf(env, '崇拜程序', D2).SERMON_TITLE, '');
 });
 
-test('⚠️ 回填之後整季匯入 → 九欄一格不變（這一條就是 §4.0 的目的）', function () {
+test('⚠️ 回填之後整季匯入 → 崇拜程序全部欄一格不變（這一條就是 §4.0 的目的）', function () {
   const env = makeEnv({
-    missingTabs: ['崇拜程序', '浸禮合堂'],
+    missingTabs: ['崇拜程序'],
     weekRows: [
       {
         SERVICE_DATE: D1, QUARTER_ID: QUARTER_ID, STATUS: 'DRAFT',
-        SERMON_TITLE: '要有愛', RESPONSE_HYMN: '活出愛'
+        SERMON_TITLE: '要有愛', RESPONSE_HYMN: '活出愛', PRELUDE: '序樂一', BAPTISM_MEMBERS: '陳大文 李小明'
       }
     ]
   });
-  env.sandbox.buildOrRefreshContentSheet_(QUARTER_ID);
+  env.sandbox.buildOrRefreshContentSheet_(QUARTER_ID, { migrate: true });
 
+  const before = JSON.stringify(rows(env, 'BULLETIN_WEEKS'));
   const applied = env.sandbox.applyContentImport_(QUARTER_ID, {});
   assert.strictEqual(applied.ok, true, JSON.stringify(applied));
-
-  const week = rows(env, 'BULLETIN_WEEKS')[0];
-  assert.strictEqual(week.SERMON_TITLE, '要有愛', '不回填的話這裏會變成空白');
-  assert.strictEqual(week.RESPONSE_HYMN, '活出愛');
+  assert.strictEqual(applied.plan.weekUpdates.length, 0, JSON.stringify(applied.plan.details.slice(0, 3)));
+  assert.strictEqual(JSON.stringify(rows(env, 'BULLETIN_WEEKS')), before, '不回填的話這裏會變成空白');
 });
 
-test('已經有資料的分頁 → 一格都不覆蓋', function () {
+test('已經有資料的格 → 一格都不覆蓋', function () {
   const env = makeEnv({
     content: { 崇拜程序: [{ SERVICE_DATE: D1, SERMON_TITLE: '同工填的', ACTIVE: 'TRUE' }] },
     weekRows: [{ SERVICE_DATE: D1, QUARTER_ID: QUARTER_ID, SERMON_TITLE: '週報舊值' }]
   });
   env.sandbox.buildOrRefreshContentSheet_(QUARTER_ID);
 
-  const after = tabRows(env, '崇拜程序');
-  assert.strictEqual(after.length, 1);
-  assert.strictEqual(after[0].SERMON_TITLE, '同工填的',
+  assert.strictEqual(tabRowOf(env, '崇拜程序', D1).SERMON_TITLE, '同工填的',
     '⚠️ 覆蓋就等於用週報舊值蓋走同工剛剛填的東西');
+  assert.strictEqual(tabRows(env, '崇拜程序').filter(function (r) { return r.SERVICE_DATE === D1; }).length, 1,
+    '已經有一行的主日不會再多開一行');
 });
 
-test('回填會寫 AuditLog，而且講得出回填了幾多行', function () {
+test('回填會寫 AuditLog，而且講得出寫了幾多行', function () {
   const env = makeEnv({
     missingTabs: ['崇拜程序'],
     weekRows: [{ SERVICE_DATE: D1, QUARTER_ID: QUARTER_ID, SERMON_TITLE: '要有愛' }]
   });
-  env.sandbox.buildOrRefreshContentSheet_(QUARTER_ID);
+  env.sandbox.buildOrRefreshContentSheet_(QUARTER_ID, { migrate: true });
   const audit = rows(env, 'AUDIT_LOG').filter(function (r) {
-    return r.ACTION === 'CONTENT_SHEET_BACKFILL';
+    return r.ACTION === 'CONTENT_SHEET_MIGRATE_V2' && r.FIELD === '崇拜程序';
   });
   assert.strictEqual(audit.length, 1);
-  assert.strictEqual(audit[0].NEW_VALUE, '1');
+  assert.ok(String(audit[0].NEW_VALUE).indexOf('行 +' + SERVICE_DATES.length) !== -1, audit[0].NEW_VALUE);
 });
 
-test('預覽講的回填行數，跟實際回填的一樣', function () {
+test('預覽講的行數與格數，跟實際寫的一樣', function () {
   // ⚠️ 預覽同實際各算一次的話，預覽講 8 行、實際 7 行，冇人查得出。
   const env = makeEnv({
-    missingTabs: ['崇拜程序', '浸禮合堂'],
+    missingTabs: ['崇拜程序'],
     weekRows: [
       { SERVICE_DATE: D1, QUARTER_ID: QUARTER_ID, SERMON_TITLE: '要有愛' },
       { SERVICE_DATE: D2, QUARTER_ID: QUARTER_ID, RESPONSE_HYMN: '活出愛' }
     ]
   });
   const preview = env.sandbox.previewContentSheetBuild_(QUARTER_ID);
-  const previewRows = (preview.summary.backfillTabs || [])
-    .filter(function (b) { return b.tabName === '崇拜程序'; })[0];
-  assert.ok(previewRows, '預覽要講得出會回填');
+  assert.strictEqual(preview.ok, true, JSON.stringify(preview));
+  assert.strictEqual(preview.summary.needsMigration, true);
 
-  const result = env.sandbox.buildOrRefreshContentSheet_(QUARTER_ID);
-  const actual = (result.backfilledTabs || [])
-    .filter(function (b) { return b.tabName === '崇拜程序'; })[0];
-  assert.strictEqual(previewRows.rows, actual.rows,
-    '預覽 ' + previewRows.rows + ' 行、實際 ' + actual.rows + ' 行');
+  const result = env.sandbox.buildOrRefreshContentSheet_(QUARTER_ID, { migrate: true });
+  assert.strictEqual(JSON.stringify(preview.summary.migration), JSON.stringify(result.migration.counts),
+    '預覽 ' + JSON.stringify(preview.summary.migration) + '、實際 ' + JSON.stringify(result.migration.counts));
+  assert.strictEqual(tabRows(env, '崇拜程序').length, result.migration.counts.appendedRows);
 });
 
 // =====================================================================
@@ -772,7 +788,8 @@ console.log('\n第 7 組：R-045 浸禮分頁');
 test('⚠️ 非浸禮主日六欄全空 → 不報錯、不報警告', function () {
   const env = makeEnv({
     content: {
-      浸禮合堂: [{ SERVICE_DATE: D1, BAPTISM_OFFICIANT: '張牧師', ACTIVE: 'TRUE' }]
+      // 內容表 v2：浸禮六欄併入「崇拜程序」。
+      崇拜程序: [{ SERVICE_DATE: D1, BAPTISM_OFFICIANT: '張牧師', ACTIVE: 'TRUE' }]
     }
   });
   const preview = env.sandbox.previewContentImport_(QUARTER_ID, {});
@@ -788,7 +805,7 @@ test('⚠️ 非浸禮主日六欄全空 → 不報錯、不報警告', function
 test('多人欄位一格多位、空格分隔，匯入原樣保存', function () {
   const env = makeEnv({
     content: {
-      浸禮合堂: [{ SERVICE_DATE: D1, BAPTISM_MEMBERS: '陳大文 李小明 王美華', ACTIVE: 'TRUE' }]
+      崇拜程序: [{ SERVICE_DATE: D1, BAPTISM_MEMBERS: '陳大文 李小明 王美華', ACTIVE: 'TRUE' }]
     }
   });
   env.sandbox.applyContentImport_(QUARTER_ID, {});
@@ -796,13 +813,11 @@ test('多人欄位一格多位、空格分隔，匯入原樣保存', function ()
     '不加尊稱、不重新排序、不拆開再組回去');
 });
 
-test('浸禮分頁六欄與 baptismBoxFieldDefs_() 一致', function () {
+test('浸禮六欄（內容表 v2 起在「崇拜程序」最後六欄）與 baptismBoxFieldDefs_() 一致', function () {
   const env = makeEnv({});
   const tab = env.sandbox.contentSheetTabDefs_()
-    .filter(function (d) { return d.tabName === '浸禮合堂'; })[0];
-  const valueKeys = tab.keys.filter(function (k) {
-    return k !== 'SERVICE_DATE' && k !== 'ACTIVE' && k !== 'NOTES';
-  });
+    .filter(function (d) { return d.tabName === '崇拜程序'; })[0];
+  const valueKeys = tab.keys.slice(tab.keys.length - 6);
   assert.strictEqual(JSON.stringify(valueKeys),
     JSON.stringify(Array.prototype.slice.call(env.sandbox.baptismBoxFieldKeys_())),
     '六欄的單一真相來源是 baptismBoxFieldDefs_()');

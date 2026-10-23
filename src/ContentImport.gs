@@ -90,38 +90,34 @@ function contentImportTargets_() {
       tabName: '崇拜人數', kind: 'WEEK_ATTENDANCE', targetSheet: SHEETS.BULLETIN_WEEKS,
       fieldMap: attendanceImportFieldMap_(), repeatUntil: false
     },
-    {
-      tabName: '宣召', kind: 'WEEK', targetSheet: SHEETS.BULLETIN_WEEKS,
-      fieldMap: { CALL_REF: 'CALL_REF', CALL_TEXT: 'CALL_TEXT' }, repeatUntil: false
-    },
-    // ⚠️ R-043／R-045 這兩張是**第三種模式**（內容表為來源、介面可覆寫），
+    // ⚠️ R-043／R-045：**第三種模式**（內容表為來源、介面可覆寫），
     //    `overridable: true` 就是那個分別：有 FieldOverride 的欄位，匯入
     //    **不會蓋過去**，只在差異報告標 CONFLICT。
+    //    內容表 v2：「宣召」「浸禮合堂」兩張舊分頁已併入「崇拜程序」（決定 4），
+    //    對應表由分頁定義衍生（見 worshipImportFieldMap_()），不另抄一份。
     {
       tabName: '崇拜程序', kind: 'WEEK', targetSheet: SHEETS.BULLETIN_WEEKS,
-      fieldMap: {
-        SCRIPTURE_REF: 'SCRIPTURE_REF', SERMON_TITLE: 'SERMON_TITLE',
-        RESPONSE_HYMN: 'RESPONSE_HYMN', CHOIR_TITLE: 'CHOIR_TITLE'
-      },
-      repeatUntil: false, overridable: true
-    },
-    {
-      tabName: '浸禮合堂', kind: 'WEEK', targetSheet: SHEETS.BULLETIN_WEEKS,
-      fieldMap: baptismImportFieldMap_(), repeatUntil: false, overridable: true
+      fieldMap: worshipImportFieldMap_(), repeatUntil: false, overridable: true
     }
   ];
 }
 
 /**
- * 用途：浸禮副框六欄的對應表——兩邊機器鍵完全同名，所以由
- *   `baptismBoxFieldDefs_()`（**六欄的單一真相來源**）衍生，不另抄一份。
+ * 用途：內容表 v2「崇拜程序」的對應表：分頁定義的機器鍵扣除主日日期、有效、備註，兩邊機器鍵
+ *   完全同名。由 `contentSheetWorshipTabDef_()` 衍生——欄位只在分頁定義加一處。
+ *   「備註」是內容表內部備忘，不匯入（決定 5）。
  * Args: （無）
  * Returns:
- *   {Object<string,string>}
+ *   {Object<string,string>} 內容表機器鍵 → `BulletinWeeks` 機器鍵。
+ * Raises:
+ *   （無）
  */
-function baptismImportFieldMap_() {
+function worshipImportFieldMap_() {
   var map = {};
-  baptismBoxFieldKeys_().forEach(function (key) { map[key] = key; });
+  contentSheetWorshipTabDef_().keys.forEach(function (key) {
+    if (key === 'SERVICE_DATE' || key === 'ACTIVE' || key === 'NOTES') return;
+    map[key] = key;
+  });
   return map;
 }
 
@@ -354,9 +350,16 @@ function buildContentImportTargets_(contentData, serviceDates) {
         if ((serviceDates || []).indexOf(iso) === -1) {
           warnings.push(def.tabName + '第 ' + row.__rowNo + ' 行的主日日期 '
             + (iso || '（空白）') + ' 不是本季的主日，本行略過。');
-          return;
         }
-        byDate[iso] = [row];
+      });
+      // 同一個主日以**最後一行生效中**的資料為準。內容表 v2 的移轉寫入亦用同一支
+      // lastActiveRowByDate_() 找目標行，兩邊看的是同一行。
+      var lastByDate = lastActiveRowByDate_(activeRows.filter(function (row) {
+        return !typeIssues.skipRowNos[row.__rowNo];
+      }));
+      Object.keys(lastByDate).forEach(function (iso) {
+        if ((serviceDates || []).indexOf(iso) === -1) return;
+        byDate[iso] = [lastByDate[iso]];
       });
     } else {
       var expandedResult = def.repeatUntil
@@ -394,6 +397,28 @@ function buildContentImportTargets_(contentData, serviceDates) {
     targets: targets, warnings: warnings, skippedTabs: skippedTabs,
     blankActiveRows: blankActiveRows, skipListDates: skipListDates
   };
+}
+
+/**
+ * 用途：「一個主日一行」的分頁（崇拜程序等）每個主日以哪一行為準：**最後一行生效中**的資料
+ *   （按內容表上的行號）。匯入（`buildContentImportTargets_()`）與內容表 v2 移轉
+ *   （`planContentSheetV2Migration_()`）共用這一支，兩邊一定看同一行。純函式。
+ * Args:
+ *   rows {Object[]} `parseContentTabRows_()` 的輸出（可以已經篩過）；`__active` 不是 true 的行不算。
+ * Returns:
+ *   {Object<string,Object>} 主日（yyyy-MM-dd，去頭尾空白）→ 那一行。主日空白的行不算。
+ * Raises:
+ *   （無）
+ */
+function lastActiveRowByDate_(rows) {
+  var out = {};
+  (rows || []).slice().sort(function (a, b) { return a.__rowNo - b.__rowNo; }).forEach(function (row) {
+    if (row.__active !== true) return;
+    var iso = String(row.SERVICE_DATE || '').trim();
+    if (!iso) return;
+    out[iso] = row;
+  });
+  return out;
 }
 
 /** 內容表 v2：決定「一行屬於哪幾個主日、有沒有效」的欄。被轉成日期／時間就不知道這一行的範圍。 */
@@ -829,6 +854,11 @@ function checkContentSheetSchema_(spreadsheet) {
   var tabs = [];
   var outdated = [];
   var changed = [];
+  // 內容表 v2：未改名的舊分頁（宣召、浸禮合堂）仍然在 → 未移轉。匯入只讀新定義的分頁，舊分頁
+  //    上的資料不會被讀到；移轉（建立／刷新本季內容表）會把它搬入「崇拜程序」並改名。
+  var pendingLegacy = legacyMergedTabDefs_().filter(function (def) {
+    return Boolean(spreadsheet.getSheetByName(def.tabName));
+  }).map(function (def) { return def.tabName; });
   contentSheetTabDefs_().forEach(function (tabDef) {
     var sheet = spreadsheet.getSheetByName(tabDef.tabName);
     if (!sheet) return;
@@ -848,13 +878,16 @@ function checkContentSheetSchema_(spreadsheet) {
         + '請把第 2 行改回原樣；如果曾經插入、刪除或移動欄，請先復原（檔案 ▸ 版本記錄），再匯入。'
     };
   }
-  if (outdated.length > 0) {
+  if (outdated.length > 0 || pendingLegacy.length > 0) {
+    var reasons = outdated.map(function (o) {
+      return '「' + o.tabDef.tabName + '」少了 ' + o.verdict.missing + ' 欄';
+    }).concat(pendingLegacy.map(function (name) {
+      return '仍然有舊的「' + name + '」分頁（內容要搬入「崇拜程序」）';
+    }));
     return {
       ok: false, reason: 'CONTENT_SHEET_OUTDATED', tabs: tabs,
-      message: '本季內容表的欄位比系統舊（' + outdated.map(function (o) {
-        return '「' + o.tabDef.tabName + '」少了 ' + o.verdict.missing + ' 欄';
-      }).join('、') + '），這次匯入整次拒絕，一格都沒有寫。請先在填寫介面「季度作業」按「建立／刷新本季內容表」，'
-        + '再匯入。'
+      message: '本季內容表比系統舊（' + reasons.join('、') + '），這次匯入整次拒絕，一格都沒有寫。'
+        + '請先在填寫介面「季度作業」按「建立／刷新本季內容表」，再匯入。'
     };
   }
   return { ok: true, reason: '', message: '', tabs: tabs };
