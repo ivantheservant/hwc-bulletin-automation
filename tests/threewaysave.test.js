@@ -146,6 +146,7 @@ test('F1-2 同一格兩邊都改過 → FIELD_CONFLICT，整次拒絕，一格�
       baseWeek: { PRELUDE: '', FLOWER_THIS_WEEK: '', SERMON_TITLE: '' },
       // 序樂與格子表那邊衝突；獻花、講題本身沒有衝突，但整次都不可以寫。
       week: { PRELUDE: '分頁改的序樂', FLOWER_THIS_WEEK: '玫瑰', SERMON_TITLE: '分頁改的講題' },
+      payloadVersion: 2,
       dutyEdits: [{ postId: 'CHAIR', slotIndex: 1, name: '李小明' }],
       nextWeekDutyEdits: [{ postId: 'CHAIR', slotIndex: 1, name: '王小華' }]
     });
@@ -422,7 +423,7 @@ test('F2-3 從未儲存過的一週，無改動儲存之後 token 仍然是空�
 test('F2-4 只有事奉覆寫有改動，也算有改動：照舊更新 LAST_SAVED_AT', function () {
   const env = makeSyncedEnv();
   const result = env.sandbox.saveWeekFromWebApp_({
-    isoDate: D, lastSavedAt: '', baseWeek: {}, week: {},
+    isoDate: D, lastSavedAt: '', baseWeek: {}, week: {}, payloadVersion: 2,
     dutyEdits: [{ postId: 'CHAIR', slotIndex: 1, name: '李小明' }]
   });
   assert.ok(result.changedFieldCount >= 1);

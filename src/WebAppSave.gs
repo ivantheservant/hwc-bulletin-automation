@@ -48,13 +48,18 @@
  *   prayers:       [{ seqNo:(number|null), TEXT:string }, ...],
  *   fellowships:   [{ seqNo:(number|null), FELLOWSHIP_NAME, MEETING_DATE, MEETING_TIME, CONTENT }, ...],
  *   finance:       [{ seqNo:(number|null), ROW_LABEL, COL_SPECIAL_OVERSEAS, COL_HARDSHIP }, ...],
- *   dutyEdits:     [{ postId:string, slotIndex:number, name:string }, ...]   // 第六輪
+ *   payloadVersion: 2,                 // D9：見 SAVE_PAYLOAD_VERSION_；帶事奉格而版本不對＝舊版前端，整次拒絕
+ *   dutyEdits:     [{ postId:string, slotIndex:number, name:string,
+ *                     baseName:string, keepOverride:(true|undefined) }, ...],   // 第六輪；D9 只送改過的格
+ *   nextWeekDutyEdits: [ 同上 ]        // R-040：下週事奉，寫下一個主日
  * }
  * ```
  *
- * `dutyEdits` 是事奉框每一格的目前值（未套尊稱的原始姓名）。與職事表
- * 現值相同、或者是空字串的格子**不會**產生 `DutyOverride` 記錄，見
- * `src/DutyOverride.gs` 的 `computeDutyOverridePlan_()`。
+ * D9：`dutyEdits`／`nextWeekDutyEdits` **只放載入之後改過的格**（未套尊稱的原始姓名，`baseName` 是
+ * 載入時的名字），以及幹事對衝突格按了「保留我的」的格（`keepOverride:true`）。沒有送來的格一律不動。
+ * 與職事表現值相同、或者是空字串的格子**不會**產生 `DutyOverride` 記錄；職事表已經追上的覆寫每次儲存
+ * 都會自動停用。見 `src/DutyOverride.gs` 的 `computeDutyOverridePlan_()`。
+ * D9 之前前端每次都送全部格（docs/待確認事項.md FF-17、FF-26），那種舊分頁由 `payloadVersion` 擋住。
  *
  * 四個清單陣列代表「儲存後這一週應該有的完整清單、按顯示次序排列」：
  * `seqNo` 對得上工作表現有的行就是修改，對不上（或沒有這個欄位）就是
@@ -413,6 +418,35 @@ function baseWeekFor_(loadedWeek, patchWeek) {
 }
 
 /**
+ * D9：填寫介面儲存 payload 的格式版本。前端（src/ui/Script.html 的 SAVE_PAYLOAD_VERSION）送同一個數字，
+ * tests/dutychanged.test.js 核對兩邊一致。
+ *   1（未有這個欄位）：事奉框每次送全部格（FF-17、FF-26 的根因）。
+ *   2：事奉框只送載入之後改過的格，每格帶 `baseName`；衝突格可以帶 `keepOverride:true`。
+ * 日後 payload 的意思再改，要加一，並在 `isOutdatedDutyPayload_()` 一類的檢查擋住舊版。
+ */
+var SAVE_PAYLOAD_VERSION_ = 2;
+
+/**
+ * 用途：D9：payload 是不是 D9 之前的前端送來的事奉格（每次送全部格）。純函式。
+ *
+ *   只在 payload 真的帶事奉格（`dutyEdits` 或 `nextWeekDutyEdits` 有內容）時才要求版本：兩版只有事奉格的
+ *   意思不同，沒有事奉格的 payload 兩版完全一樣，照舊放行（自測機、亂行機、程式叫的儲存都不帶事奉格）。
+ *   舊版前端只要畫面上有事奉框就一定會送全部格，所以擋得到。
+ * Args:
+ *   payload {Object} 儲存 payload。
+ * Returns:
+ *   {boolean} true＝要拒絕（CLIENT_OUTDATED）。
+ * Raises:
+ *   （無）
+ */
+function isOutdatedDutyPayload_(payload) {
+  var p = payload || {};
+  var hasDutyCells = (Array.isArray(p.dutyEdits) && p.dutyEdits.length > 0)
+    || (Array.isArray(p.nextWeekDutyEdits) && p.nextWeekDutyEdits.length > 0);
+  return hasDutyCells && p.payloadVersion !== SAVE_PAYLOAD_VERSION_;
+}
+
+/**
  * 用途：判斷 payload 有沒有帶 `baseWeek`。`null`／陣列／字串／數字一律當作
  *   沒有——缺失不可以被當成「沒有任何欄位改動」而放行。`saveWeekFromWebApp_()`
  *   與 `buildSaveOperations_()` 共用這一個判斷，不各寫一套。
@@ -472,7 +506,8 @@ function buildSaveOperations_(input) {
 
   // ⚠️ 沒有 baseWeek ＝ 舊版前端（未重新載入的分頁）。`null`／陣列／非物件
   // 一律當作沒有——缺失不可以被當成「沒有任何欄位改動」而放行。
-  if (!hasBaseWeek_(payload.baseWeek)) {
+  // D9：帶事奉格而 payloadVersion 不是 SAVE_PAYLOAD_VERSION_，亦是舊版前端（仍然送全部格）。
+  if (!hasBaseWeek_(payload.baseWeek) || isOutdatedDutyPayload_(payload)) {
     var outdated = new Error('介面版本已更新，請重新載入這一頁再儲存。');
     outdated.code = 'CLIENT_OUTDATED';
     throw outdated;
@@ -993,8 +1028,8 @@ function saveWeekFromWebAppLocked_(payload, isoDate, targetDate) {
  *     DUTY_OVERRIDE_SET：事奉框（或下週事奉）的一格。同一格可以有幾筆條目
  *       （名字、覆寫時的職事表值、版本、ACTIVE），只算一個欄位；只有
  *       `ROSTER_VALUE_AT_OVERRIDE`／`ROSTER_VERSION_AT_OVERRIDE` 改了而名字沒有改，
- *       是把覆寫的對照基準更新到現在的職事表（前端每次儲存都送全部格），畫面上
- *       的名字不變，算附帶記錄；
+ *       是把覆寫的對照基準更新到現在的職事表（D9 之後只在幹事對衝突格按「保留我的」時發生），
+ *       畫面上的名字不變，算附帶記錄；
  *     DUTY_OVERRIDE_CLEAR：取消覆寫，畫面上那一格改回職事表的名字，算一個欄位；
  *       覆寫的名字本來就與現在的職事表相同（`displayUnchanged:true`）的話畫面不變，
  *       算附帶記錄；
@@ -1220,10 +1255,11 @@ function readRowsWithRowNo_(sheetName) {
  *   每一個主日 D 本身（「本週事奉」）與前一個主日 D-7（「下週事奉」，R-040）。純函式（日期計算
  *   除外）。結果要交給 `touchWeeksLastSavedAt_()` 更新 `LAST_SAVED_AT`。
  *
- *   ⚠️ 為甚麼要兩個：前端每次儲存都把「本週事奉」與「下週事奉」兩個框的全部格送上來
- *   （docs/待確認事項.md FF-17），而事奉框是兩方比較（送來的名字對職事表），不是三方比較。
- *   任何一個顯示這些名字的分頁，只要是在改動之前載入的，儲存時就會把舊名字送回來、蓋走改動；
- *   更新它的 `LAST_SAVED_AT` 才會令它收到 STALE。
+ *   ⚠️ 為甚麼要兩個：事奉框是兩方比較（送來的名字對職事表），不是三方比較。D9 之前前端每次儲存都把
+ *   兩個框的全部格送上來（docs/待確認事項.md FF-17），任何一個顯示這些名字、在改動之前載入的分頁，
+ *   儲存時就會把舊名字送回來、蓋走改動。D9 之後只送改過的格，沒有改那一格就不會蓋走；但那個分頁如果
+ *   改了同一格，仍然是照它載入時看到的畫面做決定，所以照舊更新它的 `LAST_SAVED_AT`，令它收到 STALE、
+ *   重新載入再改（沒有為簡化而拿走，見 D9 的說明）。
  * Args:
  *   dutyIsoDates {string[]} 覆寫改了的主日，yyyy-MM-dd。
  *   excludedIsoDates {string[]=} 不用列出的主日（例如呼叫方剛剛已經寫了的那一週）。
@@ -1582,9 +1618,8 @@ function planFieldOverridesFromPayload_(isoDate, normalizedWeek, weekBeforeSave)
  *   `readRosterSnapshot_()` 是唯讀的（見 src/RosterRead.gs 與
  *   tools/lint-readonly-roster.js）。
  *
- *   `dutyEdits` 缺漏或是空陣列時直接回傳，不做任何事——舊版前端（還沒
- *   更新的分頁）送上來的 payload 不會有這個欄位，那種情況下應該完全
- *   不動既有的覆寫，而不是把它們全部當成「被清空」。
+ *   `dutyEdits` 缺漏或是空陣列代表「這次沒有改任何一格」，不是「全部被清空」：沒有送來的格一律不動，
+ *   只會自動停用職事表已經追上的覆寫（D9，見 `computeDutyOverridePlan_()`）。
  * Args:
  *   isoDate {string} 主日日期，yyyy-MM-dd。
  *   targetDate {Date} 同一個主日日期的 `Date` 形式（新增行要用）。
@@ -1608,20 +1643,30 @@ function applyDutyEditsFromPayload_(isoDate, targetDate, dutyEdits, auditEntries
  * 用途：算出一批事奉框編輯要對 `DutyOverride` 做什麼（唯讀，不寫任何一格）。
  *   計算與套用分開，是為了讓儲存可以在寫入之前就知道「這一次會不會動到這個
  *   主日」（版本記錄）。
+ *
+ *   D9：`dutyEdits` 是空的也照樣檢查這一週生效中的覆寫（職事表追上了就自動停用）；這一週連一筆生效中的
+ *   覆寫都沒有、又沒有改任何一格，就不讀職事表，回 `null`。先用不拋錯的 `readDutyOverrideRows_()` 看
+ *   有沒有生效中的覆寫：沒有改任何一格時，`DutyOverride` 工作表不存在不應令儲存失敗（與以前一樣）。
  * Args:
  *   isoDate {string} 主日日期，yyyy-MM-dd。
  *   dutyEdits {Object[]} 見本檔案檔頭的 payload 形狀說明。
  * Returns:
- *   {?Object} `computeDutyOverridePlan_()` 的輸出；`dutyEdits` 缺漏或空陣列時
- *     回 `null`（舊版前端不會帶這個欄位，不可以當成「全部被清空」）。
+ *   {?Object} `computeDutyOverridePlan_()` 的輸出；沒有任何東西要看時回 `null`
+ *     （缺漏或空陣列不可以當成「全部被清空」）。
+ * Raises:
+ *   Error 有改格（或有生效中的覆寫）而 `DutyOverride` 工作表不存在（`readRowsWithRowNo_()` 原樣拋出）。
  */
 function planDutyEditsFromPayload_(isoDate, dutyEdits) {
-  if (!dutyEdits || dutyEdits.length === 0) return null;
   if (!isoDate) return null;
+  var edits = Array.isArray(dutyEdits) ? dutyEdits : [];
+  if (edits.length === 0) {
+    var anyActive = readDutyOverrideRows_(isoDate).some(function (r) { return r.ACTIVE === true; });
+    if (!anyActive) return null;
+  }
 
   var snapshot = readRosterSnapshot_(isoDate);
   return computeDutyOverridePlan_({
-    edits: dutyEdits,
+    edits: edits,
     existingRows: readDutyOverrideRowsWithRowNo_(isoDate),
     rosterNameByKey: buildRosterNameByKey_(snapshot.slotsByPost),
     rosterVersion: snapshot.versionNo

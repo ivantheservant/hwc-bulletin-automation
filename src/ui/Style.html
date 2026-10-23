@@ -349,6 +349,11 @@
   .missing-optional-head { margin-top: 0.7em; padding-top: 0.5em; border-top: 1px dashed #cbd3da; }
   .duty-row.is-conflict { border-left-color: #b3261e; background: #fdeceb; }
 
+  /* D9：衝突格的「保留我的」提示；按了保留之後那一格左邊改為綠色直線。 */
+  .duty-keep-hint { flex-basis: 100%; font-size: 12px; color: #8c231c; }
+  .duty-slot.is-kept { border-left: 3px solid #2e7d32; padding-left: 0.5em; margin-left: -0.5em; }
+  .duty-slot.is-kept .duty-keep-hint { color: #2e7d32; }
+
   .duty-conflict-detail {
     font-size: 12px;
     color: #8c231c;

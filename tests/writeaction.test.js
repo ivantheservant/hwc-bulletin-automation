@@ -36,6 +36,7 @@ const path = require('path');
 const vm = require('vm');
 const { assertWrittenChinese } = require('./helpers/writtenChinese');
 const { makeFillEnv, QUARTER_ID } = require('./helpers/fillEnv');
+const { changedDutyCells } = require('./helpers/savePayload');
 
 let pass = 0;
 let fail = 0;
@@ -944,7 +945,7 @@ function makeOverriddenChairEnv() {
   const env = makeSaveEnv();
   const sb = env.sb;
   const created = sb.apiSaveWeek({ isoDate: env.iso, lastSavedAt: sb.loadWeekForWebApp_(env.iso).lastSavedAt,
-    week: {}, baseWeek: {}, dutyEdits: [{ postId: 'CHAIR', slotIndex: 1, name: '李小明' }] });
+    payloadVersion: 2, week: {}, baseWeek: {}, dutyEdits: [{ postId: 'CHAIR', slotIndex: 1, name: '李小明', baseName: '陳大文' }] });
   assert.strictEqual(created.ok, true, JSON.stringify(created.error));
   const rowNo = sb.readBulletinWeekRowWithRowNo_(env.iso).__rowNo;
   sb.SpreadsheetApp.getActiveSpreadsheet().getSheetByName('BulletinWeeks')
@@ -969,10 +970,11 @@ test('G28-1 真正入口：分頁甲載入 → 分頁乙「由職事表重新取
   assert.notStrictEqual(sb.canonicalSaveToken_(sb.readSheet('BulletinWeeks')[0].LAST_SAVED_AT), tabA.lastSavedAt,
     '由職事表重新取數要更新最後儲存時間');
 
-  // 分頁甲只改了序樂；前端照樣送全部事奉格，主席仍是它載入時的「李小明」。
+  // 分頁甲只改了序樂。D9 之後前端只送改過的格，主席那一格不送；以前整批送（主席仍是載入時的「李小明」）
+  // 才會令覆寫復活。G28 的最後儲存時間照舊更新，分頁甲照舊收到 STALE（不為簡化而拿走）。
   const patch = { PRELUDE: '甲改的序樂' };
-  const saved = sb.apiSaveWeek({ isoDate: env.iso, lastSavedAt: tabA.lastSavedAt, week: patch,
-    baseWeek: sb.baseWeekFor_(tabA.week, patch), dutyEdits: [{ postId: 'CHAIR', slotIndex: 1, name: '李小明' }] });
+  const saved = sb.apiSaveWeek({ isoDate: env.iso, lastSavedAt: tabA.lastSavedAt, payloadVersion: 2, week: patch,
+    baseWeek: sb.baseWeekFor_(tabA.week, patch), dutyEdits: changedDutyCells(tabA.readOnly.dutyBoxPage1, {}) });
   assert.strictEqual(saved.ok, false);
   assert.strictEqual(saved.error.code, 'STALE');
   assert.strictEqual(chairOverride(sb).ACTIVE, false, '停用的覆寫沒有復活');
@@ -1012,14 +1014,17 @@ function makeThreeWeekEnv() {
   return { sb: sb, before: dates[0], week: dates[1], after: dates[2], tabs: tabs };
 }
 
-/** 某一個分頁只改序樂，照前端那樣把兩個事奉框的全部格（它載入時的名字）一併送上來。 */
+/**
+ * 某一個分頁改序樂，兩個事奉框的主席是畫面上的 chairName／nextChairName。D9：照前端那樣只送與它載入時
+ * 不同的格（以前整批送，見 FF-17）；名字與載入時相同就等於沒有改那一格。
+ */
 function saveFromStaleTab(env, iso, chairName, nextChairName) {
   const tab = env.tabs[iso];
   const patch = { PRELUDE: iso + ' 改的序樂' };
-  return env.sb.apiSaveWeek({ isoDate: iso, lastSavedAt: tab.lastSavedAt, week: patch,
+  return env.sb.apiSaveWeek({ isoDate: iso, lastSavedAt: tab.lastSavedAt, payloadVersion: 2, week: patch,
     baseWeek: env.sb.baseWeekFor_(tab.week, patch),
-    dutyEdits: [{ postId: 'CHAIR', slotIndex: 1, name: chairName }],
-    nextWeekDutyEdits: [{ postId: 'CHAIR', slotIndex: 1, name: nextChairName }] });
+    dutyEdits: changedDutyCells(tab.readOnly.dutyBoxPage1, { 'CHAIR#1': chairName }),
+    nextWeekDutyEdits: changedDutyCells(tab.readOnly.nextWeekDuty, { 'CHAIR#1': nextChairName }) });
 }
 
 function activeChairOn(sb, iso) {

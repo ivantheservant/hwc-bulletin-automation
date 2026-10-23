@@ -146,10 +146,16 @@ function buildBulletinModel_(isoDate) {
     // 下週事奉用的是**下一個主日**的職事表快照，所以要套下一個主日自己
     // 的覆寫，不是這一週的。
     var nextOverrides = readDutyOverrideRows_(nextIsoDate);
+    // D9：下週事奉框亦要看得到衝突（職事表在覆寫之後又改過），幹事才可以在這一框按「保留我的」。
+    //    用下一個主日自己的覆寫比對下一個主日的職事表；快照版本傳 null＝不產生 FOLLOW。這一份只給介面
+    //    顯示每一格的狀態，不計入這一週的衝突數（rosterDiff 仍然只是這一週的），版面亦不看狀態。
+    var nextDiff = buildRosterDiff_(nextIsoDate, nextSnapshot, nextOverrides, null);
+    var nextDiffByKey = {};
+    nextDiff.rows.forEach(function (r) { nextDiffByKey[dutyOverrideKey_(r.postId, r.slotIndex)] = r; });
     nextSnapshot.slotsByPost = applyDutyOverridesToSlots_(
       nextSnapshot.slotsByPost, buildDutyOverrideIndex_(nextOverrides)
     );
-    nextWeekDuty = buildDutyBox_(nextSnapshot, 3, warnings, {});
+    nextWeekDuty = buildDutyBox_(nextSnapshot, 3, warnings, nextDiffByKey);
   } else if (nextSnapshot) {
     warnings.push({
       code: 'NEXT_WEEK_NOT_IN_ROSTER',

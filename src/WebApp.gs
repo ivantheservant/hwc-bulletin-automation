@@ -1930,7 +1930,8 @@ function getRosterFetchCandidates_(isoDate) {
  *   ⚠️ 第二批測試修正 G28：真的停用了覆寫就更新這一週的 `LAST_SAVED_AT`（與儲存、還原、
  *   重設一致）。以前不更新：另一個較早載入的分頁之後按「儲存」，送上來的事奉框仍然是舊的
  *   覆寫名字（前端每次儲存都送全部格），樂觀鎖照樣通過，`computeDutyOverridePlan_()` 就把
- *   剛停用的同名覆寫重新啟用。更新之後那個分頁會收到 STALE。
+ *   剛停用的同名覆寫重新啟用。更新之後那個分頁會收到 STALE。D9 之後前端只送改過的格，沒有改那一格的
+ *   舊分頁不會令覆寫復活；但它若改了同一格仍然是照舊畫面做決定，所以照舊更新（不為簡化而拿走）。
  * Args:
  *   isoDate {string} 主日日期，yyyy-MM-dd。
  *   selections {{postId:string, slotIndex:number}[]} 使用者勾選的欄位。

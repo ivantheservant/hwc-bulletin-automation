@@ -68,8 +68,9 @@ function makeEnv(options) {
 /** 組一個儲存 payload：patch 只含要改的欄位，baseWeek 取載入時的值。 */
 function savePayload(sb, iso, patch, extra) {
   const loaded = sb.loadWeekForWebApp_(iso);
+  // D9：payloadVersion 2＝新版前端（事奉格只送改過的格）。CHAIR_EDIT 那幾格是幹事改的。
   return Object.assign({
-    isoDate: iso, lastSavedAt: loaded.lastSavedAt, week: patch,
+    isoDate: iso, lastSavedAt: loaded.lastSavedAt, payloadVersion: 2, week: patch,
     baseWeek: sb.baseWeekFor_(loaded.week, patch)
   }, extra || {});
 }

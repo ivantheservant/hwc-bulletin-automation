@@ -508,7 +508,7 @@ test('⚠️ A 主日改「下週事奉」→ 寫的是 B 主日那一筆記錄'
   const env = makeEnv({});
   env.sandbox.saveWeekFromWebApp_({
     isoDate: D1, lastSavedAt: null, week: {}, baseWeek: {},
-    nextWeekDutyEdits: [{ postId: 'CHAIR', slotIndex: 1, name: '陳大文' }]
+    payloadVersion: 2, nextWeekDutyEdits: [{ postId: 'CHAIR', slotIndex: 1, name: '陳大文' }]
   });
 
   const saved = rows(env, 'DUTY_OVERRIDE');
@@ -523,7 +523,7 @@ test('⚠️ 反向：B 主日改「本週事奉」→ 同一筆記錄（不是�
   const env = makeEnv({});
   env.sandbox.saveWeekFromWebApp_({
     isoDate: D1, lastSavedAt: null, week: {}, baseWeek: {},
-    nextWeekDutyEdits: [{ postId: 'CHAIR', slotIndex: 1, name: '陳大文' }]
+    payloadVersion: 2, nextWeekDutyEdits: [{ postId: 'CHAIR', slotIndex: 1, name: '陳大文' }]
   });
   const afterFirst = rows(env, 'DUTY_OVERRIDE').length;
 
@@ -532,7 +532,7 @@ test('⚠️ 反向：B 主日改「本週事奉」→ 同一筆記錄（不是�
   })[0];
   env.sandbox.saveWeekFromWebApp_({
     isoDate: D2, lastSavedAt: env.sandbox.canonicalSaveToken_(week2.LAST_SAVED_AT), week: {}, baseWeek: {},
-    dutyEdits: [{ postId: 'CHAIR', slotIndex: 1, name: '李小明' }]
+    payloadVersion: 2, dutyEdits: [{ postId: 'CHAIR', slotIndex: 1, name: '李小明' }]
   });
 
   const saved = rows(env, 'DUTY_OVERRIDE');
@@ -548,14 +548,14 @@ test('⚠️ R-040：讀與寫用同一個日期（連續兩次儲存只可以�
   const env = makeEnv({});
   env.sandbox.saveWeekFromWebApp_({
     isoDate: D1, lastSavedAt: null, week: {}, baseWeek: {},
-    nextWeekDutyEdits: [{ postId: 'CHAIR', slotIndex: 1, name: '第一次' }]
+    payloadVersion: 2, nextWeekDutyEdits: [{ postId: 'CHAIR', slotIndex: 1, name: '第一次' }]
   });
   const week1 = rows(env, 'BULLETIN_WEEKS').filter(function (r) {
     return env.sandbox.formatIsoDate_(r.SERVICE_DATE) === D1;
   })[0];
   env.sandbox.saveWeekFromWebApp_({
     isoDate: D1, lastSavedAt: env.sandbox.canonicalSaveToken_(week1.LAST_SAVED_AT), week: {}, baseWeek: {},
-    nextWeekDutyEdits: [{ postId: 'CHAIR', slotIndex: 1, name: '第二次' }]
+    payloadVersion: 2, nextWeekDutyEdits: [{ postId: 'CHAIR', slotIndex: 1, name: '第二次' }]
   });
 
   const saved = rows(env, 'DUTY_OVERRIDE');

@@ -42,9 +42,10 @@
     // 階段 3：講員表格現況（apiGetSpeakerFormStatus 的結果）。
     speakerForm: null,
     lists: { announcements: [], prayers: [], fellowships: [], finance: [] },
-    // 第六輪：事奉框每一格目前的值，鍵是「崗位#位次」。儲存時整批送回
-    // 伺服器，由 computeDutyOverridePlan_() 決定哪幾格真的需要寫
-    // DutyOverride（與職事表現值相同的格子不會產生記錄）。
+    // 第六輪：事奉框每一格目前的值，鍵是「崗位#位次」。每一格是
+    // { postId, slotIndex, name, keepOverride }。D9：儲存時只送載入之後改過的格
+    // （與 loadedDutyNames 比，見 changedDutyEdits()），以及按了「保留我的」的衝突格；
+    // 沒有改的格不送，伺服器亦一律不動（以前整批送回，FF-17／FF-26）。
     dutyEdits: {},
     // R-040：下週事奉那一框的編輯。**刻意與 dutyEdits 分開**——共用一個
     // map 的話，同一個崗位在兩框各有一格，後者會蓋走前者，而後端亦分不出
@@ -1293,11 +1294,34 @@
     });
   }
 
+  // BEGIN duty-slot（D9：測試會把這一段抽出來在假 DOM 上執行，請保持自足；用到 el()、makeSmallButton()）
+  /** D9：衝突格「保留我的」未按時的提示。 */
+  var DUTY_KEEP_HINT_OFF = '要保留你的名字，按「保留我的」再按「儲存」，紅色提示便會消失；要改用職事表的名字，按「還原」再儲存。';
+  /** D9：衝突格的名字已經與職事表相同（職事表追上了覆寫）時的提示。 */
+  var DUTY_CAUGHT_UP_HINT = '職事表現在已經與你的名字相同，下次儲存會自動改回跟隨職事表，不用另外處理。';
+
+  /**
+   * 用途：D9：衝突格按了「保留我的」之後的提示。純函式。
+   * Args:
+   *   name {string} 幹事的名字（輸入框現值）。
+   * Returns:
+   *   {string}
+   */
+  function dutyKeepHintOn(name) {
+    return '已選擇保留「' + String(name || '').trim() + '」，按「儲存」之後生效；要改主意就按「取消保留」。';
+  }
+
   /**
    * 用途：渲染事奉框內的一格（一個崗位的一個位次）。
+   *
+   *   D9：`CONFLICT` 的格（職事表在你覆寫之後又改過）多一粒「保留我的」：按了之後這一格算未儲存的改動，
+   *   儲存時送 `keepOverride:true`，伺服器把覆寫對照的職事表值更新到現在，衝突解除而名字不變；再按一次
+   *   （「取消保留」）撤回。改了名字或按「還原」會自動撤回保留。職事表已經改成與覆寫相同的名字時，不顯示
+   *   這粒按鈕，改為講明下次儲存會自動改回跟隨職事表。
    * Args:
    *   slot {Object} `buildDutyBoxSlotDetail_()` 的輸出。
    *   rowEl {HTMLElement} 整行的容器，用來即時加／減橙色標示。
+   *   editsMap {Object=} 這一格所屬的 edits map（`state.dutyEdits` 或 `state.nextWeekDutyEdits`）。
    * Returns:
    *   {HTMLElement}
    */
@@ -1307,7 +1331,7 @@
     // ⚠️ R-040：本週與下週兩個事奉框共用這一支，但**各自一個 edits map**
     //    ——共用一個的話，下週那一格會蓋走本週同一個崗位那一格。
     var edits = editsMap || state.dutyEdits;
-    edits[key] = { postId: slot.postId, slotIndex: slot.slotIndex, name: slot.bulletinName };
+    edits[key] = { postId: slot.postId, slotIndex: slot.slotIndex, name: slot.bulletinName, keepOverride: false };
 
     // ⚠️ R-039：**逐格**標示「已覆寫」。本來只有整行有橙色左邊，
     //    而一行可以有幾格（例如司事 #1 #2 #3）——幹事分不出係邊一格
@@ -1323,9 +1347,21 @@
     input.value = slot.bulletinName || '';
     input.placeholder = slot.rosterName ? '' : '（職事表未排定）';
 
+    // D9：「保留我的」（只有衝突格才有）。keepBtn 是 null 代表這一格沒有這粒按鈕。
+    var keepBtn = null;
+    var keepHint = null;
+    function setKeep(on) {
+      edits[key].keepOverride = on === true;
+      if (!keepBtn) return;
+      keepBtn.textContent = on === true ? '取消保留' : '保留我的';
+      wrap.classList.toggle('is-kept', on === true);
+      keepHint.textContent = on === true ? dutyKeepHintOn(input.value) : DUTY_KEEP_HINT_OFF;
+    }
+
     var restoreBtn = makeSmallButton('還原', function () {
       input.value = slot.rosterName || '';
       edits[key].name = input.value;
+      setKeep(false);
       refreshSlotMarkers();
     });
     restoreBtn.title = '把這一格改回職事表現時的值';
@@ -1347,6 +1383,8 @@
     input.dataset.rosterName = slot.rosterName || '';
     input.addEventListener('input', function () {
       edits[key].name = input.value;
+      // D9：改了名字就不再是「保留我的」——送的是新名字。
+      setKeep(false);
       refreshSlotMarkers();
       // R-039：改到與職事表不同就即時加上逐格標示。
       if (!wrap.classList.contains('is-conflict')) {
@@ -1371,10 +1409,24 @@
         + '　職事表現值＝' + (slot.rosterName || '（空白）')
         + '　你的覆寫值＝' + (slot.bulletinName || '（空白）');
       wrap.appendChild(detail);
+
+      var rosterNow = String(slot.rosterName || '').trim();
+      var caughtUp = rosterNow !== '' && String(slot.bulletinName || '').trim() === rosterNow;
+      keepHint = el('div', 'duty-keep-hint');
+      if (caughtUp) {
+        keepHint.textContent = DUTY_CAUGHT_UP_HINT;
+      } else {
+        keepBtn = makeSmallButton('保留我的', function () { setKeep(edits[key].keepOverride !== true); });
+        keepBtn.title = '職事表已經改了，但你仍然要用你的名字：按這裏再按「儲存」，紅色提示便會消失';
+        keepHint.textContent = DUTY_KEEP_HINT_OFF;
+        wrap.appendChild(keepBtn);
+      }
+      wrap.appendChild(keepHint);
     }
 
     return wrap;
   }
+  // END duty-slot
 
   function renderDutyTable(tbodyId, rows) {
     var tbody = document.getElementById(tbodyId);
@@ -2183,8 +2235,45 @@
   }
 
   /**
-   * 用途：這一週的表單或事奉框有沒有未儲存的改動。三處都重用
-   *   `diffWeekFields()`（與「儲存」判斷改動用的是同一支），不另寫一套。
+   * D9：儲存 payload 的格式版本，與伺服器 src/WebAppSave.gs 的 SAVE_PAYLOAD_VERSION_ 一致
+   * （tests/dutychanged.test.js 核對）。2＝事奉框只送改過的格。伺服器收到帶事奉格而版本不對的 payload
+   * （部署之前已經開着的舊分頁），會回「介面版本已更新，請重新載入這一頁再儲存。」。
+   */
+  var SAVE_PAYLOAD_VERSION = 2;
+
+  /**
+   * 用途：D9：一個事奉框（本週或下週）之中，儲存要送的格——載入之後名字改過的格，以及按了「保留我的」
+   *   的格。純函式，不碰 DOM。「有沒有未儲存的改動」與「儲存送甚麼」都用這一支，規則只有一份。
+   *
+   *   名字前後的空白不算改動（伺服器亦先去空白再比）。`keepOverride` 只認布林 true；名字改過的格即使
+   *   仍帶 keepOverride 亦當作一般的改名（介面改名時本來就會撤回保留）。
+   * Args:
+   *   edits {Object} `state.dutyEdits` 或 `state.nextWeekDutyEdits`（鍵 `postId#slotIndex`）。
+   *   loadedNames {Object} 載入完成那一刻的名字（`dutyNameMap()` 的結果，鍵相同）。
+   * Returns:
+   *   {{postId:string, slotIndex:number, name:string, baseName:string, keepOverride:(boolean|undefined)}[]}
+   *     `baseName` 是載入時的名字；只有「保留我的」的格才有 `keepOverride:true`。
+   */
+  function changedDutyEdits(edits, loadedNames) {
+    var out = [];
+    Object.keys(edits || {}).forEach(function (key) {
+      var e = edits[key] || {};
+      var now = String(e.name === null || e.name === undefined ? '' : e.name).trim();
+      var raw = loadedNames ? loadedNames[key] : undefined;
+      var loaded = String(raw === null || raw === undefined ? '' : raw).trim();
+      var keep = e.keepOverride === true && now === loaded;
+      if (now === loaded && !keep) return;
+      var entry = { postId: e.postId, slotIndex: e.slotIndex, name: now, baseName: loaded };
+      if (keep) entry.keepOverride = true;
+      out.push(entry);
+    });
+    return out;
+  }
+
+  /**
+   * 用途：這一週的表單或事奉框有沒有未儲存的改動。表單欄位重用 `diffWeekFields()`、事奉框重用
+   *   `changedDutyEdits()`（與「儲存」送甚麼用的是同一支），不另寫一套。D9：按了「保留我的」的
+   *   衝突格亦算未儲存的改動。
    * Args: （無，讀 `state` 與表單）
    * Returns:
    *   {boolean}
@@ -2192,10 +2281,9 @@
   function hasUnsavedWeekChanges() {
     if (!state.loaded) return false;
     var fields = diffWeekFields(collectWeekFieldsFromForm(), state.loadedWeek, CONTENT_SHEET_WEEK_FIELDS);
-    var duty = diffWeekFields(dutyNameMap(state.dutyEdits), state.loadedDutyNames, []);
-    var nextDuty = diffWeekFields(dutyNameMap(state.nextWeekDutyEdits), state.loadedNextDutyNames, []);
-    return Object.keys(fields.week).length + Object.keys(duty.week).length
-      + Object.keys(nextDuty.week).length > 0;
+    var duty = changedDutyEdits(state.dutyEdits, state.loadedDutyNames);
+    var nextDuty = changedDutyEdits(state.nextWeekDutyEdits, state.loadedNextDutyNames);
+    return Object.keys(fields.week).length + duty.length + nextDuty.length > 0;
   }
 
   /**
@@ -2666,6 +2754,10 @@
   function onRosterReloaded(resp) {
     if (!resp.ok) { showMessage('error', resp.error.message); return; }
     renderReadOnly(resp.data.readOnly);
+    // D9：事奉框剛按職事表最新內容重畫，「載入時的名字」要跟着換，否則職事表換了人的格會被當成
+    //    使用者改過而送上去（與 onWeekLoaded() 同一做法）。
+    state.loadedDutyNames = dutyNameMap(state.dutyEdits);
+    state.loadedNextDutyNames = dutyNameMap(state.nextWeekDutyEdits);
     renderStats(resp.data.missingSplit, resp.data.warnings, state.lastSavedAt);
     renderConflictStat(resp.data.rosterDiff);
     renderProgramPreview(resp.data.readOnly.program);
@@ -2688,12 +2780,14 @@
     return {
       isoDate: state.isoDate,
       lastSavedAt: state.lastSavedAt,
+      payloadVersion: SAVE_PAYLOAD_VERSION,
       baseWeek: parts.baseWeek,
       week: parts.week,
-      dutyEdits: Object.keys(state.dutyEdits).map(function (k) { return state.dutyEdits[k]; }),
+      // D9：只送載入之後改過的格（與按了「保留我的」的格），每格帶載入時的名字 baseName。
+      //    沒有改的格不送——以前整批送，會令衝突靜靜消失（FF-17），或把載入時的舊名字釘成覆寫（FF-26）。
+      dutyEdits: changedDutyEdits(state.dutyEdits, state.loadedDutyNames),
       // R-040：送去後端之後，後端會用**下一個主日**的日期寫 DutyOverride。
-      nextWeekDutyEdits: Object.keys(state.nextWeekDutyEdits)
-        .map(function (k) { return state.nextWeekDutyEdits[k]; })
+      nextWeekDutyEdits: changedDutyEdits(state.nextWeekDutyEdits, state.loadedNextDutyNames)
     };
   }
 

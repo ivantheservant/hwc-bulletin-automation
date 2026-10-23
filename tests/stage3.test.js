@@ -549,7 +549,7 @@ test('幹事在事奉框把講員改成表格那一位（DutyOverride）→ 警�
   const loaded = env.sandbox.loadWeekForWebApp_(D);
   env.sandbox.saveWeekFromWebApp_({
     isoDate: D, lastSavedAt: loaded.lastSavedAt, week: {}, baseWeek: {},
-    dutyEdits: [{ postId: 'PREACHER', slotIndex: 1, name: '乙傳道' }]
+    payloadVersion: 2, dutyEdits: [{ postId: 'PREACHER', slotIndex: 1, name: '乙傳道' }]
   });
   assert.strictEqual(mismatchWarnings(env).length, 0);
 });

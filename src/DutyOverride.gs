@@ -172,30 +172,43 @@ function readDutyOverrideRows_(isoDate) {
  * 用途：算出一批事奉格編輯要對 `DutyOverride` 做什麼。純函式，不碰
  *   Apps Script 服務，方便在 Node 直接測試。
  *
- *   逐格規則：
- *     - 新值與**職事表現值相同** → 不需要覆寫。既有的生效中覆寫改成
- *       `ACTIVE=FALSE`；本來就沒有覆寫的話什麼都不做（**不會**產生
- *       一行「覆寫成跟職事表一樣」的無意義記錄）。
- *     - 新值是空字串 → 取消覆寫，同上（`ACTIVE=FALSE`，不刪行）。
- *     - 新值與職事表現值不同 → 寫或更新一行覆寫。`ROSTER_VALUE_AT_OVERRIDE`
- *       與 `ROSTER_VERSION_AT_OVERRIDE` 一律**重新記成現在的職事表值／
- *       版本**——幹事這一刻是看著現在的職事表做決定的，所以衝突判斷的
- *       基準線要跟著更新（副作用是這樣會把原本的 `CONFLICT` 消掉，
- *       那正是「幹事已經看過並重新確認」應有的效果）。
+ *   D9（docs/待確認事項.md FF-17、FF-26）：前端只送**載入之後改過**的格（每格帶 `baseName`＝載入時的
+ *   名字），或者幹事對衝突格按了「保留我的」的格（`keepOverride:true`）。**沒有送來的格一律不動**：
+ *   不新增覆寫、不更新基準。以前前端每次儲存都送全部格，結果 (a) 仍然生效的覆寫的基準被更新成現在的
+ *   職事表值，「衝突」靜靜消失；(b) 分頁開着期間職事表換了人，只改序樂儲存會新增一筆覆寫，把載入時的
+ *   舊名字釘死。
+ *
+ *   逐格規則（只看送來的格）：
+ *     - 名字（前後空白去掉）等於 `baseName`、又不是「保留我的」→ 這一格其實沒有改，略過（後端第二重防線，
+ *       前端本來就不會送；`baseName` 沒有帶就當作有改）。
+ *     - 新值與**職事表現值相同**，或者是空字串 → 不需要覆寫。既有的生效中覆寫改成 `ACTIVE=FALSE`；
+ *       本來就沒有覆寫的話什麼都不做（**不會**產生一行「覆寫成跟職事表一樣」的無意義記錄）。
+ *     - 新值與職事表現值不同 → 寫或更新一行覆寫。`ROSTER_VALUE_AT_OVERRIDE` 與
+ *       `ROSTER_VERSION_AT_OVERRIDE` 重新記成現在的職事表值／版本——幹事這一刻真的改了（或者按了
+ *       「保留我的」），是看著現在的職事表做決定的，衝突解除。
+ *     - `keepOverride` 只認布林 `true`（字串 `"true"` 不算，當作沒有按）：名字不變，只把基準更新到現在
+ *       的職事表，衝突解除（上一條的特例）。
+ *
+ *   另外每次都檢查這一週**全部**生效中的覆寫（沒有送來的格）：覆寫的名字已經等於職事表現值（職事表
+ *   追上了覆寫），或者覆寫名字是空白（畫面本來就顯示職事表），就自動停用（`autoCaughtUp:true`），
+ *   畫面上的名字不變。這就是 G16-9 的行為：以前靠「前端送來的名字等於職事表」觸發，現在不用送。
+ *   職事表現值是空白（未排定、或讀不到）時不會自動停用，免得把覆寫當成「追上了」。
  * Args:
  *   input {{edits:Object[], existingRows:Object[], rosterNameByKey:Object,
  *          rosterVersion:(number|null)}}
- *     `edits` 每個元素是 `{postId, slotIndex, name}`；`existingRows` 是
- *     `readDutyOverrideRowsWithRowNo_()` 的輸出；`rosterNameByKey` 是
+ *     `edits` 每個元素是 `{postId, slotIndex, name, baseName, keepOverride}`（後兩個可省略）；
+ *     `existingRows` 是 `readDutyOverrideRowsWithRowNo_()` 的輸出；`rosterNameByKey` 是
  *     「崗位#位次 → 職事表現值」。
  * Returns:
  *   {{updates:{rowNo:number, changes:{field:string,oldValue:*,newValue:*}[],
  *      postId:string, slotIndex:number}[],
  *     appends:Object[], deactivations:{rowNo:number, postId:string,
- *      slotIndex:number, oldValue:string, rosterName:string}[]}}
+ *      slotIndex:number, oldValue:string, rosterName:string, autoCaughtUp:boolean}[]}}
  *     `appends` 的元素不含 `SERVICE_DATE`（由呼叫方補上）。`deactivations` 的
  *     `rosterName` 是職事表現值（G16：取消覆寫之後畫面上那一格會不會變，
- *     要拿它與 `oldValue` 比）。
+ *     要拿它與 `oldValue` 比）；`autoCaughtUp` 為真代表不是幹事改的，是職事表追上了覆寫。
+ * Raises:
+ *   （無）
  */
 function computeDutyOverridePlan_(input) {
   var edits = input.edits || [];
@@ -209,11 +222,17 @@ function computeDutyOverridePlan_(input) {
   var updates = [];
   var appends = [];
   var deactivations = [];
+  var editedKeys = {};
 
   edits.forEach(function (edit) {
     var key = dutyOverrideKey_(edit.postId, edit.slotIndex);
     var slotIndex = (edit.slotIndex === null || edit.slotIndex === undefined) ? 1 : Number(edit.slotIndex);
     var newName = String(edit.name === null || edit.name === undefined ? '' : edit.name).trim();
+    var keep = edit.keepOverride === true;
+    var hasBase = typeof edit.baseName === 'string';
+    if (!keep && hasBase && newName === edit.baseName.trim()) return;
+    editedKeys[key] = true;
+
     var rosterName = String(rosterNameByKey[key] === undefined ? '' : rosterNameByKey[key]).trim();
     var existing = existingByKey[key];
 
@@ -223,7 +242,7 @@ function computeDutyOverridePlan_(input) {
       if (existing && existing.ACTIVE === true) {
         deactivations.push({
           rowNo: existing.__rowNo, postId: edit.postId, slotIndex: slotIndex,
-          oldValue: String(existing.OVERRIDE_NAME || ''), rosterName: rosterName
+          oldValue: String(existing.OVERRIDE_NAME || ''), rosterName: rosterName, autoCaughtUp: false
         });
       }
       return;
@@ -261,6 +280,22 @@ function computeDutyOverridePlan_(input) {
     });
   });
 
+  // D9：沒有送來的格，只做「職事表追上了覆寫就停用」這一件事（見上面的說明）。
+  (input.existingRows || []).forEach(function (row) {
+    if (row.ACTIVE !== true) return;
+    var key = dutyOverrideKey_(row.POST_ID, row.SLOT_INDEX);
+    if (editedKeys[key]) return;
+    var overrideName = String(row.OVERRIDE_NAME === null || row.OVERRIDE_NAME === undefined ? '' : row.OVERRIDE_NAME).trim();
+    var rosterName = String(rosterNameByKey[key] === undefined ? '' : rosterNameByKey[key]).trim();
+    var caughtUp = overrideName === '' || (rosterName !== '' && overrideName === rosterName);
+    if (!caughtUp) return;
+    var slotIndex = (row.SLOT_INDEX === null || row.SLOT_INDEX === undefined || row.SLOT_INDEX === '') ? 1 : Number(row.SLOT_INDEX);
+    deactivations.push({
+      rowNo: row.__rowNo, postId: String(row.POST_ID), slotIndex: slotIndex,
+      oldValue: overrideName, rosterName: rosterName, autoCaughtUp: true
+    });
+  });
+
   return { updates: updates, appends: appends, deactivations: deactivations };
 }
 
@@ -271,7 +306,8 @@ function computeDutyOverridePlan_(input) {
  *
  *   ⚠️ 只有計畫帶 `rosterName`（`computeDutyOverridePlan_()` 算的，即儲存那一條路）才判斷得到；
  *   重設、還原、由職事表重新取數的計畫沒有 `rosterName`，一律當作會變（`false`）——寧可多算一次
- *   改動、令另一週多收一次 STALE，也不可以把真的改了名字講成沒有改。
+ *   改動、令另一週多收一次 STALE，也不可以把真的改了名字講成沒有改。D9：覆寫名字本身是空白的例外
+ *   （畫面本來就不受它影響），一律是不變。
  *   `applyDutyOverridePlan_()` 的 `displayUnchanged` 與 `dutyPlanChangesNames_()` 都經這一支，
  *   規則只有一份。
  * Args:
@@ -283,6 +319,9 @@ function computeDutyOverridePlan_(input) {
  */
 function dutyDeactivationKeepsDisplay_(deact) {
   var d = deact || {};
+  // D9：覆寫名字是空白的話，畫面本來就顯示職事表的名字（applyDutyOverridesToSlots_() 不理空白覆寫），
+  // 停用之後一樣，不論計畫有沒有 rosterName。
+  if (String(d.oldValue || '').trim() === '') return true;
   if (d.rosterName === undefined || d.rosterName === null) return false;
   return String(d.oldValue || '').trim() === String(d.rosterName).trim();
 }
@@ -338,7 +377,8 @@ function applyDutyOverridePlan_(plan, targetDate, isoDate, actorEmail, auditEntr
       action: 'DUTY_OVERRIDE_CLEAR', sheetName: SHEETS.DUTY_OVERRIDE,
       rowKey: isoDate + '#' + deact.postId + '#' + deact.slotIndex,
       field: 'ACTIVE', oldValue: 'TRUE', newValue: 'FALSE',
-      notes: '取消人手覆寫（原值：' + deact.oldValue + '），改回跟隨職事表。記錄保留，不刪行。',
+      // D9：自動停用（職事表追上了覆寫）與幹事自己取消，備註分開講，日後查得出是哪一種。
+      notes: dutyDeactivationNote_(deact),
       displayUnchanged: dutyDeactivationKeepsDisplay_(deact)
     });
   });
@@ -365,6 +405,28 @@ function applyDutyOverridePlan_(plan, targetDate, isoDate, actorEmail, auditEntr
       });
     });
   }
+}
+
+/**
+ * 用途：D9：停用一筆事奉覆寫時 `AuditLog` 的備註。純函式。幹事自己取消、職事表追上了覆寫（自動停用）、
+ *   覆寫名字本身是空白（自動停用），三種分開講，日後查得出是哪一種。
+ * Args:
+ *   deact {{oldValue:string, autoCaughtUp:(boolean|undefined)}} 停用計畫的一項。
+ * Returns:
+ *   {string}
+ * Raises:
+ *   （無）
+ */
+function dutyDeactivationNote_(deact) {
+  var d = deact || {};
+  var oldValue = String(d.oldValue || '').trim();
+  if (d.autoCaughtUp === true && oldValue === '') {
+    return '人手覆寫的名字是空白（畫面本來就顯示職事表的名字），儲存時自動停用。記錄保留，不刪行。';
+  }
+  if (d.autoCaughtUp === true) {
+    return '職事表現在亦是「' + oldValue + '」，與人手覆寫相同，儲存時自動改回跟隨職事表。記錄保留，不刪行。';
+  }
+  return '取消人手覆寫（原值：' + String(d.oldValue || '') + '），改回跟隨職事表。記錄保留，不刪行。';
 }
 
 /**
