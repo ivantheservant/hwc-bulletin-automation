@@ -812,7 +812,7 @@ test('G23b-2 專案內拿指令碼鎖的地方全部經 withScriptLock_()（D12�
     if (code.indexOf('withScriptLock_(') !== -1) users.push(f);
   });
   // D12 的四處，加上 D13 的還原、重設（WeekSnapshots.gs）與由職事表重新取數（WebApp.gs）。
-  ['ContentImport.gs', 'Publish.gs', 'SpeakerForm.gs', 'WebAppSave.gs'].forEach(function (f) {
+  ['ContentImport.gs', 'Publish.gs', 'SpeakerForm.gs', 'WebAppSave.gs', 'WeekSnapshots.gs', 'WebApp.gs'].forEach(function (f) {
     assert.ok(users.indexOf(f) !== -1, f + ' 要經 withScriptLock_()；現時：' + users.join('、'));
   });
 });
@@ -1160,6 +1160,144 @@ test('G28-8 複審 3：儲存同時改了本週與下週事奉 → W 的 LAST_SA
   assert.deepStrictEqual(touchCalls, [[env.before, env.after]], '一次讀取，W 不在內');
   assert.deepStrictEqual(JSON.parse(JSON.stringify(sb.weeksShowingDuty_([env.week, env.after], [env.week]))), [env.before, env.after]);
   assert.strictEqual(sb.touchWeeksLastSavedAt_([], new Date()), 0, '空清單不讀');
+});
+
+// =====================================================================
+// D13：還原、重設、由職事表重新取數亦拿同一把鎖
+// =====================================================================
+
+console.log('\n還原、重設、由職事表重新取數拿同一把鎖（D13）');
+
+/** 整個試算表（週報自己的全部工作表）的內容，用來斷言「一格都沒有寫」。 */
+function wholeBook(sb) {
+  const out = {};
+  Object.keys(sb.SHEETS).forEach(function (id) {
+    try { out[id] = sb.readSheet(sb.SHEETS[id]); } catch (err) { out[id] = 'ERR'; }
+  });
+  return JSON.stringify(out);
+}
+
+/** 另一次執行拿着鎖（例如另一個分頁的儲存、匯入或發佈仍在跑）：這一次 tryLock 一定失敗。 */
+function lockHeldByOtherExecution(sb, events) {
+  sb.LockService = {
+    getScriptLock: function () {
+      return { tryLock: function (ms) { events.push('tryLock:' + ms); return false; }, releaseLock: function () { events.push('releaseLock'); } };
+    }
+  };
+}
+
+const D13_BUSY_HEAD = '另一個寫入動作（例如另一次儲存、匯入或發佈）正在執行中，30 秒內等不到，所以這一次一格都沒有寫。';
+
+test('D13-1 還原（真正入口 apiRestoreWeekSnapshot）：另一個寫入持鎖 → LOCK_TIMEOUT、清楚的一句、一格都沒有寫（連安全版本都不存）；鎖等 30 秒', function () {
+  const env = makeOverriddenChairEnv();
+  const sb = env.sb;
+  const target = sb.listWeekSnapshotsForWebApp_(env.iso).versions[0];
+  const diff = sb.diffWeekSnapshotForWebApp_(env.iso, target.snapshotId);
+  const before = wholeBook(sb);
+  const events = [];
+  lockHeldByOtherExecution(sb, events);
+  const resp = sb.apiRestoreWeekSnapshot({ isoDate: env.iso, snapshotId: target.snapshotId, lastSavedAt: diff.lastSavedAt });
+  assert.strictEqual(resp.ok, false);
+  assert.strictEqual(resp.error.code, 'LOCK_TIMEOUT');
+  assert.strictEqual(resp.error.message, D13_BUSY_HEAD + '請稍等再按「還原到這個版本」。');
+  assert.deepStrictEqual(events, ['tryLock:30000']);
+  const after = JSON.parse(wholeBook(sb));
+  const was = JSON.parse(before);
+  Object.keys(was).forEach(function (k) {
+    if (k === 'ERROR_LOG') return;   // FF-22：LOCK_TIMEOUT 記一行 ErrorLog（IT 要看得到），不算週報資料
+    assert.strictEqual(JSON.stringify(after[k]), JSON.stringify(was[k]), k + ' 不可以有改動');
+  });
+  assertWrittenChinese(assert, 'D13 還原', [resp.error.message]);
+});
+
+test('D13-2 重設（真正入口 apiResetWeek）：另一個寫入持鎖 → LOCK_TIMEOUT、一格都沒有寫', function () {
+  const env = makeOverriddenChairEnv();
+  const sb = env.sb;
+  const loaded = sb.loadWeekForWebApp_(env.iso);
+  const before = JSON.parse(wholeBook(sb));
+  lockHeldByOtherExecution(sb, []);
+  const resp = sb.apiResetWeek({ isoDate: env.iso, lastSavedAt: loaded.lastSavedAt });
+  assert.strictEqual(resp.ok, false);
+  assert.strictEqual(resp.error.code, 'LOCK_TIMEOUT');
+  assert.strictEqual(resp.error.message, D13_BUSY_HEAD + '請稍等再按「重設這一週…」。');
+  const after = JSON.parse(wholeBook(sb));
+  Object.keys(before).forEach(function (k) {
+    if (k === 'ERROR_LOG') return;
+    assert.strictEqual(JSON.stringify(after[k]), JSON.stringify(before[k]), k + ' 不可以有改動');
+  });
+  assert.strictEqual(chairOverride(sb).ACTIVE, true, '覆寫沒有被停用');
+});
+
+test('D13-3 由職事表重新取數（真正入口 apiFetchFromRoster）：另一個寫入持鎖 → LOCK_TIMEOUT、一格都沒有寫；沒有勾選任何欄位照舊不拿鎖', function () {
+  const env = makeOverriddenChairEnv();
+  const sb = env.sb;
+  const before = JSON.parse(wholeBook(sb));
+  const events = [];
+  lockHeldByOtherExecution(sb, events);
+  const resp = sb.apiFetchFromRoster(env.iso, [{ postId: 'CHAIR', slotIndex: 1 }]);
+  assert.strictEqual(resp.ok, false);
+  assert.strictEqual(resp.error.code, 'LOCK_TIMEOUT');
+  assert.strictEqual(resp.error.message, D13_BUSY_HEAD + '請稍等再按一次「由職事表重新取數」。');
+  const after = JSON.parse(wholeBook(sb));
+  Object.keys(before).forEach(function (k) {
+    if (k === 'ERROR_LOG') return;
+    assert.strictEqual(JSON.stringify(after[k]), JSON.stringify(before[k]), k + ' 不可以有改動');
+  });
+  assert.strictEqual(chairOverride(sb).ACTIVE, true);
+  events.length = 0;
+  const none = sb.apiFetchFromRoster(env.iso, []);
+  assert.strictEqual(none.ok, true);
+  assert.deepStrictEqual(events, [], '沒有勾選就不拿鎖');
+});
+
+test('D13-4 真的同一刻：儲存拿着鎖、正要寫入時，另一次執行按「重設這一週」→ 重設拿不到鎖、一格都不寫；儲存照常完成；之後再按重設就做得到', function () {
+  const env = makeSaveEnv();
+  const sb = env.sb;
+  const original = sb.trySnapshotWeek_;
+  const seen = {};
+  sb.trySnapshotWeek_ = function () {
+    if (!seen.started) {
+      seen.started = true;
+      seen.reset = asOtherExecution(sb, function () { return sb.apiResetWeek({ isoDate: env.iso }); });
+      seen.resetVersions = sb.listWeekSnapshotsForWebApp_(env.iso).versions.length;
+    }
+    return original.apply(this, arguments);
+  };
+  const saved = sb.apiSaveWeek(JSON.parse(JSON.stringify(env.payload)));
+  sb.trySnapshotWeek_ = original;
+  assert.strictEqual(saved.ok, true, JSON.stringify(saved.error));
+  assert.strictEqual(seen.reset.ok, false);
+  assert.strictEqual(seen.reset.error.code, 'LOCK_TIMEOUT');
+  assert.strictEqual(seen.resetVersions, 0, '重設連安全版本都沒有存');
+  assert.strictEqual(auditOf(sb, 'WEEK_RESET').length, 0);
+  assert.strictEqual(sb.readSheet('BulletinWeeks')[0].PRELUDE, '新序樂', '儲存照常完成');
+  assert.strictEqual(sb.LockService.held(), false);
+  const later = sb.apiResetWeek({ isoDate: env.iso });
+  assert.strictEqual(later.ok, true, JSON.stringify(later.error));
+  assert.strictEqual(sb.readSheet('BulletinWeeks')[0].PRELUDE, '預設序樂');
+});
+
+test('D13-5 還原、重設、由職事表重新取數成功時各拿一次鎖、放一次鎖（經 withScriptLock_()，flush 之後才放）', function () {
+  const env = makeOverriddenChairEnv();
+  const sb = env.sb;
+  const events = [];
+  sb.LockService = {
+    getScriptLock: function () {
+      return { tryLock: function (ms) { events.push('tryLock:' + ms); return true; }, releaseLock: function () { events.push('releaseLock'); } };
+    }
+  };
+  sb.SpreadsheetApp.flush = function () { events.push('flush'); };
+  const fetched = sb.apiFetchFromRoster(env.iso, [{ postId: 'CHAIR', slotIndex: 1 }]);
+  assert.strictEqual(fetched.ok, true, JSON.stringify(fetched.error));
+  assert.deepStrictEqual(events.splice(0), ['tryLock:30000', 'flush', 'releaseLock']);
+  const reset = sb.apiResetWeek({ isoDate: env.iso });
+  assert.strictEqual(reset.ok, true, JSON.stringify(reset.error));
+  assert.deepStrictEqual(events.splice(0), ['tryLock:30000', 'flush', 'releaseLock']);
+  const target = sb.listWeekSnapshotsForWebApp_(env.iso).versions[0];
+  const restored = sb.apiRestoreWeekSnapshot({ isoDate: env.iso, snapshotId: target.snapshotId });
+  assert.strictEqual(restored.ok, true, JSON.stringify(restored.error));
+  assert.deepStrictEqual(events.splice(0), ['tryLock:30000', 'flush', 'releaseLock']);
+  assert.strictEqual(sb.SCRIPT_LOCK_DEPTH_, 0);
 });
 
 // =====================================================================

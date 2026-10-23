@@ -927,12 +927,32 @@ function applyWeekRestorePlan_(isoDate, rowNo, plan, action, noteHead) {
  *     不顯示內部 ID（第二批測試修正 G5）；`AuditLog` 備註照舊記 ID。
  * Raises:
  *   Error 找不到版本／那一週（`SNAPSHOT_NOT_FOUND`）、鎖定值不符（`STALE`）、
- *     存不到安全版本，或任何寫入失敗。
+ *     存不到安全版本，或任何寫入失敗；Error（`code:'LOCK_TIMEOUT'`）如果 30 秒內拿不到
+ *     指令碼鎖（D13，一格都沒有寫）。
  */
 function restoreWeekSnapshotFromWebApp_(payload) {
   if (!payload || !payload.isoDate || !payload.snapshotId) {
     throw new Error('restoreWeekSnapshotFromWebApp_：payload.isoDate 與 payload.snapshotId 都是必填欄位。');
   }
+  // D13：由讀取、核對鎖定值到寫入，全部在指令碼鎖之內（與儲存同一把、同一個等候時間）。拿不到鎖就一格都不寫。
+  return withScriptLock_('apiRestoreWeekSnapshot', SAVE_LOCK_WAIT_MS_, function () {
+    return restoreWeekSnapshotLocked_(payload);
+  }, function () {
+    throw buildLockTimeoutError_(SAVE_LOCK_WAIT_MS_, '請稍等再按「還原到這個版本」。');
+  });
+}
+
+/**
+ * 用途：D13：`restoreWeekSnapshotFromWebApp_()` 拿到指令碼鎖之後的那一段（步驟見該函式的說明）。
+ *   只可以由 `restoreWeekSnapshotFromWebApp_()` 呼叫。
+ * Args:
+ *   payload {{isoDate:string, snapshotId:string, lastSavedAt:string=}} 已經驗過必填欄位。
+ * Returns:
+ *   {Object} 同 `restoreWeekSnapshotFromWebApp_()`。
+ * Raises:
+ *   Error 同 `restoreWeekSnapshotFromWebApp_()`（找不到版本、STALE 都在任何寫入之前拋出）。
+ */
+function restoreWeekSnapshotLocked_(payload) {
   var isoDate = payload.isoDate;
   var loaded = loadWeekSnapshot_(isoDate, payload.snapshotId);
   var state = readWeekStateForSnapshot_(isoDate);
@@ -1146,12 +1166,34 @@ function planWeekReset_(blankRow, current) {
  *     message:{type:string, text:string}}}
  * Raises:
  *   Error 主日格式不對、BulletinWeeks 沒有那一行、鎖定值不符（`STALE`）、存不到
- *     安全版本，或任何寫入失敗。
+ *     安全版本，或任何寫入失敗；Error（`code:'LOCK_TIMEOUT'`）如果 30 秒內拿不到指令碼鎖
+ *     （D13，一格都沒有寫）。
  */
 function resetWeekFromWebApp_(isoDate, lastSavedAt) {
   if (!isoDate || !normalizeDate_(isoDate)) {
     throw new Error('resetWeekFromWebApp_：isoDate 必須是 yyyy-MM-dd 格式，收到：' + JSON.stringify(isoDate));
   }
+  // D13：由讀取、核對鎖定值到寫入（包括內容表重新匯入），全部在指令碼鎖之內。重設叫的
+  // applyContentImport_() 亦經 withScriptLock_()，是巢狀呼叫，不再等鎖（D12）。
+  return withScriptLock_('apiResetWeek', SAVE_LOCK_WAIT_MS_, function () {
+    return resetWeekLocked_(isoDate, lastSavedAt);
+  }, function () {
+    throw buildLockTimeoutError_(SAVE_LOCK_WAIT_MS_, '請稍等再按「重設這一週…」。');
+  });
+}
+
+/**
+ * 用途：D13：`resetWeekFromWebApp_()` 拿到指令碼鎖之後的那一段（步驟見該函式的說明）。
+ *   只可以由 `resetWeekFromWebApp_()` 呼叫。
+ * Args:
+ *   isoDate {string} 主日日期，yyyy-MM-dd（已經驗過格式）。
+ *   lastSavedAt {string=} 前端載入時拿到的鎖定值；省略就不檢查。
+ * Returns:
+ *   {Object} 同 `resetWeekFromWebApp_()`。
+ * Raises:
+ *   Error 同 `resetWeekFromWebApp_()`（沒有那一行、STALE 都在任何寫入之前拋出）。
+ */
+function resetWeekLocked_(isoDate, lastSavedAt) {
   var state = readWeekStateForSnapshot_(isoDate);
   if (!state.weekRow) {
     throw new Error('週報試算表未有主日 ' + isoDate + '，無從重設。請先用選單「建立本季空白週報」。');

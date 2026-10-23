@@ -825,7 +825,10 @@ function saveWeekFromWebApp_(payload) {
   });
 }
 
-/** 第二批測試修正 G23：儲存等指令碼鎖最多等幾多毫秒（與 applyContentImport_()、onSpeakerFormSubmit_() 相同）。 */
+/**
+ * 第二批測試修正 G23：儲存等指令碼鎖最多等幾多毫秒（與 applyContentImport_()、onSpeakerFormSubmit_() 相同）。
+ * D13：還原、重設、由職事表重新取數亦用這個時間。
+ */
 var SAVE_LOCK_WAIT_MS_ = 30000;
 
 /**

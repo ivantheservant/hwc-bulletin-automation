@@ -1936,13 +1936,36 @@ function getRosterFetchCandidates_(isoDate) {
  *   selections {{postId:string, slotIndex:number}[]} 使用者勾選的欄位。
  * Returns:
  *   {{clearedCount:number, message:{type:string,text:string}}}
+ * Raises:
+ *   Error 如果 `DutyOverride` 工作表不存在；Error（`code:'LOCK_TIMEOUT'`）如果 30 秒內拿不到
+ *     指令碼鎖（D13，一格都沒有寫）。
  */
 function fetchFromRosterForWebApp_(isoDate, selections) {
   var picked = selections || [];
   if (picked.length === 0) {
     return { clearedCount: 0, message: { type: 'info', text: '沒有勾選任何欄位，沒有做任何改動。' } };
   }
+  // D13：由讀取覆寫到停用、更新 LAST_SAVED_AT，全部在指令碼鎖之內（與儲存同一把、同一個等候時間）。
+  // 以前沒有拿鎖，與另一個分頁同一刻的儲存或重設有機會互相穿插。拿不到鎖就一格都不寫。
+  return withScriptLock_('apiFetchFromRoster', SAVE_LOCK_WAIT_MS_, function () {
+    return fetchFromRosterLocked_(isoDate, picked);
+  }, function () {
+    throw buildLockTimeoutError_(SAVE_LOCK_WAIT_MS_, '請稍等再按一次「由職事表重新取數」。');
+  });
+}
 
+/**
+ * 用途：D13：`fetchFromRosterForWebApp_()` 拿到指令碼鎖之後的那一段——讀這一週的覆寫、停用勾選的格、
+ *   記 AuditLog、更新 LAST_SAVED_AT。只可以由 `fetchFromRosterForWebApp_()` 呼叫。
+ * Args:
+ *   isoDate {string} 主日日期，yyyy-MM-dd。
+ *   picked {{postId:string, slotIndex:number}[]} 使用者勾選的欄位（至少一項）。
+ * Returns:
+ *   {{clearedCount:number, message:{type:string,text:string}}} 同 `fetchFromRosterForWebApp_()`。
+ * Raises:
+ *   Error 如果 `DutyOverride` 工作表不存在。
+ */
+function fetchFromRosterLocked_(isoDate, picked) {
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.DUTY_OVERRIDE);
   if (!sheet) {
     throw new Error('fetchFromRosterForWebApp_：找不到工作表「' + SHEETS.DUTY_OVERRIDE + '」，請先執行「初始化工作表」。');
