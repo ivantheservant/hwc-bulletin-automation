@@ -11,6 +11,8 @@
 
 const { loadAllSrcFilesInOrder } = require('./loadGas');
 const { makeFakeSheet, makeFakeSpreadsheet } = require('./fakeSpreadsheet');
+const { makeContentFaults, makeContentTab: makeStrictContentTab, makeContentSpreadsheet } = require('./contentTabFake');
+const { legacyContentTabDefsV1 } = require('../fixtures/legacyContentSheetV1');
 
 const FAKE_ROSTER_ID = 'FAKE_ROSTER_ID_FOR_IMPORT_TESTS';
 const FAKE_FOLDER_ID = 'FAKE_CONTENT_FOLDER';
@@ -18,74 +20,28 @@ const FAKE_CONTENT_FILE_ID = 'FAKE_CONTENT_FILE';
 const QUARTER_ID = '2027T4';
 const SERVICE_DATES = ['2027-10-03', '2027-10-10', '2027-10-17', '2027-10-24', '2027-10-31'];
 
-/** 造一張假的內容表分頁（兩行標題，資料由第 3 行開始）。 */
-function makeContentTab(keys, headers, rows) {
-  const data = [headers.slice(), keys.slice()];
-  (rows || []).forEach(function (row) {
-    data.push(keys.map(function (k) { return row[k] === undefined ? '' : row[k]; }));
-  });
-
-  const sheet = {
-    __data: data,
-    getName: function () { return sheet.__name; },
-    getLastRow: function () { return data.length; },
-    getLastColumn: function () { return keys.length; },
-    getMaxRows: function () { return Math.max(data.length, 500); },
-    getFrozenRows: function () { return 2; },
-    setFrozenRows: function () { return sheet; },
-    setColumnWidth: function () { return sheet; },
-    getRange: function (r, c, numRows, numCols) {
-      numRows = numRows || 1;
-      numCols = numCols || 1;
-      const range = {
-        getValues: function () {
-          const out = [];
-          for (let i = 0; i < numRows; i++) {
-            const rowArr = [];
-            for (let j = 0; j < numCols; j++) {
-              const src = data[r - 1 + i];
-              rowArr.push(src && src[c - 1 + j] !== undefined ? src[c - 1 + j] : '');
-            }
-            out.push(rowArr);
-          }
-          return out;
-        },
-        // 階段 3 起真的記下寫入的值（講員表格答案會寫進「崇拜程序」分頁，要驗得到）。
-        setValues: function (values) {
-          for (let i = 0; i < values.length; i++) {
-            while (data.length <= r - 1 + i) data.push([]);
-            for (let j = 0; j < values[i].length; j++) data[r - 1 + i][c - 1 + j] = values[i][j];
-          }
-          return range;
-        },
-        getValue: function () { const s = data[r - 1]; return s && s[c - 1] !== undefined ? s[c - 1] : ''; },
-        setValue: function (v) {
-          while (data.length <= r - 1) data.push([]);
-          data[r - 1][c - 1] = v;
-          return range;
-        },
-        clearContent: function () { return range; },
-        setNumberFormat: function () { return range; },
-        setDataValidation: function () { return range; },
-        clearDataValidations: function () { return range; },
-        setNote: function () { return range; },
-        getNote: function () { return ''; },
-        setWrap: function () { return range; },
-        setFontWeight: function () { return range; },
-        setBackground: function () { return range; },
-        setFontColor: function () { return range; },
-        setFontSize: function () { return range; }
-      };
-      return range;
-    }
-  };
-  return sheet;
+/**
+ * 造一張假的內容表分頁（兩行標題，資料由第 3 行開始）。
+ *
+ * 內容表 v2 Commit 1：改用 tests/helpers/contentTabFake.js 的嚴格替身（超出欄數拋錯、寫入會自動轉型、
+ * 改名跟住走、可以隱藏與保護）。保留這個名字與參數，舊測試照舊叫得到。
+ */
+function makeContentTab(keys, headers, rows, opts) {
+  return makeStrictContentTab(keys, headers, rows, opts);
 }
 
 /**
  * 造一個測試環境。
  * options.content：分頁名稱 → 資料列陣列（以內容表機器鍵為 key）。
- *   沒有列出的分頁＝整張空白。
+ *   沒有列出的分頁＝整張空白。⚠️ 寫了一個這個版面沒有的分頁名稱就拋錯——以前會靜靜當成
+ *   空白分頁，內容表 v2 把「宣召」併入「崇拜程序」之後，`content: { 宣召: … }` 這類舊測試就會
+ *   空跑變綠（bug class 39、40）。
+ * options.contentLayout：'current'（預設，由 src 的 contentSheetTabDefs_() 造）或 'v1'
+ *   （由 tests/fixtures/legacyContentSheetV1.js 凍結的舊版定義造，移轉測試用）。
+ * options.omitTabs：這幾張分頁不建立（模擬舊內容表未有那一張）。
+ * options.extraTabs：另外加的分頁 `[{tabName, keys, headers, rows}]`（例如已改名的舊分頁）。
+ * options.maxColumns：每張分頁的欄數（數字，或者「分頁名稱 → 欄數」）；預設 26，與真的新分頁一樣。
+ * options.contentFaults：`{failOnSetValue, failOnSetName}`，第 N 次寫入格子／改名時拋錯。
  */
 function makeEnv(options) {
   const o = options || {};
@@ -141,20 +97,44 @@ function makeEnv(options) {
   };
 
   // ---- 內容表 ----
+  const layoutDefs = o.contentLayout === 'v1' ? legacyContentTabDefsV1() : boot.contentSheetTabDefs_();
+  const knownNames = layoutDefs.map(function (d) { return d.tabName; })
+    .concat((o.extraTabs || []).map(function (t) { return t.tabName; }));
+  Object.keys(o.content || {}).forEach(function (name) {
+    if (knownNames.indexOf(name) === -1) {
+      throw new Error('contentEnv：這個版面沒有「' + name + '」這一張分頁（版面：'
+        + (o.contentLayout || 'current') + '，有的分頁：' + knownNames.join('、') + '）。');
+    }
+  });
+  const contentFaults = makeContentFaults(o.contentFaults || {});
+  function maxColumnsFor(name) {
+    if (typeof o.maxColumns === 'number') return o.maxColumns;
+    if (o.maxColumns && typeof o.maxColumns[name] === 'number') return o.maxColumns[name];
+    return undefined;
+  }
   const contentTabs = {};
-  boot.contentSheetTabDefs_().forEach(function (def) {
-    const rows = (o.content || {})[def.tabName] || [];
-    const tab = makeContentTab(def.keys, def.headers, rows);
-    tab.__name = def.tabName;
+  const tabList = [];
+  layoutDefs.concat(o.extraTabs || []).forEach(function (def) {
+    if ((o.omitTabs || []).indexOf(def.tabName) !== -1) return;
+    const rows = (o.content || {})[def.tabName] || def.rows || [];
+    const tab = makeContentTab(def.keys, def.headers, rows,
+      { name: def.tabName, faults: contentFaults, maxColumns: maxColumnsFor(def.tabName) });
     contentTabs[def.tabName] = tab;
+    tabList.push(tab);
   });
 
-  const contentSpreadsheet = {
-    getId: function () { return FAKE_CONTENT_FILE_ID; },
-    getUrl: function () { return 'https://docs.google.com/spreadsheets/d/' + FAKE_CONTENT_FILE_ID + '/edit'; },
-    getSheetByName: function (name) { return contentTabs[name] || null; },
-    getSheets: function () { return Object.keys(contentTabs).map(function (n) { return contentTabs[n]; }); },
-    insertSheet: function (name) { const s = makeContentTab([], [], []); s.__name = name; contentTabs[name] = s; return s; }
+  const contentSpreadsheet = makeContentSpreadsheet({
+    id: FAKE_CONTENT_FILE_ID,
+    url: 'https://docs.google.com/spreadsheets/d/' + FAKE_CONTENT_FILE_ID + '/edit',
+    tabs: tabList,
+    faults: contentFaults
+  });
+  const realInsert = contentSpreadsheet.insertSheet;
+  // 插入的新分頁亦放進 contentTabs（用插入時的名字），測試讀得到。
+  contentSpreadsheet.insertSheet = function (name) {
+    const s = realInsert(name);
+    contentTabs[name] = s;
+    return s;
   };
 
   const locks = { tried: 0, released: 0, fail: Boolean(o.lockFails) };
@@ -213,7 +193,10 @@ function makeEnv(options) {
     ScriptApp: { getProjectTriggers: function () { return []; } }
   }));
 
-  return { sandbox: sandbox, sheets: ownSheets, locks: locks, uiAlerts: uiAlerts, contentTabs: contentTabs };
+  return {
+    sandbox: sandbox, sheets: ownSheets, locks: locks, uiAlerts: uiAlerts, contentTabs: contentTabs,
+    contentSpreadsheet: contentSpreadsheet, contentFaults: contentFaults
+  };
 }
 
 function baseStubs() {

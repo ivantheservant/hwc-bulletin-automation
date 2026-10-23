@@ -27,6 +27,7 @@ const fs = require('fs');
 const path = require('path');
 const { loadAllSrcFilesInOrder } = require('./helpers/loadGas');
 const { makeFakeSheet, makeFakeSpreadsheet } = require('./helpers/fakeSpreadsheet');
+const { makeContentTab: makeStrictContentTab, makeContentSpreadsheet } = require('./helpers/contentTabFake');
 const { assertWrittenChinese } = require('./helpers/writtenChinese');
 
 const FAKE_ROSTER_ID = 'FAKE_ROSTER_ID_FOR_QUARTER_OPS';
@@ -93,59 +94,14 @@ function baseStubs() {
   };
 }
 
-/** 造一張假的內容表分頁（兩行標題，資料由第 3 行開始）。 */
-function makeContentTab(keys, headers, rows) {
-  const data = [headers.slice(), keys.slice()];
-  (rows || []).forEach(function (row) {
-    data.push(keys.map(function (k) { return row[k] === undefined ? '' : row[k]; }));
-  });
-
-  const sheet = {
-    __data: data,
-    getName: function () { return sheet.__name; },
-    getLastRow: function () { return data.length; },
-    getLastColumn: function () { return Math.max(1, keys.length); },
-    getMaxRows: function () { return Math.max(data.length, 500); },
-    getFrozenRows: function () { return 2; },
-    setFrozenRows: function () { return sheet; },
-    setColumnWidth: function () { return sheet; },
-    getRange: function (r, c, numRows, numCols) {
-      numRows = numRows || 1;
-      numCols = numCols || 1;
-      const range = {
-        getValues: function () {
-          const out = [];
-          for (let i = 0; i < numRows; i++) {
-            const rowArr = [];
-            for (let j = 0; j < numCols; j++) {
-              const src = data[r - 1 + i];
-              rowArr.push(src && src[c - 1 + j] !== undefined ? src[c - 1 + j] : '');
-            }
-            out.push(rowArr);
-          }
-          return out;
-        },
-        setValues: function () { return range; },
-        getValue: function () { const s = data[r - 1]; return s && s[c - 1] !== undefined ? s[c - 1] : ''; },
-        setValue: function () { return range; },
-        clearContent: function () { return range; },
-        setNumberFormat: function () { return range; },
-        setDataValidation: function () { return range; },
-        clearDataValidations: function () { return range; },
-        setNote: function () { return range; },
-        getNote: function () { return ''; },
-        setWrap: function () { return range; },
-        setFontWeight: function () { return range; },
-        setBackground: function () { return range; },
-        setFontColor: function () { return range; },
-        setFontSize: function () { return range; },
-        setHorizontalAlignment: function () { return range; },
-        setVerticalAlignment: function () { return range; }
-      };
-      return range;
-    }
-  };
-  return sheet;
+/**
+ * 造一張假的內容表分頁（兩行標題，資料由第 3 行開始）。
+ *
+ * 內容表 v2 Commit 1：改用 tests/helpers/contentTabFake.js 的嚴格替身。以前這裏的假分頁
+ * 甚麼都收（超出欄數照樣回空白、setValue() 甚麼都不做），會令移轉與匯入測試空跑變綠（bug class 80）。
+ */
+function makeContentTab(keys, headers, rows, opts) {
+  return makeStrictContentTab(keys, headers, rows, opts);
 }
 
 function makeEnv(options) {
@@ -226,18 +182,28 @@ function makeEnv(options) {
     Posts: rosterSheet('POSTS', [])
   };
 
-  const contentTabs = {};
-  boot.contentSheetTabDefs_().forEach(function (def) {
-    const tab = makeContentTab(def.keys, def.headers, (o.content || {})[def.tabName] || []);
-    tab.__name = def.tabName;
-    contentTabs[def.tabName] = tab;
+  // ⚠️ 內容表 v2 Commit 1：寫了一個版面沒有的分頁名稱就拋錯，不再靜靜當成空白分頁（bug class 39）。
+  const layoutNames = boot.contentSheetTabDefs_().map(function (d) { return d.tabName; });
+  Object.keys(o.content || {}).forEach(function (name) {
+    if (layoutNames.indexOf(name) === -1) throw new Error('quarterops 測試：版面沒有「' + name + '」這一張分頁。');
   });
-  const contentSpreadsheet = {
-    getId: function () { return FAKE_CONTENT_FILE_ID; },
-    getUrl: function () { return 'https://docs.google.com/spreadsheets/d/' + FAKE_CONTENT_FILE_ID + '/edit'; },
-    getSheetByName: function (name) { return contentTabs[name] || null; },
-    getSheets: function () { return Object.keys(contentTabs).map(function (n) { return contentTabs[n]; }); },
-    insertSheet: function (name) { const s = makeContentTab([], [], []); s.__name = name; contentTabs[name] = s; return s; }
+  const contentTabs = {};
+  const tabList = [];
+  boot.contentSheetTabDefs_().forEach(function (def) {
+    const tab = makeContentTab(def.keys, def.headers, (o.content || {})[def.tabName] || [], { name: def.tabName });
+    contentTabs[def.tabName] = tab;
+    tabList.push(tab);
+  });
+  const contentSpreadsheet = makeContentSpreadsheet({
+    id: FAKE_CONTENT_FILE_ID,
+    url: 'https://docs.google.com/spreadsheets/d/' + FAKE_CONTENT_FILE_ID + '/edit',
+    tabs: tabList
+  });
+  const realInsert = contentSpreadsheet.insertSheet;
+  contentSpreadsheet.insertSheet = function (name) {
+    const t = realInsert(name);
+    contentTabs[name] = t;
+    return t;
   };
 
   const sent = [];

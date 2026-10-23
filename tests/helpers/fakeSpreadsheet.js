@@ -282,5 +282,8 @@ module.exports = {
   // tests/helpers/fillEnv.js），那邊的 setValue／setValues 一樣要經過
   // 這個正規化，否則會出現 Date 跨 realm 與前導單引號兩種假失敗。
   toRealmSafeCellValue: toRealmSafeCellValue,
-  applyTextFormatMarker: applyTextFormatMarker
+  applyTextFormatMarker: applyTextFormatMarker,
+  // 內容表 v2：tests/helpers/contentTabFake.js 的內容表分頁要用同一套「照真的 Sheets
+  // 那樣寫一格」（自動轉型、前導單引號、跨 realm），不另寫第二份。
+  writeCellLikeSheets: writeCellLikeSheets
 };

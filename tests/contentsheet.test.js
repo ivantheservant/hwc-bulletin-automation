@@ -61,6 +61,10 @@ function makeRichSheet(name) {
   const wraps = {};           // 'r,c' → boolean
   const columnWidths = {};
   let frozenRows = 0;
+  // 內容表 v2 Commit 1：真的新分頁有 26 欄，超出就拋錯；可以隱藏、可以保護（移轉要用）。
+  let maxColumns = 26;
+  let hidden = false;
+  const protections = [];
 
   function ensureCell(r, c) {
     while (data.length < r) data.push([]);
@@ -95,13 +99,41 @@ function makeRichSheet(name) {
       return max;
     },
     getMaxRows: function () { return Math.max(data.length, 1000); },
+    getMaxColumns: function () { return maxColumns; },
+    insertColumnsAfter: function (afterCol, howMany) { maxColumns += Number(howMany) || 0; return sheet; },
     getFrozenRows: function () { return frozenRows; },
     setFrozenRows: function (n) { frozenRows = n; return sheet; },
+    getFrozenColumns: function () { return 0; },
+    setFrozenColumns: function () { return sheet; },
     setColumnWidth: function (col, width) { columnWidths[col] = width; return sheet; },
     getColumnWidth: function (col) { return columnWidths[col] || 100; },
+    hideSheet: function () { hidden = true; return sheet; },
+    showSheet: function () { hidden = false; return sheet; },
+    isSheetHidden: function () { return hidden; },
+    __protections: protections,
+    getProtections: function () { return protections.slice(); },
+    protect: function () {
+      const record = { description: '', warningOnly: false };
+      protections.push(record);
+      const p = {
+        setDescription: function (d) { record.description = d; return p; },
+        setWarningOnly: function (b) { record.warningOnly = b === true; return p; },
+        isWarningOnly: function () { return record.warningOnly; },
+        getEditors: function () { return []; },
+        removeEditors: function () { return p; },
+        addEditors: function () { return p; },
+        canEdit: function () { return true; },
+        remove: function () { const i = protections.indexOf(record); if (i !== -1) protections.splice(i, 1); }
+      };
+      return p;
+    },
     getRange: function (r, c, numRows, numCols) {
       numRows = numRows || 1;
       numCols = numCols || 1;
+      if (c + numCols - 1 > maxColumns) {
+        throw new Error('假替身：範圍超出分頁「' + sheet.__name + '」的欄數（要到第 ' + (c + numCols - 1)
+          + ' 欄，分頁只有 ' + maxColumns + ' 欄）。');
+      }
       const range = {
         getValues: function () {
           const out = [];
