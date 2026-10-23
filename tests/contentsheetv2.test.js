@@ -463,5 +463,65 @@ test('T7-4 真入口 apiQuarterMissingReport（本季待填清單）：那幾行
   assert.ok(flower && flower.indexOf('請在內容表') === -1, flower);
 });
 
+// =====================================================================
+// Commit 8：_說明、邀請信、A1 註解
+// =====================================================================
+
+console.log('\n_說明、邀請信、A1 註解');
+
+test('C8-1 移轉之後（真入口）_說明：一個主日一行、誰填哪幾欄、講員可以自己填、四條規則（不插入／刪除／移動欄）、已停用的舊分頁', function () {
+  const env = makeV1Env();
+  run(env);
+  const text = env.contentTabs['_說明'].__data.map(function (r) { return r[0]; }).join('\n');
+  ['【「崇拜程序」：一個主日一行】', '每個主日已經預先開好一行，請直接修改那一行，不要另加一行',
+    '講員：填「讀經經文」與「證道講題」', '多數講員已經有權限，可以自己開這個檔案填', '交給幹事代填',
+    '領詩：填「序樂」「詩歌頌讚」「回應詩歌」', '幹事：填「宣召出處」「宣召經文」及浸禮六欄',
+    '序樂留空＝週報印預設序樂', '【「讀經經文」不是讀經的人】', '【填寫介面改過的格】', '【四條規則，請務必遵守】',
+    '4. 請勿插入、刪除或移動欄', '熱烈歡迎來賓', '【已停用的舊分頁】', '「宣召（已停用）」「浸禮合堂（已停用）」已經隱藏',
+    '崇拜程序：講員、領詩、幹事'
+  ].forEach(function (piece) { assert.ok(text.indexOf(piece) !== -1, '_說明缺少：' + piece); });
+  assert.strictEqual(text.indexOf('宣召：'), -1, '負責人清單不可以再有「宣召」分頁');
+  assertWrittenChinese(assert, '_說明', text.split('\n'));
+});
+
+test('C8-2 新建（沒有舊分頁）的 _說明不印「已停用的舊分頁」一段', function () {
+  const sb = contentEnv.makeEnv({}).sandbox;
+  const lines = Array.from(sb.buildContentSheetInstructionLines_({
+    quarterId: QUARTER_ID, serviceDates: contentEnv.SERVICE_DATES, owners: {}, deadlineNote: '', adminContact: 'x', seededSample: false
+  }));
+  assert.strictEqual(lines.join('\n').indexOf('已停用的舊分頁'), -1);
+});
+
+test('C8-3 邀請信講明講員可以直接在「崇拜程序」填讀經經文與證道講題；規則加「請勿插入、刪除或移動欄」', function () {
+  const sb = contentEnv.makeEnv({}).sandbox;
+  const html = sb.buildContentSheetInviteHtml_({
+    quarterId: QUARTER_ID, fileUrl: 'https://example.invalid/x', serviceDates: contentEnv.SERVICE_DATES,
+    owners: sb.parseContentSheetOwners_(sb.defaultConfigValueFor_('CONTENT_SHEET_OWNERS')), deadlineNote: '截止', churchName: '教會'
+  });
+  assert.ok(html.indexOf('講員可以直接在「崇拜程序」分頁填讀經經文與證道講題') !== -1, html);
+  assert.ok(html.indexOf('請勿插入、刪除或移動欄') !== -1);
+  assert.ok(html.indexOf('講員、領詩、幹事') !== -1, '負責人表用新的預設值');
+  assertWrittenChinese(assert, '邀請信', [html]);
+});
+
+test('C8-4 「崇拜程序」A1 註解：負責人、截止日期、一個主日一行、不是讀經的人', function () {
+  const sb = contentEnv.makeEnv({}).sandbox;
+  const def = sb.contentSheetWorshipTabDef_();
+  const note = sb.buildContentSheetTabNote_(def, sb.parseContentSheetOwners_(sb.defaultConfigValueFor_('CONTENT_SHEET_OWNERS')), '星期三前');
+  ['負責：講員、領詩、幹事', '星期三前', '每個主日已經預先開好一行', '不是讀經的人', '序樂留空時週報印預設序樂'].forEach(function (piece) {
+    assert.ok(note.indexOf(piece) !== -1, '缺少：' + piece + '\n' + note);
+  });
+  assertWrittenChinese(assert, 'A1 註解', [note]);
+});
+
+test('C8-5 _README：季度填寫表、講員表格、FillSnapshot 三行講明已停用、資料保留', function () {
+  const sb = contentEnv.makeEnv({}).sandbox;
+  const lines = Array.from(sb.readmeContentLines_());
+  ['FillSnapshot：', 'SpeakerFormSubmissions：', 'Fill_<季度>：'].forEach(function (prefix) {
+    const line = lines.filter(function (l) { return l.indexOf(prefix) === 0; })[0];
+    assert.ok(line && line.indexOf('已停用') !== -1 && line.indexOf('保留') !== -1, line);
+  });
+});
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail === 0 ? 0 : 1);

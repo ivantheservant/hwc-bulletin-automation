@@ -319,6 +319,22 @@ function uniqueRetiredContentTabName_(spreadsheet, baseName) {
 }
 
 /**
+ * 用途：內容表內已停用（已改名加「（已停用）」）的舊分頁名稱，`_說明` 用。唯讀。
+ * Args:
+ *   spreadsheet {Spreadsheet} 內容表。
+ * Returns:
+ *   {string[]} 按分頁次序。
+ * Raises:
+ *   Error 讀取失敗時原樣拋出。
+ */
+function listRetiredContentTabNames_(spreadsheet) {
+  var bases = legacyMergedTabDefs_().map(function (def) { return def.tabName + CONTENT_SHEET_RETIRED_TAB_SUFFIX_; });
+  return spreadsheet.getSheets().map(function (sheet) { return String(sheet.getName()); }).filter(function (name) {
+    return bases.some(function (b) { return name.indexOf(b) === 0; });
+  });
+}
+
+/**
  * 用途：執行移轉計畫（次序見檔頭）。**不寫崇拜程序第 1、2 行**——那是呼叫方之後
  *   `applyContentTabLayout_()` 的事（提交點）。每一步寫 AuditLog `CONTENT_SHEET_MIGRATE_V2` 摘要。
  * Args:

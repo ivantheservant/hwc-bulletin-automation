@@ -330,7 +330,9 @@ function buildOrRefreshContentSheetLocked_(quarterId, options) {
     owners: config.owners,
     deadlineNote: config.deadlineNote,
     adminContact: config.adminContact,
-    seededSample: seededSample
+    seededSample: seededSample,
+    // 內容表 v2：已停用（已改名）的舊分頁，_說明 講明不要再填。
+    retiredTabs: listRetiredContentTabNames_(spreadsheet)
   }));
 
   // ---- R-030：夏令時間轉換提示 ----

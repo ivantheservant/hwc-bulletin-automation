@@ -337,23 +337,30 @@ function buildContentSheetTabNote_(tabDef, owners, deadlineNote) {
 }
 
 /**
- * 用途：組出 `_說明` 分頁嘅全部文字行。純函式。
+ * 用途：組出 `_說明` 分頁的全部文字行。純函式。內容表 v2 重寫（docs/待確認事項.md 內容表 v2）：
+ *   用途（填寫介面＋內容表兩處）、各分頁與負責人、「崇拜程序」一個主日一行與誰填哪幾欄、
+ *   「讀經經文」不是讀經的人、填寫介面改過的格、四條規則（新增：不插入、刪除或移動欄）、
+ *   家事報告不要填「熱烈歡迎來賓」、已停用的舊分頁（有才印）、本季主日、樣本、聯絡方法。
+ *   全部書面語（tests/contentimport.test.js 25 有檢查）。
  * Args:
  *   input {{quarterId:string, serviceDates:string[], owners:Object<string,string>,
- *          deadlineNote:string, adminContact:string, seededSample:boolean}}
- *     `adminContact` 係幹事聯絡方法（由 Config 讀，唔可以寫死）；
- *     `seededSample` 為 true 時會多印一段講明首個主日嗰啲係樣本。
+ *          deadlineNote:string, adminContact:string, seededSample:boolean, retiredTabs:string[]=}}
+ *     `adminContact` 是幹事聯絡方法（由 Config 讀，不可以寫死）；`seededSample` 為 true 時多印一段
+ *     講明首個主日那幾行是樣本；`retiredTabs` 是內容表內已停用的舊分頁名稱（沒有就不印那一段）。
  * Returns:
  *   {string[]} 一行一個元素。
+ * Raises:
+ *   （無）
  */
 function buildContentSheetInstructionLines_(input) {
   var lines = [];
   lines.push('週報內容表　' + input.quarterId);
   lines.push('');
-  lines.push('這個檔案供堂委、執事與幹事輸入週報內容。填妥之後，幹事會在週報系統按「從內容表匯入」。');
+  lines.push('週報內容分兩處填：大部分內容在這個檔案填（講員、領詩、堂委、執事與幹事），'
+    + '其餘版面設定由幹事在週報系統的填寫介面填。填妥之後，幹事會在填寫介面由內容表匯入。');
   lines.push('');
 
-  lines.push('【各分頁的負責人】');
+  lines.push('【各分頁與負責人】');
   contentSheetTabDefs_().forEach(function (def) {
     var owner = (input.owners || {})[def.tabName];
     lines.push('　' + def.tabName + '：' + (owner || '（未指定）'));
@@ -364,12 +371,38 @@ function buildContentSheetInstructionLines_(input) {
   lines.push('　' + (input.deadlineNote || '（未設定）'));
   lines.push('');
 
-  lines.push('【三條規則，請務必遵守】');
-  lines.push('　1. 請勿刪除任何一行。不需要的一行，請將最後一欄「有效」改為 FALSE，');
+  lines.push('【「崇拜程序」：一個主日一行】');
+  lines.push('　每個主日已經預先開好一行，請直接修改那一行，不要另加一行。');
+  lines.push('　講員：填「讀經經文」與「證道講題」。多數講員已經有權限，可以自己開這個檔案填；');
+  lines.push('　　沒有權限的，請把讀經經文與講題交給幹事代填。');
+  lines.push('　領詩：填「序樂」「詩歌頌讚」「回應詩歌」。詩班負責人：填「詩班曲名」。');
+  lines.push('　幹事：填「宣召出處」「宣召經文」及浸禮六欄（浸禮六欄只填浸禮合堂那一個主日，其餘主日留空）。');
+  lines.push('　留空的意思：序樂留空＝週報印預設序樂；詩班曲名留空＝週報那一行整行不印；');
+  lines.push('　　浸禮六欄全部留空＝那一週沒有浸禮副框。');
+  lines.push('　「誦讀」「詩班項目名稱」不在這裏填：由幹事在填寫介面處理（留空＝誦讀按月份自動選、');
+  lines.push('　　詩班項目名稱用範本預設）。');
+  lines.push('');
+
+  lines.push('【「讀經經文」不是讀經的人】');
+  lines.push('　「讀經經文」填經文出處（例如「約翰福音 3:16」）。讀經那位肢體由職事表決定，');
+  lines.push('　在週報的事奉框顯示為「讀經」，不在這裏填。');
+  lines.push('');
+
+  // ⚠️ R-043／R-045：第三種模式要在 _說明 講清楚，否則同工改完發現值
+  //    「無故變回舊的」，而其實是幹事在填寫介面覆寫過。
+  lines.push('【填寫介面改過的格】');
+  lines.push('　「崇拜程序」各欄，幹事在週報填寫介面也改得到。幹事改過的那一格，之後匯入不會被這裏的值');
+  lines.push('　蓋過，匯入報告會列出來（寫住「沒有蓋過」），由幹事決定。');
+  lines.push('　所以如果你改了而週報沒有跟着變，多數就是那一格已經被覆寫，請直接問幹事。');
+  lines.push('');
+
+  lines.push('【四條規則，請務必遵守】');
+  lines.push('　1. 請勿刪除任何一行。不需要的一行，請將「有效」改為 FALSE，');
   lines.push('　   不要整行刪去——刪去之後，系統無法對照之前匯入過的內容。');
   lines.push('　2. 請勿修改第 1、2 行。第 1 行是中文標題，第 2 行是系統使用的機器鍵；');
-  lines.push('　   任何一格被改動，整張分頁都會無法匯入。資料請由第 3 行開始填寫。');
+  lines.push('　   任何一格被改動，整份內容表都會無法匯入。資料請由第 3 行開始填寫。');
   lines.push('　3. 日期只可以用下拉選單選擇。手動輸入的日期系統無法辨識，會被拒絕。');
+  lines.push('　4. 請勿插入、刪除或移動欄。系統按欄位位置讀，欄的位置一變，整份內容表都會無法匯入。');
   lines.push('');
 
   // ⚠️ R-047：「熱烈歡迎來賓」那一句**三個 Word 範本本身已經硬寫住**，
@@ -381,17 +414,13 @@ function buildContentSheetInstructionLines_(input) {
   lines.push('　填了的話，同一句會在同一頁出現兩次。');
   lines.push('');
 
-  // ⚠️ R-043／R-045：第三種模式要在 _說明 講清楚，否則同工改完發現值
-  //    「無端端變返舊嘅」，而其實是幹事在填寫介面覆寫過。
-  lines.push('【「崇拜程序」分頁】');
-  lines.push('　這一張的內容，幹事在週報填寫介面也改得到。');
-  lines.push('　幹事改過的那一格，之後匯入不會被這裏的值蓋過去，');
-  lines.push('　匯入報告會列出來（寫住「沒有蓋過」），由幹事決定。');
-  lines.push('　所以如果你改了而週報沒有跟著變，多數就是那一格已經被覆寫，請直接問幹事。');
-  lines.push('');
-  lines.push('　⚠️ 浸禮六欄：整季通常只有一個主日是浸禮合堂，只填那一行，');
-  lines.push('　其餘主日留空。其餘全部空白是正常的，系統不會當成錯誤。');
-  lines.push('');
+  var retired = input.retiredTabs || [];
+  if (retired.length > 0) {
+    lines.push('【已停用的舊分頁】');
+    lines.push('　' + retired.map(function (name) { return '「' + name + '」'; }).join('')
+      + '已經隱藏，資料已經搬入「崇拜程序」，請不要再填。分頁保留只作記錄，沒有刪除。');
+    lines.push('');
+  }
 
   lines.push('【本季主日（共 ' + (input.serviceDates || []).length + ' 個）】');
   (input.serviceDates || []).forEach(function (d) { lines.push('　' + d); });
@@ -634,9 +663,13 @@ function buildContentSheetInviteHtml_(input) {
   parts.push('<p style="font-family:monospace;">'
     + (input.serviceDates || []).map(esc).join('　') + '</p>');
 
+  // 內容表 v2：講員改在「崇拜程序」填讀經經文與證道講題（講員表格已停用）。
+  parts.push('<p>講員可以直接在「崇拜程序」分頁填讀經經文與證道講題（每個主日已經預先開好一行）；'
+    + '沒有權限開這個檔案的，請交給幹事代填。</p>');
+
   parts.push('<p style="color:#8c231c;font-weight:bold;margin-top:1.2em;">'
-    + '⚠️ 有兩點務請注意：請勿刪除任何一行（不需要的一行請將「有效」改為 FALSE），'
-    + '亦請勿修改首兩行（第 1 行中文標題、第 2 行機器鍵）。'
+    + '⚠️ 務請注意：請勿刪除任何一行（不需要的一行請將「有效」改為 FALSE）；'
+    + '請勿修改首兩行（第 1 行中文標題、第 2 行機器鍵）；請勿插入、刪除或移動欄。'
     + '日期請用下拉選單選擇，手動輸入的系統無法辨識。</p>');
 
   parts.push('<p style="color:#666;font-size:13px;">詳細說明載於內容表第一張分頁「'
