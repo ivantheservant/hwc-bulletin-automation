@@ -207,8 +207,11 @@ function summarizeWeekSnapshotPayload_(payload) {
     return CONTENT_SHEET_READONLY_LABELS[type] + ' ' + (Number(counts[type]) || 0) + ' 條';
   }).join('、');
 
-  return '填寫欄位 ' + filled + ' 格有內容；事奉框覆寫 ' + (payload.dutyOverrides || []).length
-    + ' 項；' + WEEK_FIELD_OVERRIDE_TERM_ + ' ' + (payload.fieldOverrides || []).length + ' 項；'
+  // v3：沒有可覆寫的欄位，「在介面改過的欄位」只會是 v3 之前留下的舊覆寫——有才講，0 項不講（免得幹事以為
+  //    介面仍然有這一類欄位）。
+  var fieldOverrideCount = (payload.fieldOverrides || []).length;
+  return '填寫欄位 ' + filled + ' 格有內容；事奉框覆寫 ' + (payload.dutyOverrides || []).length + ' 項；'
+    + (fieldOverrideCount > 0 ? WEEK_FIELD_OVERRIDE_TERM_ + ' ' + fieldOverrideCount + ' 項；' : '')
     + listText + '（四項以內容表為準，只記條數）';
 }
 
@@ -336,7 +339,10 @@ function diffWeekSnapshotState_(payload, current, postDisplayRows) {
     var snapValue = weekSnapshotText_(snapWeek[key]);
     var curValue = weekSnapshotText_(curWeek[key]);
     if (snapValue === curValue) return;
-    rows.push({ kind: 'FIELD', label: labels[key] || key, snapshotValue: snapValue, currentValue: curValue });
+    rows.push({
+      kind: 'FIELD', label: labels[key] || key,
+      snapshotValue: weekSnapshotDisplayValue_(key, snapValue), currentValue: weekSnapshotDisplayValue_(key, curValue)
+    });
   });
 
   var snapDuty = {};
@@ -361,12 +367,11 @@ function diffWeekSnapshotState_(payload, current, postDisplayRows) {
     });
   });
 
-  var snapFields = {};
-  (payload.fieldOverrides || []).forEach(function (r) {
-    if (!(r.FIELD_KEY in snapFields)) snapFields[r.FIELD_KEY] = r;
-  });
+  // v3：與還原同一個規則（restorableSnapshotFieldOverrides_()），看差異講的就是還原會做的。
+  var snapFields = restorableSnapshotFieldOverrides_(payload);
   var curFields = {};
   (current.fieldRows || []).forEach(function (r) {
+    if (!isRestorableFieldOverrideKey_(r.FIELD_KEY)) return;
     if (!(r.FIELD_KEY in curFields)) curFields[r.FIELD_KEY] = r;
   });
   var fieldKeys = Object.keys(snapFields).concat(Object.keys(curFields).filter(function (k) { return !(k in snapFields); })).sort();
@@ -384,6 +389,50 @@ function diffWeekSnapshotState_(payload, current, postDisplayRows) {
   });
 
   return rows;
+}
+
+/**
+ * 用途：v3：一個版本裏「還原時會還原」的欄位覆寫：只限現時仍然可覆寫的欄位（`isRestorableFieldOverrideKey_()`）。
+ *   同一個欄位以第一行為準。純函式。看差異與還原共用，兩者講的一樣。
+ * Args:
+ *   payload {Object} 版本內容。
+ * Returns:
+ *   {Object<string,Object>} 欄位機器鍵 → 那一行覆寫。
+ */
+function restorableSnapshotFieldOverrides_(payload) {
+  var out = {};
+  ((payload && payload.fieldOverrides) || []).forEach(function (r) {
+    var key = String(r.FIELD_KEY || '');
+    if (!isRestorableFieldOverrideKey_(key)) return;
+    if (!(key in out)) out[key] = r;
+  });
+  return out;
+}
+
+/**
+ * 用途：v3：這個欄位的覆寫在看差異與還原的範圍之內嗎（現時仍然可覆寫）。
+ * Args:
+ *   key {*} 欄位機器鍵。
+ * Returns:
+ *   {boolean}
+ */
+function isRestorableFieldOverrideKey_(key) {
+  return CONTENT_SHEET_OVERRIDABLE_FIELDS.indexOf(String(key || '')) !== -1;
+}
+
+/**
+ * 用途：v3：「看差異」顯示的值。程序增刪、清單次序兩欄是 JSON，改為一句人看得明的摘要；其他欄位原樣。
+ *   純函式。
+ * Args:
+ *   key {string} 機器鍵。
+ *   text {string} `weekSnapshotText_()` 之後的值。
+ * Returns:
+ *   {string}
+ */
+function weekSnapshotDisplayValue_(key, text) {
+  if (key === 'PROGRAM_EDITS') return text ? (describeProgramEdits_(text) || '（沒有增刪）') : '';
+  if (key === 'LIST_ARRANGEMENT') return text ? (describeListArrangement_(text) || '（照內容表次序）') : '';
+  return text;
 }
 
 /**
@@ -463,13 +512,14 @@ function planWeekSnapshotRestore_(payload, current) {
   });
 
   // ---- 第三種欄位的手動覆寫 ----
-  var snapFields = {};
-  (payload.fieldOverrides || []).forEach(function (r) {
-    if (!(r.FIELD_KEY in snapFields)) snapFields[r.FIELD_KEY] = r;
-  });
+  // v3：只處理現時仍然「內容表為來源、介面可覆寫」的欄位（CONTENT_SHEET_OVERRIDABLE_FIELDS，現時沒有）。
+  //    其他欄位的舊覆寫（例如 v3 之前在介面改過的講題）一律不碰：舊版本記下的不會重新啟用，
+  //    現在仍然生效的亦不由還原停用——那是「更新本季內容表」升級的工作（單一處理者，bug class 3）。
+  var snapFields = restorableSnapshotFieldOverrides_(payload);
   var curFieldsAll = {};
   (current.fieldRowsAll || []).forEach(function (r) {
     var key = String(r.FIELD_KEY || '');
+    if (!isRestorableFieldOverrideKey_(key)) return;
     if (!(key in curFieldsAll)) curFieldsAll[key] = r;
   });
 
@@ -923,6 +973,7 @@ function applyWeekRestorePlan_(isoDate, rowNo, plan, action, noteHead) {
  * Returns:
  *   {{restoredFieldCount:number, dutyChangeCount:number, fieldOverrideChangeCount:number,
  *     safetySnapshotId:string, lastSavedAt:string, message:{type:string, text:string}}}
+ *     v3：還原之後另存一個「還原之後」版本（存不到只在訊息加一句警告）。
  *     `message.text` 用「時間（原因中文名）」稱呼版本（`weekSnapshotDisplayName_()`），
  *     不顯示內部 ID（第二批測試修正 G5）；`AuditLog` 備註照舊記 ID。
  * Raises:
@@ -994,6 +1045,10 @@ function restoreWeekSnapshotLocked_(payload) {
     return { field: c.field, newValue: c.newValue };
   }));
 
+  // v3（Ivan 測試結果 A 第 14 項）：還原之後再存一個版本（「還原之後」），版本記錄上看得到還原了甚麼；
+  //    原本那個版本保持不變。存不到只出一句警告，還原本身已經完成。
+  var afterRestore = trySnapshotWeek_(isoDate, 'AFTER_RESTORE');
+
   return {
     restoredFieldCount: plan.fieldChanges.length, dutyChangeCount: dutyCount,
     fieldOverrideChangeCount: fieldOverrideCount, safetySnapshotId: safety.snapshotId,
@@ -1001,8 +1056,10 @@ function restoreWeekSnapshotLocked_(payload) {
     message: {
       type: 'success',
       text: '已還原到版本「' + versionLabel + '」：週報欄位 ' + plan.fieldChanges.length
-        + ' 格、事奉框覆寫 ' + dutyCount + ' 項、' + WEEK_FIELD_OVERRIDE_TERM_ + ' ' + fieldOverrideCount
-        + ' 項。還原前的現況已另存成一個版本，萬一揀錯可以再還原回來。'
+        + ' 格、事奉框覆寫 ' + dutyCount + ' 項'
+        + (fieldOverrideCount > 0 ? '、' + WEEK_FIELD_OVERRIDE_TERM_ + ' ' + fieldOverrideCount + ' 項' : '')
+        + '。還原前的現況已另存成一個版本，萬一揀錯可以再還原回來；還原之後亦另存了一個版本，原本那個版本不變。'
+        + (afterRestore.warning ? '　⚠️ ' + afterRestore.warning : '')
     }
   };
 }
@@ -1085,11 +1142,7 @@ function buildBlankWeekRow_(input) {
  */
 function readBlankWeekSettings_() {
   return {
-    templateConfig: {
-      baptismKeywords: getConfigTextList_(CONFIG_KEYS.TEMPLATE_KEYWORDS_BAPTISM, '浸禮'),
-      anniversaryKeywords: getConfigTextList_(CONFIG_KEYS.TEMPLATE_KEYWORDS_ANNIVERSARY, '堂慶,週年'),
-      templateDefault: getConfig(CONFIG_KEYS.TEMPLATE_DEFAULT, 'TPL_NORMAL')
-    },
+    templateConfig: readProgramTemplateConfig_(),
     defaults: {
       prelude: getConfig(CONFIG_KEYS.PRELUDE_DEFAULT, ''),
       pageTitle: getConfig(CONFIG_KEYS.DEFAULT_PAGE_TITLE, '崇拜程序'),
@@ -1271,7 +1324,8 @@ function resetWeekLocked_(isoDate, lastSavedAt) {
     message: {
       type: 'success',
       text: '已重設這一週：週報欄位 ' + plan.fieldChanges.length + ' 格改回預設值，事奉框覆寫停用 '
-        + dutyCleared + ' 項，' + WEEK_FIELD_OVERRIDE_TERM_ + '停用 ' + fieldOverrideCleared + ' 項。'
+        + dutyCleared + ' 項'
+        + (fieldOverrideCleared > 0 ? '，' + WEEK_FIELD_OVERRIDE_TERM_ + '停用 ' + fieldOverrideCleared + ' 項' : '') + '。'
         + (importMessage ? importMessage : '本季還沒有內容表，所以沒有重新匯入。')
         + '重設前的現況已另存成一個版本，可以在版本記錄還原。'
     }

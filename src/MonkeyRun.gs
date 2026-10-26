@@ -151,7 +151,13 @@ function monkeyActions_() {
         assertSelfTestWritableDate_(isoDate, ctx.config);
 
         var loaded = loadWeekForWebApp_(isoDate);
-        var fields = ['SERMON_TITLE', 'SCRIPTURE_REF', 'RESPONSE_HYMN', 'HYMN_PRAISE', 'FLOWER_THIS_WEEK'];
+        // v3（Ivan 測試結果 A 第 10 項）：講題、經文、詩歌改為只在內容表輸入，介面送了會整次被拒；
+        //    改用介面仍然可以填的文字欄。一律再經 webAppEditableWeekFieldKeys_() 篩一次（單一真相來源），
+        //    日後哪一欄改為唯讀，這裏自動跟着不送。
+        var editable = webAppEditableWeekFieldKeys_();
+        var fields = ['PAGE_TITLE', 'FLOWER_THIS_WEEK', 'FLOWER_NEXT_WEEK', 'NEXT_WEEK_HEADING'].filter(function (key) {
+          return editable.indexOf(key) !== -1;
+        });
         var week = {};
         var howMany = 1 + ctx.random.nextInt(fields.length);
         for (var i = 0; i < howMany; i++) {

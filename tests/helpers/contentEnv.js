@@ -13,6 +13,7 @@ const { loadAllSrcFilesInOrder } = require('./loadGas');
 const { makeFakeSheet, makeFakeSpreadsheet } = require('./fakeSpreadsheet');
 const { makeContentFaults, makeContentTab: makeStrictContentTab, makeContentSpreadsheet } = require('./contentTabFake');
 const { legacyContentTabDefsV1 } = require('../fixtures/legacyContentSheetV1');
+const { legacyContentTabDefsV2 } = require('../fixtures/legacyContentSheetV2');
 
 const FAKE_ROSTER_ID = 'FAKE_ROSTER_ID_FOR_IMPORT_TESTS';
 const FAKE_FOLDER_ID = 'FAKE_CONTENT_FOLDER';
@@ -36,12 +37,13 @@ function makeContentTab(keys, headers, rows, opts) {
  *   沒有列出的分頁＝整張空白。⚠️ 寫了一個這個版面沒有的分頁名稱就拋錯——以前會靜靜當成
  *   空白分頁，內容表 v2 把「宣召」併入「崇拜程序」之後，`content: { 宣召: … }` 這類舊測試就會
  *   空跑變綠（bug class 39、40）。
- * options.contentLayout：'current'（預設，由 src 的 contentSheetTabDefs_() 造）或 'v1'
- *   （由 tests/fixtures/legacyContentSheetV1.js 凍結的舊版定義造，移轉測試用）。
+ * options.contentLayout：'current'（預設，由 src 的 contentSheetTabDefs_() 造）、'v1'
+ *   （由 tests/fixtures/legacyContentSheetV1.js 凍結的舊版定義造，移轉測試用）或 'v2'
+ *   （「崇拜程序」用 tests/fixtures/legacyContentSheetV2.js 凍結的 v2 定義，v3 移轉測試用）。
  * options.omitTabs：這幾張分頁不建立（模擬舊內容表未有那一張）。
  * options.extraTabs：另外加的分頁 `[{tabName, keys, headers, rows}]`（例如已改名的舊分頁）。
  * options.maxColumns：每張分頁的欄數（數字，或者「分頁名稱 → 欄數」）；預設 26，與真的新分頁一樣。
- * options.contentFaults：`{failOnSetValue, failOnSetName}`，第 N 次寫入格子／改名時拋錯。
+ * options.contentFaults：`{failOnSetValue, failOnSetName, failOnDeleteColumns}`，第 N 次寫入格子／改名／刪欄時拋錯。
  */
 function makeEnv(options) {
   const o = options || {};
@@ -97,7 +99,8 @@ function makeEnv(options) {
   };
 
   // ---- 內容表 ----
-  const layoutDefs = o.contentLayout === 'v1' ? legacyContentTabDefsV1() : boot.contentSheetTabDefs_();
+  const layoutDefs = o.contentLayout === 'v1' ? legacyContentTabDefsV1()
+    : (o.contentLayout === 'v2' ? legacyContentTabDefsV2(boot.contentSheetTabDefs_()) : boot.contentSheetTabDefs_());
   const knownNames = layoutDefs.map(function (d) { return d.tabName; })
     .concat((o.extraTabs || []).map(function (t) { return t.tabName; }));
   Object.keys(o.content || {}).forEach(function (name) {

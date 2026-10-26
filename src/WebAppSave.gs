@@ -96,7 +96,10 @@ function webAppWeekFieldKeys_() {
     'ATT_ENG_PRAYER', 'ATT_CANE_PRAYER', 'ATT_CANN_PRAYER', 'ATT_MAN_PRAYER',
     'ATT_ENG_CHILD', 'ATT_CANE_CHILD', 'ATT_CANN_CHILD', 'ATT_MAN_CHILD',
     'FLOWER_THIS_WEEK', 'FLOWER_NEXT_WEEK', 'NEXT_WEEK_HEADING',
-    'PRAYER_BLOCK_HEADING'
+    'PRAYER_BLOCK_HEADING',
+    // v3（Ivan 測試結果 A 第 11、13 項）：這一週的程序增刪、丁戊己清單的次序與刪除（JSON，見
+    //    src/WeekArrangement.gs）。與其他週欄位一樣三方比較、版本記錄、還原、重設。
+    'PROGRAM_EDITS', 'LIST_ARRANGEMENT'
     // 浸禮合堂副框六欄接在後面。
     //
     // ⚠️ 六欄**一律在這份清單內**，即使那一週不是浸禮合堂——介面只是把
@@ -132,7 +135,8 @@ function webAppWeekFieldLabels_() {
     SCRIPTURE_REF: '讀經經文', SERMON_TITLE: '證道講題', RESPONSE_HYMN: '回應詩歌',
     ATTENDANCE_HEADING: '人數表標題',
     FLOWER_THIS_WEEK: '本週獻花', FLOWER_NEXT_WEEK: '下週獻花', NEXT_WEEK_HEADING: '下週事奉標題',
-    PRAYER_BLOCK_HEADING: '代禱區塊標題'
+    PRAYER_BLOCK_HEADING: '代禱區塊標題',
+    PROGRAM_EDITS: '程序增刪（這一週）', LIST_ARRANGEMENT: '清單次序與刪除（這一週）'
   };
   CONTENT_SHEET_READONLY_FIELDS.WEEK.forEach(function (key) {
     labels[key] = CONTENT_SHEET_READONLY_LABELS[key] || key;
@@ -784,14 +788,34 @@ function assertContentSheetFieldsNotSubmitted_(payload) {
 
   var names = offending.map(function (key) { return contentSheetReadOnlyLabel_(key); });
   var err = new Error(
-    '家事報告、代禱事項、本週團契聚會、月度財政報告、上週崇拜人數、宣召出處、宣召經文，'
-    + '這七項內容已改由內容表輸入，填寫介面不可以再儲存它們。'
+    '家事報告、代禱事項、本週團契聚會、月度財政報告、上週崇拜人數，以及崇拜程序的序樂、宣召、詩歌、'
+    + '讀經經文、證道講題與詩班，這些內容只可以在內容表輸入，填寫介面不可以儲存它們。'
     + '整次儲存已經取消，一格都沒有寫入。'
     + '請到內容表修改，然後按「重新匯入」。'
     + '（收到的唯讀欄位共 ' + offending.length + ' 項：' + names.join('、') + '）'
   );
   err.code = 'CONTENT_SHEET_READONLY';
   err.readOnlyFields = offending;
+  throw err;
+}
+
+/**
+ * 用途：v3：擋住格式不對的「程序增刪」「清單次序與刪除」（介面送來的 JSON）。寫進去之後資料模型只會
+ *   當作沒有增刪照印，幹事會以為改到了，所以在儲存時就拒絕。
+ * Args:
+ *   payload {Object} `apiSaveWeek()` 收到的 payload。
+ * Returns:
+ *   {void}
+ * Raises:
+ *   Error（`code = 'INVALID_ARRANGEMENT'`）任何一欄格式不對或者太長。
+ */
+function assertWeekArrangementFieldsValid_(payload) {
+  var bad = findInvalidWeekArrangementFields_((payload && payload.week) || {});
+  if (bad.length === 0) return;
+  var labels = webAppWeekFieldLabels_();
+  var err = new Error('「' + bad.map(function (k) { return labels[k] || k; }).join('」「')
+    + '」的資料格式不對，整次儲存已經取消，一格都沒有寫入。請重新載入這一頁再做一次。');
+  err.code = 'INVALID_ARRANGEMENT';
   throw err;
 }
 
@@ -852,6 +876,7 @@ function saveWeekFromWebApp_(payload) {
   // payload，整個儲存直接拒絕，一格都不寫。見
   // `assertContentSheetFieldsNotSubmitted_()`。
   assertContentSheetFieldsNotSubmitted_(payload);
+  assertWeekArrangementFieldsValid_(payload);
 
   // G23：讀取、比對、寫入全部在鎖之內。等候時間與內容表匯入、講員表格的 30 秒一致。
   // D12：經 withScriptLock_()（src/ScriptLock.gs）——同一次執行之內已經拿着鎖就不再拿、不提早放，

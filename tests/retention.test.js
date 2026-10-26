@@ -687,8 +687,10 @@ test('兩個職事表選單的名稱都答到「會不會覆寫」', function ()
 
   assert.ok(menu.indexOf('補抓空白的事奉欄位（整季，不覆寫已填的）') !== -1,
     '選單那一個要講明「不覆寫已填的」');
-  assert.ok(index.indexOf('重讀職事表（本主日，不覆寫）') !== -1,
-    'UI 按鈕那一個要講明「不覆寫」');
+  // v3（Ivan 測試結果 A 第 7 項）：頂部「重讀職事表」拿走，改為「本週事奉」框內兩粒：一粒不覆寫、一粒明講覆寫。
+  assert.ok(index.indexOf('由職事表重新取數（不覆寫）') !== -1, 'UI 不覆寫那一粒要講明「不覆寫」');
+  assert.ok(index.indexOf('以職事表覆寫我的修改…') !== -1, 'UI 覆寫那一粒要講明「覆寫」');
+  assert.strictEqual(index.indexOf('重讀職事表（本主日，不覆寫）'), -1, '頂部那一粒已經拿走');
   assert.strictEqual(menu.indexOf('從職事表補抓'), -1, '舊名不應該再出現');
 });
 
@@ -696,7 +698,11 @@ test('兩個名稱分得出範圍（一個講「本主日」、一個講「整�
   const menu = fsNode.readFileSync(path.join(__dirname, '..', 'src', 'Menu.gs'), 'utf8');
   const index = fsNode.readFileSync(path.join(__dirname, '..', 'src', 'ui', 'Index.html'), 'utf8');
   assert.ok(menu.indexOf('整季') !== -1, '選單那一個要講明係整季');
-  assert.ok(index.indexOf('本主日') !== -1, 'UI 那一個要講明只係本主日');
+  // v3：兩粒在「本週事奉」框內，範圍就是這一個主日；提示亦講明。
+  const panel = index.slice(index.indexOf('<section class="panel duty-panel">'), index.indexOf('</section>', index.indexOf('<section class="panel duty-panel">')));
+  assert.ok(panel.indexOf('<h2>本週事奉') !== -1 && panel.indexOf('id="fetchFromRosterBtn"') !== -1 && panel.indexOf('id="overwriteFromRosterBtn"') !== -1,
+    'UI 那兩粒要在「本週事奉」框內');
+  assert.ok(panel.indexOf('這一個主日的職事表') !== -1, 'UI 那一個要講明只係這一個主日');
 });
 
 // =====================================================================

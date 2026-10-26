@@ -421,11 +421,12 @@ test('F9-8 兩處原本的 window.confirm 都改了；執行 API 一定排在確
   // G19 改了這一條的預期：取消時改用共用常數（FF-14），字眼與重設、還原、季度作業相同。
   assert.ok(importFn.indexOf("showMessage('info', CANCELLED_NOTHING_WRITTEN_MESSAGE)") !== -1, '取消時用共用常數');
 
-  const opFn = js.slice(js.indexOf('function runQuarterOp('), js.indexOf('function runQuarterReport('));
+  // v3：季度作業區塊拿走；取代它的「更新本季內容表…」同樣先確認、後執行。
+  const opFn = js.slice(js.indexOf('function startContentSheetUpgrade('), js.indexOf('function onContentImportDone('));
   assert.ok(opFn.indexOf('openConfirmDialog(') !== -1);
-  assert.ok(opFn.indexOf('opts.runApi') > opFn.indexOf('openConfirmDialog('));
-  // G15：字眼改為共用常數 CANCELLED_NOTHING_WRITTEN_MESSAGE（重設、還原、季度作業同一句）。
-  assert.ok(opFn.indexOf("showQuarterOpsMessage('info', CANCELLED_NOTHING_WRITTEN_MESSAGE)") !== -1);
+  assert.ok(opFn.indexOf("callServer('apiRunContentSheetBuild'") > opFn.indexOf('openConfirmDialog('));
+  // G15：字眼改為共用常數 CANCELLED_NOTHING_WRITTEN_MESSAGE（重設、還原、更新內容表同一句）。
+  assert.ok(opFn.indexOf("showMessage('info', CANCELLED_NOTHING_WRITTEN_MESSAGE)") !== -1);
   assert.ok(js.indexOf("var CANCELLED_NOTHING_WRITTEN_MESSAGE = '已取消，一格都沒有寫。';") !== -1);
 });
 
@@ -498,14 +499,16 @@ test('F10-1 真正入口的輸出也沒有 **：發佈前檢查、待填報告�
   texts.forEach(function (t) { assert.strictEqual(t.indexOf('**'), -1, t.slice(0, 200)); });
 });
 
-test('F10-2 整季匯入未建立內容表的訊息指向填寫介面（書面語）', function () {
+// v3（Ivan 測試結果 A 第 1、15 項）：季度作業區塊拿走，內容表改為自動建立；訊息講自動建立，立即要建就用試算表選單。
+test('F10-2 整季匯入未建立內容表的訊息講明會自動建立，立即建立用試算表選單（書面語）', function () {
   const env = makeFillEnv({ withGrid: false });
   const sb = env.sandbox;
   const resp = sb.previewContentImport_('2099T1', {});
   assert.strictEqual(resp.ok, false);
   assert.strictEqual(resp.reason, 'NO_CONTENT_SHEET');
-  assert.ok(resp.message.indexOf('請先在下面「季度作業」區塊按「建立／刷新本季內容表」。') !== -1, resp.message);
-  assert.strictEqual(resp.message.indexOf('選單'), -1);
+  assert.ok(resp.message.indexOf('系統會自動建立') !== -1, resp.message);
+  assert.ok(resp.message.indexOf('試算表選單「內容表 ▸ 建立本季內容表」') !== -1, resp.message);
+  assert.ok(readSrc('src/Menu.gs').indexOf(".addItem('建立本季內容表', 'menuCreateContentSheet_')") !== -1, '訊息講的選單項目真的存在');
   assertWrittenChinese(assert, '未建立內容表訊息', resp.message);
 });
 

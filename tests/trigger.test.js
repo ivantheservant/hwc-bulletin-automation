@@ -77,10 +77,12 @@ function makeFakeScriptApp() {
       var builder = {
         timeBased: function () { return builder; },
         onWeekDay: function (wd) { draft.weekDay = wd; return builder; },
+        // v3：每日自動建立新季度的觸發器（.everyDays(1).atHour(h)）。
+        everyDays: function (n) { draft.everyDays = n; return builder; },
         atHour: function (h) { draft.hour = h; return builder; },
         create: function () {
           var id = 'trig_' + (++idCounter);
-          var record = { id: id, handlerFunction: draft.fnName, weekDay: draft.weekDay, hour: draft.hour };
+          var record = { id: id, handlerFunction: draft.fnName, weekDay: draft.weekDay, hour: draft.hour, everyDays: draft.everyDays || null };
           triggers.push(record);
           return { getUniqueId: function () { return id; } };
         }
@@ -200,13 +202,18 @@ test('weeklyBulletinSendTrigger_：分歧提醒失敗不會連累週報寄送—
 // 2. 安裝時先清舊觸發器（連續安裝兩次只會剩一個）
 // =====================================================================
 
-test('installWeeklySendTrigger_：安裝一次 → 專案內剛好一個 weeklyBulletinSendTrigger_ 觸發器', function () {
+test('installWeeklySendTrigger_：安裝一次 → 專案內剛好一個 weeklyBulletinSendTrigger_，加一個每日自動建立新季度（v3，寄送前一小時）', function () {
   const env = makeEnv({ config: { SEND_WEEKDAY: 'MONDAY', SEND_HOUR: '8' } });
-  env.sandbox.installWeeklySendTrigger_();
+  const result = env.sandbox.installWeeklySendTrigger_();
 
   const triggers = env.scriptApp.getProjectTriggers();
-  assert.strictEqual(triggers.length, 1);
-  assert.strictEqual(triggers[0].getHandlerFunction(), 'weeklyBulletinSendTrigger_');
+  assert.strictEqual(triggers.length, 2);
+  assert.strictEqual(triggers.filter(function (t) { return t.getHandlerFunction() === 'weeklyBulletinSendTrigger_'; }).length, 1);
+  const daily = env.scriptApp._triggers.filter(function (t) { return t.handlerFunction === 'dailyQuarterAutoCreateTrigger_'; });
+  assert.strictEqual(daily.length, 1);
+  assert.strictEqual(daily[0].everyDays, 1);
+  assert.strictEqual(daily[0].hour, 7, '每日檢查排在寄送前一小時');
+  assert.strictEqual(result.dailyHour, 7);
 });
 
 test('installWeeklySendTrigger_：連續安裝兩次，專案內仍然只有一個觸發器（不是寄兩次）', function () {
@@ -215,7 +222,7 @@ test('installWeeklySendTrigger_：連續安裝兩次，專案內仍然只有一�
   env.sandbox.installWeeklySendTrigger_();
 
   const triggers = env.scriptApp.getProjectTriggers();
-  assert.strictEqual(triggers.length, 1, '連續安裝兩次應該只剩一個，不是兩個');
+  assert.strictEqual(triggers.length, 2, '連續安裝兩次應該仍然是寄送一個＋每日一個，不是四個');
 });
 
 test('installWeeklySendTrigger_：不會影響其他 handler 的既有觸發器', function () {
@@ -226,7 +233,7 @@ test('installWeeklySendTrigger_：不會影響其他 handler 的既有觸發器'
   env.sandbox.installWeeklySendTrigger_();
 
   const triggers = env.scriptApp.getProjectTriggers();
-  assert.strictEqual(triggers.length, 2, '應該有 someOtherHandler_ 一個＋ weeklyBulletinSendTrigger_ 一個');
+  assert.strictEqual(triggers.length, 3, '應該有 someOtherHandler_ 一個＋ weeklyBulletinSendTrigger_ 一個＋每日一個');
   assert.strictEqual(triggers.filter(function (t) { return t.getHandlerFunction() === 'weeklyBulletinSendTrigger_'; }).length, 1);
   assert.strictEqual(triggers.filter(function (t) { return t.getHandlerFunction() === 'someOtherHandler_'; }).length, 1);
 });
@@ -235,7 +242,7 @@ test('removeAllSendTriggers_：移除全部同名觸發器，回傳刪除的數�
   const env = makeEnv({ config: { SEND_WEEKDAY: 'MONDAY', SEND_HOUR: '8' } });
   env.sandbox.installWeeklySendTrigger_();
   const removed = env.sandbox.removeAllSendTriggers_();
-  assert.strictEqual(removed, 1);
+  assert.strictEqual(removed, 2, '寄送與每日自動建立新季度一齊移除');
   assert.strictEqual(env.scriptApp.getProjectTriggers().length, 0);
 });
 

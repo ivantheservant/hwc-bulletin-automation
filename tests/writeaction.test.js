@@ -193,18 +193,20 @@ function makeUi(options) {
     console: console,
     google: makeFakeGoogle(calls),
     document: dom.document,
-    window: {},
+    window: { addEventListener: function () {} },
     setTimeout: timers.setTimeout,
     clearTimeout: timers.clearTimeout,
     el: function (tag, className) { return dom.makeEl(tag, className); },
     escapeHtml: function (t) { return String(t); },
     state: {
       isoDate: D, showArchived: false, quarters: [], quarterId: '2028T2', lastSavedAt: '2026-10-22 09:00:00',
-      loaded: true, inFlight: 0, previewInFlight: 0, week: {}, loadedWeek: { PRELUDE: '' }, snapshotsLoadedFor: null,
+      loaded: true, inFlight: 0, previewInFlight: 0, week: {}, loadedWeek: { PAGE_TITLE: '' }, snapshotsLoadedFor: null,
       dutyEdits: {}, nextWeekDutyEdits: {}, loadedDutyNames: {}, loadedNextDutyNames: {},
       fetchCandidates: [],
       quarterOps: { quarterId: '2028T2', dryRun: true },
-      publish: { pdfBase64: '', pdfName: '', pdfIsoDate: '', panel: { maxPdfMb: 10 }, confirmButton: '' }
+      publish: { pdfBase64: '', pdfName: '', pdfIsoDate: '', panel: { maxPdfMb: 10 }, confirmButton: '' },
+      // v3：畫面上的主日在發佈時窗之內（只有該週可以發佈或寄出）。
+      publishWindow: { isCurrentWeek: true, notice: '' }
     },
     // ---- 替身：只記錄有沒有被叫 ----
     onWeekLoaded: function (isoDate) { log.weekLoaded.push(isoDate); ctx.state.isoDate = isoDate; ctx.setLoaded(true); },
@@ -212,7 +214,7 @@ function makeUi(options) {
     loadPublishPanel: function () { log.publishPanel++; },
     refreshQuarterOpsPanel: function () { log.quarterOpsPanel++; },
     // 表單：測試直接改 ctx.form 等於幹事在畫面上打字。
-    form: { PRELUDE: '' },
+    form: { PAGE_TITLE: '' },
     collectWeekFieldsFromForm: function () { return Object.assign({}, ctx.form); },
     CONTENT_SHEET_WEEK_FIELDS: [],
     selectedPublishGroups: function () { return ['ADMIN']; },
@@ -225,7 +227,10 @@ function makeUi(options) {
     openFetchFromRosterDialog: function () {}, closeFetchDialog: function () {}, confirmFetchFromRoster: function () {},
     setAllFetchCheckboxes: function () {}, applyPublishSubStates: function () {}, savePublishPrefs: function () {},
     downloadWord: function () {}, renderFlowerHints: function () {},
-    schedulePreviewRefresh: function () {}, toggleQuarterOps: function () {}
+    schedulePreviewRefresh: function () {},
+    // v3：wireStaticEvents() 新接的幾粒（與這裏驗的寫入動作無關）。
+    copyPreviewLink: function () {}, confirmProgramAdd: function () {}, closeProgramAddForm: function () {},
+    refreshUnsavedIndicator: function () {}, updateSnapshotButtons: function () {}, onSnapshotDiffClicked: function () {}
   };
   vm.createContext(ctx);
   const code = [
@@ -241,10 +246,13 @@ function makeUi(options) {
     region(js, 'week-switch-guard'),
     between(js, 'function buildSavePayload(', 'function refreshWeekSelectorLabels('),
     region(js, 'publish-run'),
+    region(js, 'publish-window'),
     between(js, 'function setPublishButtonsBusy(', '// BEGIN publish-result'),
     region(js, 'publish-result'),
-    between(js, 'function wireStaticEvents(', 'function toggleQuarterOps('),
-    between(js, 'function showQuarterOpsMessage(', 'function wireGlobalErrorHandlers('),
+    // v3：版本記錄改為下拉，「還原到這個版本…」按鈕用揀中的版本（真正的 selectedSnapshotId()）。
+    between(js, 'function selectedSnapshotId(', 'function updateSnapshotButtons('),
+    // v3：季度作業區塊已經由填寫介面拿走（Ivan 測試結果 A 第 15 項），wireStaticEvents() 之後緊接的是 wireGlobalErrorHandlers()。
+    between(js, 'function wireStaticEvents(', 'function wireGlobalErrorHandlers('),
     // G19：兩個對話框的「取消」（wireStaticEvents() 接上的是真正的函式）。
     between(js, 'function closeFetchDialog(', 'function confirmFetchFromRoster('),
     between(js, 'function openPublishConfirm(', 'function downloadWord(')
@@ -279,16 +287,13 @@ function makeUi(options) {
   };
 }
 
-/** 經真正的 renderSnapshotList() 畫一個版本，按它的「還原到這個版本」。 */
+/** v3：經真正的 renderSnapshotPicker() 把一個版本放進下拉，揀中它，按「還原到這個版本…」（wireStaticEvents() 接上的真按鈕）。 */
 function clickRestoreButton(ui, snapshotId) {
-  const list = ui.dom.document.getElementById('snapshotList');
-  ui.ctx.renderSnapshotList(list, [{ snapshotId: snapshotId, createdAt: '2026-10-22 08:00', createdBy: 'ivan', reasonLabel: '填寫介面儲存', summary: '' }], {
-    onDiff: ui.ctx.onSnapshotDiffClicked || function () {},
-    onRestore: ui.ctx.onSnapshotRestoreClicked
-  });
-  const buttons = list.children[0].children.filter(function (c) { return c.className === 'snapshot-buttons'; })[0];
-  const restoreBtn = buttons.children.filter(function (b) { return b.textContent === '還原到這個版本'; })[0];
-  restoreBtn.listeners.click();
+  const select = ui.dom.document.getElementById('snapshotSelect');
+  ui.ctx.renderSnapshotPicker(select, ui.dom.document.getElementById('snapshotDetail'),
+    [{ snapshotId: snapshotId, createdAt: '2026-10-22 08:00', createdBy: 'ivan', reasonLabel: '填寫介面儲存', summary: '' }]);
+  select.value = snapshotId;
+  ui.click('snapshotRestoreBtn');
 }
 
 const DIFF_OK = { ok: true, data: { createdAt: '2026-10-22 08:00', reasonLabel: '填寫介面儲存', rows: [], noteLine: '還原前會先自動存一個版本。', lastSavedAt: '2026-10-22 09:00:00' } };
@@ -353,12 +358,12 @@ console.log('\n寫入類動作遇到連線錯誤（G13）');
 
 test('G13-1 按「儲存」→ apiSaveWeek 收到 HTTP 502：即時出儲存那一句；不等候、不重新載入；畫面上的改動與未儲存的狀態保留，「儲存」即時可以再按；再按送出同一份 payload，伺服器回 STALE 就原句顯示', function () {
   const ui = makeUi();
-  ui.ctx.form.PRELUDE = '新序樂';                       // 幹事在畫面上打了字
+  ui.ctx.form.PAGE_TITLE = '新序樂';                       // 幹事在畫面上打了字
   assert.strictEqual(ui.ctx.hasUnsavedWeekChanges(), true, '前提：有未儲存的改動');
 
   ui.click('saveBtn');
   const first = ui.take('apiSaveWeek');
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(first.args[0].week)), { PRELUDE: '新序樂' });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(first.args[0].week)), { PAGE_TITLE: '新序樂' });
   first.fail(new Error(NETWORK_502));
 
   assertReportedAsNoResponse(ui, 'apiSaveWeek', 'HTTP 502');
@@ -368,8 +373,8 @@ test('G13-1 按「儲存」→ apiSaveWeek 收到 HTTP 502：即時出儲存那�
   assert.strictEqual(ui.ctx.state.inFlight, 0);
   assert.strictEqual(ui.els.saveBtn.disabled, false, '「儲存」要即時可以再按');
   assert.strictEqual(ui.els.saveBtn.textContent, '儲存');
-  assert.strictEqual(ui.ctx.form.PRELUDE, '新序樂', '畫面上的改動保留');
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(ui.ctx.state.loadedWeek)), { PRELUDE: '' }, '載入時的值不變（未儲存的狀態以它為準）');
+  assert.strictEqual(ui.ctx.form.PAGE_TITLE, '新序樂', '畫面上的改動保留');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(ui.ctx.state.loadedWeek)), { PAGE_TITLE: '' }, '載入時的值不變（未儲存的狀態以它為準）');
   assert.strictEqual(ui.ctx.hasUnsavedWeekChanges(), true, '仍然算是未儲存（換週會先問）');
   assert.strictEqual(ui.ctx.state.lastSavedAt, '2026-10-22 09:00:00', '樂觀鎖用的時間不變，再按才擋得住重複寫入');
 
@@ -457,12 +462,12 @@ test('G13-4 發佈區按「執行」（只寄出）→ apiRunPublish 收到 HTTP
 
 test('G21-1 表單有未儲存的改動 → 按「執行」發佈 → 502 → 20 秒之後只重新載入頁頂「目前已發佈」，不送 apiLoadWeek；畫面上的改動與未儲存的狀態保留', function () {
   const ui = makeUi();
-  ui.ctx.form.PRELUDE = '新序樂';
+  ui.ctx.form.PAGE_TITLE = '新序樂';
   assert.strictEqual(ui.ctx.hasUnsavedWeekChanges(), true, '前提：有未儲存的改動');
   publishWith502(ui, true, false);
   assert.strictEqual(ui.count('apiLoadWeek'), 0, '不可以重新載入主日');
   assert.strictEqual(ui.log.publishPanel, 1);
-  assert.strictEqual(ui.ctx.form.PRELUDE, '新序樂');
+  assert.strictEqual(ui.ctx.form.PAGE_TITLE, '新序樂');
   assert.strictEqual(ui.ctx.hasUnsavedWeekChanges(), true, '仍然算是未儲存（換週會先問）');
   assert.strictEqual(ui.ctx.state.inFlight, 0);
 });
@@ -482,12 +487,13 @@ test('G21-2 版本記錄展開着 → 發佈沒有回應之後一併重新載入
   assert.strictEqual(closedLoads, 0);
 });
 
-test('G21-3 其他種類與成功時一致：還原、重設、匯入、補抓、由職事表重新取數、整季匯入成功時本來就重新載入主日，沒有回應亦重新載入；季度作業不載入', function () {
+test('G21-3 其他種類與成功時一致：還原、重設、匯入、補抓、由職事表重新取數、更新本季內容表成功時本來就重新載入主日，沒有回應亦重新載入', function () {
   const ui = makeUi();
   const table = JSON.parse(JSON.stringify(ui.ctx.WRITE_ACTION_RECOVERY));
-  const reloadsWeek = Object.keys(table).filter(function (k) { return table[k] === 'week' || table[k] === 'quarterImport'; }).sort();
+  const reloadsWeek = Object.keys(table).filter(function (k) { return table[k] === 'week'; }).sort();
+  // v3：季度作業（包括整季匯入）已經由填寫介面拿走；「更新本季內容表…」在內容表狀態列，成功之後重新載入主日。
   assert.deepStrictEqual(reloadsWeek, ['apiBackfillRoster', 'apiFetchFromRoster', 'apiResetWeek', 'apiRestoreWeekSnapshot',
-    'apiRunContentImport', 'apiRunQuarterContentImport']);
+    'apiRunContentImport', 'apiRunContentSheetBuild']);
   // 這六個成功處理都會叫 loadWeek()（逐個核對 Script.html 的成功路徑）。
   const js = readSrc('src/ui/Script.html');
   [['function onContentImportDone(', 'function applyBaptismPanelVisibility('],
@@ -495,25 +501,27 @@ test('G21-3 其他種類與成功時一致：還原、重設、匯入、補抓�
     ['function onResetWeekClicked(', '// BEGIN word-file'],
     ['function confirmFetchFromRoster(', 'function schedulePreviewRefresh('],
     ['function backfillRoster(', 'function wireStaticEvents('],
-    ["previewApi: 'apiPreviewQuarterContentImport'", "document.getElementById('opMissingBtn')"]].forEach(function (pair) {
+    ["callServer('apiRunContentSheetBuild'", 'function onContentImportDone(']].forEach(function (pair) {
     assert.ok(between(js, pair[0], pair[1]).indexOf('loadWeek(') !== -1, pair[0] + ' 成功時要重新載入主日');
   });
   const publishOk = between(js, 'function onPublishDone(', '// BEGIN publish-result');
   assert.strictEqual(publishOk.indexOf('loadWeek('), -1, '發佈成功時不重新載入主日');
 });
 
-test('G13-5 季度作業「建立本季空白週報」按「確定」→ apiRunCreateWeeks 收到 HTTP 502 → 季度作業區塊內也有訊息，重新載入季度作業；不重新載入主日', function () {
-  const ui = makeUi();
-  ui.click('opCreateWeeksBtn');
-  ui.take('apiPreviewCreateWeeks').ok({ ok: true, data: { ok: true, title: '建立本季空白週報', lines: ['會新增 13 個主日。'] } });
+// v3（Ivan 測試結果 A 第 15 項）：季度作業區塊已經由填寫介面拿走，G13-5 改驗取代它的「更新本季內容表…」。
+test('G13-5 「更新本季內容表…」按「確定」→ apiRunContentSheetBuild 收到 HTTP 502 → 等候之後重新載入這一個主日，講可能已經完成', function () {
+  const ui = makeUi({ extra: [['function startContentSheetUpgrade(', 'function onContentImportDone(']] });
+  ui.ctx.startContentSheetUpgrade();
+  ui.take('apiPreviewContentSheetBuild').ok({ ok: true, data: { ok: true, lines: ['會加上新的欄。'] } });
+  assert.strictEqual(ui.els.confirmDialogBackdrop.classList.contains('hidden'), false, '前提：確認對話框打開了');
   ui.click('confirmOkBtn');
-  ui.take('apiRunCreateWeeks').fail(new Error(NETWORK_502));
+  const run = ui.take('apiRunContentSheetBuild');
+  assert.deepStrictEqual(run.args, ['2028T2']);
+  run.fail(new Error(NETWORK_502));
+  assert.strictEqual(ui.count('apiLoadWeek'), 0, '未等完不可以重新載入');
   ui.timers.run(ui.delayMs);
-  const expected = '伺服器沒有回應（apiRunCreateWeeks），這個動作可能已經完成。系統已重新載入季度作業的現況，請先看「季度作業」區塊。' + WAIT_ENDING;
-  assert.strictEqual(ui.els.quarterOpsMessage.textContent, expected);
-  assert.deepStrictEqual(ui.message(), { type: 'error', text: expected });
-  assert.strictEqual(ui.log.quarterOpsPanel, 1);
-  assert.strictEqual(ui.count('apiLoadWeek'), 0, '成功時亦不重新載入主日，這裏照樣不載入（免得丟失未儲存的改動）');
+  assert.deepStrictEqual(ui.message(), { type: 'error', text: expectedWeekMessage('apiRunContentSheetBuild') });
+  assert.deepStrictEqual(ui.take('apiLoadWeek').args, [D]);
 });
 
 // 內容表 v2：G13-6（「建立講員表格」沒有回應）拿走——講員表格已停用，填寫介面沒有那粒按鈕，
@@ -620,9 +628,10 @@ test('G13-10 分類：Script.html 用到的每一個 api 名稱都分了寫入�
   });
   assert.deepStrictEqual(Object.keys(table).sort(), [
     // 內容表 v2：apiCreateSpeakerForm、apiRefreshSpeakerFormDates 隨講員表格停用拿走。
+    // v3：季度作業區塊拿走，apiRunContentSheetInvite、apiRunCreateWeeks、apiRunQuarterContentImport 不再由填寫介面叫。
     'apiBackfillRoster', 'apiFetchFromRoster', 'apiResetWeek',
-    'apiRestoreWeekSnapshot', 'apiRunContentImport', 'apiRunContentSheetBuild', 'apiRunContentSheetInvite',
-    'apiRunCreateWeeks', 'apiRunPublish', 'apiRunQuarterContentImport', 'apiSaveWeek'
+    'apiRestoreWeekSnapshot', 'apiRunContentImport', 'apiRunContentSheetBuild',
+    'apiRunPublish', 'apiSaveWeek'
   ]);
   assertWrittenChinese(assert, 'G13 提示句', Object.keys(hints).map(function (k) { return hints[k]; }));
   // 等候時間要比 2026-10-22 那一次多出的 10.6 秒長，亦要比 callServer() 的逾時短。
@@ -638,7 +647,7 @@ test('G13-11 後端（真正入口 apiSaveWeek）：同一份儲存 payload 送�
   });
   const sb = env.sandbox;
   const loaded = sb.loadWeekForWebApp_(iso);
-  const patch = { PRELUDE: '新序樂' };
+  const patch = { PAGE_TITLE: '新序樂' };
   const payload = { isoDate: iso, lastSavedAt: loaded.lastSavedAt, week: patch, baseWeek: sb.baseWeekFor_(loaded.week, patch), dutyEdits: [] };
 
   const first = sb.apiSaveWeek(JSON.parse(JSON.stringify(payload)));
@@ -673,7 +682,7 @@ function makeSaveEnv(extraStubs) {
   });
   const sb = env.sandbox;
   const loaded = sb.loadWeekForWebApp_(iso);
-  const patch = { PRELUDE: '新序樂' };
+  const patch = { PAGE_TITLE: '新序樂' };
   const payload = { isoDate: iso, lastSavedAt: loaded.lastSavedAt, week: patch, baseWeek: sb.baseWeekFor_(loaded.week, patch), dutyEdits: [] };
   return { sb: sb, iso: iso, payload: payload };
 }
@@ -690,7 +699,7 @@ function saveWithSecondDuringFirst(env) {
     if (!seen.started) {
       seen.started = true;
       seen.lastSavedAtAtThatMoment = sb.readSheet('BulletinWeeks')[0].LAST_SAVED_AT;
-      seen.preludeAtThatMoment = sb.readSheet('BulletinWeeks')[0].PRELUDE;
+      seen.preludeAtThatMoment = sb.readSheet('BulletinWeeks')[0].PAGE_TITLE;
       // D12：第二次儲存是另一次執行（另一個 google.script.run），模組層的鎖計數是它自己的一份。
       seen.second = asOtherExecution(sb, function () { return sb.apiSaveWeek(JSON.parse(JSON.stringify(env.payload))); });
     }
@@ -732,7 +741,7 @@ test('G23-1 第一次儲存拿着鎖、未寫 LAST_SAVED_AT 時第二次儲存�
     '另一個寫入動作（例如另一次儲存、匯入或發佈）正在執行中，30 秒內等不到，所以這一次一格都沒有寫。你的改動仍在畫面上，請稍等再按「儲存」。');
   assert.strictEqual(auditOf(env.sb, 'WEBAPP_SAVE_WEEK').length, 1, 'AuditLog 只有第一次那一筆');
   assert.strictEqual(auditOf(env.sb, 'WEEK_SNAPSHOT_CREATE').length, 1, '版本只存了一個');
-  assert.strictEqual(env.sb.readSheet('BulletinWeeks')[0].PRELUDE, '新序樂');
+  assert.strictEqual(env.sb.readSheet('BulletinWeeks')[0].PAGE_TITLE, '新序樂');
   assert.strictEqual(env.sb.LockService.held(), false, '第一次完成之後放鎖');
   assertWrittenChinese(assert, 'G23 拿不到鎖', [seen.second.error.message]);
 });
@@ -749,7 +758,7 @@ test('G23-2 第二次等到鎖（第一次已經寫完）→ 回 STALE，一格�
   assert.strictEqual(env.sb.LockService.held(), false, 'STALE（鎖之內拋錯）之後一樣放鎖');
   // 放了鎖，之後正常的儲存照樣做得到。
   const loaded = env.sb.loadWeekForWebApp_(env.iso);
-  const patch = { PRELUDE: '再改一次' };
+  const patch = { PAGE_TITLE: '再改一次' };
   const third = env.sb.apiSaveWeek({ isoDate: env.iso, lastSavedAt: loaded.lastSavedAt, week: patch, baseWeek: env.sb.baseWeekFor_(loaded.week, patch), dutyEdits: [] });
   assert.strictEqual(third.ok, true, JSON.stringify(third.error));
 });
@@ -963,7 +972,7 @@ test('G28-1 真正入口：分頁甲載入 → 分頁乙「由職事表重新取
 
   // 分頁甲只改了序樂。D9 之後前端只送改過的格，主席那一格不送；以前整批送（主席仍是載入時的「李小明」）
   // 才會令覆寫復活。G28 的最後儲存時間照舊更新，分頁甲照舊收到 STALE（不為簡化而拿走）。
-  const patch = { PRELUDE: '甲改的序樂' };
+  const patch = { PAGE_TITLE: '甲改的序樂' };
   const saved = sb.apiSaveWeek({ isoDate: env.iso, lastSavedAt: tabA.lastSavedAt, payloadVersion: 2, week: patch,
     baseWeek: sb.baseWeekFor_(tabA.week, patch), dutyEdits: changedDutyCells(tabA.readOnly.dutyBoxPage1, {}) });
   assert.strictEqual(saved.ok, false);
@@ -1011,7 +1020,7 @@ function makeThreeWeekEnv() {
  */
 function saveFromStaleTab(env, iso, chairName, nextChairName) {
   const tab = env.tabs[iso];
-  const patch = { PRELUDE: iso + ' 改的序樂' };
+  const patch = { PAGE_TITLE: iso + ' 改的序樂' };
   return env.sb.apiSaveWeek({ isoDate: iso, lastSavedAt: tab.lastSavedAt, payloadVersion: 2, week: patch,
     baseWeek: env.sb.baseWeekFor_(tab.week, patch),
     dutyEdits: changedDutyCells(tab.readOnly.dutyBoxPage1, { 'CHAIR#1': chairName }),
@@ -1266,11 +1275,12 @@ test('D13-4 真的同一刻：儲存拿着鎖、正要寫入時，另一次執�
   assert.strictEqual(seen.reset.error.code, 'LOCK_TIMEOUT');
   assert.strictEqual(seen.resetVersions, 0, '重設連安全版本都沒有存');
   assert.strictEqual(auditOf(sb, 'WEEK_RESET').length, 0);
-  assert.strictEqual(sb.readSheet('BulletinWeeks')[0].PRELUDE, '新序樂', '儲存照常完成');
+  assert.strictEqual(sb.readSheet('BulletinWeeks')[0].PAGE_TITLE, '新序樂', '儲存照常完成');
   assert.strictEqual(sb.LockService.held(), false);
   const later = sb.apiResetWeek({ isoDate: env.iso });
   assert.strictEqual(later.ok, true, JSON.stringify(later.error));
-  assert.strictEqual(sb.readSheet('BulletinWeeks')[0].PRELUDE, '預設序樂');
+  // v3：重設把大標題改回 Config 的 DEFAULT_PAGE_TITLE（沒有填就是「崇拜程序」）。
+  assert.strictEqual(sb.readSheet('BulletinWeeks')[0].PAGE_TITLE, '崇拜程序');
 });
 
 test('D13-5 還原、重設、由職事表重新取數成功時各拿一次鎖、放一次鎖（經 withScriptLock_()，flush 之後才放）', function () {
@@ -1330,13 +1340,14 @@ test('G15-2 「還原到這個版本」→ 對話框按「取消」或 Esc → �
   assert.strictEqual(ui2.count('apiRestoreWeekSnapshot'), 0);
 });
 
-test('G15-3 與季度作業同一個常數：季度作業按「取消」顯示一字不差的一句；Script.html 內這句只寫一次', function () {
-  const ui = makeUi();
-  ui.click('opCreateWeeksBtn');
-  ui.take('apiPreviewCreateWeeks').ok({ ok: true, data: { ok: true, title: '建立本季空白週報', lines: ['會新增 13 個主日。'] } });
+test('G15-3 與「更新本季內容表…」同一個常數：按「取消」顯示一字不差的一句；Script.html 內這句只寫一次', function () {
+  // v3：季度作業區塊已經拿走，改驗取代它的「更新本季內容表…」。
+  const ui = makeUi({ extra: [['function startContentSheetUpgrade(', 'function onContentImportDone(']] });
+  ui.ctx.startContentSheetUpgrade();
+  ui.take('apiPreviewContentSheetBuild').ok({ ok: true, data: { ok: true, lines: ['會加上新的欄。'] } });
   ui.click('confirmCancelBtn');
-  assert.strictEqual(ui.els.quarterOpsMessage.textContent, CANCELLED);
-  assert.strictEqual(ui.count('apiRunCreateWeeks'), 0);
+  assert.deepStrictEqual(ui.message(), { type: 'info', text: CANCELLED });
+  assert.strictEqual(ui.count('apiRunContentSheetBuild'), 0);
   assert.strictEqual(ui.ctx.CANCELLED_NOTHING_WRITTEN_MESSAGE, CANCELLED);
   const js = readSrc('src/ui/Script.html');
   assert.strictEqual(js.split(CANCELLED).length - 1, 1, '字眼只可以在常數那一處');
@@ -1372,7 +1383,7 @@ test('G19-3 「由職事表重新取數」對話框、發佈前檢查視窗按�
   assert.strictEqual(pub.count('apiRunPublish'), 0);
 });
 
-test('G19-4 Script.html 內每一個 openConfirmDialog() 的取消分支：會寫入的都用 CANCELLED_NOTHING_WRITTEN_MESSAGE；只有換週與重讀職事表（審查後修正 7）例外（不是寫入）', function () {
+test('G19-4 Script.html 內每一個 openConfirmDialog() 的取消分支：會寫入的都用 CANCELLED_NOTHING_WRITTEN_MESSAGE；只有換週與由職事表重新取數（審查後修正 7）例外（不是寫入）', function () {
   const js = readSrc('src/ui/Script.html');
   const titles = [];
   // 註解內的「openConfirmDialog()」與函式定義本身不算呼叫。
@@ -1380,17 +1391,22 @@ test('G19-4 Script.html 內每一個 openConfirmDialog() 的取消分支：會�
   let m;
   while ((m = re.exec(js)) !== null) {
     if (js.slice(m.index - 9, m.index) === 'function ') continue;
+    // v3：三選一對話框 openChoiceDialog() 內部經 openConfirmDialog(title, …)，取消分支交回呼叫者（只有「下載 Word」，不是寫入）。
+    if (m[1].trim() === 'title') continue;
     const callback = js.slice(m.index, js.indexOf('callServer(', m.index) === -1 ? m.index + 400 : js.indexOf('callServer(', m.index));
     titles.push(m[1].trim());
-    if (m[1].indexOf("'換週'") !== -1 || m[1].indexOf("'重讀職事表'") !== -1) {
+    if (m[1].indexOf("'換週'") !== -1 || m[1].indexOf("'由職事表重新取數'") !== -1) {
       assert.ok(callback.indexOf('CANCELLED_NOTHING_WRITTEN_MESSAGE') === -1, m[1] + ' 不是寫入，不用「一格都沒有寫」');
       continue;
     }
     assert.ok(callback.indexOf('CANCELLED_NOTHING_WRITTEN_MESSAGE') !== -1, m[1] + ' 的取消分支要用共用常數');
   }
   // 內容表 v2：「建立講員表格」隨講員表格停用拿走。
-  assert.deepStrictEqual(titles, ["'由內容表匯入'", "'還原到這個版本'", "'重設這一週'", "'換週'", "'重讀職事表'", "data.title || '季度作業'"],
+  // v3：季度作業拿走；加「更新本季內容表」；「重讀職事表」改名「由職事表重新取數」。
+  assert.deepStrictEqual(titles, ["'由內容表匯入'", "'更新本季內容表'", "'還原到這個版本'", "'重設這一週'", "'換週'", "'由職事表重新取數'"],
     '對話框有增減：先檢查取消分支，再更新這裏');
+  // 三選一對話框只有「下載 Word」一處，取消甚麼都不做（不是寫入，不講「一格都沒有寫」）。
+  assert.deepStrictEqual((js.match(/openChoiceDialog\('[^']+'/g) || []), ["openChoiceDialog('下載 Word'"]);
   assert.strictEqual(js.indexOf('已取消，沒有寫入任何資料。'), -1, '舊字眼不再出現');
 });
 
@@ -1418,7 +1434,7 @@ function makeFillConflictUi(seconds) {
   const code = html.slice(start, html.indexOf('</script>', start))
     .replace('<' + '?!= JSON.stringify(quarterId) ?' + '>', JSON.stringify('2027T4'))
     .replace('<' + '?!= conflictsJson ?' + '>', JSON.stringify([
-      { isoDate: '2027-10-03', fieldKey: 'PRELUDE', label: '序樂', snapshotValue: '舊', gridValue: '格子表', systemValue: '系統' }
+      { isoDate: '2027-10-03', fieldKey: 'PAGE_TITLE', label: '序樂', snapshotValue: '舊', gridValue: '格子表', systemValue: '系統' }
     ]))
     .replace('<' + '?!= JSON.stringify(callTimeoutSec) ?' + '>', JSON.stringify(seconds || 120));
   assert.strictEqual(code.indexOf('<' + '?'), -1, '樣板標籤要全部換走');
@@ -1683,11 +1699,11 @@ test('G26-1 「重設這一週」按確定 → NetworkError … HTTP 403 → 即
 
 test('G26-2 儲存 → HTTP 401 → 登入那一句，表單上的改動保留、「儲存」可以再按；讀取類（看差異）→ HTTP 401 → 同一句', function () {
   const save = makeUi();
-  save.ctx.form.PRELUDE = '新序樂';
+  save.ctx.form.PAGE_TITLE = '新序樂';
   save.click('saveBtn');
   save.take('apiSaveWeek').fail(new Error('NetworkError: Connection failure due to HTTP 401'));
   assert.deepStrictEqual(save.message(), { type: 'error', text: signInMessage(401) });
-  assert.strictEqual(save.ctx.form.PRELUDE, '新序樂');
+  assert.strictEqual(save.ctx.form.PAGE_TITLE, '新序樂');
   assert.strictEqual(save.els.saveBtn.disabled, false);
   assert.strictEqual(save.els.saveBtn.textContent, '儲存');
 
@@ -1755,19 +1771,8 @@ test('G27-1 還原 → 502 → 20 秒後重新載入（apiLoadWeek）亦 502 →
   assertWrittenChinese(assert, 'G27', [RELOAD_FAILED]);
 });
 
-test('G27-2 季度作業 → 502 → 20 秒後重新載入季度作業的現況亦失敗 → 頁頂與「季度作業」區塊都保留原本那一句再加一句', function () {
-  const ui = makeUi({ extra: [['function refreshQuarterOpsPanel(', 'function renderQuarterOpsPanel(']] });
-  ui.click('opCreateWeeksBtn');
-  ui.take('apiPreviewCreateWeeks').ok({ ok: true, data: { ok: true, title: '建立本季空白週報', lines: ['會新增 13 個主日。'] } });
-  ui.click('confirmOkBtn');
-  ui.take('apiRunCreateWeeks').fail(new Error(NETWORK_502));
-  ui.timers.run(ui.delayMs);
-  ui.take('apiGetQuarterOpsPanel').fail(new Error(NETWORK_502));
-  const expected = '伺服器沒有回應（apiRunCreateWeeks），這個動作可能已經完成。系統已重新載入季度作業的現況，請先看「季度作業」區塊。'
-    + WAIT_ENDING + RELOAD_FAILED;
-  assert.strictEqual(ui.els.quarterOpsMessage.textContent, expected);
-  assert.deepStrictEqual(ui.message(), { type: 'error', text: expected });
-});
+// v3：G27-2（季度作業沒有回應之後重新載入季度作業亦失敗）隨季度作業區塊拿走；「更新本季內容表…」重新載入的是
+//    主日，與 G27-1 同一條路。
 
 test('G27-3 平常的載入失敗照舊（不是沒有回應之後的重新載入）：「呼叫伺服器失敗（apiLoadWeek）：…」', function () {
   const ui = makeUi();
@@ -1838,16 +1843,16 @@ test('G24-1 連線錯誤：每一個寫入種類（儲存除外）的句子都�
   assertWrittenChinese(assert, 'G24 連線錯誤結尾', [WAIT_ENDING, EXPECTED_SEND_ONLY_MESSAGE, EXPECTED_PUBLISH_AND_SEND_MESSAGE]);
 });
 
-test('G24-2 逾時（120 秒）：季度作業、只寄出、發佈加寄出都講「伺服器可能仍在處理（最長約 6 分鐘）……請等 6 分鐘後重新載入頁面……執行項目」；秒數跟 Config', function () {
-  // 內容表 v2：「建立講員表格」那一段隨講員表格停用拿走。
-  const ops = makeUi();
-  ops.click('opCreateWeeksBtn');
-  ops.take('apiPreviewCreateWeeks').ok({ ok: true, data: { ok: true, title: '建立本季空白週報', lines: ['會新增 13 個主日。'] } });
+test('G24-2 逾時（120 秒）：更新本季內容表、只寄出、發佈加寄出都講「伺服器可能仍在處理（最長約 6 分鐘）……請等 6 分鐘後重新載入頁面……執行項目」；秒數跟 Config', function () {
+  // 內容表 v2：「建立講員表格」那一段隨講員表格停用拿走。v3：季度作業拿走，改用「更新本季內容表…」。
+  const ops = makeUi({ extra: [['function startContentSheetUpgrade(', 'function onContentImportDone(']] });
+  ops.ctx.startContentSheetUpgrade();
+  ops.take('apiPreviewContentSheetBuild').ok({ ok: true, data: { ok: true, lines: ['會加上新的欄。'] } });
   ops.click('confirmOkBtn');
-  ops.take('apiRunCreateWeeks');
+  ops.take('apiRunContentSheetBuild');
   ops.timers.run(120000);
   ops.timers.run(ops.delayMs);
-  assert.strictEqual(ops.els.quarterOpsMessage.textContent, expectedTimeoutMessage('apiRunCreateWeeks', '「季度作業」區塊'));
+  assert.deepStrictEqual(ops.message(), { type: 'error', text: expectedTimeoutMessage('apiRunContentSheetBuild', '「最後儲存時間」和「版本記錄」') });
 
   const send = makeUi();
   send.els.doSendCheck.checked = true;
@@ -1861,7 +1866,7 @@ test('G24-2 逾時（120 秒）：季度作業、只寄出、發佈加寄出都�
   assert.strictEqual(both.ctx.describeNoResponseFailure('apiRunPublish', 'publish', [{ doPublish: true, doSend: true }], true, 120),
     expectedTimeoutMessage('apiRunPublish', '頁頂「目前已發佈」和試算表的 SendLog', null, '已經發佈而未寄出的話，再做時只勾「寄出」。'));
   assert.ok(both.ctx.describeNoResponseFailure('apiResetWeek', 'week', [], true, 90).indexOf('伺服器在 90 秒內沒有回應（apiResetWeek）') === 0);
-  assertWrittenChinese(assert, 'G24 逾時', [expectedTimeoutMessage('apiRunCreateWeeks', '「季度作業」區塊'), EXPECTED_SAVE_TIMEOUT_MESSAGE]);
+  assertWrittenChinese(assert, 'G24 逾時', [expectedTimeoutMessage('apiRunContentSheetBuild', '「最後儲存時間」和「版本記錄」'), EXPECTED_SAVE_TIMEOUT_MESSAGE]);
 });
 
 test('G24-3 儲存：連線錯誤照舊即時再按（G23 之後第二次要等第一次寫完才讀，會回 STALE）；逾時講「伺服器可能仍在處理，請等一兩分鐘才再按「儲存」」', function () {
@@ -1943,6 +1948,48 @@ test('G17-3 按「下載 Word」（真正的 downloadWord()）120 秒沒有回�
   assertWrittenChinese(assert, 'G17 下載逾時', [EXPECTED_DOWNLOAD_TIMEOUT]);
 });
 
+test('v3 第 16 項：有未儲存的修改按「下載 Word」→ 三選一：已儲存的版本（不帶草稿）、包括未儲存修改（帶草稿）、取消（甚麼都不送）；沒有未儲存的修改直接下載', function () {
+  const extra = [['function downloadWord(', 'function triggerBinaryDownload(']];
+  const asPlain = function (v) { return JSON.parse(JSON.stringify(v)); };
+
+  const clean = makeUi({ extra: extra });
+  clean.click('downloadWordBtn');
+  assert.deepStrictEqual(asPlain(clean.take('apiDownloadBulletinDocx').args), [D], '沒有未儲存的修改：直接下載已儲存的版本');
+  assert.strictEqual(clean.els.confirmDialogBackdrop.classList.contains('hidden'), true);
+
+  const alt = makeUi({ extra: extra });
+  alt.ctx.form.PAGE_TITLE = '未儲存的標題';
+  alt.click('downloadWordBtn');
+  assert.strictEqual(alt.els.confirmDialogBackdrop.classList.contains('hidden'), false, '先問要哪一個版本');
+  assert.strictEqual(alt.els.confirmOkBtn.textContent, '已儲存的版本');
+  assert.strictEqual(alt.els.confirmAltBtn.textContent, '包括未儲存修改的版本（草稿）');
+  assert.strictEqual(alt.els.confirmAltBtn.classList.contains('hidden'), false);
+  assert.strictEqual(alt.count('apiDownloadBulletinDocx'), 0, '揀之前不送');
+  alt.click('confirmAltBtn');
+  const draftCall = alt.take('apiDownloadBulletinDocx');
+  assert.strictEqual(draftCall.args[0], D);
+  assert.deepStrictEqual(asPlain(draftCall.args[1].draft.week), { PAGE_TITLE: '未儲存的標題' }, '草稿與「儲存」送同一份（buildSavePayload）');
+  assert.strictEqual(alt.count('apiSaveWeek'), 0, '下載草稿不會儲存');
+
+  const ok = makeUi({ extra: extra });
+  ok.ctx.form.PAGE_TITLE = '未儲存的標題';
+  ok.click('downloadWordBtn');
+  ok.click('confirmOkBtn');
+  assert.deepStrictEqual(asPlain(ok.take('apiDownloadBulletinDocx').args), [D]);
+
+  const cancel = makeUi({ extra: extra });
+  cancel.ctx.form.PAGE_TITLE = '未儲存的標題';
+  cancel.click('downloadWordBtn');
+  cancel.click('confirmCancelBtn');
+  assert.strictEqual(cancel.count('apiDownloadBulletinDocx'), 0);
+  assert.strictEqual(cancel.message(), null, '下載不是寫入，取消不講「一格都沒有寫」');
+  // 之後的一般確認對話框：按鈕字眼還原、第三粒收起。
+  cancel.click('resetWeekBtn');
+  assert.strictEqual(cancel.els.confirmOkBtn.textContent, '確定');
+  assert.strictEqual(cancel.els.confirmCancelBtn.textContent, '取消');
+  assert.strictEqual(cancel.els.confirmAltBtn.classList.contains('hidden'), true);
+});
+
 test('G17-4 寫入類逾時不跟讀取類：「還原到這個版本」按確定之後 120 秒沒有回應 → 等候、重新載入、寫入類逾時那一句（G24）；ErrorLog 記原本「可能已經做了」那一句加逾時註記', function () {
   const ui = makeUi();
   clickRestoreButton(ui, 'SNAP-1');
@@ -2012,34 +2059,26 @@ test('G17-6 讀取類遇到連線錯誤（HTTP 502）照舊即時顯示「呼叫
 });
 
 
-console.log('\n審查後修正 4：確認視窗講的那一期隨 apiRunPublish 送回');
+console.log('\n審查後修正 4（v3 改寫）：只寄出不再要求確認 master 那一期');
 
-test('RV4-5 只寄出：按「執行」（不送那一期）→ 伺服器 NEEDS_CONFIRM 帶 masterIssue → 勾選、按「確認」→ 請求帶 confirmedMasterIssue（原樣）；之後再開一個不帶 masterIssue 的視窗 → 確認時不送', function () {
+// v3（Ivan 測試結果 A 第 18 項）：「寄出」一律寄這個主日的預覽連結與本季內容表連結；master 連結現在就是這一期才附上，
+//    不再要求先確認 master 那一期，所以亦不再送 confirmedMasterIssue（Script.html 與 src 都沒有這一套）。
+test('RV4-5 只寄出：按「執行」→ 伺服器 NEEDS_CONFIRM（寄出前檢查）→ 勾選、按「確認」→ 請求帶 confirmed:true，不帶 confirmedMasterIssue', function () {
   const ui = makeUi();
   ui.els.doPublishCheck.checked = false;
   ui.els.doSendCheck.checked = true;
   ui.click('publishRunBtn');
   const first = ui.take('apiRunPublish');
   assert.strictEqual(first.args[0].confirmed, false);
-  assert.strictEqual(Object.prototype.hasOwnProperty.call(first.args[0], 'confirmedMasterIssue'), false, '第一次不送');
-  first.ok({ ok: true, data: { ok: false, reason: 'NEEDS_CONFIRM', lines: ['⚠ 目前 master 連結是 2027-11-07（第 1 版）的週報'],
-    labels: { title: '寄出前檢查', checkbox: '我明白以上情況，仍然要寄出', confirmButton: '確認寄出' },
-    masterIssue: { isoDate: '2027-11-07', versionNo: 1 } } });
+  first.ok({ ok: true, data: { ok: false, reason: 'NEEDS_CONFIRM', lines: ['未填欄位（3 項）'],
+    labels: { title: '寄出前檢查', checkbox: '我明白以上情況，仍然要寄出', confirmButton: '確認寄出' } } });
   ui.els.publishForcedCheck.checked = true;
   ui.els.publishForcedCheck.listeners.change({ target: ui.els.publishForcedCheck });
   ui.click('publishConfirmOkBtn');
   const confirmed = ui.take('apiRunPublish');
   assert.strictEqual(confirmed.args[0].confirmed, true);
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(confirmed.args[0].confirmedMasterIssue)), { isoDate: '2027-11-07', versionNo: 1 });
-
-  // 下一次的視窗不帶 masterIssue（例如發佈）：不可以沿用上一次那一期。
-  confirmed.ok({ ok: true, data: { ok: false, reason: 'NEEDS_CONFIRM', lines: ['未填欄位（3 項）'],
-    labels: { title: '發佈前檢查', checkbox: '我明白以上情況，仍然要發佈', confirmButton: '確認發佈' } } });
-  assert.strictEqual(ui.ctx.state.publish.confirmMasterIssue, null);
-  ui.els.publishForcedCheck.checked = true;
-  ui.els.publishForcedCheck.listeners.change({ target: ui.els.publishForcedCheck });
-  ui.click('publishConfirmOkBtn');
-  assert.strictEqual(Object.prototype.hasOwnProperty.call(ui.take('apiRunPublish').args[0], 'confirmedMasterIssue'), false);
+  assert.strictEqual(Object.prototype.hasOwnProperty.call(confirmed.args[0], 'confirmedMasterIssue'), false);
+  assert.strictEqual(readSrc('src/ui/Script.html').indexOf('confirmedMasterIssue'), -1, '前端不再有這一套');
 });
 
 console.log('\n通過 ' + pass + ' 項，失敗 ' + fail + ' 項。');

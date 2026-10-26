@@ -475,6 +475,18 @@ function resolveWordTemplate_(templateId) {
       label: '堂慶三堂聯合崇拜'
     };
   }
+  // v3：三堂聯合崇拜（例如宣教月合堂）。未有自己的 Word 範本就用堂慶合堂那一個（版面一樣是三堂聯合）。
+  if (templateId === PROGRAM_TEMPLATE_ID_COMBINED_) {
+    var combinedFileId = getConfig(CONFIG_KEYS.TEMPLATE_FILE_ID_COMBINED, '');
+    if (combinedFileId) {
+      return { configKey: CONFIG_KEYS.TEMPLATE_FILE_ID_COMBINED, fileId: combinedFileId, label: '三堂聯合崇拜' };
+    }
+    return {
+      configKey: CONFIG_KEYS.TEMPLATE_FILE_ID_ANNIVERSARY,
+      fileId: getConfig(CONFIG_KEYS.TEMPLATE_FILE_ID_ANNIVERSARY, ''),
+      label: '三堂聯合崇拜（借用堂慶三堂聯合崇拜的 Word 範本）'
+    };
+  }
   return {
     configKey: CONFIG_KEYS.TEMPLATE_FILE_ID_NORMAL,
     fileId: getConfig(CONFIG_KEYS.TEMPLATE_FILE_ID_NORMAL, ''),
@@ -534,6 +546,7 @@ function wordTemplateNotConfiguredResult_(template) {
  *   換掉 `word/document.xml`、壓回去。
  * Args:
  *   isoDate {string} 主日日期，yyyy-MM-dd。
+ *   options {{modelOptions:Object=}=} v3：交給 `buildBulletinModel_()` 的選項（草稿用）；省略＝一般路徑。
  * Returns:
  *   {{ok:boolean, blob:(Blob|undefined), fileName:(string|undefined),
  *     stats:(Object|undefined), warnings:(Object[]|undefined),
@@ -546,8 +559,9 @@ function wordTemplateNotConfiguredResult_(template) {
  *   Error 如果 `isoDate` 格式不對、職事表讀取失敗、範本檔讀不到，或
  *     `TEMPLATE_MISSING_VALUE_MODE=ERROR` 而且有佔位符找不到值。
  */
-function generateBulletinDocx_(isoDate) {
-  var model = buildBulletinModel_(isoDate);
+function generateBulletinDocx_(isoDate, options) {
+  // v3：`options.modelOptions` 只在草稿（包括未儲存的修改）用，見 src/ModelOverlay.gs。
+  var model = buildBulletinModel_(isoDate, (options || {}).modelOptions);
 
   if (model.notConfigured) {
     return {
@@ -885,6 +899,10 @@ function inspectTemplatePlaceholders_() {
     { label: '浸禮三堂聯合崇拜', configKey: CONFIG_KEYS.TEMPLATE_FILE_ID_COMBINED_BAPTISM },
     { label: '堂慶三堂聯合崇拜', configKey: CONFIG_KEYS.TEMPLATE_FILE_ID_ANNIVERSARY }
   ];
+  // v3：三堂聯合崇拜的 Word 範本可以留空（借用堂慶那一個），所以只在設定了才盤點，留空不當作缺少。
+  if (getConfig(CONFIG_KEYS.TEMPLATE_FILE_ID_COMBINED, '')) {
+    targets.push({ label: '三堂聯合崇拜', configKey: CONFIG_KEYS.TEMPLATE_FILE_ID_COMBINED });
+  }
 
   var templates = targets.map(function (target) {
     var fileId = getConfig(target.configKey, '');

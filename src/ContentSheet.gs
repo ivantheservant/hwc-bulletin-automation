@@ -168,16 +168,19 @@ function contentSheetTabDefs_() {
 }
 
 /**
- * 用途：內容表 v2 的「崇拜程序」分頁定義——一個主日一行，宣召與浸禮合堂兩張舊分頁併入這裏
- *   （docs/待確認事項.md 內容表 v2 決定 4、6）。由 `contentSheetTabDefs_()` 放在第一張。
+ * 用途：「崇拜程序」分頁定義（v3，2026-10-26）——一個主日一行。由 `contentSheetTabDefs_()` 放在第一張。
  *
- *   欄位次序（決定 6，方案 A）：v1 原有七欄**位置不變**，新欄**只加在最後**——匯入按位置讀，
- *   而且 `checkContentSheetSchema_()` 只接受「第 2 行是定義的前綴」作為「未移轉」，
- *   插在中間的話舊內容表的資料會整排錯位。新欄：序樂、宣召出處、宣召經文、詩歌頌讚，
- *   再接浸禮副框六欄。中文標題由 `COLUMNS.BULLETIN_WEEKS` 與 `baptismBoxFieldDefs_()` 衍生，
- *   不另抄一份。
+ *   v3 與 v2 的分別（Ivan 測試結果 A）：
+ *     - 序樂、宣召出處、宣召經文、讀經經文、證道講題、回應詩歌、詩歌頌讚、詩班曲名，加上新加的
+ *       「詩班項目名稱」，九欄**只可以在這裏填**（填寫介面只顯示，見 CONTENT_SHEET_READONLY_FIELDS）；
+ *     - 浸禮副框六欄**拿走**，改為只在填寫介面填（v2 的第 L 至 Q 欄，「更新本季內容表」時先把資料搬入
+ *       週報，再刪走那六欄，見 src/ContentSheetMigrateV3.gs）。
  *
- *   純文字欄只列新加的欄（建立或移轉時那幾欄是空白的）。原有四欄不列：已有內容的格改成純文字，
+ *   欄位次序：v1 原有七欄位置不變，之後是 v2 的四欄（序樂、宣召出處、宣召經文、詩歌頌讚），第 12 欄是
+ *   v3 新加的「詩班項目名稱」——匯入按位置讀，新欄只可以加在最後（決定 6，方案 A）。中文標題由
+ *   `COLUMNS.BULLETIN_WEEKS` 衍生，不另抄一份。
+ *
+ *   純文字欄只列 v1 之後加的欄（建立或移轉時那幾欄是空白的）。原有四欄不列：已有內容的格改成純文字，
  *   被試算表轉成時間的值（例如「3:16」）會變成一個數字，匯入就會靜靜寫入那個數字；保持原狀的話
  *   匯入讀到日期／時間會略過並警告（`classifyContentTypeIssues_()`）。系統自己寫入這一張分頁時
  *   一律先把那一格設成純文字。
@@ -189,13 +192,10 @@ function contentSheetTabDefs_() {
  */
 function contentSheetWorshipTabDef_() {
   var v1 = legacyWorshipTabDefV1_();
-  var addedWeekKeys = ['PRELUDE', 'CALL_REF', 'CALL_TEXT', 'HYMN_PRAISE'];
-  var baptismDefs = baptismBoxFieldDefs_();
+  var addedKeys = ['PRELUDE', 'CALL_REF', 'CALL_TEXT', 'HYMN_PRAISE', 'CHOIR_LABEL'];
   var weekKeys = COLUMNS.BULLETIN_WEEKS.keys;
   var weekHeaders = COLUMNS.BULLETIN_WEEKS.headers;
-  var addedHeaders = addedWeekKeys.map(function (key) { return weekHeaders[weekKeys.indexOf(key)]; })
-    .concat(baptismDefs.map(function (d) { return d.label; }));
-  var addedKeys = addedWeekKeys.concat(baptismDefs.map(function (d) { return d.key; }));
+  var addedHeaders = addedKeys.map(function (key) { return weekHeaders[weekKeys.indexOf(key)]; });
   return {
     tabName: '崇拜程序',
     headers: v1.headers.concat(addedHeaders),
@@ -204,18 +204,35 @@ function contentSheetWorshipTabDef_() {
     attendanceDates: false,
     plainTextColumns: addedKeys.slice(),
     wrapColumns: [
-      { key: 'SERMON_TITLE', width: 260 }, { key: 'NOTES', width: 260 }, { key: 'CALL_TEXT', width: 600 },
-      { key: 'BAPTISM_MEMBERS', width: 300 }, { key: 'MEMBERSHIP_MEMBERS', width: 300 },
-      { key: 'CHILD_DEDICATION_CHILDREN', width: 300 }
+      { key: 'SERMON_TITLE', width: 260 }, { key: 'NOTES', width: 260 }, { key: 'CALL_TEXT', width: 600 }
     ],
     activeKey: 'ACTIVE',
     frozenColumns: 1,
     note: '一個主日一行，每個主日已經預先開好一行，請直接修改，不要另加一行。'
       + '「讀經經文」是經文出處（例如「約翰福音 3:16」），不是讀經的人——讀經那位肢體由職事表決定。'
       + '序樂留空時週報印預設序樂；詩班曲名留空時週報那一行整行不會出現；'
-      + '浸禮六欄只填浸禮合堂那一個主日，其餘主日留空。'
-      + '⚠️ 各欄在填寫介面仍然改得到：改了之後那一格就不再跟隨內容表，匯入報告會標示「沒有蓋過」。'
+      + '「詩班項目名稱」是程序表詩班那一行左邊的名稱（例如「詩班獻唱」），留空就用範本預設值。'
+      + '這一張的各欄只可以在這裏填，填寫介面只會顯示；改好之後請在填寫介面按「重新匯入」。'
+      + '浸禮合堂副框（浸禮主禮、受浸肢體等）改在填寫介面填，不在這裏。'
   };
+}
+
+/**
+ * 用途：v2「崇拜程序」分頁的機器鍵（十七欄，第 L 至 Q 欄是浸禮副框六欄），凍結。v3 移轉時用來認出
+ *   「這一份仍然是 v2」（第 2 行頭十七格完全相同）。內容以後不可以再改。
+ * Args: （無）
+ * Returns:
+ *   {string[]}
+ * Raises:
+ *   （無）
+ */
+function contentSheetWorshipKeysV2_() {
+  return [
+    'SERVICE_DATE', 'SCRIPTURE_REF', 'SERMON_TITLE', 'RESPONSE_HYMN', 'CHOIR_TITLE', 'ACTIVE', 'NOTES',
+    'PRELUDE', 'CALL_REF', 'CALL_TEXT', 'HYMN_PRAISE',
+    'BAPTISM_OFFICIANT', 'MEMBERSHIP_OFFICIANT', 'CHILD_DEDICATION_OFFICIANT',
+    'BAPTISM_MEMBERS', 'MEMBERSHIP_MEMBERS', 'CHILD_DEDICATION_CHILDREN'
+  ];
 }
 
 /**
@@ -376,12 +393,12 @@ function buildContentSheetInstructionLines_(input) {
   lines.push('　每個主日已經預先開好一行，請直接修改那一行，不要另加一行。');
   lines.push('　講員：填「讀經經文」與「證道講題」。多數講員已經有權限，可以自己開這個檔案填；');
   lines.push('　　沒有權限的，請把讀經經文與講題交給幹事代填。');
-  lines.push('　領詩：填「序樂」「詩歌頌讚」「回應詩歌」。詩班負責人：填「詩班曲名」。');
-  lines.push('　幹事：填「宣召出處」「宣召經文」及浸禮六欄（浸禮六欄只填浸禮合堂那一個主日，其餘主日留空）。');
+  lines.push('　領詩：填「序樂」「詩歌頌讚」「回應詩歌」。詩班負責人：填「詩班曲名」與「詩班項目名稱」。');
+  lines.push('　幹事：填「宣召出處」「宣召經文」。');
   lines.push('　留空的意思：序樂留空＝週報印預設序樂；詩班曲名留空＝週報那一行整行不印；');
-  lines.push('　　浸禮六欄全部留空＝那一週沒有浸禮副框。');
-  lines.push('　「誦讀」「詩班項目名稱」不在這裏填：由幹事在填寫介面處理（留空＝誦讀按月份自動選、');
-  lines.push('　　詩班項目名稱用範本預設）。');
+  lines.push('　　詩班項目名稱留空＝用範本預設（例如「詩班獻唱」）。');
+  lines.push('　「誦讀」不在這裏填：由幹事在填寫介面處理（留空＝按月份自動選）。');
+  lines.push('　浸禮合堂副框（浸禮主禮、受浸肢體等）不在這裏填：由幹事在填寫介面填。');
   lines.push('');
 
   lines.push('【「讀經經文」不是讀經的人】');
@@ -389,12 +406,10 @@ function buildContentSheetInstructionLines_(input) {
   lines.push('　在週報的事奉框顯示為「讀經」，不在這裏填。');
   lines.push('');
 
-  // ⚠️ R-043／R-045：第三種模式要在 _說明 講清楚，否則同工改完發現值
-  //    「無故變回舊的」，而其實是幹事在填寫介面覆寫過。
-  lines.push('【填寫介面改過的格】');
-  lines.push('　「崇拜程序」各欄，幹事在週報填寫介面也改得到。幹事改過的那一格，之後匯入不會被這裏的值');
-  lines.push('　蓋過，匯入報告會列出來（寫住「沒有蓋過」），由幹事決定。');
-  lines.push('　所以如果你改了而週報沒有跟着變，多數就是那一格已經被覆寫，請直接問幹事。');
+  // v3（2026-10-26）：「崇拜程序」各欄只可以在這裏填，填寫介面只顯示。
+  lines.push('【改了之後】');
+  lines.push('　「崇拜程序」各欄只可以在這裏改，週報填寫介面只會顯示。這裏改好之後，');
+  lines.push('　幹事在填寫介面按「重新匯入」，週報才會更新。');
   lines.push('');
 
   lines.push('【四條規則，請務必遵守】');
@@ -419,7 +434,7 @@ function buildContentSheetInstructionLines_(input) {
   if (retired.length > 0) {
     lines.push('【已停用的舊分頁】');
     lines.push('　' + retired.map(function (name) { return '「' + name + '」'; }).join('')
-      + '已經隱藏，資料已經搬入「崇拜程序」，請不要再填。分頁保留只作記錄，沒有刪除。');
+      + '已經隱藏，資料已經搬走（宣召搬入「崇拜程序」，浸禮合堂搬入週報填寫介面），請不要再填。分頁保留只作記錄，沒有刪除。');
     lines.push('');
   }
 

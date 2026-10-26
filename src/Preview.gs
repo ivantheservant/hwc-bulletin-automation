@@ -61,10 +61,11 @@ function previewConfig_() {
  *   觸發器情境。取不到就寄一封沒有連結的信，那封信等於白寄。
  * Args:
  *   isoDate {string=} 選填。指定主日；不傳就是「下一個主日」那條固定連結。
+ *   snapshotId {string=} v3：選填。預覽某個版本（只在指定了主日時才加）。
  * Returns:
  *   {string} 完全取不到網址時回空字串——呼叫方要自己處理，不可以當成有連結。
  */
-function buildPreviewUrl_(isoDate) {
+function buildPreviewUrl_(isoDate, snapshotId) {
   var base = String(getConfig(CONFIG_KEYS.PREVIEW_WEBAPP_URL, '') || '').trim();
   if (!base) {
     try {
@@ -77,7 +78,11 @@ function buildPreviewUrl_(isoDate) {
 
   var url = base + (base.indexOf('?') === -1 ? '?' : '&') + 'page=preview';
   var iso = String(isoDate || '').trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) url += '&date=' + iso;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+    url += '&date=' + iso;
+    var snap = String(snapshotId || '').trim();
+    if (snap) url += '&snapshot=' + encodeURIComponent(snap);
+  }
   return url;
 }
 
@@ -474,12 +479,17 @@ function buildPreviewFooterLines_(isoDate, model, timezone) {
  * 用途：預覽網頁的**真正入口**：由主日日期組出整版 HTML。
  * Args:
  *   requestedIso {*} 網址帶來的 `date` 參數（可以是空的）。
+ *   options {{snapshotId:string=}=} v3：網址帶來的 `snapshot` 參數——預覽那個版本還原之後的樣子
+ *     （見 src/ModelOverlay.gs）；只在 `date` 有明確日期時才看。
  * Returns:
  *   {{html:string, isoDate:string, ok:boolean}}
  */
-function buildPreviewPage_(requestedIso) {
+function buildPreviewPage_(requestedIso, options) {
   var config = previewConfig_();
   var resolved = resolvePreviewIsoDate_(requestedIso);
+  // v3（第 14 項）：`snapshot` 參數＝預覽某個版本還原之後的樣子（只限網址帶了明確日期）。
+  var snapshotId = String(((options || {}).snapshotId) || '').trim();
+  if (snapshotId && !resolved.requested) snapshotId = '';
 
   if (!resolved.isoDate) {
     return {
@@ -498,8 +508,16 @@ function buildPreviewPage_(requestedIso) {
   }
 
   var model;
+  var snapshotNotice = '';
   try {
-    model = buildBulletinModel_(resolved.isoDate);
+    if (snapshotId) {
+      var snap = buildSnapshotModelOptions_(resolved.isoDate, snapshotId);
+      model = buildBulletinModel_(resolved.isoDate, snap.options);
+      snapshotNotice = '這是版本「' + restoreVersionLabel_(snap.group) + '」還原之後的樣子（唯讀）：'
+        + '填寫介面的欄位與事奉框用那個版本；內容表的內容（經文、講題、家事報告、代禱等）與四張清單用現在的。';
+    } else {
+      model = buildBulletinModel_(resolved.isoDate);
+    }
   } catch (err) {
     return {
       ok: false,
@@ -526,7 +544,7 @@ function buildPreviewPage_(requestedIso) {
   }
 
   var data = buildPreviewData_(model, {
-    notice: config.notice,
+    notice: snapshotNotice ? (snapshotNotice + (config.notice ? '　' + config.notice : '')) : config.notice,
     rosterPendingNote: pendingNote,
     dateWarning: resolved.warning,
     footerLines: buildPreviewFooterLines_(resolved.isoDate, model, config.timezone)
@@ -617,14 +635,22 @@ function sendPreviewNotice_(isoDate) {
     pendingNote = '';
   }
 
+  // v3（第 5 項）：一併附上本季內容表的連結。工作表上的舊範本沒有 {{ContentSheetUrl}} 的話，在信末加一段，
+  //    不要求幹事先改範本。
+  var contentSheetUrl = contentSheetUrlForIsoDate_(isoDate);
   var vars = {
     ChurchName: getConfig(CONFIG_KEYS.CHURCH_NAME, ''),
     ServiceDate: isoDate,
     PreviewUrl: previewUrl,
+    ContentSheetUrl: contentSheetUrl || '（本季未有內容表）',
     RosterPendingNote: pendingNote
   };
+  var bodyTemplate = String(template.BODY || '');
+  if (contentSheetUrl && bodyTemplate.indexOf('{{ContentSheetUrl}}') === -1) {
+    bodyTemplate += '\n\n本季內容表（家事報告、代禱事項、崇拜程序等內容在這裏填）：\n{{ContentSheetUrl}}';
+  }
   var subject = renderEmailTemplate_(String(template.SUBJECT || ''), vars, []);
-  var plainBody = renderEmailTemplate_(String(template.BODY || ''), vars, []);
+  var plainBody = renderEmailTemplate_(bodyTemplate, vars, []);
 
   var sendLogRows = [];
   recipientsResult.recipients.forEach(function (recipient) {

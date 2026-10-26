@@ -46,6 +46,13 @@ function expectedProjectTriggers_() {
         + '請按選單「移除自動寄送觸發器」再按一次「安裝自動寄送觸發器」。'
     },
     {
+      // v3（2026-10-26）：每日自動建立季度（與自動寄送一齊安裝、一齊移除）。
+      handler: 'dailyQuarterAutoCreateTrigger_', label: '每日自動建立新季度', expected: 1, retired: false,
+      missingHint: '職事表有新季度時不會每日自動建立（開啟填寫介面時仍然會檢查）。請按選單「安裝自動寄送觸發器」。',
+      duplicateHint: '每一個都會各自跑一次（多跑不會重複建立，但浪費時間）。'
+        + '請按選單「移除自動寄送觸發器」再按一次「安裝自動寄送觸發器」。'
+    },
+    {
       handler: 'onFillGridEdit_', label: 'Config 人手改動稽核', expected: 1, retired: false,
       missingHint: '人手改 Config 不會記入 AuditLog。請按選單「' + QUARTER_TOOLS_MENU_LABEL_
         + ' ▸ 安裝 Config 改動稽核觸發器」。',

@@ -100,8 +100,8 @@ test('F1-1 重現 I3：伺服器端寫了序樂之後，較早載入的分頁只
   const loadedToken = env.sandbox.canonicalSaveToken_(weekRow(env, D).LAST_SAVED_AT);
 
   // 別處在伺服器端改了序樂（以前是季度填寫表的觸發器）→ 寫入 BulletinWeeks，不碰 LAST_SAVED_AT。
-  gridEdit(env, D, 'PRELUDE', '格子表改的序樂');
-  assert.strictEqual(weekRow(env, D).PRELUDE, '格子表改的序樂');
+  gridEdit(env, D, 'PAGE_TITLE', '格子表改的序樂');
+  assert.strictEqual(weekRow(env, D).PAGE_TITLE, '格子表改的序樂');
   assert.strictEqual(env.sandbox.canonicalSaveToken_(weekRow(env, D).LAST_SAVED_AT), loadedToken,
     '前提：伺服器端寫入不更新 LAST_SAVED_AT，所以整行 STALE 檢查擋不住這種情況');
 
@@ -114,22 +114,22 @@ test('F1-1 重現 I3：伺服器端寫了序樂之後，較早載入的分頁只
 
   assert.strictEqual(result.changedFieldCount, 1, '只有獻花一格是這次真的改動');
   assert.strictEqual(weekRow(env, D).FLOWER_THIS_WEEK, '玫瑰');
-  assert.strictEqual(weekRow(env, D).PRELUDE, '格子表改的序樂', '⚠️ 序樂不可以被蓋回舊值（空白）');
+  assert.strictEqual(weekRow(env, D).PAGE_TITLE, '格子表改的序樂', '⚠️ 序樂不可以被蓋回舊值（空白）');
   // 內容表 v2：以前這裏再驗「格子表即時刷新、同步之後兩邊一致」；季度填寫表已停用，儲存不再碰 Fill_
   // （見 tests/fillgrid.test.js 第 9 組），所以拿走那幾句。
 });
 
 test('F1-2 同一格兩邊都改過 → FIELD_CONFLICT，整次拒絕，一格都沒有寫（含 LAST_SAVED_AT／FieldOverride／DutyOverride）', function () {
   const env = makeSyncedEnv();
-  gridEdit(env, D, 'PRELUDE', '格子表改的序樂');
+  gridEdit(env, D, 'PAGE_TITLE', '格子表改的序樂');
   const before = snapshotAll(env);
 
   const err = catchError(function () {
     env.sandbox.saveWeekFromWebApp_({
       isoDate: D, lastSavedAt: '',
-      baseWeek: { PRELUDE: '', FLOWER_THIS_WEEK: '', SERMON_TITLE: '' },
+      baseWeek: { PAGE_TITLE: '', FLOWER_THIS_WEEK: '', NEXT_WEEK_HEADING: '' },
       // 序樂與格子表那邊衝突；獻花、講題本身沒有衝突，但整次都不可以寫。
-      week: { PRELUDE: '分頁改的序樂', FLOWER_THIS_WEEK: '玫瑰', SERMON_TITLE: '分頁改的講題' },
+      week: { PAGE_TITLE: '分頁改的序樂', FLOWER_THIS_WEEK: '玫瑰', NEXT_WEEK_HEADING: '分頁改的講題' },
       payloadVersion: 2,
       dutyEdits: [{ postId: 'CHAIR', slotIndex: 1, name: '李小明' }],
       nextWeekDutyEdits: [{ postId: 'CHAIR', slotIndex: 1, name: '王小華' }]
@@ -139,9 +139,9 @@ test('F1-2 同一格兩邊都改過 → FIELD_CONFLICT，整次拒絕，一格�
   assert.ok(err, '應該拋出例外');
   assert.strictEqual(err.code, 'FIELD_CONFLICT');
   assert.strictEqual(err.message,
-    '以下欄位在你載入之後已經被改過（可能是內容表匯入或另一個分頁）：序樂。'
+    '以下欄位在你載入之後已經被改過（可能是內容表匯入或另一個分頁）：程序表大標題。'
     + '請重新載入再改，以免蓋走別人的修改。');
-  assert.deepStrictEqual(Array.from(err.conflictFields), ['PRELUDE']);
+  assert.deepStrictEqual(Array.from(err.conflictFields), ['PAGE_TITLE']);
   assertNothingWritten(env, before);
   assert.strictEqual(weekRow(env, D).FLOWER_THIS_WEEK, '', '連沒有衝突的獻花也不可以寫');
   assert.strictEqual(env.sandbox.readSheet('FieldOverride').length, 0);
@@ -150,41 +150,41 @@ test('F1-2 同一格兩邊都改過 → FIELD_CONFLICT，整次拒絕，一格�
 
 test('F1-3 衝突訊息用介面標籤，不用機器鍵；多個欄位用「、」分隔', function () {
   const env = makeSyncedEnv();
-  gridEdit(env, D, 'PRELUDE', 'A');
+  gridEdit(env, D, 'PAGE_TITLE', 'A');
   gridEdit(env, D, 'FLOWER_THIS_WEEK', 'B');
   const err = catchError(function () {
     env.sandbox.saveWeekFromWebApp_({
       isoDate: D, lastSavedAt: '',
-      baseWeek: { PRELUDE: '', FLOWER_THIS_WEEK: '' },
-      week: { PRELUDE: 'X', FLOWER_THIS_WEEK: 'Y' }
+      baseWeek: { PAGE_TITLE: '', FLOWER_THIS_WEEK: '' },
+      week: { PAGE_TITLE: 'X', FLOWER_THIS_WEEK: 'Y' }
     });
   });
   assert.strictEqual(err.code, 'FIELD_CONFLICT');
-  assert.ok(err.message.indexOf('序樂、本週獻花') !== -1, err.message);
-  assert.strictEqual(err.message.indexOf('PRELUDE'), -1, '不可以出現機器鍵：' + err.message);
+  assert.ok(err.message.indexOf('程序表大標題、本週獻花') !== -1, err.message);
+  assert.strictEqual(err.message.indexOf('PAGE_TITLE'), -1, '不可以出現機器鍵：' + err.message);
 });
 
 test('F1-4 別處剛好改成跟你送的同一個值 → 不算衝突，也不用重寫', function () {
   const env = makeSyncedEnv();
-  gridEdit(env, D, 'PRELUDE', '同一個序樂');
+  gridEdit(env, D, 'PAGE_TITLE', '同一個序樂');
   const result = env.sandbox.saveWeekFromWebApp_({
     isoDate: D, lastSavedAt: '',
-    baseWeek: { PRELUDE: '' }, week: { PRELUDE: '同一個序樂' }
+    baseWeek: { PAGE_TITLE: '' }, week: { PAGE_TITLE: '同一個序樂' }
   });
   assert.strictEqual(result.changedFieldCount, 0);
-  assert.strictEqual(weekRow(env, D).PRELUDE, '同一個序樂');
+  assert.strictEqual(weekRow(env, D).PAGE_TITLE, '同一個序樂');
 });
 
 test('F1-5 沒有 baseWeek（舊版前端仍然送整張表單）→ CLIENT_OUTDATED，一格都沒有寫', function () {
   const env = makeSyncedEnv();
-  gridEdit(env, D, 'PRELUDE', '格子表改的序樂');
+  gridEdit(env, D, 'PAGE_TITLE', '格子表改的序樂');
   const before = snapshotAll(env);
 
   const err = catchError(function () {
     env.sandbox.saveWeekFromWebApp_({
       isoDate: D, lastSavedAt: '',
       // 舊版前端：整張表單，序樂是載入時的舊值（空白）。
-      week: { PRELUDE: '', FLOWER_THIS_WEEK: '玫瑰', SERMON_TITLE: '', PAGE_TITLE: '' },
+      week: { PAGE_TITLE: '', FLOWER_THIS_WEEK: '玫瑰', SERMON_TITLE: '' },
       dutyEdits: []
     });
   });
@@ -193,7 +193,7 @@ test('F1-5 沒有 baseWeek（舊版前端仍然送整張表單）→ CLIENT_OUTD
   assert.strictEqual(err.code, 'CLIENT_OUTDATED');
   assert.strictEqual(err.message, '介面版本已更新，請重新載入這一頁再儲存。');
   assertNothingWritten(env, before);
-  assert.strictEqual(weekRow(env, D).PRELUDE, '格子表改的序樂', '不可以退回舊的整張寫入');
+  assert.strictEqual(weekRow(env, D).PAGE_TITLE, '格子表改的序樂', '不可以退回舊的整張寫入');
 });
 
 test('F1-6 baseWeek 不是物件（null／陣列／字串）一律當作沒有', function () {
@@ -218,15 +218,15 @@ test('F1-7 normalizeWeekPayloadForCompare_ 只處理 payload 內有出現的鍵�
 
 test('F1-8 只改一格的部分 payload 不會清空其餘欄位', function () {
   const env = makeSyncedEnv();
-  gridEdit(env, D, 'PRELUDE', '序樂甲');
-  gridEdit(env, D, 'HYMN_PRAISE', '詩歌乙');
+  gridEdit(env, D, 'NEXT_WEEK_HEADING', '序樂甲');
+  gridEdit(env, D, 'PRAYER_BLOCK_HEADING', '詩歌乙');
   gridEdit(env, D, 'PAGE_TITLE', '標題丙');
   env.sandbox.saveWeekFromWebApp_({
     isoDate: D, lastSavedAt: '', baseWeek: { FLOWER_THIS_WEEK: '' }, week: { FLOWER_THIS_WEEK: '玫瑰' }
   });
   const w = weekRow(env, D);
-  assert.strictEqual(w.PRELUDE, '序樂甲');
-  assert.strictEqual(w.HYMN_PRAISE, '詩歌乙');
+  assert.strictEqual(w.NEXT_WEEK_HEADING, '序樂甲');
+  assert.strictEqual(w.PRAYER_BLOCK_HEADING, '詩歌乙');
   assert.strictEqual(w.PAGE_TITLE, '標題丙');
 });
 
@@ -238,19 +238,19 @@ test('F1-9 BulletinWeeks 沒有該主日那一行（防呆補行）→ 部分 pa
   const w = weekRow(env, D);
   assert.ok(w, '要補一行');
   assert.strictEqual(w.FLOWER_THIS_WEEK, '玫瑰');
-  assert.strictEqual(w.PRELUDE, '');
+  assert.strictEqual(w.PAGE_TITLE, '');
 });
 
 test('F1-10 沒有衝突的正常改動：舊值 = baseWeek → 照寫，並逐格記 AuditLog', function () {
   const env = makeSyncedEnv();
-  gridEdit(env, D, 'PRELUDE', '舊序樂');
+  gridEdit(env, D, 'PAGE_TITLE', '舊序樂');
   const token = env.sandbox.canonicalSaveToken_(weekRow(env, D).LAST_SAVED_AT);
   const result = env.sandbox.saveWeekFromWebApp_({
     isoDate: D, lastSavedAt: token,
-    baseWeek: { PRELUDE: '舊序樂' }, week: { PRELUDE: '新序樂' }
+    baseWeek: { PAGE_TITLE: '舊序樂' }, week: { PAGE_TITLE: '新序樂' }
   });
   assert.strictEqual(result.changedFieldCount, 1);
-  assert.strictEqual(weekRow(env, D).PRELUDE, '新序樂');
+  assert.strictEqual(weekRow(env, D).PAGE_TITLE, '新序樂');
   const audit = env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'WEBAPP_SAVE_WEEK'; });
   assert.strictEqual(audit.length, 1);
   assert.strictEqual(audit[0].OLD_VALUE, '舊序樂');
@@ -272,15 +272,17 @@ test('F1-11 沒有改動的第三種欄位不會被開覆寫（FieldOverride 沒
     '⚠️ 不可以替沒有改過的舊值開覆寫（否則內容表之後的新值會被永遠擋住）');
 });
 
-test('F1-12 使用者真的改了第三種欄位 → 照舊寫成 FieldOverride', function () {
+test('F1-12 v3：使用者改了內容表才可以改的欄位（講題）→ 整次拒絕（CONTENT_SHEET_READONLY），不寫 FieldOverride', function () {
   const env = makeSyncedEnv();
-  env.sandbox.saveWeekFromWebApp_({
-    isoDate: D, lastSavedAt: '', baseWeek: { SERMON_TITLE: '' }, week: { SERMON_TITLE: '我改的講題' }
+  const before = snapshotAll(env);
+  const err = catchError(function () {
+    env.sandbox.saveWeekFromWebApp_({
+      isoDate: D, lastSavedAt: '', baseWeek: { SERMON_TITLE: '' }, week: { SERMON_TITLE: '我改的講題' }
+    });
   });
-  const rows = env.sandbox.readSheet('FieldOverride').filter(function (r) { return r.FIELD_KEY === 'SERMON_TITLE'; });
-  assert.strictEqual(rows.length, 1);
-  assert.strictEqual(rows[0].OVERRIDE_VALUE, '我改的講題');
-  assert.strictEqual(rows[0].ACTIVE, true);
+  assert.ok(err, '應該拋錯');
+  assert.strictEqual(err.code, 'CONTENT_SHEET_READONLY');
+  assertNothingWritten(env, before, 'F1-12 ');
 });
 
 test('F1-13 整行 STALE 檢查保留：LAST_SAVED_AT 不符 → STALE，一格都沒有寫', function () {
@@ -387,10 +389,10 @@ test('F2-2 H15／H17：無改動儲存之後，另一個用同一 token 的 payl
 
   // 分頁乙：持同一個 token，改一格。以前會被誤判 STALE。
   const result = env.sandbox.saveWeekFromWebApp_({
-    isoDate: D, lastSavedAt: token, baseWeek: { HYMN_PRAISE: '' }, week: { HYMN_PRAISE: '詩歌' }
+    isoDate: D, lastSavedAt: token, baseWeek: { PRAYER_BLOCK_HEADING: '' }, week: { PRAYER_BLOCK_HEADING: '詩歌' }
   });
   assert.strictEqual(result.changedFieldCount, 1);
-  assert.strictEqual(weekRow(env, D).HYMN_PRAISE, '詩歌');
+  assert.strictEqual(weekRow(env, D).PRAYER_BLOCK_HEADING, '詩歌');
 });
 
 test('F2-3 從未儲存過的一週，無改動儲存之後 token 仍然是空，下一次儲存不會誤判 STALE', function () {
@@ -444,15 +446,15 @@ test('F8-2 經 apiSaveWeek()：STALE 回傳錯誤給介面，但不寫 ErrorLog'
 
 test('F8-3 經 apiSaveWeek()：FIELD_CONFLICT 與 CLIENT_OUTDATED 同樣不寫 ErrorLog', function () {
   const env = makeSyncedEnv();
-  gridEdit(env, D, 'PRELUDE', '格子表');
+  gridEdit(env, D, 'PAGE_TITLE', '格子表');
   const errorsBefore = env.sandbox.readSheet('ErrorLog').length;
 
   const conflict = env.sandbox.apiSaveWeek({
-    isoDate: D, lastSavedAt: '', baseWeek: { PRELUDE: '' }, week: { PRELUDE: '分頁' }
+    isoDate: D, lastSavedAt: '', baseWeek: { PAGE_TITLE: '' }, week: { PAGE_TITLE: '分頁' }
   });
   assert.strictEqual(conflict.error.code, 'FIELD_CONFLICT');
 
-  const outdated = env.sandbox.apiSaveWeek({ isoDate: D, lastSavedAt: '', week: { PRELUDE: '分頁' } });
+  const outdated = env.sandbox.apiSaveWeek({ isoDate: D, lastSavedAt: '', week: { PAGE_TITLE: '分頁' } });
   assert.strictEqual(outdated.error.code, 'CLIENT_OUTDATED');
 
   assert.strictEqual(env.sandbox.readSheet('ErrorLog').length, errorsBefore);

@@ -71,10 +71,10 @@ function findRunRecord(env) {
 // =====================================================================
 
 test('1. 全部 SKIP → appliedGrid／appliedSystem 為 0，但仍然寫一筆 FILL_CONFLICT_RESOLVE_RUN，skipped 正確', function () {
-  const env = makeConflictEnv('2027-11-07', 'SERMON_TITLE', '格子表的講題', '系統的講題');
+  const env = makeConflictEnv('2027-11-07', 'FLOWER_THIS_WEEK', '格子表的講題', '系統的講題');
 
   const result = env.sandbox.resolveFillConflicts_(QUARTER_ID, [
-    { isoDate: '2027-11-07', fieldKey: 'SERMON_TITLE', choice: 'SKIP' }
+    { isoDate: '2027-11-07', fieldKey: 'FLOWER_THIS_WEEK', choice: 'SKIP' }
   ]);
 
   assert.strictEqual(result.appliedGrid, 0);
@@ -97,7 +97,7 @@ test('1. 全部 SKIP → appliedGrid／appliedSystem 為 0，但仍然寫一筆 
 // =====================================================================
 
 test('2. decisions 是空陣列 → 仍然寫總結記錄，decisionsReceived 為 0', function () {
-  const env = makeConflictEnv('2027-11-07', 'SERMON_TITLE', '格子表的講題', '系統的講題');
+  const env = makeConflictEnv('2027-11-07', 'FLOWER_THIS_WEEK', '格子表的講題', '系統的講題');
 
   const result = env.sandbox.resolveFillConflicts_(QUARTER_ID, []);
 
@@ -119,15 +119,15 @@ test('2. decisions 是空陣列 → 仍然寫總結記錄，decisionsReceived �
 
 test('3. decisions 之中有一部分對不上目前的衝突 → unmatched 計數正確，不拋錯（因為還有其他配對成功）', function () {
   const env = makeSyncedEnv();
-  setGridCell(env, '2027-11-07', 'SERMON_TITLE', '格子表講題');
-  setSystemCell(env, '2027-11-07', 'SERMON_TITLE', '系統講題');
+  setGridCell(env, '2027-11-07', 'FLOWER_THIS_WEEK', '格子表講題');
+  setSystemCell(env, '2027-11-07', 'FLOWER_THIS_WEEK', '系統講題');
   env.sandbox.syncFillGrid_(QUARTER_ID);
 
   let result;
   assert.doesNotThrow(function () {
     result = env.sandbox.resolveFillConflicts_(QUARTER_ID, [
-      { isoDate: '2027-11-07', fieldKey: 'SERMON_TITLE', choice: 'GRID' },
-      { isoDate: '2027-12-25', fieldKey: 'SERMON_TITLE', choice: 'GRID' },
+      { isoDate: '2027-11-07', fieldKey: 'FLOWER_THIS_WEEK', choice: 'GRID' },
+      { isoDate: '2027-12-25', fieldKey: 'FLOWER_THIS_WEEK', choice: 'GRID' },
       { isoDate: '2027-11-07', fieldKey: 'NOT_A_REAL_FIELD', choice: 'SYSTEM' }
     ]);
   });
@@ -143,13 +143,13 @@ test('3. decisions 之中有一部分對不上目前的衝突 → unmatched 計�
 });
 
 test('3b. decisions 全部對不上目前的衝突（例如季度 ID 傳壞了）→ 拋 NO_MATCHING_CONFLICT，而且沒有任何寫入', function () {
-  const env = makeConflictEnv('2027-11-07', 'SERMON_TITLE', '格子表的講題', '系統的講題');
+  const env = makeConflictEnv('2027-11-07', 'FLOWER_THIS_WEEK', '格子表的講題', '系統的講題');
   const beforeWeeks = JSON.stringify(env.sandbox.readSheet('BulletinWeeks'));
   const beforeAuditCount = env.sandbox.readSheet('AuditLog').length;
 
   assert.throws(function () {
     env.sandbox.resolveFillConflicts_(QUARTER_ID, [
-      { isoDate: '2027-12-25', fieldKey: 'SERMON_TITLE', choice: 'GRID' }
+      { isoDate: '2027-12-25', fieldKey: 'FLOWER_THIS_WEEK', choice: 'GRID' }
     ]);
   }, function (err) {
     assert.strictEqual(err.code, 'NO_MATCHING_CONFLICT');
@@ -168,17 +168,17 @@ test('3b. decisions 全部對不上目前的衝突（例如季度 ID 傳壞了�
 // =====================================================================
 
 test('4. 選 GRID → BulletinWeeks 被寫入、快照更新、逐格 AuditLog', function () {
-  const env = makeConflictEnv('2027-11-07', 'SERMON_TITLE', '格子表的講題', '系統的講題');
+  const env = makeConflictEnv('2027-11-07', 'FLOWER_THIS_WEEK', '格子表的講題', '系統的講題');
 
   const result = env.sandbox.resolveFillConflicts_(QUARTER_ID, [
-    { isoDate: '2027-11-07', fieldKey: 'SERMON_TITLE', choice: 'GRID' }
+    { isoDate: '2027-11-07', fieldKey: 'FLOWER_THIS_WEEK', choice: 'GRID' }
   ]);
   assert.strictEqual(result.appliedGrid, 1);
 
   const week = env.sandbox.readSheet('BulletinWeeks').filter(function (r) {
     return env.sandbox.fillGridCellText_(r.SERVICE_DATE) === '2027-11-07';
   })[0];
-  assert.strictEqual(week.SERMON_TITLE, '格子表的講題');
+  assert.strictEqual(week.FLOWER_THIS_WEEK, '格子表的講題');
 
   assert.ok(env.sandbox.readSheet('AuditLog').some(function (r) {
     return r.ACTION === 'FILL_CONFLICT_RESOLVE' && r.NEW_VALUE === '格子表的講題';
@@ -190,16 +190,16 @@ test('4. 選 GRID → BulletinWeeks 被寫入、快照更新、逐格 AuditLog',
 });
 
 test('5. 選 SYSTEM → 格子表被寫入、快照更新', function () {
-  const env = makeConflictEnv('2027-11-07', 'SERMON_TITLE', '格子表的講題', '系統的講題');
+  const env = makeConflictEnv('2027-11-07', 'FLOWER_THIS_WEEK', '格子表的講題', '系統的講題');
 
   const result = env.sandbox.resolveFillConflicts_(QUARTER_ID, [
-    { isoDate: '2027-11-07', fieldKey: 'SERMON_TITLE', choice: 'SYSTEM' }
+    { isoDate: '2027-11-07', fieldKey: 'FLOWER_THIS_WEEK', choice: 'SYSTEM' }
   ]);
   assert.strictEqual(result.appliedSystem, 1);
 
   const gridRow = env.sandbox.readFillGridRows_(QUARTER_ID)
     .filter(function (r) { return r.isoDate === '2027-11-07'; })[0];
-  assert.strictEqual(gridRow.values.SERMON_TITLE, '系統的講題');
+  assert.strictEqual(gridRow.values.FLOWER_THIS_WEEK, '系統的講題');
 
   const plan = env.sandbox.computeFillSyncPlan_(QUARTER_ID);
   assert.strictEqual(plan.conflictCount, 0, '快照更新之後不應該再報成衝突');
@@ -211,18 +211,18 @@ test('5. 選 SYSTEM → 格子表被寫入、快照更新', function () {
 
 test('6. 混合選擇（一格 GRID、一格 SYSTEM、一格 SKIP）→ 三個計數都正確', function () {
   const env = makeSyncedEnv();
-  setGridCell(env, '2027-11-07', 'SERMON_TITLE', '格子表講題');
-  setSystemCell(env, '2027-11-07', 'SERMON_TITLE', '系統講題');
-  setGridCell(env, '2027-11-14', 'PRELUDE', '格子表序樂');
-  setSystemCell(env, '2027-11-14', 'PRELUDE', '系統序樂');
-  setGridCell(env, '2027-11-21', 'SCRIPTURE_REF', '格子表經文');
-  setSystemCell(env, '2027-11-21', 'SCRIPTURE_REF', '系統經文');
+  setGridCell(env, '2027-11-07', 'FLOWER_THIS_WEEK', '格子表講題');
+  setSystemCell(env, '2027-11-07', 'FLOWER_THIS_WEEK', '系統講題');
+  setGridCell(env, '2027-11-14', 'PAGE_TITLE', '格子表序樂');
+  setSystemCell(env, '2027-11-14', 'PAGE_TITLE', '系統序樂');
+  setGridCell(env, '2027-11-21', 'PRAYER_BLOCK_HEADING', '格子表經文');
+  setSystemCell(env, '2027-11-21', 'PRAYER_BLOCK_HEADING', '系統經文');
   env.sandbox.syncFillGrid_(QUARTER_ID);
 
   const result = env.sandbox.resolveFillConflicts_(QUARTER_ID, [
-    { isoDate: '2027-11-07', fieldKey: 'SERMON_TITLE', choice: 'GRID' },
-    { isoDate: '2027-11-14', fieldKey: 'PRELUDE', choice: 'SYSTEM' },
-    { isoDate: '2027-11-21', fieldKey: 'SCRIPTURE_REF', choice: 'SKIP' }
+    { isoDate: '2027-11-07', fieldKey: 'FLOWER_THIS_WEEK', choice: 'GRID' },
+    { isoDate: '2027-11-14', fieldKey: 'PAGE_TITLE', choice: 'SYSTEM' },
+    { isoDate: '2027-11-21', fieldKey: 'PRAYER_BLOCK_HEADING', choice: 'SKIP' }
   ]);
 
   assert.strictEqual(result.appliedGrid, 1);
@@ -239,7 +239,7 @@ test('6. 混合選擇（一格 GRID、一格 SYSTEM、一格 SKIP）→ 三個�
   assert.strictEqual(notes.appliedSystem, 1);
   assert.strictEqual(notes.skipped, 1);
 
-  // 沒被處理的那一格（SCRIPTURE_REF）下次同步仍然要報成衝突。
+  // 沒被處理的那一格（PRAYER_BLOCK_HEADING）下次同步仍然要報成衝突。
   const plan = env.sandbox.computeFillSyncPlan_(QUARTER_ID);
   assert.strictEqual(plan.conflictCount, 1, '只有 SKIP 的那一格還應該是衝突');
 });
@@ -272,9 +272,9 @@ test('buildFillConflictResultMessage_：appliedGrid／appliedSystem／skipped �
 });
 
 test('resolveFillConflicts_ 的回傳值含 message 欄位，內容與 buildFillConflictResultMessage_ 一致', function () {
-  const env = makeConflictEnv('2027-11-07', 'SERMON_TITLE', '格子表的講題', '系統的講題');
+  const env = makeConflictEnv('2027-11-07', 'FLOWER_THIS_WEEK', '格子表的講題', '系統的講題');
   const result = env.sandbox.resolveFillConflicts_(QUARTER_ID, [
-    { isoDate: '2027-11-07', fieldKey: 'SERMON_TITLE', choice: 'SKIP' }
+    { isoDate: '2027-11-07', fieldKey: 'FLOWER_THIS_WEEK', choice: 'SKIP' }
   ]);
   assert.strictEqual(result.message, '你全部選了「暫不處理」，所以一格都沒有改動。');
 });

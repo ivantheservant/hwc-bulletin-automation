@@ -147,22 +147,23 @@ test('Fellowships 的 MEETING_DATE／MEETING_TIME 是 TEXT 型別（不是 DATE�
   });
 });
 
-test('BulletinWeeks 剛好 55 欄（54 ＋ R-035 的 ARCHIVED）', function () {
+test('BulletinWeeks 剛好 57 欄（54 ＋ R-035 的 ARCHIVED ＋ v3 兩欄）', function () {
   // 2026-08-27 由 54 變 55：R-035 加了 ARCHIVED（已封存），同樣加在最後面。
-  assert.strictEqual(COLUMNS.BULLETIN_WEEKS.keys.length, 55);
+  // v3（2026-10-26）由 55 變 57：PROGRAM_EDITS、LIST_ARRANGEMENT（這一週的程序增刪、清單次序與刪除）。
+  assert.strictEqual(COLUMNS.BULLETIN_WEEKS.keys.length, 57);
 });
 
 test('BulletinWeeks：新欄位一律加在**最後面**（中間插欄會令既有資料整排錯開）', function () {
   const def = COLUMNS.BULLETIN_WEEKS;
-  // 浸禮副框六欄 → R-036 的 ROSTER_STATUS → R-035 的 ARCHIVED。次序不可以調轉。
+  // 浸禮副框六欄 → R-036 的 ROSTER_STATUS → R-035 的 ARCHIVED → v3 兩欄。次序不可以調轉。
   const expected = [
     'BAPTISM_OFFICIANT', 'MEMBERSHIP_OFFICIANT', 'CHILD_DEDICATION_OFFICIANT',
     'BAPTISM_MEMBERS', 'MEMBERSHIP_MEMBERS', 'CHILD_DEDICATION_CHILDREN',
-    'ROSTER_STATUS', 'ARCHIVED'
+    'ROSTER_STATUS', 'ARCHIVED', 'PROGRAM_EDITS', 'LIST_ARRANGEMENT'
   ];
-  assert.strictEqual(JSON.stringify(def.keys.slice(-8)), JSON.stringify(expected));
-  // 前七欄一律 TEXT（多人欄位是一串用空格分隔的姓名，絕對不可以是 DATE／INT）。
-  def.keys.slice(-8, -1).forEach(function (k) {
+  assert.strictEqual(JSON.stringify(def.keys.slice(-10)), JSON.stringify(expected));
+  // 除 ARCHIVED 以外一律 TEXT（多人欄位是一串用空格分隔的姓名，絕對不可以是 DATE／INT；v3 兩欄是 JSON 文字）。
+  def.keys.slice(-10).filter(function (k) { return k !== 'ARCHIVED'; }).forEach(function (k) {
     assert.strictEqual(def.types[def.keys.indexOf(k)], 'TEXT', k + ' 必須是 TEXT 型別');
   });
   // ⚠️ ARCHIVED 刻意是 BOOLEAN 不是 TEXT：它只有兩個值，而且 UI 與
@@ -174,7 +175,7 @@ test('BulletinWeeks：新欄位一律加在**最後面**（中間插欄會令既
 test('BulletinWeeks：浸禮副框六欄的中文標題與機器鍵一一對應，沒有錯位', function () {
   const def = COLUMNS.BULLETIN_WEEKS;
   const expectedHeaders = ['浸禮主禮', '入會禮主禮', '孩童奉獻禮主禮', '受浸肢體', '入會肢體', '奉獻孩童'];
-  assert.strictEqual(JSON.stringify(def.headers.slice(-8, -2)), JSON.stringify(expectedHeaders));
+  assert.strictEqual(JSON.stringify(def.headers.slice(-10, -4)), JSON.stringify(expectedHeaders));
 });
 
 test('CONFIG_KEYS 剛好 128 個（與 DEFAULTS 一一對應）', function () {
@@ -188,7 +189,9 @@ test('CONFIG_KEYS 剛好 128 個（與 DEFAULTS 一一對應）', function () {
   // 第二批階段 3：+16（SPEAKER_FORM_* 十五個、SPEAKER_NAME_HONORIFICS 一個，講員表格）。
   // D11：多了 SEND_ONLY_DEDUP_SEC（126 → 127）。
   // 內容表 v2：多了 SPEAKER_FORM_CLOSED_MESSAGE（講員表格停用時表格上的一句，127 → 128）。
-  assert.strictEqual(Object.keys(CONFIG_KEYS).length, 128);
+  // v3：+5（WEBAPP_SIMULATED_TODAY、ROSTER_WEBAPP_URL、TEMPLATE_KEYWORDS_COMBINED、TEMPLATE_FILE_ID_COMBINED、
+  //    AUTO_CREATE_QUARTERS，128 → 133）。
+  assert.strictEqual(Object.keys(CONFIG_KEYS).length, 133);
 });
 
 test('這一輪新增的 Config 鍵 FINANCE_PERIOD_LABEL_PATTERN 有定義、有預設值', function () {
@@ -221,8 +224,8 @@ test('CONFIG_KEYS 每一個值都有對應的 DEFAULTS 項目（不會有「有�
   });
 });
 
-test('DEFAULTS 剛好 128 筆（105 ＋ R-035 兩個 ＋ 階段 1 一個 ＋ 階段 2 兩個 ＋ 階段 3 十六個 ＋ D11 一個 ＋ 內容表 v2 一個）', function () {
-  assert.strictEqual(DEFAULTS.length, 128);
+test('DEFAULTS 剛好 133 筆（105 ＋ R-035 兩個 ＋ 階段 1 一個 ＋ 階段 2 兩個 ＋ 階段 3 十六個 ＋ D11 一個 ＋ 內容表 v2 一個 ＋ v3 五個）', function () {
+  assert.strictEqual(DEFAULTS.length, 133);
 });
 
 test('內容表那 10 個 Config 鍵齊備，而且 ID 類 seed 成空字串', function () {

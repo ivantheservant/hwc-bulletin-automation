@@ -28,6 +28,26 @@
  */
 var PROGRAM_TEMPLATE_ID_BAPTISM_ = 'TPL_COMBINED_BAPTISM';
 var PROGRAM_TEMPLATE_ID_ANNIVERSARY_ = 'TPL_ANNIVERSARY';
+/** v3：其他三堂聯合崇拜（例如宣教月合堂）。關鍵詞在 Config `TEMPLATE_KEYWORDS_COMBINED`。 */
+var PROGRAM_TEMPLATE_ID_COMBINED_ = 'TPL_COMBINED';
+
+/**
+ * 用途：讀「推斷程序範本」要用的 Config。全系統只有這一處讀這幾個鍵
+ *   （之前程序表、建立空白週報、補回職事表三處各讀一次，加一個關鍵詞就要改三處）。
+ * Args: （無）
+ * Returns:
+ *   {{baptismKeywords:string[], anniversaryKeywords:string[], combinedKeywords:string[], templateDefault:string}}
+ * Raises:
+ *   （無）
+ */
+function readProgramTemplateConfig_() {
+  return {
+    baptismKeywords: getConfigTextList_(CONFIG_KEYS.TEMPLATE_KEYWORDS_BAPTISM, '浸禮'),
+    anniversaryKeywords: getConfigTextList_(CONFIG_KEYS.TEMPLATE_KEYWORDS_ANNIVERSARY, '堂慶,週年'),
+    combinedKeywords: getConfigTextList_(CONFIG_KEYS.TEMPLATE_KEYWORDS_COMBINED, '合堂,聯合'),
+    templateDefault: getConfig(CONFIG_KEYS.TEMPLATE_DEFAULT, 'TPL_NORMAL')
+  };
+}
 
 /** 「宣召」那一行的內容來源。認到這個值就改用 CALL_TEXT＋CALL_REF 合成。 */
 var PROGRAM_CALL_TO_WORSHIP_SOURCE_ = 'FIELD:CALL_TEXT';
@@ -60,19 +80,17 @@ function isBaptismTemplateId_(templateId) {
  *   snapshot {Object} readRosterSnapshot_() 的回傳值（要用 `special` 推斷範本、
  *     用 `weekOfMonth` 求值 `WEEK_IN:`）。
  * Returns:
- *   {{templateId:string, inferred:boolean, rows:Object[]}}
+ *   {{templateId:string, inferred:boolean, rows:Object[], displayRows:Object[], editWarnings:Object[],
+ *     recitation:string, recitationAuto:string}}
  *     `inferred` 為 true 代表 `BulletinWeeks.PROGRAM_TEMPLATE_ID` 原本留空、
  *     這次是推斷出來的（呼叫方可以據此決定要不要寫回工作表）。
+ *     `rows` 已經套用這一週的程序增刪（v3）；`displayRows` 給填寫介面（拿走的行仍在，標 `removed`）。
  * Raises:
  *   Error 如果範本內有認不出的 `CONDITION`／`CONTENT_SOURCE`，或
  *     `FIELD:` 指向不存在的 `BulletinWeeks` 欄位。
  */
 function buildProgramTable_(week, snapshot) {
-  var templateConfig = {
-    baptismKeywords: getConfigTextList_(CONFIG_KEYS.TEMPLATE_KEYWORDS_BAPTISM, '浸禮'),
-    anniversaryKeywords: getConfigTextList_(CONFIG_KEYS.TEMPLATE_KEYWORDS_ANNIVERSARY, '堂慶,週年'),
-    templateDefault: getConfig(CONFIG_KEYS.TEMPLATE_DEFAULT, 'TPL_NORMAL')
-  };
+  var templateConfig = readProgramTemplateConfig_();
   var resolved = resolveProgramTemplateId_(week, snapshot, templateConfig);
 
   var recitationGroups = parseRecitationMonthGroups_(
@@ -95,10 +113,17 @@ function buildProgramTable_(week, snapshot) {
     callFormat: getConfig(CONFIG_KEYS.CALL_TO_WORSHIP_FORMAT, '{{text}}（{{ref}}）')
   });
 
+  // v3（Ivan 測試結果 A 第 11 項）：這一週的程序增刪（拿走範本某幾項、加幾項）。全系統只在這裏套用一次，
+  //    Word、預覽、電郵、填寫介面都由這裏來（見 src/WeekArrangement.gs）。
+  var edited = applyProgramEdits_(rows, (week || {}).PROGRAM_EDITS);
+
   return {
     templateId: resolved.templateId,
     inferred: resolved.inferred,
-    rows: rows,
+    rows: edited.rows,
+    // 填寫介面用：拿走的行仍然在（`removed:true`），每一行帶 `key`／`addedId`。
+    displayRows: edited.display,
+    editWarnings: edited.warnings,
     // 第七輪新增：誦讀內容另外單獨算一次給資料模型用。
     // 程序表本身是靠 `AUTO:RECITATION` 這個 CONTENT_SOURCE 在逐行求值時
     // 算出來的，但 Word 範本有一個獨立的 `{{RECITATION}}` 佔位符（誦讀那
@@ -133,13 +158,14 @@ function buildProgramTable_(week, snapshot) {
  *
  *   `BulletinWeeks.PROGRAM_TEMPLATE_ID` 有值就直接用（人手指定優先）；
  *   留空時按特別主日的標題／類型推斷：含浸禮關鍵詞 → 浸禮合堂範本，
- *   含堂慶關鍵詞 → 堂慶合堂範本，其餘（含沒有特別主日）→ Config 的
- *   `TEMPLATE_DEFAULT`。
+ *   含堂慶關鍵詞 → 堂慶合堂範本，含合堂關鍵詞（v3）→ 三堂聯合崇拜範本，
+ *   其餘（含沒有特別主日）→ Config 的 `TEMPLATE_DEFAULT`。
  * Args:
  *   week {Object} `BulletinWeeks` 該主日的資料列。
  *   snapshot {Object} 職事表快照（只用 `special.title` 與 `special.type`）。
  *   templateConfig {{baptismKeywords:string[], anniversaryKeywords:string[],
- *                   templateDefault:string}} 由 Config 讀出來的判斷依據。
+ *                   combinedKeywords:string[]=, templateDefault:string}} 由 Config 讀出來的判斷依據
+ *                   （`readProgramTemplateConfig_()`）。
  * Returns:
  *   {{templateId:string, inferred:boolean}}
  */
@@ -155,6 +181,10 @@ function resolveProgramTemplateId_(week, snapshot, templateConfig) {
   }
   if (containsAnyKeyword_(haystack, templateConfig.anniversaryKeywords)) {
     return { templateId: PROGRAM_TEMPLATE_ID_ANNIVERSARY_, inferred: true };
+  }
+  // v3：其他合堂（例如宣教月合堂）。排在浸禮、堂慶之後——「浸禮合堂」「堂慶合堂」仍然用各自的範本。
+  if (containsAnyKeyword_(haystack, templateConfig.combinedKeywords)) {
+    return { templateId: PROGRAM_TEMPLATE_ID_COMBINED_, inferred: true };
   }
   return { templateId: templateConfig.templateDefault, inferred: true };
 }

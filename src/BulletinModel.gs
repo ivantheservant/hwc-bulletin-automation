@@ -42,6 +42,11 @@ function attendanceRowDefs_() {
  *   （見 persistInferredTemplateId_()）。
  * Args:
  *   isoDate {string} 主日日期，yyyy-MM-dd 格式。
+ *   options {{weekOverlay:Object=, dutyOverrideRows:Object[]=, nextDutyOverrideRows:Object[]=,
+ *     noWrite:boolean=}=} v3：只在「未儲存的草稿」與「某個版本的預覽」用（見 src/ModelOverlay.gs）。
+ *     `weekOverlay`：疊在 `BulletinWeeks` 那一行上面的欄位值（只收填寫介面可編輯的欄位）；
+ *     `dutyOverrideRows`／`nextDutyOverrideRows`：代替工作表上這一週／下一個主日的 `DutyOverride`；
+ *     `noWrite`：不把推斷出來的程序範本寫回工作表（草稿與預覽一律不寫）。省略＝一般路徑。
  * Returns:
  *   {Object} 週報資料模型，形狀見 assembleBulletinModel_()。
  *     `ROSTER_SPREADSHEET_ID` 未設定時回 `{ ok:false, notConfigured:true, ... }`。
@@ -49,7 +54,8 @@ function attendanceRowDefs_() {
  *   Error 如果 isoDate 格式不對、職事表讀取失敗、或程序範本內有認不出的
  *     `CONDITION`／`CONTENT_SOURCE`。
  */
-function buildBulletinModel_(isoDate) {
+function buildBulletinModel_(isoDate, options) {
+  var opts = options || {};
   var targetDate = normalizeDate_(isoDate);
   if (!targetDate) {
     throw new Error('buildBulletinModel_：isoDate 必須是 yyyy-MM-dd 格式，收到：' + JSON.stringify(isoDate));
@@ -87,6 +93,7 @@ function buildBulletinModel_(isoDate) {
     });
     week = {};
   }
+  if (opts.weekOverlay) week = overlayEditableWeekValues_(week, opts.weekOverlay);
 
   // ⚠️ R-043／R-045：第三種模式（內容表為來源、介面可覆寫）的取值次序，
   //    **固定**是「BulletinWeeks 現值 ← 內容表匯入 → 套用 FieldOverride」。
@@ -121,15 +128,16 @@ function buildBulletinModel_(isoDate) {
   };
 
   var program = buildProgramTable_(week, snapshot);
-  if (program.inferred && weekRows.length > 0 && Object.keys(week).length > 0) {
+  if (program.inferred && weekRows.length > 0 && Object.keys(week).length > 0 && opts.noWrite !== true) {
     persistInferredTemplateId_(isoDate, program.templateId, warnings);
   }
+  (program.editWarnings || []).forEach(function (w) { warnings.push(w); });
 
   // ⚠️ 取值次序固定：**職事表快照 → 套用 DutyOverride → 套用 PersonDisplay
   // 尊稱**，不可以調轉（見 src/DutyOverride.gs 的核心原則）。合併組
   // （主席及報告、影音）在 buildDutyBox_() 內部才合併，也就是在覆寫
   // 套用**之後**——這一點是靠這裡先換掉 slotsByPost 才成立的。
-  var overrides = readDutyOverrideRows_(isoDate);
+  var overrides = opts.dutyOverrideRows ? opts.dutyOverrideRows : readDutyOverrideRows_(isoDate);
   var diff = buildRosterDiff_(isoDate, snapshot, overrides,
     (week.ROSTER_SNAPSHOT_VERSION === undefined) ? null : week.ROSTER_SNAPSHOT_VERSION);
   var diffByKey = {};
@@ -145,7 +153,7 @@ function buildBulletinModel_(isoDate) {
   if (nextSnapshot && nextSnapshot.found) {
     // 下週事奉用的是**下一個主日**的職事表快照，所以要套下一個主日自己
     // 的覆寫，不是這一週的。
-    var nextOverrides = readDutyOverrideRows_(nextIsoDate);
+    var nextOverrides = opts.nextDutyOverrideRows ? opts.nextDutyOverrideRows : readDutyOverrideRows_(nextIsoDate);
     // D9：下週事奉框亦要看得到衝突（職事表在覆寫之後又改過），幹事才可以在這一框按「保留我的」。
     //    用下一個主日自己的覆寫比對下一個主日的職事表；快照版本傳 null＝不產生 FOLLOW。這一份只給介面
     //    顯示每一格的狀態，不計入這一週的衝突數（rosterDiff 仍然只是這一週的），版面亦不看狀態。
@@ -176,6 +184,7 @@ function buildBulletinModel_(isoDate) {
     week: week,
     templateId: program.templateId,
     program: program.rows,
+    programDisplay: program.displayRows || [],
     recitation: program.recitation,
     // R-041：誦讀下拉旁邊要顯示的「目前自動值」。
     recitationAuto: program.recitationAuto,
@@ -240,6 +249,7 @@ function emptyBulletinModel_(isoDate, overrides) {
     },
     dutyBoxPage1: [],
     program: [],
+    programDisplay: [],
     // 第七輪新增：誦讀內容（Word 範本的 {{RECITATION}} 佔位符要用；
     // 誦讀那一格不一定在程序表內，所以另外單獨帶一份）。
     recitation: '',
@@ -329,6 +339,7 @@ function assembleBulletinModel_(input) {
     templateId: input.templateId || null,
     dutyBoxPage1: input.dutyBoxPage1 || [],
     program: input.program || [],
+    programDisplay: input.programDisplay || input.program || [],
     recitation: input.recitation || '',
     recitationAuto: input.recitationAuto || '',
     nextIsoDate: input.nextIsoDate || '',
@@ -379,12 +390,28 @@ function assembleBulletinModel_(input) {
     nextWeek: String((input.flowerRoster || {}).nextWeek || '')
   };
 
-  model.announcements = filterDatedRows_(input.announcementRows, input.targetDate)
+  // v3（Ivan 測試結果 A 第 13 項）：丁戊己三張清單按這一週在填寫介面排的次序印，按了「×」的那幾則不印。
+  //    次序與刪除只在這裏套用一次（見 src/WeekArrangement.gs）；內容仍然只來自內容表。
+  var arrangement = parseListArrangement_(week.LIST_ARRANGEMENT);
+  if (arrangement.invalid) {
+    warnings.push({
+      code: 'LIST_ARRANGEMENT_INVALID',
+      message: '這一週的清單次序與刪除記錄讀不到（格式不對），家事報告、代禱事項、團契聚會照內容表的次序全部印出。'
+        + '請在填寫介面重新排一次再儲存。'
+    });
+  }
+  function arrangedRows(type, rows) {
+    return arrangeListItems_(type, filterDatedRows_(rows, input.targetDate), arrangement.lists[type])
+      .filter(function (a) { return a.hidden !== true; })
+      .map(function (a) { return a.item; });
+  }
+
+  model.announcements = arrangedRows('announcements', input.announcementRows)
     .map(function (r) { return { seqNo: r.SEQ_NO, text: String(r.TEXT || '') }; });
 
   model.prayerBlock = {
     heading: pickWithDefault_(week.PRAYER_BLOCK_HEADING, config.defaultPrayerBlockHeading),
-    items: filterDatedRows_(input.prayerRows, input.targetDate)
+    items: arrangedRows('prayers', input.prayerRows)
       .map(function (r) { return { seqNo: r.SEQ_NO, text: String(r.TEXT || '') }; })
   };
 
@@ -403,7 +430,7 @@ function assembleBulletinModel_(input) {
       };
     });
 
-  model.fellowships = filterDatedRows_(input.fellowshipRows, input.targetDate)
+  model.fellowships = arrangedRows('fellowships', input.fellowshipRows)
     .map(function (r) {
       return {
         seqNo: r.SEQ_NO,

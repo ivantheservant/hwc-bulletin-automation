@@ -83,7 +83,7 @@ function applyContentTabLayout_(sheet, tabDef, options) {
         errorCode: 'CONTENT_SHEET_FREEZE_FAILED',
         message: '內容表「' + tabDef.tabName + '」凍結 A 欄失敗（多數是有人合併了跨欄的格）：'
           + ((freezeErr && freezeErr.message) ? freezeErr.message : String(freezeErr))
-          + '。其餘版面照常套用；要凍結的話，先取消合併，再按一次「建立／刷新本季內容表」。',
+          + '。其餘版面照常套用；要凍結的話，先取消合併，再做一次「更新本季內容表」（或者試算表選單「內容表 ▸ 建立本季內容表」）。',
         detail: buildErrorDetail_(freezeErr)
       });
     }
@@ -270,18 +270,24 @@ function buildOrRefreshContentSheetLocked_(quarterId, options) {
 
   // 內容表 v2：已有的內容表在寫任何一格之前先算好移轉計畫——認不出版面就整次不做；要移轉而
   //    呼叫方沒有說可以（自動流程）就回 NEEDS_MIGRATION，一格都不寫。
+  // v3：另外算 v3 更新計畫（浸禮六欄搬入週報、v2 刪走浸禮六欄、停用舊覆寫，見 src/ContentSheetMigrateV3.gs）。
+  //    v2 內容表交給 v2 planner 的是「刪走浸禮六欄之後」的樣子，所以兩份計畫可以一齊預覽。
   var migrationPlan = null;
+  var upgradePlan = null;
   if (spreadsheet) {
-    migrationPlan = planContentSheetV2Migration_(Object.assign(readContentSheetV2Inputs_(spreadsheet),
+    var existingInputs = readContentSheetV2Inputs_(spreadsheet);
+    upgradePlan = planContentSheetV3Upgrade_(Object.assign({}, existingInputs, { serviceDates: serviceDates }));
+    migrationPlan = planContentSheetV2Migration_(Object.assign({}, existingInputs,
       { serviceDates: serviceDates, created: false }));
     if (!migrationPlan.ok) {
       return { ok: false, created: false, quarterId: qid, reason: migrationPlan.reason, message: migrationPlan.message };
     }
-    if (migrationPlan.needsMigration && buildOptions.migrate !== true) {
+    if ((migrationPlan.needsMigration || contentSheetV3PlanHasWrites_(upgradePlan)) && buildOptions.migrate !== true) {
       return {
         ok: false, created: false, quarterId: qid, reason: 'NEEDS_MIGRATION',
-        message: '季度「' + qid + '」的內容表是舊版（「宣召」「浸禮合堂」仍未併入「崇拜程序」）。'
-          + '自動流程不會替你移轉，這次一格都沒有寫。請在填寫介面「季度作業」按「建立／刷新本季內容表」，先看預覽再確定。'
+        message: '季度「' + qid + '」的內容表是舊版，要先更新成新版（「崇拜程序」各欄只在內容表填、浸禮副框改在填寫介面填）。'
+          + '自動流程不會替你更新，這次一格都沒有寫。請在填寫介面打開這一季任何一個主日，'
+          + '按內容表狀態列的「更新本季內容表…」，先看會做甚麼再確定。'
       };
     }
   }
@@ -297,8 +303,24 @@ function buildOrRefreshContentSheetLocked_(quarterId, options) {
     sharingError = createdFile.sharingError;
     created = true;
     // 新建的內容表亦經同一個 planner：沒有舊分頁、崇拜程序是空的 → 每個主日預先開好一行，由週報帶入現有的值。
-    migrationPlan = planContentSheetV2Migration_(Object.assign(readContentSheetV2Inputs_(spreadsheet),
+    var createdInputs = readContentSheetV2Inputs_(spreadsheet);
+    // v3：新建時 v3 計畫只會有「停用舊覆寫」（以前在介面改過的值已經在週報，預先開好的行由週報帶入）。
+    upgradePlan = planContentSheetV3Upgrade_(Object.assign({}, createdInputs, { serviceDates: serviceDates }));
+    migrationPlan = planContentSheetV2Migration_(Object.assign({}, createdInputs,
       { serviceDates: serviceDates, created: true }));
+  }
+
+  // ---- v3：浸禮六欄搬入週報、刪欄、停用舊覆寫（崇拜程序第 2 行之前）----
+  var upgradeResult = null;
+  if (contentSheetV3PlanHasWrites_(upgradePlan)) {
+    var upgradeWorshipSheet = spreadsheet.getSheetByName(contentSheetWorshipTabDef_().tabName);
+    upgradeResult = applyContentSheetV3Upgrade_(spreadsheet, upgradeWorshipSheet, upgradePlan, qid);
+    // 刪欄、寫格之後按真正的樣子重新算一次（v2 的模擬與真正做完之後讀到的應該一樣，重算是保險）。
+    migrationPlan = planContentSheetV2Migration_(Object.assign(readContentSheetV2Inputs_(spreadsheet),
+      { serviceDates: serviceDates, created: created }));
+    if (!migrationPlan.ok) {
+      return { ok: false, created: created, quarterId: qid, reason: migrationPlan.reason, message: migrationPlan.message };
+    }
   }
 
   // ---- 分頁：補齊 ＋ 套版面 ----
@@ -356,6 +378,8 @@ function buildOrRefreshContentSheetLocked_(quarterId, options) {
   var dstResult = applyDaylightSavingRows_(spreadsheet, serviceDates);
 
   arrangeContentTabs_(spreadsheet, contentSheetTabNames_());
+  // v3：填寫介面的內容表狀態列（「更新本季內容表…」）讀的是快取，建立／刷新之後即時清走。
+  forgetContentSheetSchemaStatus_(fileId);
 
   if (created) {
     appendContentSheetRow_({ quarterId: qid, fileId: fileId, fileUrl: fileUrl });
@@ -379,7 +403,10 @@ function buildOrRefreshContentSheetLocked_(quarterId, options) {
     seededSample: seededSample,
     sharingApplied: sharingApplied,
     sharingError: sharingError,
-    migration: migrationPlan
+    migration: migrationPlan,
+    // v3：浸禮六欄搬入週報、刪欄、停用舊覆寫的計畫與結果（沒有就是 null）。
+    upgrade: upgradePlan,
+    upgradeResult: upgradeResult
   };
 }
 
@@ -841,6 +868,13 @@ function buildContentSheetResultLines_(result) {
     if (result.tabsCreated.length > 0) {
       lines.push('已補回缺少的分頁：' + result.tabsCreated.join('、'));
     }
+  }
+
+  // v3：浸禮六欄搬入週報、刪欄、停用舊覆寫。
+  var upgradeLines = buildContentSheetV3UpgradeLines_(result.upgrade, { applied: true });
+  if (upgradeLines.length > 0) {
+    lines.push('');
+    upgradeLines.forEach(function (line) { lines.push(line); });
   }
 
   // ⚠️ 內容表 v2：移轉（或新建時預先開好的行）寫了甚麼一定要講出來。幹事見到崇拜程序多了

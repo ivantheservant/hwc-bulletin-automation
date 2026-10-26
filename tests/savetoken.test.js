@@ -176,22 +176,22 @@ test('真正入口：首次儲存（BulletinWeeks 那一行從未有過 LAST_SAV
   var sb = makeEnv({
     bulletinWeeks: [{ SERVICE_DATE: '2027-10-03', QUARTER_ID: '2027T4', WEEK_OF_MONTH: 1, STATUS: 'DRAFT' }]
   });
-  var result = sb.saveWeekFromWebApp_(basicPayload({ lastSavedAt: null, week: { SERMON_TITLE: '恩典夠用' } }));
+  var result = sb.saveWeekFromWebApp_(basicPayload({ lastSavedAt: null, week: { FLOWER_THIS_WEEK: '恩典夠用' } }));
   assert.ok(result.lastSavedAt, '應該有新的 lastSavedAt');
-  assert.strictEqual(sb.readSheet('BulletinWeeks')[0].SERMON_TITLE, '恩典夠用');
+  assert.strictEqual(sb.readSheet('BulletinWeeks')[0].FLOWER_THIS_WEEK, '恩典夠用');
 });
 
 test('真正入口：已儲存過、token 相符 → 允許儲存', function () {
   var sb = makeEnv({
     bulletinWeeks: [{ SERVICE_DATE: '2027-10-03', QUARTER_ID: '2027T4', WEEK_OF_MONTH: 1, STATUS: 'DRAFT' }]
   });
-  sb.saveWeekFromWebApp_(basicPayload({ week: { SERMON_TITLE: '第一次' } }));
+  sb.saveWeekFromWebApp_(basicPayload({ week: { FLOWER_THIS_WEEK: '第一次' } }));
 
   // 用重新讀出來的 lastSavedAt（而不是第一次呼叫的回傳值）送第二次儲存，
   // 理由同上一個測試的註解：假工作表把 Date 存成 'yyyy-MM-dd' 字串。
   var reloadedLastSavedAt = sb.readSheet('BulletinWeeks')[0].LAST_SAVED_AT;
-  var second = sb.saveWeekFromWebApp_(basicPayload({ lastSavedAt: reloadedLastSavedAt, week: { SERMON_TITLE: '第二次' }, baseWeek: { SERMON_TITLE: '第一次' } }));
-  assert.strictEqual(sb.readSheet('BulletinWeeks')[0].SERMON_TITLE, '第二次');
+  var second = sb.saveWeekFromWebApp_(basicPayload({ lastSavedAt: reloadedLastSavedAt, week: { FLOWER_THIS_WEEK: '第二次' }, baseWeek: { FLOWER_THIS_WEEK: '第一次' } }));
+  assert.strictEqual(sb.readSheet('BulletinWeeks')[0].FLOWER_THIS_WEEK, '第二次');
   assert.ok(second.lastSavedAt);
 });
 
@@ -200,7 +200,7 @@ test('真正入口：已儲存過、token 不符 → STALE，錯誤訊息同時�
     bulletinWeeks: [{ SERVICE_DATE: '2027-10-03', QUARTER_ID: '2027T4', WEEK_OF_MONTH: 1, STATUS: 'DRAFT' }]
   });
   // 第一次儲存要真的有改動，才會寫入 LAST_SAVED_AT（F2：沒有改動不更新）。
-  sb.saveWeekFromWebApp_(basicPayload({ week: { SERMON_TITLE: '原本的' } }));
+  sb.saveWeekFromWebApp_(basicPayload({ week: { FLOWER_THIS_WEEK: '原本的' } }));
 
   // ⚠️ 假工作表把 Date 存成 'yyyy-MM-dd' 字串（見 tests/helpers/fakeSpreadsheet.js
   // 的 toRealmSafeCellValue()），所以不能直接拿 saveWeekFromWebApp_() 回傳的
@@ -215,7 +215,7 @@ test('真正入口：已儲存過、token 不符 → STALE，錯誤訊息同時�
   try {
     sb.saveWeekFromWebApp_(basicPayload({
       lastSavedAt: null, // 過期的版本（第一次儲存之前的狀態）
-      week: { SERMON_TITLE: '想要覆蓋成這個' }
+      week: { FLOWER_THIS_WEEK: '想要覆蓋成這個' }
     }));
   } catch (err) {
     thrown = err;

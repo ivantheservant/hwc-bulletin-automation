@@ -767,10 +767,11 @@ function seedMergeGroupsRows_() {
 }
 
 /**
- * 用途：ProgramTemplates 的 3 個固定範本：
+ * 用途：ProgramTemplates 的 4 個固定範本：
  *   TPL_NORMAL（平常主日，同時涵蓋聖餐主日與祈禱會週）
  *   TPL_COMBINED_BAPTISM（浸禮三堂聯合崇拜，待核對，欠 2025-10-05 樣本）
  *   TPL_ANNIVERSARY（堂慶三堂聯合崇拜，基於 TPL_NORMAL 調整）
+ *   TPL_COMBINED（v3：其他三堂聯合崇拜，例如宣教月合堂）
  *
  *   寫成函式延遲求值是**必要**的，不只是風格一致：這裡面用到
  *   `POSTURE.STAND`／`CONDITION_TYPE.ALWAYS` 等 Constants.gs 宣告的常數。
@@ -781,7 +782,7 @@ function seedMergeGroupsRows_() {
  *   詳見 docs/已知bug類型.md）。
  * Args: （無）
  * Returns:
- *   {Object[]} ProgramTemplates 的 seed 資料列，共 45 行。
+ *   {Object[]} ProgramTemplates 的 seed 資料列，共 58 行。
  */
 function seedProgramTemplatesRows_() {
   return [
@@ -842,7 +843,25 @@ function seedProgramTemplatesRows_() {
   programRow_('TPL_ANNIVERSARY', 110, '三一頌', 'BLANK', POSTURE.STAND, false, CONDITION_TYPE.ALWAYS),
   programRow_('TPL_ANNIVERSARY', 120, '祝福', 'BLANK', POSTURE.STAND, false, CONDITION_TYPE.ALWAYS),
   programRow_('TPL_ANNIVERSARY', 130, '阿們頌', 'BLANK', POSTURE.STAND, false, CONDITION_TYPE.ALWAYS),
-  programRow_('TPL_ANNIVERSARY', 140, '家事報告', 'BLANK', POSTURE.SIT, false, CONDITION_TYPE.ALWAYS)
+  programRow_('TPL_ANNIVERSARY', 140, '家事報告', 'BLANK', POSTURE.SIT, false, CONDITION_TYPE.ALWAYS),
+
+  // ---- TPL_COMBINED（v3：三堂聯合崇拜，例如宣教月合堂；依 2025-08-31 宣教月三堂聯合崇拜）----
+  //    與堂慶合堂不同：沒有詩班就不印詩班那一行（IF_FIELD:CHOIR_TITLE）。
+  //    「宣教回應」這類一次性的項目不放範本，在填寫介面「程序增刪（這一週）」加。
+  programRow_('TPL_COMBINED', 10, '序樂', 'FIELD:PRELUDE', POSTURE.STAND, false, CONDITION_TYPE.ALWAYS,
+    '三堂聯合崇拜（依 2025-08-31 宣教月三堂聯合崇拜）：沒有「誦讀」與「祈禱會」；有詩班才印詩班那一行。一次性的項目（例如「宣教回應」）在填寫介面加。'),
+  programRow_('TPL_COMBINED', 20, '宣召', 'FIELD:CALL_TEXT', POSTURE.STAND, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_COMBINED', 30, '祈禱', 'BLANK', POSTURE.STAND, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_COMBINED', 50, '詩歌頌讚', 'FIELD:HYMN_PRAISE', POSTURE.SIT, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_COMBINED', 60, '詩班獻唱', 'FIELD:CHOIR_TITLE', POSTURE.SIT, false, 'IF_FIELD:CHOIR_TITLE'),
+  programRow_('TPL_COMBINED', 70, '讀經', 'FIELD:SCRIPTURE_REF', POSTURE.SIT, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_COMBINED', 80, '證道', 'FIELD:SERMON_TITLE', POSTURE.SIT, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_COMBINED', 90, '回應詩歌', 'FIELD:RESPONSE_HYMN', POSTURE.SIT, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_COMBINED', 100, '聖餐', 'BLANK', POSTURE.SIT, false, 'WEEK_IN:1'),
+  programRow_('TPL_COMBINED', 110, '三一頌', 'BLANK', POSTURE.STAND, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_COMBINED', 120, '祝福', 'BLANK', POSTURE.STAND, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_COMBINED', 130, '阿們頌', 'BLANK', POSTURE.STAND, false, CONDITION_TYPE.ALWAYS),
+  programRow_('TPL_COMBINED', 140, '家事報告', 'BLANK', POSTURE.SIT, false, CONDITION_TYPE.ALWAYS)
   ];
 }
 
@@ -856,6 +875,7 @@ function seedProgramTemplatesRows_() {
 function seedEmailTemplatesRows_() {
   return [
     seedPublishNoticeRow_(),
+    seedSendNoticeRow_(),
     {
       TEMPLATE_ID: 'PREVIEW_NOTICE',
       SUBJECT: '{{ChurchName}}粵語堂週報草稿預覽 — {{ServiceDate}}',
@@ -867,6 +887,10 @@ function seedEmailTemplatesRows_() {
         '下一個主日（{{ServiceDate}}）的週報草稿預覽已經可以查看：',
         '',
         '{{PreviewUrl}}',
+        '',
+        '本季內容表（家事報告、代禱事項、崇拜程序等內容在這裏填）：',
+        '',
+        '{{ContentSheetUrl}}',
         '',
         '⚠️ 這是草稿預覽，版面與正式印刷版不同，只供核對內容。'
           + '如發現資料有錯漏，請回覆此郵件。',
@@ -1016,7 +1040,50 @@ function seedNumberRegistryRows_() {
 }
 
 /**
- * 用途：發佈通知（R-001）那一個 EmailTemplates 範本。
+ * 用途：v3：填寫介面「寄出」那一個 EmailTemplates 範本（SEND_NOTICE）。抽成獨立函式的理由與
+ *   `seedPublishNoticeRow_()` 相同：`findSendNoticeTemplate_()`（src/SendNotice.gs）找不到工作表那一行時
+ *   用同一份內容作退回值，不另寫第二份。
+ * Args: （無）
+ * Returns:
+ *   {Object} EmailTemplates 的一行。
+ */
+function seedSendNoticeRow_() {
+  return {
+    TEMPLATE_ID: 'SEND_NOTICE',
+    SUBJECT: '{{ChurchName}}粵語堂週報 — {{ServiceDate}}',
+    BODY: [
+      '各位主內肢體：',
+      '',
+      '平安！',
+      '',
+      '{{ServiceDate}} 主日的{{ChurchName}}粵語堂週報，預覽連結如下（只供核對內容，版面與印刷版不同）：',
+      '',
+      '{{PreviewUrl}}',
+      '',
+      '本季內容表（家事報告、代禱事項、崇拜程序等內容在這裏填）：',
+      '',
+      '{{ContentSheetUrl}}',
+      '',
+      '{{MasterLinkLine}}',
+      '',
+      '{{AttachmentLine}}',
+      '',
+      '如發現資料有任何錯漏，請回覆此郵件告知，以便盡快更正。',
+      '',
+      '謝謝！',
+      '',
+      '粵語堂週報系統　敬上'
+    ].join('\n'),
+    ACTIVE: true,
+    NOTES: 'v3：填寫介面「寄出」的通知信（不論有沒有同時發佈）。{{PreviewUrl}} 是這一個主日的預覽連結；'
+      + '{{ContentSheetUrl}} 是本季內容表；{{MasterLinkLine}} 在這一期已發佈時是 master 連結，否則講明未發佈；'
+      + '{{AttachmentLine}} 有附件時才有內容。'
+  };
+}
+
+/**
+ * 用途：發佈通知（R-001）那一個 EmailTemplates 範本。v3 起填寫介面「寄出」改用 SEND_NOTICE，
+ *   這一行保留（既有工作表上的範本不刪）。
  *
  *   ⚠️ 抽成獨立函式、而不是寫在 `seedEmailTemplatesRows_()` 的陣列裏面，
  *   是因為 `findPublishEmailTemplate_()`（src/Publish.gs）在工作表找不到

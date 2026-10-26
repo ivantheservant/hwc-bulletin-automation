@@ -113,7 +113,7 @@ function buildConflictNoticeHtml_(isoDate, rows, options) {
     '<strong>本系統不會改動職事表。如果週報的版本才是正確的，請自行到職事表更正。</strong>',
     '</p>',
     '<p style="color:#666;font-size:13px;">',
-    '如果職事表的版本才是正確的，可以在週報填寫介面按「由職事表重新取數」，逐項勾選要改回職事表值的欄位。',
+    '如果職事表的版本才是正確的，可以在週報填寫介面按「以職事表覆寫我的修改…」，逐項勾選要改回職事表值的欄位。',
     '</p>'
   ].join('\n');
 }
@@ -143,7 +143,7 @@ function buildConflictNoticePlainText_(isoDate, rows, options) {
   });
   lines.push('本系統不會改動職事表。如果週報的版本才是正確的，請自行到職事表更正。');
   lines.push('');
-  lines.push('如果職事表的版本才是正確的，可以在週報填寫介面按「由職事表重新取數」，逐項勾選要改回職事表值的欄位。');
+  lines.push('如果職事表的版本才是正確的，可以在週報填寫介面按「以職事表覆寫我的修改…」，逐項勾選要改回職事表值的欄位。');
   return lines.join('\n');
 }
 

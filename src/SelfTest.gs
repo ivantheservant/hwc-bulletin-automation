@@ -667,7 +667,8 @@ function selfTestS21_(ctx) {
 
   var isoDate = dates[0];
   var sentinel = 'S21 人手填的值';
-  var fieldKey = 'SERMON_TITLE';
+  // v3（Ivan 測試結果 A 第 10 項）：講題等改為只在內容表輸入，填寫介面不再收；改用介面仍然可以填的「本週獻花」。
+  var fieldKey = 'FLOWER_THIS_WEEK';
 
   // 用**真正的**儲存入口寫這一格，不是自己直接改試算表——幹事實際上就是
   // 經填寫介面填的，走同一條路才驗得到真實情況。
@@ -1299,7 +1300,8 @@ function selfTestS36_(ctx) {
   // 在沙盒季度填一格內容，令它變成「未發佈但有內容」。
   var isoDate = dates[0];
   var loaded = loadWeekForWebApp_(isoDate);
-  var s36Week = { SERMON_TITLE: 'S36 測試講題 ' + ctx.runId };
+  // v3：講題只在內容表輸入；改填介面仍然可以填的「本週獻花」（Retention.gs 一樣算作有內容）。
+  var s36Week = { FLOWER_THIS_WEEK: 'S36 測試獻花 ' + ctx.runId };
   saveWeekFromWebApp_({
     isoDate: isoDate, lastSavedAt: loaded.lastSavedAt,
     week: s36Week, baseWeek: baseWeekFor_(loaded.week, s36Week), dutyEdits: []
@@ -1931,10 +1933,11 @@ function selfTestS08_(ctx) {
   assertSelfTestWritableDate_(isoDate, config);
 
   var loaded = loadWeekForWebApp_(isoDate);
-  var newTitle = '自測講題 ' + ctx.runId;
+  // v3：講題只在內容表輸入，填寫介面不再收；改用介面仍然可以填的「程序表大標題」。
+  var newTitle = '自測大標題 ' + ctx.runId;
   var auditBefore = readSheet(SHEETS.AUDIT_LOG).length;
 
-  var s08Week = { SERMON_TITLE: newTitle };
+  var s08Week = { PAGE_TITLE: newTitle };
   var saved = saveWeekFromWebApp_({
     isoDate: isoDate,
     lastSavedAt: loaded.lastSavedAt,
@@ -1946,12 +1949,12 @@ function selfTestS08_(ctx) {
   var weekRow = findBulletinWeekRow_(readSheet(SHEETS.BULLETIN_WEEKS), isoDate) || {};
   var auditAfter = readSheet(SHEETS.AUDIT_LOG).length;
 
-  var ok = String(weekRow.SERMON_TITLE || '') === newTitle
+  var ok = String(weekRow.PAGE_TITLE || '') === newTitle
     && saved.changedFieldCount >= 1
     && auditAfter > auditBefore;
 
-  return selfTestOutcome_(ok, '講題寫入成功、AuditLog 多至少一筆',
-    '講題「' + String(weekRow.SERMON_TITLE || '') + '」、改動 ' + saved.changedFieldCount
+  return selfTestOutcome_(ok, '大標題寫入成功、AuditLog 多至少一筆',
+    '大標題「' + String(weekRow.PAGE_TITLE || '') + '」、改動 ' + saved.changedFieldCount
       + ' 格、AuditLog 由 ' + auditBefore + ' 變 ' + auditAfter,
     '主日 ' + isoDate + '；儲存回覆：' + (saved.message ? saved.message.text : ''));
 }
@@ -1997,11 +2000,21 @@ function selfTestS09_(ctx) {
       }
     },
     {
-      label: '唯讀欄位混一個可寫欄位（人數 ＋ 證道講題）',
+      label: '唯讀欄位混一個可寫欄位（人數 ＋ 程序表大標題）',
       payload: {
         isoDate: isoDate, lastSavedAt: loaded.lastSavedAt,
-        week: { ATT_ENG_WORSHIP: '99', SERMON_TITLE: '這一欄本來可以寫' },
-        baseWeek: { ATT_ENG_WORSHIP: '', SERMON_TITLE: '' },
+        week: { ATT_ENG_WORSHIP: '99', PAGE_TITLE: '這一欄本來可以寫' },
+        baseWeek: { ATT_ENG_WORSHIP: '', PAGE_TITLE: '' },
+        dutyEdits: []
+      }
+    },
+    {
+      // v3（Ivan 測試結果 A 第 10 項）：講題由「介面可改」改為只在內容表輸入。
+      label: '週欄位（證道講題，v3 起只在內容表輸入）',
+      payload: {
+        isoDate: isoDate, lastSavedAt: loaded.lastSavedAt,
+        week: { SERMON_TITLE: '這一欄 v3 起不可以在介面寫' },
+        baseWeek: { SERMON_TITLE: '' },
         dutyEdits: []
       }
     }
@@ -2703,10 +2716,13 @@ function selfTestPublishVersion_(isoDate) {
  */
 function selfTestRunPublish_(config, payload) {
   setPublishMasterFileIdOverride_(config.masterFileId);
+  // v3：沙盒季度的主日永遠不在發佈時窗（只限該週）之內，自測機略過那一道檢查（同樣只活在記憶體）。
+  setPublishWindowBypass_(true);
   try {
     return runPublishFlow_(payload);
   } finally {
     setPublishMasterFileIdOverride_(null);
+    setPublishWindowBypass_(false);
   }
 }
 

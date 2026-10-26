@@ -26,7 +26,8 @@ const DEFAULT_MAX_COLUMNS = 26;
 /**
  * 用途：造一個「注入失敗」的計數器。同一個試算表的全部分頁共用一個。
  * Args:
- *   spec {{failOnSetValue:number=, failOnSetName:number=}=} 第幾次（1 起算）寫入格子／改名時拋錯；
+ *   spec {{failOnSetValue:number=, failOnSetName:number=, failOnDeleteColumns:number=}=} 第幾次（1 起算）寫入格子／改名／
+ *     刪欄時拋錯；
  *     省略就永遠不拋。寫入格子包括 `setValue()` 與 `setValues()`（每一次呼叫算一次）。
  * Returns:
  *   {{setValueCalls:number, setNameCalls:number, tick:function(string):void}}
@@ -38,11 +39,18 @@ function makeContentFaults(spec) {
     setNameCalls: 0,
     failOnSetValue: s.failOnSetValue || null,
     failOnSetName: s.failOnSetName || null,
+    deleteColumnsCalls: 0,
+    failOnDeleteColumns: s.failOnDeleteColumns || null,
     tick: function (kind) {
       if (kind === 'setValue') {
         faults.setValueCalls++;
         if (faults.failOnSetValue && faults.setValueCalls === faults.failOnSetValue) {
           throw new Error('假替身：注入的寫入失敗（第 ' + faults.setValueCalls + ' 次寫入）');
+        }
+      } else if (kind === 'deleteColumns') {
+        faults.deleteColumnsCalls++;
+        if (faults.failOnDeleteColumns && faults.deleteColumnsCalls === faults.failOnDeleteColumns) {
+          throw new Error('假替身：注入的刪欄失敗（第 ' + faults.deleteColumnsCalls + ' 次刪欄）');
         }
       } else if (kind === 'setName') {
         faults.setNameCalls++;
@@ -135,6 +143,28 @@ function makeContentTab(keys, headers, rows, opts) {
     getMaxRows: function () { return Math.max(data.length, 1000); },
     getMaxColumns: function () { return maxColumns; },
     insertColumnsAfter: function (afterCol, howMany) { maxColumns += Number(howMany) || 0; return sheet; },
+    // v3：整欄刪除（與真的 Sheets 一樣，右邊的欄向左移；格式、註解、驗證跟住欄走）。
+    deleteColumns: function (start, howMany) {
+      faults.tick('deleteColumns');
+      const n = Number(howMany) || 0;
+      if (!(start >= 1) || n < 1 || start + n - 1 > maxColumns) {
+        throw new Error('假替身：deleteColumns(' + start + ', ' + howMany + ') 超出範圍（分頁只有 ' + maxColumns + ' 欄）。');
+      }
+      data.forEach(function (row) { if (row.length >= start) row.splice(start - 1, n); });
+      [numberFormats, notes, validations].forEach(function (map) {
+        const moved = {};
+        Object.keys(map).forEach(function (k) {
+          const parts = k.split(':');
+          const c = Number(parts[1]);
+          if (c < start) moved[k] = map[k];
+          else if (c >= start + n) moved[parts[0] + ':' + (c - n)] = map[k];
+        });
+        Object.keys(map).forEach(function (k) { delete map[k]; });
+        Object.assign(map, moved);
+      });
+      maxColumns -= n;
+      return sheet;
+    },
     getFrozenRows: function () { return frozenRows; },
     setFrozenRows: function (n) { frozenRows = n; return sheet; },
     getFrozenColumns: function () { return frozenColumns; },

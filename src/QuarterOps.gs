@@ -264,6 +264,8 @@ function previewContentSheetBuild_(quarterId) {
   // 內容表 v2：用與「建立／刷新」同一個讀取函式與同一個 planner 算移轉計畫（bug class 120），
   //    預覽講的數字就是確定之後真正寫的數字。
   var migration;
+  // v3：浸禮六欄搬入週報、刪欄、停用舊覆寫（與建立／刷新共用 planContentSheetV3Upgrade_()）。
+  var upgrade;
   if (existing) {
     var spreadsheet = openContentSpreadsheet_(existing.FILE_ID);
     if (!spreadsheet) {
@@ -272,13 +274,18 @@ function previewContentSheetBuild_(quarterId) {
         message: contentSheetFileMissingMessage_(qid, existing.FILE_ID)
       };
     }
-    migration = planContentSheetV2Migration_(Object.assign(readContentSheetV2Inputs_(spreadsheet),
+    var inputs = readContentSheetV2Inputs_(spreadsheet);
+    upgrade = planContentSheetV3Upgrade_(Object.assign({}, inputs, { serviceDates: serviceDates }));
+    migration = planContentSheetV2Migration_(Object.assign({}, inputs,
       { serviceDates: serviceDates, created: false }));
   } else {
-    migration = planContentSheetV2Migration_({
-      serviceDates: serviceDates, worship: { exists: false, headerKeys: [], rows: [] }, legacy: [],
-      weeks: readSheet(SHEETS.BULLETIN_WEEKS), created: true
-    });
+    var newInputs = {
+      serviceDates: serviceDates, worship: { exists: false, layout: '', headerKeys: [], rows: [], v2Rows: [] }, legacy: [],
+      weeks: readRowsWithRowNo_(SHEETS.BULLETIN_WEEKS),
+      fieldOverrides: readRowsWithRowNo_(SHEETS.FIELD_OVERRIDE).filter(function (r) { return r.ACTIVE === true; })
+    };
+    upgrade = planContentSheetV3Upgrade_(newInputs);
+    migration = planContentSheetV2Migration_(Object.assign({}, newInputs, { created: true }));
   }
   if (!migration.ok) {
     return { ok: false, quarterId: qid, title: title, reason: migration.reason, lines: [], message: migration.message };
@@ -288,6 +295,11 @@ function previewContentSheetBuild_(quarterId) {
     lines.push('');
     lines.push('這一季已經有內容表，所以是「刷新」，不是重建。');
     lines.push('會刷新：欄位、日期下拉選單、版面。');
+    var upgradeLines = buildContentSheetV3UpgradeLines_(upgrade, { applied: false });
+    if (upgradeLines.length > 0) {
+      lines.push('');
+      upgradeLines.forEach(function (l) { lines.push(l); });
+    }
     if (migration.needsMigration) {
       lines.push('');
       buildContentSheetMigrationLines_(migration, { applied: false, created: false }).forEach(function (l) { lines.push(l); });
@@ -313,7 +325,7 @@ function previewContentSheetBuild_(quarterId) {
       exists: Boolean(existing), willCreate: !existing,
       serviceDateCount: serviceDates.length,
       fileUrl: existing ? String(existing.FILE_URL || '') : '',
-      needsMigration: Boolean(existing) && migration.needsMigration,
+      needsMigration: Boolean(existing) && (migration.needsMigration || contentSheetV3PlanHasWrites_(upgrade)),
       migration: contentSheetPlanHasWrites_(migration) ? migration.counts : null
     }
   };
@@ -346,7 +358,7 @@ function runContentSheetBuild_(quarterId) {
     sheetName: SHEETS.CONTENT_SHEETS,
     rowKey: qid,
     newValue: result.created ? 'CREATED' : 'REFRESHED',
-    notes: '由填寫介面「季度作業」' + (result.created ? '建立' : '刷新') + '內容表。'
+    notes: '由填寫介面（內容表狀態列「更新本季內容表」）' + (result.created ? '建立' : '刷新') + '內容表。'
   });
 
   return {

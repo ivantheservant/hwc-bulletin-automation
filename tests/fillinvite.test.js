@@ -110,8 +110,8 @@ test('1g. buildFillInviteHtml_ 是純函式，內容全部經過 HTML 跳脫', f
 
 test('1h. 待填統計：已填與待填的數字正確', function () {
   const progress = buildFillProgressByGroup_([
-    { isoDate: '2027-11-07', values: { SERMON_TITLE: '有值', HYMN_PRAISE: '', SCRIPTURE_REF: '有值' } },
-    { isoDate: '2027-11-14', values: { SERMON_TITLE: '', HYMN_PRAISE: '', SCRIPTURE_REF: '' } }
+    { isoDate: '2027-11-07', values: { PAGE_TITLE: '有值', RECITATION_OVERRIDE: '', PROGRAM_TEMPLATE_ID: '有值' } },
+    { isoDate: '2027-11-14', values: { PAGE_TITLE: '', RECITATION_OVERRIDE: '', PROGRAM_TEMPLATE_ID: '' } }
   ]);
   const program = progress.filter(function (p) { return p.group === '崇拜程序'; })[0];
   assert.strictEqual(program.filled, 2, '兩個主日合共填了 2 格');
@@ -310,8 +310,8 @@ test('定時對帳：有衝突時算得出總數', function () {
 
   const sheet = env.sheets['Fill_' + QUARTER_ID];
   const row = env.sandbox.readFillGridRows_(QUARTER_ID)[0];
-  sheet.getRange(row.rowNo, env.sandbox.fillGridColumnIndex_('SERMON_TITLE')).setValue('格子表的');
-  env.sandbox.writeBulletinWeekField_(row.isoDate, 'SERMON_TITLE', '系統的');
+  sheet.getRange(row.rowNo, env.sandbox.fillGridColumnIndex_('FLOWER_THIS_WEEK')).setValue('格子表的');
+  env.sandbox.writeBulletinWeekField_(row.isoDate, 'FLOWER_THIS_WEEK', '系統的');
 
   const result = env.sandbox.reconcileAllFillGrids_();
   assert.strictEqual(result.totalConflicts, 1);
@@ -323,8 +323,8 @@ test('衝突提醒信：DRY_RUN=TRUE 不呼叫 MailApp，但寫 SendLog', functi
 
   const sheet = env.sheets['Fill_' + QUARTER_ID];
   const row = env.sandbox.readFillGridRows_(QUARTER_ID)[0];
-  sheet.getRange(row.rowNo, env.sandbox.fillGridColumnIndex_('SERMON_TITLE')).setValue('格子表的');
-  env.sandbox.writeBulletinWeekField_(row.isoDate, 'SERMON_TITLE', '系統的');
+  sheet.getRange(row.rowNo, env.sandbox.fillGridColumnIndex_('FLOWER_THIS_WEEK')).setValue('格子表的');
+  env.sandbox.writeBulletinWeekField_(row.isoDate, 'FLOWER_THIS_WEEK', '系統的');
 
   const reconciled = env.sandbox.reconcileAllFillGrids_();
   const notice = env.sandbox.sendFillConflictNotice_(reconciled);
@@ -340,8 +340,8 @@ test('衝突提醒信：同一個衝突不重複寄（指紋去重）', function
 
   const sheet = env.sheets['Fill_' + QUARTER_ID];
   const row = env.sandbox.readFillGridRows_(QUARTER_ID)[0];
-  sheet.getRange(row.rowNo, env.sandbox.fillGridColumnIndex_('SERMON_TITLE')).setValue('格子表的');
-  env.sandbox.writeBulletinWeekField_(row.isoDate, 'SERMON_TITLE', '系統的');
+  sheet.getRange(row.rowNo, env.sandbox.fillGridColumnIndex_('FLOWER_THIS_WEEK')).setValue('格子表的');
+  env.sandbox.writeBulletinWeekField_(row.isoDate, 'FLOWER_THIS_WEEK', '系統的');
 
   const first = env.sandbox.sendFillConflictNotice_(env.sandbox.reconcileAllFillGrids_());
   assert.strictEqual(first.sent, true);
@@ -359,11 +359,11 @@ test('衝突提醒信：內容含三個值（上次同步時／格子表／系�
 
   const sheet = env.sheets['Fill_' + QUARTER_ID];
   const row = env.sandbox.readFillGridRows_(QUARTER_ID)[0];
-  env.sandbox.writeBulletinWeekField_(row.isoDate, 'SERMON_TITLE', '基準值');
+  env.sandbox.writeBulletinWeekField_(row.isoDate, 'FLOWER_THIS_WEEK', '基準值');
   env.sandbox.syncFillGrid_(QUARTER_ID);
 
-  sheet.getRange(row.rowNo, env.sandbox.fillGridColumnIndex_('SERMON_TITLE')).setValue('格子表的');
-  env.sandbox.writeBulletinWeekField_(row.isoDate, 'SERMON_TITLE', '系統的');
+  sheet.getRange(row.rowNo, env.sandbox.fillGridColumnIndex_('FLOWER_THIS_WEEK')).setValue('格子表的');
+  env.sandbox.writeBulletinWeekField_(row.isoDate, 'FLOWER_THIS_WEEK', '系統的');
 
   env.sandbox.sendFillConflictNotice_(env.sandbox.reconcileAllFillGrids_());
   const html = env.mail.calls[0].htmlBody;

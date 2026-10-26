@@ -161,7 +161,10 @@ var COLUMNS = Object.freeze({
       '受浸肢體', '入會肢體', '奉獻孩童',
       // R-036：職事表未有該季資料時仍然建立得到週報，用這一欄記住那一行的
       // 事奉資料是不是齊全。同樣加在**最尾**，理由見上面第六輪那一段。
-      '職事表狀態', '已封存'
+      '職事表狀態', '已封存',
+      // v3（2026-10-26）：這一週的程序增刪、丁戊己三張清單的次序與刪除（JSON，填寫介面維護）。
+      //    同樣加在**最尾**，理由見上面第六輪那一段。
+      '程序增刪（這一週）', '清單次序與刪除（這一週）'
     ],
     keys: [
       'SERVICE_DATE', 'QUARTER_ID', 'WEEK_OF_MONTH', 'SPECIAL_TYPE', 'PAGE_TITLE',
@@ -178,7 +181,8 @@ var COLUMNS = Object.freeze({
       'FINANCE_NOTE', 'FINANCE_BALANCE',
       'BAPTISM_OFFICIANT', 'MEMBERSHIP_OFFICIANT', 'CHILD_DEDICATION_OFFICIANT',
       'BAPTISM_MEMBERS', 'MEMBERSHIP_MEMBERS', 'CHILD_DEDICATION_CHILDREN',
-      'ROSTER_STATUS', 'ARCHIVED'
+      'ROSTER_STATUS', 'ARCHIVED',
+      'PROGRAM_EDITS', 'LIST_ARRANGEMENT'
     ],
     types: [
       'DATE', 'TEXT', 'INT', 'TEXT', 'TEXT',
@@ -198,12 +202,16 @@ var COLUMNS = Object.freeze({
       'TEXT', 'TEXT', 'TEXT',
       'TEXT',
       // R-035：已封存（TRUE／FALSE）。⚠️ 封存只是「預設不顯示」，一格資料都不會刪。
-      'BOOLEAN'
+      'BOOLEAN',
+      // v3：兩欄 JSON 一律 TEXT。
+      'TEXT', 'TEXT'
     ],
     textFormatColumns: [
       'ATT_ENG_WORSHIP', 'ATT_CANE_WORSHIP', 'ATT_CANN_WORSHIP', 'ATT_MAN_WORSHIP',
       'ATT_ENG_PRAYER', 'ATT_CANE_PRAYER', 'ATT_CANN_PRAYER', 'ATT_MAN_PRAYER',
-      'ATT_ENG_CHILD', 'ATT_CANE_CHILD', 'ATT_CANN_CHILD', 'ATT_MAN_CHILD'
+      'ATT_ENG_CHILD', 'ATT_CANE_CHILD', 'ATT_CANN_CHILD', 'ATT_MAN_CHILD',
+      // v3：JSON 不可以被試算表轉換（例如「[」開頭的不會，但保險起見一律純文字）。
+      'PROGRAM_EDITS', 'LIST_ARRANGEMENT'
     ]
   },
 
@@ -746,7 +754,17 @@ var CONFIG_KEYS = Object.freeze({
   SPEAKER_FORM_NOTIFY_SUBJECT: 'SPEAKER_FORM_NOTIFY_SUBJECT',
   SPEAKER_NAME_HONORIFICS: 'SPEAKER_NAME_HONORIFICS',
   // 內容表 v2：講員表格停用時表格上顯示的一句
-  SPEAKER_FORM_CLOSED_MESSAGE: 'SPEAKER_FORM_CLOSED_MESSAGE'
+  SPEAKER_FORM_CLOSED_MESSAGE: 'SPEAKER_FORM_CLOSED_MESSAGE',
+  // ---- v3（2026-10-26 Ivan 測試結果 A）----
+  // 發佈／寄出只限「該週」（上一個主日翌日至該主日）；測試時可以把「今日」設成另一日。
+  WEBAPP_SIMULATED_TODAY: 'WEBAPP_SIMULATED_TODAY',
+  // 「查看／修改職事表」按鈕開啟的網址（職事表系統的填寫介面）；留空就不顯示按鈕。
+  ROSTER_WEBAPP_URL: 'ROSTER_WEBAPP_URL',
+  // 三堂聯合崇拜（非浸禮、非堂慶）程序範本 TPL_COMBINED。
+  TEMPLATE_KEYWORDS_COMBINED: 'TEMPLATE_KEYWORDS_COMBINED',
+  TEMPLATE_FILE_ID_COMBINED: 'TEMPLATE_FILE_ID_COMBINED',
+  // 職事表有新季度（已生成版本）時自動建立該季週報與內容表。
+  AUTO_CREATE_QUARTERS: 'AUTO_CREATE_QUARTERS'
 });
 
 // =====================================================================
@@ -768,7 +786,7 @@ var DEFAULTS = Object.freeze([
   { key: CONFIG_KEYS.SYS_TIMEZONE, value: 'Pacific/Auckland', note: '系統時區，用於日期／時間格式化' },
   { key: CONFIG_KEYS.DRY_RUN, value: 'TRUE', note: '試行模式；TRUE 時所有寄送動作只記錄不會真的寄出' },
   { key: CONFIG_KEYS.SEND_WEEKDAY, value: 'MONDAY', note: '自動寄送週報的星期幾（英文全大寫，例如 MONDAY）' },
-  { key: CONFIG_KEYS.SEND_HOUR, value: '8', note: '自動寄送週報的小時（24 小時制，0-23）' },
+  { key: CONFIG_KEYS.SEND_HOUR, value: '6', note: '自動寄送週報（及草稿預覽連結）的小時（24 小時制，0-23）。改了之後要在選單重新「安裝自動寄送觸發器」才生效' },
   { key: CONFIG_KEYS.BULLETIN_OUTPUT_FOLDER_ID, value: '', note: 'PDF 存放資料夾' },
   { key: CONFIG_KEYS.OUTPUT_GROUP_BY_QUARTER, value: 'TRUE', note: '產生的 Word 檔是否放進以季度 ID 命名的子資料夾（例如 2027T4）：TRUE＝按季度分開存放，FALSE＝全部放在輸出資料夾本身。每個主日只保留一份最新的檔案，重新產生會覆寫同一份' },
   { key: CONFIG_KEYS.MAX_PAGES, value: '5', note: '超過即報錯不生成' },
@@ -930,7 +948,14 @@ var DEFAULTS = Object.freeze([
   { key: CONFIG_KEYS.SPEAKER_FORM_DATE_SPECIAL_PATTERN, value: '{{DATE}}（{{SPECIAL}}）', note: '講員表格「主日日期」下拉選項的字眼樣式。{{DATE}} 換成日期（例如 2028-04-09），{{SPECIAL}} 換成特別主日名稱；沒有特別主日的主日只顯示日期' },
   { key: CONFIG_KEYS.SPEAKER_FORM_NOTIFY_SUBJECT, value: '{{CHURCH}}週報：講員表格新答案（{{SERVICE_DATE}}，{{RESULT}}）', note: '講員表格通知信的主旨樣式。可用 {{CHURCH}}（教會名稱）、{{SERVICE_DATE}}（主日日期）、{{RESULT}}（處理結果）' },
   { key: CONFIG_KEYS.SPEAKER_NAME_HONORIFICS, value: '牧師,傳道,弟兄,姊妹,博士,老師,先生,女士,長老,執事', note: '講員核對：比較「表格填的講員」與「事奉框的講員」之前，先從名字去掉的尊稱（逗號分隔）。兩邊的空白也會先去掉。名字相同才不出警告（內容表 v2 起講員表格已停用，這一項不再使用）' },
-  { key: CONFIG_KEYS.SPEAKER_FORM_CLOSED_MESSAGE, value: '講員資料改為在內容表「崇拜程序」填寫，請聯絡幹事。', note: '內容表 v2：講員表格已停用。「季度工具 ▸ 停用舊功能」關閉表格收件時，講員用舊連結打開會見到這一句。表格不會刪除' }
+  { key: CONFIG_KEYS.SPEAKER_FORM_CLOSED_MESSAGE, value: '講員資料改為在內容表「崇拜程序」填寫，請聯絡幹事。', note: '內容表 v2：講員表格已停用。「季度工具 ▸ 停用舊功能」關閉表格收件時，講員用舊連結打開會見到這一句。表格不會刪除' },
+
+  // ---- v3（2026-10-26 Ivan 測試結果 A）----
+  { key: CONFIG_KEYS.WEBAPP_SIMULATED_TODAY, value: '', note: '⚠️ 只供測試：填一個日期（yyyy-MM-dd），填寫介面就當今日是這一天——只影響「發佈／寄出只限該週」與頂部「目前已發佈」那一行，不影響自動寄送。正式使用前一定要清空' },
+  { key: CONFIG_KEYS.ROSTER_WEBAPP_URL, value: '', note: '職事表系統填寫介面的網址。填了之後，週報填寫介面「本週事奉」旁邊會出現「查看／修改職事表」按鈕；留空就不顯示' },
+  { key: CONFIG_KEYS.TEMPLATE_KEYWORDS_COMBINED, value: '合堂,聯合', note: '特別主日標題／類型含這些關鍵詞（而不是浸禮或堂慶）就用三堂聯合崇拜範本 TPL_COMBINED（逗號分隔）' },
+  { key: CONFIG_KEYS.TEMPLATE_FILE_ID_COMBINED, value: '', note: '三堂聯合崇拜（TPL_COMBINED）Word 範本的雲端硬碟檔案 ID。留空就用堂慶三堂聯合崇拜那一個（TEMPLATE_FILE_ID_ANNIVERSARY）' },
+  { key: CONFIG_KEYS.AUTO_CREATE_QUARTERS, value: 'TRUE', note: '職事表某一季已經生成版本（未正式發出亦算）、而且該季未完結時，自動建立該季的週報與內容表（每日一次，以及開啟填寫介面時）。設 FALSE 就停用，改用選單人手建立' }
 ]);
 
 // =====================================================================
@@ -1085,7 +1110,10 @@ var WEEK_SNAPSHOT_REASONS = Object.freeze({
   BEFORE_RESET: '重設這一週之前',
   BEFORE_RESTORE: '還原之前',
   SPEAKER_FORM: '講員表格',
-  WORD_GENERATED: '產生 Word 之後'
+  WORD_GENERATED: '產生 Word 之後',
+  // v3（2026-10-26）
+  CONTENT_SHEET_UPGRADE: '更新內容表之前',
+  AFTER_RESTORE: '還原之後'
 });
 
 /**
@@ -1140,13 +1168,16 @@ var FILL_SYNC_STATUS = Object.freeze({
  */
 var CONTENT_SHEET_READONLY_FIELDS = Object.freeze({
   // BulletinWeeks 的機器鍵。
-  // 內容表 v2：宣召兩欄併入「崇拜程序」之後改為第三種模式（可覆寫），不再在這裏（15 → 13 項）。
+  // v3（2026-10-26 Ivan 測試結果 A）：「崇拜程序」九欄改為只可以在內容表填（13 → 22 項），次序同內容表
+  //    「崇拜程序」分頁（contentSheetWorshipTabDef_()）。浸禮六欄改為只在介面填（不在這裏，亦不再可覆寫）。
   WEEK: Object.freeze([
     'ATT_ENG_WORSHIP', 'ATT_CANE_WORSHIP', 'ATT_CANN_WORSHIP', 'ATT_MAN_WORSHIP',
     'ATT_ENG_PRAYER', 'ATT_CANE_PRAYER', 'ATT_CANN_PRAYER', 'ATT_MAN_PRAYER',
     'ATT_ENG_CHILD', 'ATT_CANE_CHILD', 'ATT_CANN_CHILD', 'ATT_MAN_CHILD',
     // 人數統計日期跟著十二個人數欄一起由內容表決定。
-    'ATTENDANCE_DATE'
+    'ATTENDANCE_DATE',
+    'SCRIPTURE_REF', 'SERMON_TITLE', 'RESPONSE_HYMN', 'CHOIR_TITLE',
+    'PRELUDE', 'CALL_REF', 'CALL_TEXT', 'HYMN_PRAISE', 'CHOIR_LABEL'
   ]),
   // `webAppListDefs_()` 的 key。
   LISTS: Object.freeze(['announcements', 'prayers', 'fellowships', 'finance'])
@@ -1155,27 +1186,15 @@ var CONTENT_SHEET_READONLY_FIELDS = Object.freeze({
 /**
  * **第三種欄位模式**（R-043／R-045）：**內容表為來源，介面可覆寫**。
  *
- *   與 `CONTENT_SHEET_READONLY_FIELDS.WEEK` 的分別：那些是**唯讀**，
- *   介面改不到；這些介面改得到，改了就寫一筆 `FieldOverride`，之後匯入
- *   不會蓋過去（見 src/FieldOverride.gs 檔頭那五條）。
+ *   v3（2026-10-26）起**一欄都沒有**：「崇拜程序」九欄改為唯讀（只在內容表填），浸禮六欄改為只在介面填。
+ *   清單保留（空陣列）而不刪：FieldOverride 的取值出口 `applyFieldOverrides_()`、儲存與匯入的覆寫邏輯
+ *   都按這一份決定，空陣列＝舊覆寫一律不再生效（舊的覆寫行由「更新本季內容表」停用，見
+ *   src/ContentSheetMigrateV3.gs）。日後真的要恢復第三種模式，把欄位加回這裏即可。
  *
  * ⚠️ 三份清單**互不重疊**、合起來覆蓋所有可寫欄位——由
  * `tests/readonly.test.js` 的三態一致性測試釘住。加欄位的時候三份都要看。
- *
- * ⚠️ 浸禮那六欄由 `baptismBoxFieldDefs_()` 衍生**不可以**在這裏抄一份：
- * 那邊是六欄的單一真相來源。但那支函式在 `BaptismBox.gs`（載入次序在
- * `Constants.gs` 之後），頂層引用會讀到 `undefined`（事故一），所以這裏
- * 逐個列出，並由測試釘住兩邊一致。
  */
-var CONTENT_SHEET_OVERRIDABLE_FIELDS = Object.freeze([
-  // R-043：崇拜程序分頁
-  'SCRIPTURE_REF', 'SERMON_TITLE', 'RESPONSE_HYMN', 'CHOIR_TITLE',
-  // 內容表 v2（決定 4）：崇拜程序新加的四欄（宣召兩欄由唯讀改為可覆寫）
-  'PRELUDE', 'CALL_REF', 'CALL_TEXT', 'HYMN_PRAISE',
-  // R-045：浸禮六欄（內容表 v2 起亦在崇拜程序分頁；次序同 baptismBoxFieldDefs_()）
-  'BAPTISM_OFFICIANT', 'MEMBERSHIP_OFFICIANT', 'CHILD_DEDICATION_OFFICIANT',
-  'BAPTISM_MEMBERS', 'MEMBERSHIP_MEMBERS', 'CHILD_DEDICATION_CHILDREN'
-]);
+var CONTENT_SHEET_OVERRIDABLE_FIELDS = Object.freeze([]);
 
 /**
  * 唯讀欄位給人看的名稱。拒絕訊息要講得出「是哪一欄」，機器鍵對幹事
@@ -1184,6 +1203,16 @@ var CONTENT_SHEET_OVERRIDABLE_FIELDS = Object.freeze([
 var CONTENT_SHEET_READONLY_LABELS = Object.freeze({
   // 內容表 v2：宣召兩欄已改為可覆寫，名稱移到 webAppWeekFieldLabels_() 的短表。
   ATTENDANCE_DATE: '人數統計日期',
+  // v3：「崇拜程序」九欄（只在內容表填）。與 webAppWeekFieldLabels_() 那張短表、填寫介面標籤一致。
+  SCRIPTURE_REF: '讀經經文',
+  SERMON_TITLE: '證道講題',
+  RESPONSE_HYMN: '回應詩歌',
+  CHOIR_TITLE: '詩班曲名',
+  PRELUDE: '序樂',
+  CALL_REF: '宣召出處',
+  CALL_TEXT: '宣召經文',
+  HYMN_PRAISE: '詩歌頌讚',
+  CHOIR_LABEL: '詩班項目名稱',
   ATT_ENG_WORSHIP: '英語堂崇拜人數',
   ATT_CANE_WORSHIP: '粵語堂主堂崇拜人數',
   ATT_CANN_WORSHIP: '粵語堂北岸崇拜人數',

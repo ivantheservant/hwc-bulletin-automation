@@ -52,7 +52,9 @@ var CONTENT_SHEET_MIGRATED_ROW_NOTE_ = '系統移轉建立';
  * AuditLog 動作：「這一份內容表的移轉已經開始」（第一格寫入之前寫）。重跑時見到這一行，就知道新欄位置的字
  * 可能是上一次移轉自己寫的（兩次之間來源又改過），不可以當成「原本已經有字」整次拒絕（審查 A6-2 至 A6-4）。
  */
-var CONTENT_SHEET_MIGRATE_START_ACTION_ = 'CONTENT_SHEET_MIGRATE_V2_START';
+// v3（2026-10-26）：改用新的記錄名稱。v1 → v2 那一次（舊記錄 CONTENT_SHEET_MIGRATE_V2_START）已經完成的內容表，
+//    v3 加「詩班項目名稱」一欄時要重新核對新欄位置原本沒有字，不可以當成「上一次已經開始」。
+var CONTENT_SHEET_MIGRATE_START_ACTION_ = 'CONTENT_SHEET_MIGRATE_V3_START';
 
 /** 已停用舊分頁 A1 的註解。 */
 var CONTENT_SHEET_RETIRED_TAB_NOTE_ = '已停用（2026-10）：資料已搬入「崇拜程序」分頁，請不要再填這一張。';
@@ -78,11 +80,29 @@ var CONTENT_SHEET_RETIRED_TAB_PROTECTION_ = '週報系統：已停用的舊分�
 function readContentSheetV2Inputs_(spreadsheet) {
   var worshipDef = contentSheetWorshipTabDef_();
   var n = worshipDef.keys.length;
+  var v2Keys = contentSheetWorshipKeysV2_();
   var worshipSheet = spreadsheet.getSheetByName(worshipDef.tabName);
-  var worship = { exists: Boolean(worshipSheet), headerKeys: [], rows: [] };
+  var worship = { exists: Boolean(worshipSheet), layout: '', headerKeys: [], rows: [], v2Rows: [] };
   if (worshipSheet) {
-    worship.headerKeys = readContentTabHeaderKeys_(worshipSheet, n);
-    worship.rows = parseContentTabRows_(readContentTabDataValues_(worshipSheet, n), worshipDef.keys);
+    // v3：先認出 v2（第 2 行頭十七格與 v2 完全相同）。v2 的第 12 欄是浸禮主禮，v3 的第 12 欄是詩班項目名稱，
+    //    直接按 v3 讀會把浸禮主禮當成詩班項目名稱。認出 v2 之後，這裏交給 planner 的是「刪走浸禮六欄之後」
+    //    的樣子（頭十一欄、第 12 欄空白），與 applyContentSheetV3Upgrade_() 真正做完之後讀到的完全一樣——
+    //    預覽與執行用同一份計畫（bug class 120）。
+    //    v2 第 17 欄之後的格（刪欄之後會變成 v3 的新欄，例如第 R 欄 → 第 L 欄「詩班項目名稱」）一併讀出來，
+    //    預覽才看得到「新欄位置原本有字」（與真正刪欄之後讀到的一樣）。
+    var tailKeys = v3TailKeysAfterV2_(worshipDef.keys);
+    var longHeader = readContentTabHeaderKeys_(worshipSheet, Math.max(n, v2Keys.length + tailKeys.length));
+    var isV2 = v2Keys.every(function (k, i) { return longHeader[i] === k; });
+    if (isV2) {
+      worship.layout = 'V2';
+      worship.v2Rows = parseContentTabRows_(readContentTabDataValues_(worshipSheet, v2Keys.length + tailKeys.length),
+        v2Keys.concat(tailKeys));
+      worship.headerKeys = simulateWorshipHeaderAfterV3Drop_(worshipDef.keys, longHeader.slice(v2Keys.length));
+      worship.rows = simulateWorshipRowsAfterV3Drop_(worship.v2Rows, worshipDef.keys);
+    } else {
+      worship.headerKeys = longHeader.slice(0, n);
+      worship.rows = parseContentTabRows_(readContentTabDataValues_(worshipSheet, n), worshipDef.keys);
+    }
   }
 
   var legacy = [];
@@ -108,7 +128,11 @@ function readContentSheetV2Inputs_(spreadsheet) {
   });
 
   return {
-    worship: worship, legacy: legacy, weeks: readSheet(SHEETS.BULLETIN_WEEKS),
+    worship: worship, legacy: legacy,
+    // v3：帶行號（浸禮六欄要寫回週報那一行）。
+    weeks: readRowsWithRowNo_(SHEETS.BULLETIN_WEEKS),
+    // v3：生效中的欄位覆寫（帶行號）——九欄改為只在內容表填、浸禮六欄改為只在介面填，舊覆寫要停用。
+    fieldOverrides: readRowsWithRowNo_(SHEETS.FIELD_OVERRIDE).filter(function (r) { return r.ACTIVE === true; }),
     migrationStarted: contentSheetMigrationStarted_(readSheet(SHEETS.AUDIT_LOG), String(spreadsheet.getId()))
   };
 }
@@ -426,7 +450,7 @@ function buildContentSheetStrayCellsMessage_(strayCells) {
   return '內容表「崇拜程序」第 ' + contentColumnLetter_(firstNew) + ' 至 ' + contentColumnLetter_(def.keys.length)
     + ' 欄是這一次要加的新欄，但以下 ' + strayCells.length + ' 格原本已經有字：\n' + lines.join('\n')
     + '\n如果照樣移轉，之後匯入會把這些字當成序樂、宣召或浸禮資料印在週報上，所以這次一格都沒有寫。'
-    + '請把這些字搬到同一行的「備註」欄或者清走，再按一次「建立／刷新本季內容表」。';
+    + '請把這些字搬到同一行的「備註」欄或者清走，再按一次「更新本季內容表…」。';
 }
 
 /**
@@ -616,12 +640,19 @@ function buildContentSheetMigrationLines_(plan, options) {
     lines.push('「崇拜程序」' + will + '預先開好 ' + plan.counts.appendedRows + ' 行（每個主日一行），由週報帶入現有的值。');
     return lines;
   }
-  lines.push('內容表移轉成新版：「宣召」「浸禮合堂」兩張分頁併入「崇拜程序」。');
-  if (plan.counts.newColumns > 0) {
-    lines.push('　「崇拜程序」' + will + '在最後加 ' + plan.counts.newColumns + ' 欄。');
+  // v3：v2 → v3 只是在最後加「詩班項目名稱」一欄（浸禮六欄另由 buildContentSheetV3UpgradeLines_() 講）；
+  //    v1 → v3 才有舊分頁要併入。浸禮合堂的資料改為搬入週報（見 src/ContentSheetMigrateV3.gs）。
+  var mergingLegacy = plan.legacyToRetire.length > 0 || plan.counts.callDates > 0;
+  if (mergingLegacy) {
+    lines.push('內容表移轉成新版：「宣召」分頁併入「崇拜程序」（「浸禮合堂」的資料搬入週報，之後在填寫介面填）。');
   }
-  lines.push('　由舊「宣召」搬入 ' + plan.counts.callDates + ' 個主日；由舊「浸禮合堂」搬入 '
-    + plan.counts.baptismDates + ' 個主日。');
+  if (plan.counts.newColumns > 0) {
+    lines.push('　「崇拜程序」' + will + '在最後加 ' + plan.counts.newColumns + ' 欄（'
+      + plan.newColumns.map(function (k) { return contentTabColumnLabel_('崇拜程序', k); }).join('、') + '）。');
+  }
+  if (mergingLegacy) {
+    lines.push('　由舊「宣召」搬入 ' + plan.counts.callDates + ' 個主日。');
+  }
   lines.push('　由週報回填 ' + plan.counts.weekCells + ' 格（只填空白格）。');
   if (plan.resumed) {
     lines.push('　（上一次移轉中途停止：上一次已經寫好的格不在以上數字之內，資料仍在；新欄位置與現在的來源不同的格，'

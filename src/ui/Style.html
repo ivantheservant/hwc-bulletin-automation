@@ -512,6 +512,8 @@
   .publish-check { font-weight: 600; display: inline-flex; align-items: center; gap: 0.4em; }
   .publish-sub { margin: 0.5em 0 0 1.6em; }
   .publish-sub.is-disabled { opacity: 0.45; }
+  /* v3：不是該週（發佈時窗以外），發佈與寄出兩段整段變淡。 */
+  .publish-sub.is-window-closed { opacity: 0.45; pointer-events: none; }
   .publish-groups { display: flex; flex-wrap: wrap; gap: 0.9em; margin-bottom: 0.5em; }
   .publish-groups label { display: inline-flex; align-items: center; gap: 0.3em; font-size: 13px; }
   .publish-custom { display: inline-flex; align-items: center; gap: 0.4em; font-size: 13px; }
@@ -555,71 +557,85 @@
   .snapshot-diff-table th, .snapshot-diff-table td { border: 1px solid #ddd; padding: 0.3em 0.5em; text-align: left; vertical-align: top; word-break: break-all; }
   .snapshot-actions { margin-top: 0.8em; }
 
-  /* ---- R-038：季度作業 ---- */
-  .quarter-ops-panel h2 { margin: 0; }
-  .quarter-ops-toggle {
-    background: none;
-    border: none;
-    padding: 0;
-    font: inherit;
-    color: inherit;
-    cursor: pointer;
-    text-align: left;
-  }
-  .quarter-ops-caret { display: inline-block; width: 1em; }
-  .quarter-ops-body { margin-top: 0.8em; }
-  .quarter-ops-group { font-size: 14px; margin: 1em 0 0.5em; }
-  .quarter-ops-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6em; }
-  .quarter-ops-link-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6em; margin-top: 0.6em; }
-
-  /*
-    ⚠️ DRY_RUN=TRUE 用黃色（要留意，但不是錯），FALSE 用紅色（會真的寄出去）。
-    兩個都不是綠色——「會真的寄」跟「不會真的寄」都不是「一切正常」，
-    兩者都是幹事撳之前必須看清楚的一件事。
-  */
-  .quarter-ops-dryrun { font-size: 12px; padding: 0.15em 0.5em; border-radius: 3px; }
-  .quarter-ops-dryrun.is-dryrun { background: #fff8e1; border: 1px solid #ffe082; color: #7a5b00; }
-  .quarter-ops-dryrun.is-live { background: #fdecea; border: 1px solid #f5c6c2; color: #86251c; }
-
-  .quarter-ops-report {
-    margin-top: 0.9em;
-    border: 1px solid #e2e6ea;
-    border-radius: 4px;
-    background: #f6f8fa;
-  }
-  .quarter-ops-report-head {
+  /* ---- v3（2026-10-26）：區塊標題列、每區「儲存」、未儲存提示 ---- */
+  .panel-head {
     display: flex;
     align-items: center;
-    gap: 0.7em;
-    padding: 0.5em 0.8em;
-    border-bottom: 1px solid #e2e6ea;
+    gap: 0.8em;
+    flex-wrap: wrap;
+    margin-bottom: 0.8em;
   }
-  .quarter-ops-report-head .btn { margin-left: auto; }
-  /*
-    ⚠️ 一定要可以捲動而且有上限：報告動輒過百行，不設上限的話整頁會被
-    推長到捲極都捲唔完，下面的「發佈及匯出」被推到看不見。
-  */
-  .quarter-ops-report-body {
-    margin: 0;
-    padding: 0.7em 0.9em;
-    max-height: 22em;
-    overflow: auto;
-    font-family: ui-monospace, Menlo, Consolas, monospace;
+  .panel-head h2 { margin: 0; }
+  .panel-head .section-save-btn { margin-left: auto; }
+  .panel-head-actions { display: flex; align-items: center; gap: 0.5em; flex-wrap: wrap; }
+  .section-save-btn.has-unsaved, #saveBtn.has-unsaved { box-shadow: 0 0 0 3px #ffd54f; }
+  .unsaved-hint {
     font-size: 12px;
-    line-height: 1.55;
-    white-space: pre-wrap;
-    word-break: break-word;
-  }
-
-  .quarter-ops-message {
-    margin-top: 0.7em;
-    padding: 0.55em 0.8em;
+    color: #7a5b00;
+    background: #fff6d8;
+    border: 1px solid #f0d98a;
     border-radius: 4px;
-    font-size: 13px;
-    white-space: pre-wrap;
-    word-break: break-word;
+    padding: 0.2em 0.6em;
   }
-  .quarter-ops-message.is-error { background: #fdecea; border: 1px solid #f5c6c2; color: #86251c; }
-  .quarter-ops-message.is-info { background: #eef4fb; border: 1px solid #cbdcf0; color: #24486e; }
-  .quarter-ops-message.is-success { background: #eaf6ec; border: 1px solid #c3e3ca; color: #1e5b2a; }
+  .subhead { margin-top: 1.1em; }
+
+  /* 預覽連結框（與職事表系統的「永久連結」框同一個樣子：左邊一條綠色直線）。 */
+  .preview-link-panel { border-left: 4px solid #43a047; }
+  .preview-link-url { font-size: 13px; word-break: break-all; color: #1a56c4; margin-bottom: 0.5em; }
+  .preview-link-actions { display: flex; align-items: center; gap: 0.8em; }
+  .preview-link-open { font-size: 13px; font-weight: bold; }
+
+  /* 事奉框：你填的名字與職事表不同的崗位。 */
+  .duty-diff-notice {
+    margin-top: 0.6em;
+    font-size: 13px;
+    color: #5b4300;
+    background: #fff8e1;
+    border: 1px solid #ffe082;
+    border-radius: 4px;
+    padding: 0.5em 0.8em;
+    line-height: 1.7;
+  }
+  .duty-slot-roster.is-different { color: #b26a00; font-weight: bold; }
+
+  /* 程序表：每週增刪。 */
+  .program-edit-col { width: 7.5em; }
+  .program-edit-table tr.is-removed td { text-decoration: line-through; color: #999; background: #f7f7f7; }
+  .program-edit-table tr.is-removed td.program-edit-actions { text-decoration: none; }
+  .program-edit-table tr.is-added td { background: #f1f8e9; }
+  .program-edit-actions { white-space: nowrap; }
+  .program-edit-actions .btn { margin-right: 0.3em; }
+  .program-add-form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5em;
+    margin-top: 0.6em;
+    padding: 0.5em 0.7em;
+    background: #f1f8e9;
+    border: 1px solid #c5e1a5;
+    border-radius: 4px;
+  }
+  .program-add-form input[type="text"] { min-width: 12em; }
+
+  /* 丁戊己：拖動排序、刪除線。 */
+  .list-arrange-hint { margin: 0 0 0.5em; }
+  .repeatable-row .drag-handle {
+    cursor: grab;
+    color: #999;
+    font-size: 16px;
+    padding: 0.2em 0.3em;
+    user-select: none;
+  }
+  .repeatable-row.is-dragging { opacity: 0.5; }
+  .repeatable-row.is-drop-target { border-top: 3px solid #2f6feb; }
+  .repeatable-row.is-hidden-item .readonly-value { text-decoration: line-through; color: #999; background: #f7f7f7; }
+  .repeatable-row.is-moved { border-left: 3px solid #e08a1e; }
+
+  /* 版本記錄：下拉揀版本。 */
+  .snapshot-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5em; margin: 0.6em 0; }
+  .snapshot-picker select { max-width: 100%; min-width: 22em; }
+  .snapshot-detail { font-size: 13px; color: #555; margin: 0.2em 0 0.6em; }
+
+  .publish-attach { display: flex; align-items: center; gap: 0.4em; font-size: 13px; margin-top: 0.5em; }
 </style>

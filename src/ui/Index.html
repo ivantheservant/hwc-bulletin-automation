@@ -29,8 +29,8 @@
       <!--
         R-034：兩層選單。季度下拉只列 BulletinWeeks 內有資料的季度（由新
         到舊，沙盒季度永不出現），主日下拉只列該季主日並帶狀態標記。
-        weekSelect 的 id 與 change 事件保持不變——直接跳到某個主日那條
-        路徑仍然靠它，揀中之後由 syncSelectorsTo() 把季度下拉一併對準。
+        v3：職事表有新季度（已生成版本）時，系統會自動建立該季週報與內容表，
+        開啟這一頁時亦會檢查一次，所以新季度會自動出現在下拉。
       -->
       <label class="topbar-field">
         季度：
@@ -57,26 +57,27 @@
       <span id="statConflicts" class="stat stat-clickable" title="按一下展開職事表分歧清單">衝突 0 項</span>
       <span id="statSaved" class="stat">最後儲存時間：（尚未儲存）</span>
       <span class="topbar-spacer"></span>
+      <!-- v3：有未儲存的修改時出現，提醒按「儲存」（每一個可以輸入的區塊右上角亦有一粒「儲存」）。 -->
+      <span id="unsavedHint" class="unsaved-hint hidden">有未儲存的修改，請按「儲存」</span>
       <!-- R-033：草稿預覽。新分頁開啟，唯讀，不會影響目前正在填的東西。 -->
       <a id="previewLink" class="btn btn-secondary hidden" target="_blank" rel="noopener"
          title="用新分頁開啟這一個主日的草稿預覽（唯讀，版面與正式印刷版不同）">開啟預覽</a>
-      <button id="reloadRosterBtn" type="button" class="btn btn-secondary"
-              title="只重新讀取這一個主日的職事表，按職事表最新內容重畫事奉框、下週事奉與程序。不會動你正在填的其他欄位，也不會覆寫任何已儲存的值；事奉框有未儲存的改動時會先問你。">重讀職事表（本主日，不覆寫）</button>
-      <!-- R-036：職事表整季未有資料時用的補抓鈕。隨時可以撳，只填空白格。 -->
+      <!-- R-036：職事表整季未有資料時用的補抓鈕。隨時可以按，只填空白格。 -->
       <button id="backfillRosterBtn" type="button" class="btn btn-secondary"
               title="把職事表已經有、而週報仍然空白的事奉格補回去（整季）。⚠️ 只填空白格，不會覆寫你填過的任何一格，所以隨時可以重試。">補抓空白欄位（不覆寫）</button>
-      <button id="saveBtn" type="button" class="btn btn-primary">儲存</button>
+      <button id="saveBtn" type="button" class="btn btn-primary" data-save-button>儲存</button>
     </div>
-    <!-- R-008：常駐一行，不隨主日下拉改變。 -->
-    <div id="publishStatusBar" class="publish-status-bar">
+    <!--
+      R-008：「目前已發佈」那一行。v3：只在畫面上是「該週」（上一個主日翌日至該主日）時才顯示，
+      其他週與它無關。
+    -->
+    <div id="publishStatusBar" class="publish-status-bar hidden">
       <!--
         ⚠️ 這裏只有**一顆**連結（正常的超連結元素，不是拼出來的文字），
         避免「開啟」與另一顆按鈕的文字疊在一起變成看起來重複。
         它刻意放在狀態列、而不是「發佈及匯出」區塊裏面：實際發生過的事
         是幹事在發佈區塊按了「下載目前已發佈的 PDF」，然後在選檔案時把
-        同一個檔案選回去上載，等於用舊內容覆寫自己。放在這裏，它跟
-        「目前已發佈：…」講的是同一件事，而且不會出現在「選 PDF」那一
-        步的旁邊。
+        同一個檔案選回去上載，等於用舊內容覆寫自己。
       -->
       <span id="publishStatusText">載入中…</span>
       <a id="publishStatusLink" class="btn btn-small hidden" target="_blank" rel="noopener">開啟 PDF</a>
@@ -88,25 +89,51 @@
       就會消失；這一條是「本季目前的狀態」，未補齊之前一直都要在。
     -->
     <div id="rosterGapBar" class="roster-gap-bar hidden"></div>
+    <div id="autoCreateBar" class="roster-gap-bar hidden"></div>
     <div id="messageBar" class="message-bar hidden"></div>
     <div id="missingPanel" class="missing-panel hidden"></div>
     <div id="conflictPanel" class="conflict-panel hidden"></div>
-    <!-- D-11：警告清單。本來這個徽章不可以撳，警告內容完全看不到。 -->
+    <!-- D-11：警告清單。本來這個徽章不可以按，警告內容完全看不到。 -->
     <div id="warningsPanel" class="missing-panel hidden"></div>
   </header>
 
   <main id="mainContent">
 
+    <!-- v3：這一個主日的預覽連結（與職事表系統的「永久連結」框同一個樣子）。 -->
+    <section class="panel preview-link-panel" id="previewLinkPanel">
+      <h2>這一個主日的預覽連結</h2>
+      <div id="previewLinkUrl" class="preview-link-url">（載入中）</div>
+      <div class="preview-link-actions">
+        <button id="copyPreviewLinkBtn" type="button" class="btn btn-small">複製連結</button>
+        <a id="openPreviewLink" class="preview-link-open hidden" target="_blank" rel="noopener">開啟看看</a>
+        <span id="copyPreviewLinkDone" class="hint hidden">已複製</span>
+      </div>
+      <p class="hint">
+        這條連結顯示這一個主日<strong>最新已儲存</strong>的內容（未發佈亦可），只供核對，版面與印刷版不同。
+        每星期一早上會連同本季內容表的連結，寄給堂委、執事與幹事。
+      </p>
+    </section>
+
     <section class="panel duty-panel">
       <div class="duty-panel-head">
         <h2>本週事奉（可直接修改）</h2>
-        <button id="fetchFromRosterBtn" type="button" class="btn btn-secondary">由職事表重新取數</button>
+        <div class="panel-head-actions">
+          <!-- v3：開啟職事表系統（Config ROSTER_WEBAPP_URL）。未設定就不顯示。 -->
+          <a id="rosterAppLink" class="btn btn-primary hidden" target="_blank" rel="noopener">查看／修改職事表</a>
+          <button id="fetchFromRosterBtn" type="button" class="btn btn-secondary"
+                  title="重新讀取這一個主日的職事表最新內容，列出你填的名字與職事表不同的崗位。不會覆寫你填過的任何一格。">由職事表重新取數（不覆寫）</button>
+          <button id="overwriteFromRosterBtn" type="button" class="btn btn-secondary"
+                  title="把你在這裏改過的名字改回職事表的名字（職事表未排定的崗位不會改）。按下去會先列出會改哪幾格，你確認之後才會寫入。">以職事表覆寫我的修改…</button>
+          <button type="button" class="btn btn-small btn-primary section-save-btn" data-save-button>儲存</button>
+        </div>
       </div>
       <div id="rosterMeta" class="readonly-meta"></div>
       <p class="hint">
         在這裡改動的名單<strong>只存在週報，永遠不會寫回職事表</strong>。
-        沒有改動過的崗位會自動跟隨職事表最新版；改動過的崗位，職事表之後再改也不會蓋過你的修改，只會標示為衝突。
+        沒有改動過的崗位會自動跟隨職事表最新版；改動過的崗位，職事表之後再改也會<strong>保留你填的名字</strong>，旁邊會顯示職事表的名字。
       </p>
+      <!-- v3：你填的名字與職事表不同的崗位（職事表未排定的不算）。每次載入與「由職事表重新取數」之後更新。 -->
+      <div id="dutyDiffNotice" class="duty-diff-notice hidden"></div>
       <div id="dutyBoxPage1Body" class="duty-list"></div>
     </section>
 
@@ -114,24 +141,34 @@
       R-040：下週事奉由唯讀改為可覆寫。
       ⚠️ 同一格會在**兩個畫面**出現：這一週的「下週事奉」＝下一週的「本週
         事奉」。兩邊寫的是同一筆 DutyOverride（鍵帶主日日期），所以改完
-        互相看得見。
+        互相看得見。下一個主日在下一季亦一樣（只要職事表已有下一季）。
     -->
     <section class="panel duty-panel">
       <div class="panel-head">
         <h2>下週事奉（第 3 頁，可直接修改）</h2>
         <span id="nextWeekDutyDate" class="hint"></span>
+        <button type="button" class="btn btn-small btn-primary section-save-btn" data-save-button>儲存</button>
       </div>
       <p class="hint">
         這一區改的是<strong>下一個主日</strong>那一格。在下一個主日的「本週事奉」也會見到同一個值。
       </p>
+      <div class="field-grid">
+        <label>下週事奉標題
+          <input type="text" data-field="NEXT_WEEK_HEADING">
+          <span class="hint">留空就用預設標題</span>
+        </label>
+      </div>
       <div id="nextWeekDutyNotice" class="roster-gap-bar hidden"></div>
       <div id="nextWeekDutyBody" class="duty-list"></div>
     </section>
 
     <section class="panel">
-      <h2>甲、崇拜程序</h2>
-      <!-- 內容表 v2：本區大部分欄位來自內容表「崇拜程序」分頁，在這裏改等於覆寫（第三種模式）。 -->
-      <div data-content-sheet-bar="overridable"></div>
+      <div class="panel-head">
+        <h2>甲、崇拜程序</h2>
+        <button type="button" class="btn btn-small btn-primary section-save-btn" data-save-button>儲存</button>
+      </div>
+      <!-- v3：序樂、宣召、詩歌、經文、講題等九欄只在內容表「崇拜程序」填；這裏只顯示。 -->
+      <div data-content-sheet-bar="worship"></div>
       <div class="field-grid">
         <label>程序表大標題
           <input type="text" data-field="PAGE_TITLE">
@@ -139,6 +176,14 @@
         <label>程序範本
           <select data-field="PROGRAM_TEMPLATE_ID" id="programTemplateSelect"></select>
         </label>
+        <label>誦讀（覆寫）
+          <select data-field="RECITATION_OVERRIDE" id="recitationSelect"></select>
+          <!-- R-041：由後端算好的自動值。前端不可以自己重算一次月份分組。 -->
+          <span id="recitationAutoHint" class="hint"></span>
+        </label>
+      </div>
+      <h3 class="subhead">由內容表「崇拜程序」填寫（這裏只顯示）</h3>
+      <div class="field-grid">
         <label>序樂
           <input type="text" data-field="PRELUDE">
         </label>
@@ -148,20 +193,14 @@
         <label class="field-wide">宣召經文
           <textarea data-field="CALL_TEXT" rows="2"></textarea>
         </label>
-        <label>誦讀（覆寫）
-          <select data-field="RECITATION_OVERRIDE" id="recitationSelect"></select>
-          <!-- R-041：由後端算好的自動值。前端不可以自己重算一次月份分組。 -->
-          <span id="recitationAutoHint" class="hint"></span>
-        </label>
         <label>詩歌頌讚
           <input type="text" data-field="HYMN_PRAISE">
-          <!-- R-044：三期真週報核對過，這一欄全部空白。 -->
-          <span class="hint">多數留空</span>
+          <span class="hint">程序表「詩歌頌讚」那一行的內容，多數留空</span>
         </label>
         <label>詩班項目名稱
           <!-- R-044：留空就用範本那一行的項目名稱（placeholder 顯示目前生效那個）。 -->
           <input type="text" data-field="CHOIR_LABEL" id="choirLabelInput">
-          <span class="hint">留空就用範本預設值</span>
+          <span class="hint">程序表詩班那一行左邊的名稱（例如「詩班獻唱」），留空就用範本預設值</span>
         </label>
         <label>詩班曲名
           <input type="text" data-field="CHOIR_TITLE">
@@ -177,15 +216,36 @@
           <input type="text" data-field="RESPONSE_HYMN">
         </label>
       </div>
+      <!-- v3：這一週的程序增刪（JSON，由 Script.html 的 program-edits 區段維護，跟隨「儲存」送出）。 -->
+      <input type="hidden" data-field="PROGRAM_EDITS" id="programEditsInput">
       <h3>程序表即時預覽 <span id="previewBusyIndicator" class="preview-busy hidden">更新中…</span></h3>
-      <table class="preview-table">
-        <thead><tr><th>項目</th><th>內容</th><th>立坐</th></tr></thead>
+      <p class="hint">
+        按每一行右邊的「×」可以在這一週拿走那一項（變成刪除線，再按「還原」就回來）；
+        按「＋ 在下面加一項」可以在這一週加一項（例如「特別分享」）。改完要按「儲存」才生效，只影響這一個主日。
+      </p>
+      <table class="preview-table program-edit-table">
+        <thead><tr><th>項目</th><th>內容</th><th>立坐</th><th class="program-edit-col"></th></tr></thead>
         <tbody id="programPreviewBody"></tbody>
       </table>
+      <div id="programAddForm" class="program-add-form hidden">
+        <span id="programAddAfterLabel" class="hint"></span>
+        <input type="text" id="programAddName" placeholder="項目名稱（必填，例如：特別分享）">
+        <input type="text" id="programAddContent" placeholder="內容（可以留空）">
+        <select id="programAddPosture">
+          <option value="眾 坐">眾 坐</option>
+          <option value="眾 立">眾 立</option>
+          <option value="">（不印立坐）</option>
+        </select>
+        <button id="programAddOkBtn" type="button" class="btn btn-small btn-primary">加入</button>
+        <button id="programAddCancelBtn" type="button" class="btn btn-small">取消</button>
+      </div>
     </section>
 
     <section class="panel">
-      <h2>乙、上週崇拜人數</h2>
+      <div class="panel-head">
+        <h2>乙、上週崇拜人數</h2>
+        <button type="button" class="btn btn-small btn-primary section-save-btn" data-save-button>儲存</button>
+      </div>
       <div data-content-sheet-bar></div>
       <div class="field-grid">
         <label>人數表標題
@@ -227,7 +287,10 @@
     </section>
 
     <section class="panel">
-      <h2>丙、獻花</h2>
+      <div class="panel-head">
+        <h2>丙、獻花</h2>
+        <button type="button" class="btn btn-small btn-primary section-save-btn" data-save-button>儲存</button>
+      </div>
       <div class="field-grid">
         <label>本週獻花
           <input type="text" data-field="FLOWER_THIS_WEEK">
@@ -238,21 +301,20 @@
           <input type="text" data-field="FLOWER_NEXT_WEEK">
           <span id="flowerNextHint" class="hint"></span>
         </label>
-        <label>下週事奉標題
-          <input type="text" data-field="NEXT_WEEK_HEADING">
-        </label>
       </div>
     </section>
 
     <section class="panel hidden" id="baptismPanel">
-      <h2>丙之二、浸禮合堂（副框）</h2>
+      <div class="panel-head">
+        <h2>丙之二、浸禮合堂（副框）</h2>
+        <button type="button" class="btn btn-small btn-primary section-save-btn" data-save-button>儲存</button>
+      </div>
       <p class="hint">
-        只有浸禮三堂聯合崇拜那一週才需要填。三個「主禮」是<strong>一位</strong>——
+        只有浸禮三堂聯合崇拜那一週才需要填，<strong>只在這裏填</strong>（內容表沒有這六格）。三個「主禮」是<strong>一位</strong>——
         <strong>在尊稱對照表（試算表的 PersonDisplay 工作表）找得到的才會自動套用尊稱，找不到就原樣印出</strong>
         （例如直接打「ET牧師」會原樣印出，並在警告清單提一句）。
         三個名單欄可以填<strong>多位</strong>，用空格分隔，<strong>原樣印出</strong>（不會自動加尊稱、不會重新排序）。
         留空的一行不會印在週報上，六格全部留空整個副框都不會出現。
-        這六格亦可以由<strong>內容表「崇拜程序」分頁</strong>（浸禮六欄）填——在這裏改就等於覆寫，之後匯入不會蓋過去。
       </p>
       <div class="field-grid">
         <label>浸禮主禮
@@ -276,25 +338,40 @@
       </div>
     </section>
 
+    <!-- v3：丁、戊、己三張清單的次序與刪除（JSON，由 Script.html 的 list-arrange 區段維護，跟隨「儲存」送出）。 -->
+    <input type="hidden" data-field="LIST_ARRANGEMENT" id="listArrangementInput">
+
     <section class="panel">
-      <h2>丁、家事報告</h2>
+      <div class="panel-head">
+        <h2>丁、家事報告</h2>
+        <button type="button" class="btn btn-small btn-primary section-save-btn" data-save-button>儲存</button>
+      </div>
       <div data-content-sheet-bar></div>
+      <p class="hint list-arrange-hint">可以拖動每一則左邊的「⠿」改次序，按「×」在這一週拿走（再按「還原」就回來）；改完要按「儲存」。內容要到內容表修改。</p>
       <div id="announcementsList" class="repeatable-list"></div>
     </section>
 
     <section class="panel">
-      <h2>戊、代禱事項</h2>
+      <div class="panel-head">
+        <h2>戊、代禱事項</h2>
+        <button type="button" class="btn btn-small btn-primary section-save-btn" data-save-button>儲存</button>
+      </div>
       <label>代禱區塊標題
         <input type="text" id="prayerBlockHeadingInput" data-field="PRAYER_BLOCK_HEADING" list="prayerBlockHeadingOptions">
         <datalist id="prayerBlockHeadingOptions"></datalist>
       </label>
       <div data-content-sheet-bar></div>
+      <p class="hint list-arrange-hint">可以拖動每一則左邊的「⠿」改次序，按「×」在這一週拿走（再按「還原」就回來）；改完要按「儲存」。內容要到內容表修改。</p>
       <div id="prayersList" class="repeatable-list"></div>
     </section>
 
     <section class="panel">
-      <h2>己、本週團契聚會</h2>
+      <div class="panel-head">
+        <h2>己、本週團契聚會</h2>
+        <button type="button" class="btn btn-small btn-primary section-save-btn" data-save-button>儲存</button>
+      </div>
       <div data-content-sheet-bar></div>
+      <p class="hint list-arrange-hint">可以拖動每一則左邊的「⠿」改次序，按「×」在這一週拿走（再按「還原」就回來）；改完要按「儲存」。內容要到內容表修改。</p>
       <div id="fellowshipsList" class="repeatable-list repeatable-list-fellowship"></div>
     </section>
 
@@ -309,12 +386,18 @@
     <details class="panel snapshot-panel" id="snapshotPanel">
       <summary>版本記錄（這一個主日）</summary>
       <p class="hint">
-        每次儲存、匯入或同步之前，系統都會自動存一個版本；揀錯了可以還原到任何一個版本。
-        「產生 Word 之後」那幾行附的連結，開啟的是這個主日雲端硬碟上現時最新的 Word 檔。
+        每次儲存、匯入或同步之前，系統都會自動存一個版本。先在下拉揀一個版本，可以「預覽這個版本」（唯讀）或「看差異」，
+        確定之後才「還原到這個版本」。還原不會刪走任何版本：還原之前與之後各會多存一個版本。
       </p>
       <div id="snapshotStatus" class="hint"></div>
+      <div class="snapshot-picker">
+        <select id="snapshotSelect"></select>
+        <a id="snapshotPreviewLink" class="btn btn-small hidden" target="_blank" rel="noopener">預覽這個版本</a>
+        <button id="snapshotDiffBtn" type="button" class="btn btn-small">看差異</button>
+        <button id="snapshotRestoreBtn" type="button" class="btn btn-small">還原到這個版本…</button>
+      </div>
+      <div id="snapshotDetail" class="snapshot-detail"></div>
       <div id="snapshotPublished" class="snapshot-published"></div>
-      <ul id="snapshotList" class="snapshot-list"></ul>
       <div id="snapshotDiffBox" class="snapshot-diff hidden">
         <h3 id="snapshotDiffTitle"></h3>
         <table class="snapshot-diff-table">
@@ -324,74 +407,16 @@
       </div>
       <div class="snapshot-actions">
         <button id="resetWeekBtn" type="button" class="btn btn-small btn-danger">重設這一週…</button>
+        <span class="hint">重設＝清空人手填的內容，只保留職事表與內容表的資料（會先自動存一個版本）。</span>
       </div>
     </details>
-
-    <!--
-      R-038：季度作業。
-      ⚠️ 預設**摺疊**：這一組是一季做一次的事，不是每週做的事。
-        每次開介面都攤開在眼前，反而會令每週真正要做的事被推落下面。
-      ⚠️ 每一粒有副作用的按鈕都是「先預覽、後確認」，跟「重新匯入」同一個模式。
-    -->
-    <section class="panel quarter-ops-panel">
-      <h2>
-        <button id="quarterOpsToggle" type="button" class="quarter-ops-toggle" aria-expanded="false">
-          <span id="quarterOpsCaret" class="quarter-ops-caret">▸</span>
-          季度作業<span id="quarterOpsQuarter"></span>
-        </button>
-      </h2>
-      <div id="quarterOpsBody" class="quarter-ops-body hidden">
-        <p class="hint">
-          這一組是<strong>一季做一次</strong>的事。每一粒都會先講明將會發生什麼，你確認之後才會真的執行。
-        </p>
-
-        <h3 class="quarter-ops-group">一、建立與收集</h3>
-        <div class="quarter-ops-row">
-          <button id="opCreateWeeksBtn" type="button" class="btn btn-secondary"
-                  title="為本季每一個主日建立一行空白週報。已經存在的一格都不會改。">建立本季週報</button>
-          <button id="opContentSheetBtn" type="button" class="btn btn-secondary"
-                  title="建立本季內容表；已經有就只刷新版面與下拉，同工填落去的資料一格都不會改。">建立／刷新本季內容表</button>
-          <button id="opInviteBtn" type="button" class="btn btn-secondary"
-                  title="把內容表連結寄給堂委、執事、幹事。">寄出內容表連結</button>
-          <span id="opInviteDryRun" class="quarter-ops-dryrun"></span>
-          <button id="opImportQuarterBtn" type="button" class="btn btn-secondary"
-                  title="把內容表整季的家事報告、代禱、團契、財政匯入週報。">從內容表匯入（整季）</button>
-        </div>
-        <div id="opContentSheetLinkRow" class="quarter-ops-link-row hidden">
-          <a id="opContentSheetLink" class="btn btn-small" target="_blank" rel="noopener">開啟本季內容表</a>
-          <span id="opContentSheetMeta" class="hint"></span>
-        </div>
-
-        <h3 class="quarter-ops-group">二、檢查（全部唯讀，一格都不會寫）</h3>
-        <div class="quarter-ops-row">
-          <button id="opMissingBtn" type="button" class="btn btn-secondary">本季待填清單</button>
-          <button id="opRosterDiffBtn" type="button" class="btn btn-secondary"
-                  title="比對週報與職事表。本系統不會改動職事表。">檢查職事表分歧</button>
-          <button id="opGoLiveBtn" type="button" class="btn btn-secondary">上線前檢查</button>
-          <button id="opRevisionsBtn" type="button" class="btn btn-secondary">發佈版本記錄</button>
-        </div>
-
-        <!--
-          ⚠️ 四個唯讀報告共用這一個面板，而且是**可捲動**的。
-            不可以用 alert()：內容動輒過百行，alert 會爆，而且爆的時候
-            只見到頭幾行，看的人以為報告只有那麼多。
-        -->
-        <div id="quarterOpsReport" class="quarter-ops-report hidden">
-          <div class="quarter-ops-report-head">
-            <strong id="quarterOpsReportTitle"></strong>
-            <span id="quarterOpsReportCount" class="hint"></span>
-            <button id="quarterOpsReportClose" type="button" class="btn btn-small">收起</button>
-          </div>
-          <pre id="quarterOpsReportBody" class="quarter-ops-report-body"></pre>
-        </div>
-        <div id="quarterOpsMessage" class="quarter-ops-message hidden"></div>
-      </div>
-    </section>
 
     <!-- R-002 至 R-005：發佈及匯出 -->
     <section class="panel publish-panel">
       <h2>發佈及匯出</h2>
       <p class="hint">主日：<strong id="publishServiceDate">—</strong></p>
+      <!-- v3：發佈及寄出只限該週（上一個主日翌日至該主日）；其他週顯示這一句，兩個勾選停用。 -->
+      <div id="publishWindowNotice" class="roster-gap-bar hidden"></div>
 
       <ol class="publish-steps">
         <li>按「下載 Word」</li>
@@ -429,10 +454,17 @@
           寄出
         </label>
         <div id="publishSendRow" class="publish-sub">
+          <p class="hint">
+            郵件會附上這一個主日的<strong>預覽連結</strong>與<strong>本季內容表連結</strong>；這一期已經發佈的話，亦會附上 master 連結。
+          </p>
           <div id="publishGroupOptions" class="publish-groups"></div>
           <label class="publish-custom">
             自訂電郵：
             <input type="text" id="publishCustomEmails" placeholder="以逗號分隔">
+          </label>
+          <label class="publish-attach">
+            <input type="checkbox" id="attachWordCheck">
+            一併附上最新已儲存的 Word 檔
           </label>
         </div>
       </div>
@@ -471,6 +503,7 @@
     頁內確認對話框（F9）：取代瀏覽器原生的確認視窗。原生對話框在部分瀏覽器和
     嵌入環境會被停用（一律當成「取消」），而本介面在跨網域的框架內執行，
     日後被瀏覽器限制的風險更大。內文一律逐行用 textContent 填入，不經 innerHTML。
+    v3：多一粒「另一個選擇」按鈕（confirmAltBtn），只有三選一的對話框（例如下載 Word 揀已儲存或未儲存）才顯示。
   -->
   <div id="confirmDialogBackdrop" class="dialog-backdrop hidden">
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="confirmDialogTitle">
@@ -478,6 +511,7 @@
       <div id="confirmDialogBody" class="dialog-body confirm-body"></div>
       <div class="dialog-actions">
         <button type="button" class="btn btn-secondary" id="confirmCancelBtn">取消</button>
+        <button type="button" class="btn btn-secondary hidden" id="confirmAltBtn">另一個選擇</button>
         <button type="button" class="btn btn-primary" id="confirmOkBtn">確定</button>
       </div>
     </div>
@@ -485,7 +519,7 @@
 
   <div id="fetchDialogBackdrop" class="dialog-backdrop hidden">
     <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="fetchDialogTitle">
-      <h3 id="fetchDialogTitle">由職事表重新取數</h3>
+      <h3 id="fetchDialogTitle">以職事表覆寫我的修改</h3>
       <div class="dialog-toolbar">
         <button type="button" class="btn btn-small" id="fetchSelectAllBtn">全選</button>
         <button type="button" class="btn btn-small" id="fetchSelectNoneBtn">全不選</button>

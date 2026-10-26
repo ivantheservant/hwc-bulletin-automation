@@ -232,15 +232,15 @@ function buildContentSheetVersionItem_(state, S) {
   var parts = [];
   if (outdated.length > 0) {
     parts.push(which(outdated) + '的內容表是舊版，未移轉：從內容表匯入、「重設這一週」都會被整次拒絕。'
-      + '請在填寫介面「季度作業」揀那一季，按「建立／刷新本季內容表」，先看預覽再確定。');
+      + '請在填寫介面打開那一季任何一個主日，按內容表狀態列的「更新本季內容表…」，先看預覽再確定。');
   }
   if (changed.length > 0) {
     parts.push(which(changed) + '的內容表第 2 行（機器鍵）被改過：匯入會被整次拒絕。請把第 2 行改回原樣'
-      + '（檔案 ▸ 版本記錄），再按一次「建立／刷新本季內容表」。');
+      + '（檔案 ▸ 版本記錄），再按一次「更新本季內容表…」（或者試算表選單「內容表 ▸ 建立本季內容表」）。');
   }
   if (unreadable.length > 0) {
     parts.push(which(unreadable) + '的內容表開不到（檔案可能被刪、搬走，或者這個帳戶沒有權限）：請在填寫介面'
-      + '「季度作業」按「開啟內容表」核對；確定不要了，請 IT 處理 ContentSheets 那一行。');
+      + '按內容表狀態列的「開啟內容表」核對；確定不要了，請 IT 處理 ContentSheets 那一行。');
   }
   return { status: S.YELLOW, message: '⚠️ ' + parts.join('　') };
 }

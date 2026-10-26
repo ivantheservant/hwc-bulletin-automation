@@ -55,20 +55,19 @@
     loadedNextDutyNames: {},
     // 「由職事表重新取數」對話框目前列出的候選項目。
     fetchCandidates: [],
-    // R-038：「季度作業」區塊的現況（季度、DRY_RUN、內容表）。
-    // ⚠️ 第一次展開才拿——每次開介面都拿一次，是為一個一季用一次的
-    // 區塊付每日的代價。`null` 代表「未拿過」，不是「拿不到」。
-    quarterOps: null,
     // R-002 至 R-008：發佈及匯出。`pdfBase64` 是使用者剛選的 PDF，
     // **刻意只放在記憶體、不寫任何本地儲存**——重新整理頁面就要重新選
     // 一次檔案，比起「以為上次選的還在、其實發佈了一個舊 PDF」安全得多。
     // `pdfIsoDate` 是揀那個 PDF 時畫面上的主日（G9）：換了主日就不可以拿它發佈。
     // `confirmSent`：發佈前檢查視窗這一次打開之後，是否已經按過「確認發佈」送出（G19 補充：
     // 送出之後按「取消」只可以關閉視窗，不可以顯示 CANCELLED_NOTHING_WRITTEN_MESSAGE）。
-    // `confirmMasterIssue`：只寄出時發佈前檢查視窗講的那一期（伺服器 NEEDS_CONFIRM 帶來的 masterIssue），
-    // 按「確認」時原樣送回（confirmedMasterIssue），伺服器在鎖內比較（審查後修正 4）。`null` 代表沒有。
-    publish: { pdfBase64: '', pdfName: '', pdfIsoDate: '', panel: null, confirmButton: '', confirmSent: false,
-      confirmMasterIssue: null },
+    publish: { pdfBase64: '', pdfName: '', pdfIsoDate: '', panel: null, confirmButton: '', confirmSent: false },
+    // v3：發佈／寄出只限該週。`apiLoadWeek()` 的 `publishWindow`（伺服器算好，前端不自己推算日期）。
+    publishWindow: null,
+    // v3：這一個主日的預覽連結（「複製連結」用）。
+    previewUrl: '',
+    // v3：版本記錄下拉目前列出的版本（`apiListWeekSnapshots` 的 `versions`）。
+    snapshotVersions: [],
     options: { programTemplateIds: [], recitationOptions: [], prayerBlockHeadingOptions: [], cantoneseSubColumnLabel: '主堂' }
   };
 
@@ -206,12 +205,16 @@
     document.getElementById('prevWeekBtn').disabled = busy;
     document.getElementById('nextWeekBtn').disabled = busy;
     document.getElementById('backfillRosterBtn').disabled = busy;
-    document.getElementById('reloadRosterBtn').disabled = busy;
     document.getElementById('fetchFromRosterBtn').disabled = busy || !state.loaded;
+    document.getElementById('overwriteFromRosterBtn').disabled = busy || !state.loaded;
     document.getElementById('saveBtn').disabled = busy || !state.loaded;
+    // v3：每一個區塊右上角的「儲存」與頂部那一粒同一個狀態。
+    var sectionSaves = document.querySelectorAll('[data-save-button]');
+    for (var si = 0; si < sectionSaves.length; si++) sectionSaves[si].disabled = busy || !state.loaded;
     // F9：頁內確認對話框的兩粒按鈕，處理中一併停用。
     document.getElementById('confirmOkBtn').disabled = busy;
     document.getElementById('confirmCancelBtn').disabled = busy;
+    document.getElementById('confirmAltBtn').disabled = busy;
     // G25：對話框都在 #mainContent 以外，遮罩擋不到，按鈕要自己停用。「由職事表重新取數」
     // 兩粒、發佈前檢查視窗的「取消」（「確認發佈」由 setPublishButtonsBusy() 與勾選格管理，
     // 勾選格的處理亦會看忙碌狀態）。
@@ -333,8 +336,8 @@
    *     week：重新載入這一個主日，並刷新主日下拉的標籤；
    *     publish：重新載入頁頂「目前已發佈」；版本記錄展開着的話一併重新載入（上方有
    *       「已發佈」一段）。不重新載入這一個主日（G21）；
-   *     quarterOps：重新載入「季度作業」區塊；
-   *     quarterImport：同 quarterOps，另外重新載入這一個主日。
+   *   v3：「季度作業」區塊已經由填寫介面拿走，它那幾個 api 不再在這裏；「更新本季內容表」
+   *   （apiRunContentSheetBuild）由內容表狀態列按，成功之後重新載入這一個主日，所以是 week。
    *   每一種重新載入的，就是該動作成功之後會刷新的區塊。G21：重新載入這一個主日會換走
    *   表單上未儲存的改動，所以只有成功時本來就會重新載入主日的種類才這樣做（還原、重設、
    *   重新匯入、由職事表重新取數、補抓、整季匯入）；發佈成功時（onPublishDone()）從來
@@ -360,10 +363,7 @@
     apiFetchFromRoster: 'week',
     apiBackfillRoster: 'week',
     apiRunPublish: 'publish',
-    apiRunCreateWeeks: 'quarterOps',
-    apiRunContentSheetBuild: 'quarterOps',
-    apiRunContentSheetInvite: 'quarterOps',
-    apiRunQuarterContentImport: 'quarterImport'
+    apiRunContentSheetBuild: 'week'
   };
 
   /**
@@ -377,9 +377,7 @@
     week: '這個動作可能已經完成。系統已重新載入這一個主日，請先看「最後儲存時間」和「版本記錄」。',
     // G18／G22(a)：發佈加寄出（以及不知道這一次做甚麼）用這一句；只發佈、只寄出見
     // PUBLISH_NO_RESPONSE_HINTS。
-    publish: '這個動作可能已經完成。系統已重新載入頁頂「目前已發佈」，請先看它的主日、版本和發佈時間是否已經是剛才這一次；寄出不會在填寫介面留下記錄，請看試算表的 SendLog 有沒有剛才這一次的寄出記錄。',
-    quarterOps: '這個動作可能已經完成。系統已重新載入季度作業的現況，請先看「季度作業」區塊。',
-    quarterImport: '這個動作可能已經完成。系統已重新載入這一個主日和季度作業的現況，請先看「季度作業」區塊。'
+    publish: '這個動作可能已經完成。系統已重新載入頁頂「目前已發佈」，請先看它的主日、版本和發佈時間是否已經是剛才這一次；寄出不會在填寫介面留下記錄，請看試算表的 SendLog 有沒有剛才這一次的寄出記錄。'
   };
 
   /**
@@ -388,9 +386,7 @@
    */
   var NO_RESPONSE_CHECK_WHERE = {
     week: '「最後儲存時間」和「版本記錄」',
-    publish: '頁頂「目前已發佈」和試算表的 SendLog',
-    quarterOps: '「季度作業」區塊',
-    quarterImport: '「季度作業」區塊'
+    publish: '頁頂「目前已發佈」和試算表的 SendLog'
   };
 
   /**
@@ -733,11 +729,8 @@
     setTimeout(function () {
       endRequest();
       deliver();
-      var reloadsQuarterOps = kind === 'quarterOps' || kind === 'quarterImport';
-      // 季度作業在頁面很下面，頁頂的訊息看不到，區塊內也寫一份（同 showQuarterOpsMessage()）。
-      if (reloadsQuarterOps) showQuarterOpsMessage('error', message);
       // G21：發佈不重新載入主日（表單上未儲存的改動要保留，與成功時一樣）。
-      if ((kind === 'week' || kind === 'quarterImport') && isoDate) {
+      if (kind === 'week' && isoDate) {
         // G27：重新載入失敗時保留剛顯示的那一句。
         loadWeek(isoDate, { keepMessage: true, failureNotice: message });
         refreshWeekSelectorLabels();
@@ -746,7 +739,6 @@
         loadPublishPanel();
         if (isSnapshotPanelOpen()) loadSnapshotPanel();
       }
-      if (reloadsQuarterOps) refreshQuarterOpsPanel({ failureNotice: message });
     }, NO_RESPONSE_RELOAD_DELAY_MS);
   }
 
@@ -1048,35 +1040,34 @@
   }
 
   /**
-   * 用途：內容表 v2：甲區塊（崇拜程序）那一條狀態列的開頭一句。
+   * 用途：v3：甲區塊（崇拜程序）那一條狀態列的開頭一句。九欄只在內容表填，這裏只顯示。
    */
-  var CONTENT_SHEET_BAR_OVERRIDABLE_SOURCE = '本區內容來自內容表「崇拜程序」'
-    + '（程序表大標題、程序範本、誦讀、詩班項目名稱只在這裏填）；在這裏改等於覆寫，之後匯入不會蓋過';
+  var CONTENT_SHEET_BAR_WORSHIP_SOURCE = '本區的序樂、宣召、詩歌、經文、講題、詩班只可以在內容表「崇拜程序」填'
+    + '（程序表大標題、程序範本、誦讀與程序增刪在這裏改）';
 
   /**
-   * 用途：渲染一個區塊上方那一行。三種狀態的文案完全不同（未建立內容表／
-   *   已建立但未匯入／已匯入）。內容表 v2 起甲區塊那一條（`data-content-sheet-bar="overridable"`）
-   *   講明在這裏改等於覆寫。
+   * 用途：渲染一個區塊上方那一行。四種狀態的文案不同（未建立內容表／內容表比系統舊，要先更新／
+   *   已建立但未匯入／已匯入）。v3：甲區塊那一條（`data-content-sheet-bar="worship"`）講明九欄只在內容表填。
+   *   「季度作業」區塊已經由填寫介面拿走：未建立內容表時講明系統會自動建立；內容表比系統舊時在這裏
+   *   直接按「更新本季內容表…」（先講會做甚麼，確認之後才做）。
    * Args:
    *   bar {Element} 狀態列。
-   *   info {{exists:boolean, fileUrl:string, lastImportedAt:string}} 內容表現況。
+   *   info {{exists:boolean, fileUrl:string, lastImportedAt:string, schemaStatus:string=,
+   *     schemaMessage:string=}} 內容表現況。`schemaStatus` 是 `'OK'`／`'OUTDATED'`／`'HEADER_CHANGED'`；
+   *     沒有就當 `'OK'`。
    */
   function renderContentSheetBar(bar, info) {
     bar.innerHTML = '';
     bar.classList.add('content-sheet-bar');
-    // 內容表 v2：甲區塊（崇拜程序）那一條標成 overridable——那一區的欄位是第三種模式：
-    // 來自內容表「崇拜程序」，但在這裏改得到，改了就是覆寫，之後匯入不會蓋過。
-    var overridable = bar.getAttribute('data-content-sheet-bar') === 'overridable';
-    var source = overridable ? CONTENT_SHEET_BAR_OVERRIDABLE_SOURCE : '本區內容來自內容表';
+    var worship = bar.getAttribute('data-content-sheet-bar') === 'worship';
+    var source = worship ? CONTENT_SHEET_BAR_WORSHIP_SOURCE : '本區內容來自內容表';
 
     if (!info.exists) {
       var warn = el('span');
       warn.textContent = source + '　｜　本季尚未建立內容表';
       bar.appendChild(warn);
       var hint = el('span', 'hint');
-      // ⚠️ R-038：整條例行流程都做得到，所以指返落面那一個區塊，
-      //    不再叫幹事轉去試算表選單。
-      hint.textContent = '　請在下面「季度作業」區塊按「建立／刷新本季內容表」。';
+      hint.textContent = '　職事表有這一季的版本之後，系統會自動建立內容表（每日檢查一次，開啟這一頁時亦會檢查）。';
       bar.appendChild(hint);
       return;
     }
@@ -1093,12 +1084,26 @@
     openLink.textContent = '開啟內容表';
     bar.appendChild(openLink);
 
-    // ⚠️ 這一粒的範圍是**這一個主日**，不是整季。整季匯入在「季度作業」
-    //    區塊。兩者範圍不同是刻意的，不是重複——所以名稱與提示都要講明
-    //    範圍，否則幹事分不出撳邊一粒（見 docs/已知bug類型.md 事故四十五）。
+    if (info.schemaStatus === 'OUTDATED') {
+      var outdated = el('span', 'hint');
+      outdated.textContent = '　本季內容表比系統舊，要先更新才可以匯入。';
+      bar.appendChild(outdated);
+      var upgradeBtn = makeSmallButton('更新本季內容表…', function () { startContentSheetUpgrade(); });
+      upgradeBtn.title = '先講會做甚麼（加欄、搬資料），你確認之後才會更新；同工填過的內容一格都不會刪。';
+      bar.appendChild(upgradeBtn);
+      return;
+    }
+    if (info.schemaStatus === 'HEADER_CHANGED') {
+      var changed = el('span', 'hint');
+      changed.textContent = '　' + (info.schemaMessage || '內容表的欄位被改動過，暫時不可以匯入，請聯絡 IT。');
+      bar.appendChild(changed);
+      return;
+    }
+
+    // ⚠️ 這一粒的範圍是**這一個主日**，不是整季——名稱與提示都要講明範圍
+    //    （見 docs/已知bug類型.md 事故四十五）。
     var oneWeekBtn = makeSmallButton('重新匯入（只限這一個主日）', function () { startContentImport(); });
-    oneWeekBtn.title = '只匯入目前選住的這一個主日。'
-      + '要整季一次過匯入，請用下面「季度作業」區塊的「從內容表匯入（整季）」。';
+    oneWeekBtn.title = '內容表改過之後按這裏，這一個主日的週報才會更新（只匯入目前選住的這一個主日）。';
     bar.appendChild(oneWeekBtn);
   }
 
@@ -1135,6 +1140,12 @@
   function openConfirmDialog(title, lines, onResult) {
     // 萬一上一個對話框還開著（正常不會發生），先當作取消，免得回呼遺失。
     if (confirmDialogCallback) settleConfirmDialog(false);
+
+    // v3：三選一對話框（openChoiceDialog()）會改按鈕字眼並顯示第三粒；一般確認對話框一律還原。
+    confirmDialogAltChosen = false;
+    document.getElementById('confirmOkBtn').textContent = '確定';
+    document.getElementById('confirmCancelBtn').textContent = '取消';
+    document.getElementById('confirmAltBtn').classList.add('hidden');
 
     document.getElementById('confirmDialogTitle').textContent = title;
     var body = document.getElementById('confirmDialogBody');
@@ -1178,6 +1189,45 @@
     // 看按鈕而不看 state：這一段要保持自足（測試會單獨抽出來執行）。
     if (document.getElementById('confirmCancelBtn').disabled === true) return;
     if (event && event.key === 'Escape') settleConfirmDialog(false);
+  }
+
+  /** v3：三選一對話框按了第三粒（confirmAltBtn）。settleConfirmDialog(false) 之前設定，回呼內分得出「另一個選擇」與「取消」。 */
+  var confirmDialogAltChosen = false;
+
+  /**
+   * 用途：v3：三選一的頁內對話框（例如下載 Word：已儲存的版本／包括未儲存修改的版本／取消）。
+   *   沿用確認對話框同一個框，只是改按鈕字眼並顯示第三粒；Esc 與「取消」一樣當作取消。
+   * Args:
+   *   title {string} 標題。
+   *   lines {string[]} 內文，每個元素一行。
+   *   labels {{ok:string, alt:string, cancel:string=}} 三粒按鈕的字眼（取消省略就用「取消」）。
+   *   onChoice {function(string):void} 回 `'ok'`、`'alt'` 或 `'cancel'`。
+   * Returns:
+   *   {void}
+   */
+  function openChoiceDialog(title, lines, labels, onChoice) {
+    openConfirmDialog(title, lines, function (accepted) {
+      var alt = confirmDialogAltChosen;
+      confirmDialogAltChosen = false;
+      onChoice(accepted ? 'ok' : (alt ? 'alt' : 'cancel'));
+    });
+    document.getElementById('confirmOkBtn').textContent = labels.ok;
+    document.getElementById('confirmCancelBtn').textContent = labels.cancel || '取消';
+    var altBtn = document.getElementById('confirmAltBtn');
+    altBtn.textContent = labels.alt;
+    altBtn.classList.remove('hidden');
+  }
+
+  /**
+   * 用途：v3：三選一對話框的第三粒按鈕。
+   * Returns:
+   *   {void}
+   */
+  function chooseConfirmDialogAlt() {
+    if (!confirmDialogCallback) return;
+    if (document.getElementById('confirmAltBtn').disabled === true) return;
+    confirmDialogAltChosen = true;
+    settleConfirmDialog(false);
   }
   // END confirm-dialog
 
@@ -1224,6 +1274,45 @@
       }
       callServer('apiRunContentImport', [state.isoDate], onContentImportDone, { busyText: '匯入中…' });
     });
+  }
+
+  /**
+   * 用途：v3：內容表狀態列的「更新本季內容表…」（內容表比系統舊時才出現）。先取預覽（會加甚麼欄、
+   *   搬甚麼資料），用頁內對話框確認之後才更新；完成之後重新載入這一個主日。
+   *   「季度作業」區塊已經由填寫介面拿走，這是幹事在介面內更新內容表的唯一入口；伺服器走的是
+   *   與試算表選單「建立本季內容表」同一組函式。
+   * Args: （無）
+   * Returns:
+   *   {void}
+   */
+  function startContentSheetUpgrade() {
+    if (!state.quarterId || !state.isoDate) return;
+    if (state.inFlight > 0) return;
+    hideMessage();
+    var quarterId = state.quarterId;
+    var isoDate = state.isoDate;
+    callServer('apiPreviewContentSheetBuild', [quarterId], function (resp) {
+      if (!resp.ok) { showMessage('error', resp.error.message); return; }
+      var data = resp.data;
+      if (!data.ok) { showMessage('error', data.message); return; }
+      var lines = (data.lines || []).slice();
+      if (hasUnsavedWeekChanges()) {
+        lines.push('');
+        lines.push('這一週的表單有未儲存的改動，更新之後會重新載入，未儲存的改動會丟失。');
+      }
+      lines.push('');
+      lines.push('確定要更新本季內容表嗎？');
+      openConfirmDialog('更新本季內容表', lines, function (accepted) {
+        if (!accepted) { showMessage('info', CANCELLED_NOTHING_WRITTEN_MESSAGE); return; }
+        callServer('apiRunContentSheetBuild', [quarterId], function (runResp) {
+          if (!runResp.ok) { showMessage('error', runResp.error.message); return; }
+          if (!runResp.data.ok) { showMessage('error', runResp.data.message); return; }
+          showMessage('success', '已更新本季內容表。之後內容表改過，按各區上方的「重新匯入」就會更新這一週。');
+          loadWeek(isoDate, { keepMessage: true });
+          refreshWeekSelectorLabels();
+        }, { busyText: '更新內容表中…' });
+      });
+    }, { busyText: '計算中…' });
   }
 
   function onContentImportDone(resp) {
@@ -1426,6 +1515,11 @@
 
     var rosterHint = el('span', 'duty-slot-roster');
     rosterHint.textContent = '職事表：' + (slot.rosterName || '（未排定）');
+    // v3：你填的名字與職事表不同（職事表有名字）時，職事表那一句改用橙色粗體，一眼看得出。
+    if (slot.hasOverride && String(slot.rosterName || '').trim() !== ''
+      && String(slot.rosterName || '').trim() !== String(slot.bulletinName || '').trim()) {
+      rosterHint.classList.add('is-different');
+    }
     wrap.appendChild(rosterHint);
 
     wrap.appendChild(restoreBtn);
@@ -1480,19 +1574,124 @@
     }
   }
 
+  // BEGIN program-edits（v3：測試會把這一段抽出來在假 DOM 上執行，請保持自足；用到 el()、makeSmallButton()、
+  //   schedulePreviewRefresh()、refreshUnsavedIndicator()）
+  /**
+   * v3（Ivan 測試結果 A 第 11 項）：這一週的程序增刪。資料存在隱藏欄位 #programEditsInput（JSON），
+   *   跟隨「儲存」送出（與其他週欄位一樣三方比較、版本記錄）。真正套用在伺服器 applyProgramEdits_()——
+   *   這裏只負責改那一格 JSON，然後叫伺服器重算程序表（即時預覽），自己不排一次（bug class 3）。
+   *
+   *   每一行（伺服器的 displayRows）帶 `key`（範本行，例如「拍照#1」）或 `addedId`（這一週加的行）。
+   */
+  var programAddAnchor = null;
+
+  function readProgramEdits() {
+    var input = document.getElementById('programEditsInput');
+    var text = input ? String(input.value || '').trim() : '';
+    var edits = { hidden: [], added: [] };
+    if (!text) return edits;
+    try {
+      var obj = JSON.parse(text);
+      if (obj && Array.isArray(obj.hidden)) edits.hidden = obj.hidden.slice();
+      if (obj && Array.isArray(obj.added)) edits.added = obj.added.slice();
+    } catch (err) { /* 格式不對：伺服器照範本印並出警告；這裏當作沒有增刪，再改一次就會寫回正確格式 */ }
+    return edits;
+  }
+
+  function writeProgramEdits(edits) {
+    var input = document.getElementById('programEditsInput');
+    var empty = edits.hidden.length === 0 && edits.added.length === 0;
+    input.value = empty ? '' : JSON.stringify({ v: 1, hidden: edits.hidden, added: edits.added });
+    schedulePreviewRefresh();
+    refreshUnsavedIndicator();
+  }
+
+  function toggleProgramRow(key, remove) {
+    var edits = readProgramEdits();
+    edits.hidden = edits.hidden.filter(function (k) { return k !== key; });
+    if (remove) edits.hidden.push(key);
+    writeProgramEdits(edits);
+  }
+
+  function removeAddedProgramRow(addedId) {
+    var edits = readProgramEdits();
+    var anchorOfRemoved = null;
+    edits.added = edits.added.filter(function (a) {
+      if (a.id === addedId) { anchorOfRemoved = a.after; return false; }
+      return true;
+    });
+    // 加在這一行之後的其他加項，改為加在它原本的位置之後，免得變成「找不到位置」。
+    edits.added.forEach(function (a) { if (a.after === 'add:' + addedId) a.after = anchorOfRemoved || '__END__'; });
+    writeProgramEdits(edits);
+  }
+
+  function openProgramAddForm(anchor, anchorLabel) {
+    programAddAnchor = anchor;
+    document.getElementById('programAddAfterLabel').textContent = anchor === '__END__'
+      ? '加在程序表最後：' : ('加在「' + anchorLabel + '」之後：');
+    document.getElementById('programAddName').value = '';
+    document.getElementById('programAddContent').value = '';
+    document.getElementById('programAddPosture').value = '眾 坐';
+    document.getElementById('programAddForm').classList.remove('hidden');
+    document.getElementById('programAddName').focus();
+  }
+
+  function closeProgramAddForm() {
+    programAddAnchor = null;
+    document.getElementById('programAddForm').classList.add('hidden');
+  }
+
+  function confirmProgramAdd() {
+    var name = String(document.getElementById('programAddName').value || '').trim();
+    if (!name) {
+      document.getElementById('programAddAfterLabel').textContent = '請先填項目名稱（例如：特別分享）。';
+      return;
+    }
+    var edits = readProgramEdits();
+    edits.added.push({
+      id: 'a' + Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36),
+      after: programAddAnchor || '__END__',
+      itemName: name,
+      content: String(document.getElementById('programAddContent').value || '').trim(),
+      posture: document.getElementById('programAddPosture').value
+    });
+    closeProgramAddForm();
+    writeProgramEdits(edits);
+  }
+
   function renderProgramPreview(rows) {
     var tbody = document.getElementById('programPreviewBody');
     tbody.innerHTML = '';
     (rows || []).forEach(function (r) {
-      var tr = el('tr');
+      var tr = el('tr', r.removed ? 'is-removed' : (r.added ? 'is-added' : ''));
       [r.itemName, r.content, r.fullWidth ? '' : r.posture].forEach(function (text) {
         var td = el('td');
         td.textContent = text || '';
         tr.appendChild(td);
       });
+      var actions = el('td', 'program-edit-actions');
+      if (r.added) {
+        actions.appendChild(makeSmallButton('×', function () { removeAddedProgramRow(r.addedId); }, true));
+      } else if (r.key && r.removed) {
+        actions.appendChild(makeSmallButton('還原', function () { toggleProgramRow(r.key, false); }));
+      } else if (r.key) {
+        actions.appendChild(makeSmallButton('×', function () { toggleProgramRow(r.key, true); }, true));
+      }
+      if (r.key || r.added) {
+        var anchor = r.added ? ('add:' + r.addedId) : r.key;
+        actions.appendChild(makeSmallButton('＋', function () { openProgramAddForm(anchor, r.itemName); }));
+      }
+      tr.appendChild(actions);
       tbody.appendChild(tr);
     });
+    var endRow = el('tr');
+    var endCell = el('td');
+    endCell.colSpan = 4;
+    endCell.appendChild(makeSmallButton('＋ 在最後加一項', function () { openProgramAddForm('__END__', ''); }));
+    endRow.appendChild(endCell);
+    tbody.appendChild(endRow);
   }
+  // END program-edits
 
   // =====================================================================
   // 可編輯欄位
@@ -1609,51 +1808,52 @@
   }
 
   /**
-   * 用途：畫出版本列表。名稱、時間、摘要一律 `textContent`。
+   * 用途：v3（Ivan 測試結果 A 第 14 項）：版本下拉。每一項顯示「時間｜由誰｜原因」，揀了之後下面那一行
+   *   顯示摘要與 Word 連結。名稱、時間、摘要一律 `textContent`。
    * Args:
-   *   list {Element} `<ul>`。
+   *   select {Element} `<select>`。
+   *   detail {Element} 摘要那一行。
    *   versions {Object[]} `apiListWeekSnapshots` 的 `versions`。
-   *   handlers {{onDiff:function(string):void, onRestore:function(string):void}}
    * Returns:
    *   {void}
    */
-  function renderSnapshotList(list, versions, handlers) {
-    list.innerHTML = '';
-    versions.forEach(function (version) {
-      var item = el('li', 'snapshot-item');
-
-      var meta = el('div', 'snapshot-meta');
-      meta.textContent = snapshotMetaText(version);
-      item.appendChild(meta);
-
-      var summary = el('div', 'snapshot-summary');
-      summary.textContent = version.summary || '';
-      item.appendChild(summary);
-
-      if (isDriveUrl(version.docUrl)) {
-        var link = el('a', 'snapshot-doc-link');
-        link.textContent = '開啟 Word 檔';
-        link.setAttribute('href', version.docUrl);
-        link.setAttribute('target', '_blank');
-        link.setAttribute('rel', 'noopener');
-        item.appendChild(link);
-      }
-
-      var buttons = el('div', 'snapshot-buttons');
-      var diffBtn = el('button', 'btn btn-small');
-      diffBtn.type = 'button';
-      diffBtn.textContent = '看差異';
-      diffBtn.addEventListener('click', function () { handlers.onDiff(version.snapshotId); });
-      buttons.appendChild(diffBtn);
-      var restoreBtn = el('button', 'btn btn-small');
-      restoreBtn.type = 'button';
-      restoreBtn.textContent = '還原到這個版本';
-      restoreBtn.addEventListener('click', function () { handlers.onRestore(version.snapshotId); });
-      buttons.appendChild(restoreBtn);
-      item.appendChild(buttons);
-
-      list.appendChild(item);
+  function renderSnapshotPicker(select, detail, versions) {
+    select.innerHTML = '';
+    (versions || []).forEach(function (version, i) {
+      var opt = el('option');
+      opt.value = version.snapshotId;
+      opt.textContent = (i === 0 ? '（最新）' : '') + snapshotMetaText(version);
+      select.appendChild(opt);
     });
+    select.disabled = (versions || []).length === 0;
+    renderSnapshotDetail(detail, (versions || [])[0] || null);
+  }
+
+  /**
+   * 用途：版本下拉下面那一行：揀中那個版本的摘要，有 Word 就加「開啟 Word 檔」。
+   * Args:
+   *   detail {Element}
+   *   version {?Object} 揀中的版本；`null` 就清空。
+   * Returns:
+   *   {void}
+   */
+  function renderSnapshotDetail(detail, version) {
+    detail.innerHTML = '';
+    if (!version) return;
+    var summary = el('span');
+    summary.textContent = version.summary || '';
+    detail.appendChild(summary);
+    if (isDriveUrl(version.docUrl)) {
+      var gap = el('span');
+      gap.textContent = '　';
+      detail.appendChild(gap);
+      var link = el('a', 'snapshot-doc-link');
+      link.textContent = '開啟這個版本的 Word 檔';
+      link.setAttribute('href', version.docUrl);
+      link.setAttribute('target', '_blank');
+      link.setAttribute('rel', 'noopener');
+      detail.appendChild(link);
+    }
   }
 
   /**
@@ -1766,9 +1966,9 @@
     var lines = [
       '重設這一週會：',
       '1. 先自動存一個版本，之後可以在版本記錄還原；',
-      '2. 這一週所有人手填的欄位改回建立時的預設值（例如序樂的範本預設值）；',
-      '3. 這一週的事奉框覆寫（包括上一週「下週事奉」改到這一週的）、在介面改過的欄位（例如講題、讀經經文）全部停用（不刪行）；',
-      '4. 如果本季已有內容表，由內容表重新匯入這一週；',
+      '2. 這一週在填寫介面填的欄位（例如大標題、獻花、下週事奉標題、程序增刪、清單次序）改回建立時的預設值；',
+      '3. 這一週的事奉框覆寫（包括上一週「下週事奉」改到這一週的）全部停用（不刪行），事奉改回以職事表為準；以前在介面改過的欄位亦一併停用；',
+      '4. 如果本季已有內容表，由內容表重新匯入這一週（序樂、經文、講題、詩歌、詩班等以內容表為準）；',
       '5. 職事表一格都不會改；已發佈的 PDF、已寄出的郵件、已產生的 Word 檔都不受影響。'
     ];
     if (hasUnsavedChanges) {
@@ -1821,17 +2021,20 @@
       if (requestedDate !== state.isoDate) return;
       if (!resp.ok) { setSnapshotStatus('版本記錄載入失敗：' + resp.error.message); return; }
       var data = resp.data;
+      state.snapshotVersions = data.versions || [];
       renderPublishedList(document.getElementById('snapshotPublished'), data.published);
-      renderSnapshotList(document.getElementById('snapshotList'), data.versions, {
-        onDiff: onSnapshotDiffClicked,
-        onRestore: onSnapshotRestoreClicked
-      });
+      renderSnapshotPicker(document.getElementById('snapshotSelect'), document.getElementById('snapshotDetail'),
+        state.snapshotVersions);
+      updateSnapshotButtons();
+      var latest = state.snapshotVersions[0];
+      var lastEdit = latest ? '最後修改：' + (latest.createdAt || '（時間不明）') + '（' + (latest.createdBy || '未知使用者')
+        + '，' + (latest.reasonLabel || '') + '）。' : '';
       if (data.versions.length === 0) {
         setSnapshotStatus('這一個主日還沒有任何版本。');
       } else if (data.totalCount > data.shownCount) {
-        setSnapshotStatus('共 ' + data.totalCount + ' 個版本，列表只顯示最新 ' + data.shownCount + ' 個；舊版本不會刪除。');
+        setSnapshotStatus(lastEdit + '共 ' + data.totalCount + ' 個版本，下拉只列最新 ' + data.shownCount + ' 個；舊版本不會刪除。');
       } else {
-        setSnapshotStatus('共 ' + data.totalCount + ' 個版本。');
+        setSnapshotStatus(lastEdit + '共 ' + data.totalCount + ' 個版本。');
       }
       state.snapshotsLoadedFor = requestedDate;
     }, {
@@ -1853,9 +2056,44 @@
       loadSnapshotPanel();
       return;
     }
-    renderSnapshotList(document.getElementById('snapshotList'), [], { onDiff: onSnapshotDiffClicked, onRestore: onSnapshotRestoreClicked });
+    state.snapshotVersions = [];
+    renderSnapshotPicker(document.getElementById('snapshotSelect'), document.getElementById('snapshotDetail'), []);
+    updateSnapshotButtons();
     renderPublishedList(document.getElementById('snapshotPublished'), []);
     setSnapshotStatus('');
+  }
+
+  /**
+   * 用途：v3：版本下拉現在揀中的版本編號（沒有版本就是空字串）。
+   * Returns:
+   *   {string}
+   */
+  function selectedSnapshotId() {
+    var select = document.getElementById('snapshotSelect');
+    return select && !select.disabled ? String(select.value || '') : '';
+  }
+
+  /**
+   * 用途：v3：按揀中的版本更新「預覽這個版本」連結、「看差異」「還原」兩粒按鈕與摘要那一行。
+   *   預覽連結由伺服器給的預覽網址加 `&snapshot=` 砌出（伺服器那邊照樣核對那個版本屬於這一個主日）。
+   * Returns:
+   *   {void}
+   */
+  function updateSnapshotButtons() {
+    var id = selectedSnapshotId();
+    var link = document.getElementById('snapshotPreviewLink');
+    var base = state.previewUrl || '';
+    if (id && base) {
+      link.setAttribute('href', base + '&snapshot=' + encodeURIComponent(id));
+      link.classList.remove('hidden');
+    } else {
+      link.removeAttribute('href');
+      link.classList.add('hidden');
+    }
+    document.getElementById('snapshotDiffBtn').disabled = !id;
+    document.getElementById('snapshotRestoreBtn').disabled = !id;
+    var version = (state.snapshotVersions || []).filter(function (v) { return v.snapshotId === id; })[0] || null;
+    renderSnapshotDetail(document.getElementById('snapshotDetail'), version);
   }
 
   /**
@@ -2007,6 +2245,10 @@
    */
   function downloadWordMessage(data) {
     var base = '已產生 ' + data.fileName + '，請在瀏覽器的下載清單查看。';
+    // v3：草稿（包括未儲存的修改）只下載，不存雲端硬碟，你的修改仍未儲存。
+    if (data.draft) {
+      return { type: 'info', text: base + '　這是包括未儲存修改的草稿，沒有存到雲端硬碟；你的修改仍未儲存，要按「儲存」。' };
+    }
     var storeWarnings = (data.warnings || []).filter(function (w) {
       return String(w && w.code || '').indexOf('WORD_') === 0;
     });
@@ -2186,19 +2428,126 @@
    *   刻意保留 `buildListRow()` 等可編輯的實作（暫時沒有呼叫方）——
    *   日後如果有某一張表要改回可編輯，改一個分支就得，不用重寫。
    */
+  // BEGIN list-arrange（v3：測試會把這一段抽出來在假 DOM 上執行，請保持自足；用到 el()、makeSmallButton()、
+  //   state、LIST_DEFS、buildReadOnlyListRow()、refreshUnsavedIndicator()）
+  /**
+   * v3（Ivan 測試結果 A 第 13 項）：丁戊己三張清單在這一週的次序與刪除。內容不可以在這裏改（內容表
+   *   為準）；這裏只可以拖動改次序、按「×」拿走（刪除線，按「還原」回來）。結果寫進隱藏欄位
+   *   #listArrangementInput（JSON），跟隨「儲存」送出。伺服器 arrangeListItems_() 才是真正套用的地方，
+   *   每一則的鍵（`arrangeKey`）亦由伺服器算好，這裏不自己算。
+   */
+  var ARRANGEABLE_LISTS = ['announcements', 'prayers', 'fellowships'];
+  var listDrag = null;
+
+  function isArrangeable(type) {
+    return ARRANGEABLE_LISTS.indexOf(type) !== -1;
+  }
+
+  function isDefaultArrangement(items) {
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].hidden) return false;
+      if (i > 0 && Number(items[i].sourceIndex) < Number(items[i - 1].sourceIndex)) return false;
+    }
+    return true;
+  }
+
+  function writeListArrangement() {
+    var out = { v: 1 };
+    var any = false;
+    ARRANGEABLE_LISTS.forEach(function (type) {
+      var items = state.lists[type] || [];
+      if (isDefaultArrangement(items)) return;
+      any = true;
+      out[type] = items.map(function (it) { return { k: it.arrangeKey, h: it.hidden === true }; });
+    });
+    document.getElementById('listArrangementInput').value = any ? JSON.stringify(out) : '';
+    refreshUnsavedIndicator();
+  }
+
+  function moveArrangedItem(type, from, to) {
+    var arr = state.lists[type];
+    if (from === to || from < 0 || to < 0 || from >= arr.length || to >= arr.length) return;
+    var moved = arr.splice(from, 1)[0];
+    arr.splice(to, 0, moved);
+    writeListArrangement();
+    renderList(type);
+  }
+
+  function toggleArrangedItem(type, idx) {
+    var item = state.lists[type][idx];
+    if (!item) return;
+    item.hidden = !item.hidden;
+    writeListArrangement();
+    renderList(type);
+  }
+
+  function buildArrangeableRow(type, def, item, idx, count) {
+    var row = buildReadOnlyListRow(def, item);
+    if (item.hidden) row.classList.add('is-hidden-item');
+    row.draggable = true;
+    var handle = el('span', 'drag-handle');
+    handle.textContent = '⠿';
+    handle.title = '拖動改次序';
+    row.insertBefore(handle, row.firstChild);
+    var actions = el('div', 'repeatable-row-actions');
+    var up = makeSmallButton('↑', function () { moveArrangedItem(type, idx, idx - 1); });
+    up.disabled = idx === 0;
+    var down = makeSmallButton('↓', function () { moveArrangedItem(type, idx, idx + 1); });
+    down.disabled = idx === count - 1;
+    actions.appendChild(up);
+    actions.appendChild(down);
+    actions.appendChild(item.hidden
+      ? makeSmallButton('還原', function () { toggleArrangedItem(type, idx); })
+      : makeSmallButton('×', function () { toggleArrangedItem(type, idx); }, true));
+    row.appendChild(actions);
+
+    row.addEventListener('dragstart', function (e) {
+      listDrag = { type: type, idx: idx };
+      row.classList.add('is-dragging');
+      try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(idx)); } catch (err) { /* 舊瀏覽器 */ }
+    });
+    row.addEventListener('dragend', function () {
+      listDrag = null;
+      row.classList.remove('is-dragging');
+    });
+    row.addEventListener('dragover', function (e) {
+      if (!listDrag || listDrag.type !== type) return;
+      e.preventDefault();
+      row.classList.add('is-drop-target');
+    });
+    row.addEventListener('dragleave', function () { row.classList.remove('is-drop-target'); });
+    row.addEventListener('drop', function (e) {
+      e.preventDefault();
+      row.classList.remove('is-drop-target');
+      if (!listDrag || listDrag.type !== type) return;
+      var from = listDrag.idx;
+      listDrag = null;
+      moveArrangedItem(type, from, idx);
+    });
+    return row;
+  }
+
+  /**
+   * ⚠️ R-011 起，這四張清單**全部改由內容表輸入**，內容一律唯讀顯示。
+   *   v3：丁戊己可以改次序與拿走（只影響這一週）；財政報告照舊唯讀。
+   */
   function renderList(type) {
     var def = LIST_DEFS[type];
     var container = document.getElementById(def.containerId);
     container.innerHTML = '';
-    state.lists[type].forEach(function (item) {
-      container.appendChild(buildReadOnlyListRow(def, item));
+    var items = state.lists[type] || [];
+    items.forEach(function (item, idx) {
+      container.appendChild(isArrangeable(type)
+        ? buildArrangeableRow(type, def, item, idx, items.length)
+        : buildReadOnlyListRow(def, item));
     });
-    if (state.lists[type].length === 0) {
+    if (items.length === 0) {
       var empty = el('div', 'hint');
       empty.textContent = '（本週未有資料。內容由內容表輸入，填好之後按上方的「重新匯入」。）';
       container.appendChild(empty);
     }
   }
+  // END list-arrange
 
   /**
    * 用途：把清單一項渲染成**唯讀**一行。
@@ -2538,12 +2887,19 @@
     renderPreviewLink(data.previewUrl);
     renderWordFileInfo(data.wordFile);
     refreshSnapshotPanel();
-    renderProgramPreview(data.readOnly.program);
+    closeProgramAddForm();
+    renderProgramPreview(data.readOnly.programDisplay || data.readOnly.program);
     // R-011：一定要排在 applyWeekFieldsToForm() 之後——先填值，再把那幾個
     // 欄位設成唯讀，否則設定 readOnly 之後再寫值會看起來像可以編輯。
     applyContentSheetReadOnly(data.contentSheet);
     document.getElementById('publishServiceDate').textContent = isoDate;
+    // v3：發佈／寄出只限該週；頂部「目前已發佈」只在該週顯示。
+    renderPublishWindow(data.publishWindow);
+    // v3：你填的名字與職事表不同的崗位；「查看／修改職事表」按鈕。
+    renderDutyDiffNotice(data.dutyDiffs);
+    renderRosterAppLink(data.rosterWebAppUrl);
     setLoaded(true);
+    refreshUnsavedIndicator();
   }
 
   /**
@@ -2559,6 +2915,66 @@
    */
   function renderPreviewLink(url) {
     var link = document.getElementById('previewLink');
+    // v3：「這一個主日的預覽連結」框（與職事表系統的永久連結框同一個樣子）。
+    var urlBox = document.getElementById('previewLinkUrl');
+    var openLink = document.getElementById('openPreviewLink');
+    document.getElementById('copyPreviewLinkDone').classList.add('hidden');
+    state.previewUrl = url || '';
+    if (!url) {
+      link.classList.add('hidden');
+      link.removeAttribute('href');
+      urlBox.textContent = '（取不到預覽網址：請 IT 在 Config 填 PREVIEW_WEBAPP_URL）';
+      openLink.classList.add('hidden');
+      openLink.removeAttribute('href');
+      return;
+    }
+    link.href = url;
+    link.classList.remove('hidden');
+    urlBox.textContent = url;
+    openLink.href = url;
+    openLink.classList.remove('hidden');
+  }
+
+  /**
+   * 用途：v3：「本週事奉」上方那一段：你填的名字與職事表不同的崗位（職事表未排定的不算）。每次載入與
+   *   「由職事表重新取數」之後都更新。名字用 textContent，不經 innerHTML。
+   * Args:
+   *   diffs {?{postLabel:string, slotIndex:number, bulletinName:string, rosterName:string, conflict:boolean}[]}
+   *     伺服器 `buildDutyDiffNotices_()` 的結果；沒有就當沒有不同。
+   * Returns:
+   *   {void}
+   */
+  function renderDutyDiffNotice(diffs) {
+    var box = document.getElementById('dutyDiffNotice');
+    var list = diffs || [];
+    box.innerHTML = '';
+    if (list.length === 0) {
+      box.classList.add('hidden');
+      return;
+    }
+    var head = el('div');
+    head.textContent = '以下 ' + list.length + ' 個崗位你填的名字與職事表不同，週報會用你填的名字。'
+      + '要改回職事表的名字，按該格的「還原」，或者按上面「以職事表覆寫我的修改…」。';
+    box.appendChild(head);
+    list.forEach(function (d) {
+      var line = el('div');
+      line.textContent = '・' + d.postLabel + (Number(d.slotIndex) > 1 ? '（第 ' + d.slotIndex + ' 位）' : '')
+        + '：你填「' + (d.bulletinName || '（空白）') + '」，職事表「' + d.rosterName + '」'
+        + (d.conflict ? '（職事表在你改了之後又改過）' : '');
+      box.appendChild(line);
+    });
+    box.classList.remove('hidden');
+  }
+
+  /**
+   * 用途：v3：「查看／修改職事表」按鈕。網址由伺服器讀 Config（只接受 https://），沒有就不顯示。
+   * Args:
+   *   url {string}
+   * Returns:
+   *   {void}
+   */
+  function renderRosterAppLink(url) {
+    var link = document.getElementById('rosterAppLink');
     if (!url) {
       link.classList.add('hidden');
       link.removeAttribute('href');
@@ -2569,7 +2985,114 @@
   }
 
   /**
-   * 用途：按「重讀職事表（本主日，不覆寫）」。
+   * 用途：v3：開啟填寫介面時，系統剛自動建立了新季度（或者建立失敗）的那一句，放在頂部黃色橫幅。
+   *   沒有就收起。
+   * Args:
+   *   text {string} 伺服器 `buildAutoCreateQuartersMessage_()` 的結果。
+   * Returns:
+   *   {void}
+   */
+  function renderAutoCreateNotice(text) {
+    var bar = document.getElementById('autoCreateBar');
+    var t = String(text || '').trim();
+    bar.textContent = t;
+    bar.classList.toggle('hidden', !t);
+  }
+
+  // BEGIN publish-window（v3：測試會把這一段抽出來在假 DOM 上執行，請保持自足；用到 state）
+  /**
+   * 用途：v3：按伺服器算好的發佈時窗，決定頂部「目前已發佈」那一行、發佈與寄出兩個勾選、
+   *   「執行」能不能用。只有畫面上是「該週」（上一個主日翌日至該主日）才可以發佈或寄出；
+   *   其他週顯示伺服器那一句說明。測試用的「模擬今日」亦講明。
+   * Args:
+   *   win {?{isCurrentWeek:boolean, notice:string, simulated:boolean, simulatedInvalid:boolean,
+   *     todayIso:string}} `apiLoadWeek()` 的 `publishWindow`；沒有就當不在時窗。
+   * Returns:
+   *   {void}
+   */
+  function renderPublishWindow(win) {
+    var w = win || { isCurrentWeek: false, notice: '' };
+    state.publishWindow = w;
+    var current = w.isCurrentWeek === true;
+    document.getElementById('publishStatusBar').classList.toggle('hidden', !current);
+
+    var parts = [];
+    if (!current && w.notice) parts.push(String(w.notice));
+    if (w.simulated === true) parts.push('（測試設定：系統現在當今日是 ' + String(w.todayIso || '') + '。正式使用前要清空。）');
+    if (w.simulatedInvalid === true) parts.push('（測試用的「模擬今日」格式不對，已改用真正的今日。）');
+    var notice = document.getElementById('publishWindowNotice');
+    notice.textContent = parts.join('　');
+    notice.classList.toggle('hidden', parts.length === 0);
+
+    document.getElementById('doPublishCheck').disabled = !current;
+    document.getElementById('doSendCheck').disabled = !current;
+    document.getElementById('publishRunBtn').disabled = !current;
+    document.getElementById('publishFileRow').classList.toggle('is-window-closed', !current);
+    document.getElementById('publishSendRow').classList.toggle('is-window-closed', !current);
+  }
+
+  /**
+   * 用途：v3：畫面上的主日是不是在發佈時窗之內（「執行」按鈕忙碌完之後要不要重新啟用，看這一個）。
+   * Returns:
+   *   {boolean}
+   */
+  function isPublishWindowOpen() {
+    return Boolean(state.publishWindow && state.publishWindow.isCurrentWeek === true);
+  }
+  // END publish-window
+
+  /**
+   * 用途：v3：「複製連結」——把這一個主日的預覽連結複製到剪貼簿。瀏覽器不准用剪貼簿時退回舊方法，
+   *   兩個都不行就選取連結文字，請使用者自己按 Ctrl+C。
+   * Returns:
+   *   {void}
+   */
+  function copyPreviewLink() {
+    var url = state.previewUrl || '';
+    if (!url) return;
+    var done = document.getElementById('copyPreviewLinkDone');
+    function ok() { done.textContent = '已複製'; done.classList.remove('hidden'); }
+    function fallback() {
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = url;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        var copied = document.execCommand('copy');
+        document.body.removeChild(ta);
+        if (copied) { ok(); return; }
+      } catch (err) { /* 下面講明 */ }
+      done.textContent = '瀏覽器不准自動複製，請選取上面的連結再按 Ctrl+C。';
+      done.classList.remove('hidden');
+    }
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(ok, fallback);
+        return;
+      }
+    } catch (err) { /* 退回舊方法 */ }
+    fallback();
+  }
+
+  /**
+   * 用途：v3：有未儲存的修改時，頂部出一句提醒，所有「儲存」按鈕加一圈黃色。
+   *   判斷用 hasUnsavedWeekChanges()（與換週保護、「儲存」送甚麼同一套規則）。
+   * Returns:
+   *   {void}
+   */
+  function refreshUnsavedIndicator() {
+    var dirty = hasUnsavedWeekChanges();
+    document.getElementById('unsavedHint').classList.toggle('hidden', !dirty);
+    var buttons = document.querySelectorAll('[data-save-button]');
+    for (var i = 0; i < buttons.length; i++) buttons[i].classList.toggle('has-unsaved', dirty);
+  }
+
+  /**
+   * 用途：按「由職事表重新取數」（v3：取代以前頂部的「重讀職事表（本主日，不覆寫）」）。
+   *   重新讀取職事表最新內容、重畫兩個事奉框，講出你填的與職事表不同的崗位；不覆寫任何一格。
    *
    *   審查後修正 7：這個按鈕會按職事表最新內容重畫兩個事奉框，事奉框上未儲存的改動（改了的名字、
    *   「保留我的」、「還原」）會靜靜丟失。有這種改動時先用頁內確認對話框問一次；按「取消」甚麼都不做，
@@ -2583,7 +3106,7 @@
     if (!state.isoDate) return;
     if (state.inFlight > 0) return;
     if (!hasUnsavedDutyEdits()) { startRosterReload(); return; }
-    openConfirmDialog('重讀職事表', [RELOAD_ROSTER_DISCARD_DUTY_PROMPT], function (accepted) {
+    openConfirmDialog('由職事表重新取數', [RELOAD_ROSTER_DISCARD_DUTY_PROMPT], function (accepted) {
       if (accepted) startRosterReload();
     });
   }
@@ -2592,7 +3115,7 @@
    * 審查後修正 7：「重讀職事表」會重畫事奉框，事奉框有未儲存的改動時先問的一句。放在 reloadRosterOnly()
    * 之後（測試會把 reloadRosterOnly() 至 buildSavePayload() 這一段抽出來執行）。
    */
-  var RELOAD_ROSTER_DISCARD_DUTY_PROMPT = '重讀職事表會丟失你未儲存的事奉改動，確定嗎？';
+  var RELOAD_ROSTER_DISCARD_DUTY_PROMPT = '重新取數會按職事表最新內容重畫事奉框，你未儲存的事奉改動會丟失，確定嗎？';
 
   /**
    * 用途：真正送出「重讀職事表」的請求（`reloadRosterOnly()` 確認之後才叫）。
@@ -2603,7 +3126,7 @@
   function startRosterReload() {
     if (!state.isoDate || state.inFlight > 0) return;
     hideMessage();
-    callServer('apiLoadWeek', [state.isoDate], onRosterReloaded, { busyText: '讀取職事表中…' });
+    callServer('apiLoadWeek', [state.isoDate], onRosterReloaded, { busyText: '由職事表重新取數中…' });
   }
 
   /**
@@ -2621,9 +3144,15 @@
     state.loadedNextDutyNames = dutyNameMap(state.nextWeekDutyEdits);
     renderStats(resp.data.missingSplit, resp.data.warnings, state.lastSavedAt);
     renderConflictStat(resp.data.rosterDiff);
-    renderProgramPreview(resp.data.readOnly.program);
+    // v3：程序表用表單上的草稿重算（未儲存的程序增刪不可以被重畫走）。
+    schedulePreviewRefresh();
+    // v3：重新取數之後講出你填的與職事表不同的崗位（名字一律保留你填的）。
+    var diffs = resp.data.dutyDiffs || [];
+    renderDutyDiffNotice(diffs);
     var msg = resp.data.rosterReloadMessage;
-    showMessage(msg.type, msg.text);
+    showMessage(msg.type, msg.text + (diffs.length > 0
+      ? '　有 ' + diffs.length + ' 個崗位你填的名字與職事表不同，已保留你填的（見「本週事奉」上方）。'
+      : '　你填的名字與職事表沒有不同。'));
   }
 
   /**
@@ -2654,6 +3183,9 @@
 
   function setSaveButtonText(text) {
     document.getElementById('saveBtn').textContent = text;
+    // v3：每一個區塊的「儲存」一併改字（都是同一個動作）。
+    var buttons = document.querySelectorAll('[data-save-button]');
+    for (var i = 0; i < buttons.length; i++) buttons[i].textContent = text;
   }
 
   /**
@@ -2769,7 +3301,7 @@
 
     if (state.fetchCandidates.length === 0) {
       var empty = el('div', 'dialog-empty');
-      empty.textContent = '週報與職事表一致，沒有需要取數的欄位。';
+      empty.textContent = '沒有需要覆寫的格：你填的名字都與職事表相同，或者職事表未排定（未排定的會保留你填的）。';
       body.appendChild(empty);
       footnote.classList.add('hidden');
       confirmBtn.classList.add('hidden');
@@ -2779,7 +3311,7 @@
     confirmBtn.classList.remove('hidden');
 
     var table = el('table');
-    table.innerHTML = '<thead><tr><th></th><th>崗位</th><th>位次</th><th>你的覆寫值</th><th>職事表現值</th></tr></thead>';
+    table.innerHTML = '<thead><tr><th></th><th>崗位</th><th>位次</th><th>你填的名字</th><th>職事表的名字</th></tr></thead>';
     var tbody = el('tbody');
 
     state.fetchCandidates.forEach(function (row, idx) {
@@ -2860,7 +3392,7 @@
       showMessage(resp.data.message.type, resp.data.message.text);
       // 重新載入才看得到新的名單與衝突狀態；一定要保留剛顯示的訊息。
       loadWeek(state.isoDate, { keepMessage: true });
-    }, { busyText: '由職事表重新取數中…' });
+    }, { busyText: '以職事表覆寫中…' });
   }
 
   // =====================================================================
@@ -2881,7 +3413,7 @@
     if (!state.isoDate) return;
     var draft = collectWeekFieldsFromForm();
     callServer('apiPreviewProgram', [state.isoDate, draft], function (resp) {
-      if (resp.ok) renderProgramPreview(resp.data.rows);
+      if (resp.ok) renderProgramPreview(resp.data.displayRows || resp.data.rows);
     }, {
       busy: 'preview',
       // 預覽失敗不打擾使用者，維持上一次的預覽內容；但仍然要回報，
@@ -3116,12 +3648,10 @@
       pdfName: state.publish.pdfName,
       groups: selectedPublishGroups(),
       customEmails: document.getElementById('publishCustomEmails').value,
-      confirmed: confirmed === true
+      confirmed: confirmed === true,
+      // v3：寄出時一併附上這個主日最新已儲存的 Word（伺服器先確定有那個檔，沒有就一封都不寄）。
+      attachWord: doSend && document.getElementById('attachWordCheck').checked === true
     };
-    // 審查後修正 4：確認之後把視窗講的那一期送回，伺服器在鎖內與現時那一期比較；第一次「執行」不送。
-    if (confirmed === true && state.publish.confirmMasterIssue) {
-      publishPayload.confirmedMasterIssue = state.publish.confirmMasterIssue;
-    }
 
     callServer('apiRunPublish', [publishPayload], function (resp) {
       setPublishButtonsBusy(false);
@@ -3158,7 +3688,8 @@
   function setPublishButtonsBusy(busy, text) {
     var runBtn = document.getElementById('publishRunBtn');
     var okBtn = document.getElementById('publishConfirmOkBtn');
-    runBtn.disabled = busy === true;
+    // v3：不在發佈時窗之內（不是該週）一律停用，忙碌完亦不可以重新啟用。
+    runBtn.disabled = busy === true || !isPublishWindowOpen();
     runBtn.textContent = busy ? (text || '處理中…') : '執行';
     okBtn.disabled = busy === true
       ? true
@@ -3199,7 +3730,7 @@
 
     var data = resp.data;
     if (!data.ok && data.reason === 'NEEDS_CONFIRM') {
-      openPublishConfirm(data.lines, data.labels, data.masterIssue);
+      openPublishConfirm(data.lines, data.labels);
       return;
     }
     if (!data.ok) {
@@ -3307,12 +3838,10 @@
    *   lines {string[]} 伺服器排好的內容行。
    *   labels {{title:string, checkbox:string, confirmButton:string}=} 伺服器
    *     按「這次做甚麼」算好的字眼（F7：只寄出時不可以出現「發佈」）。
-   *   masterIssue {?{isoDate:string, versionNo:(number|null)}=} 只寄出時視窗講的那一期（審查後修正 4），
-   *     按「確認」時原樣送回；沒有就是 null。
    * Returns:
    *   {void}
    */
-  function openPublishConfirm(lines, labels, masterIssue) {
+  function openPublishConfirm(lines, labels) {
     var l = labels || { title: '發佈前檢查', checkbox: '我明白以上情況，仍然要發佈', confirmButton: '確認發佈' };
     document.getElementById('publishConfirmTitle').textContent = l.title;
     document.getElementById('publishForcedLabel').textContent = l.checkbox;
@@ -3325,10 +3854,6 @@
     document.getElementById('publishConfirmOkBtn').disabled = true;
     // G19 補充：每次打開都是一個新的確認，未送出。
     state.publish.confirmSent = false;
-    // 審查後修正 4：每次打開都換成這一次視窗講的那一期（沒有就清走，不可以沿用上一次的）。
-    state.publish.confirmMasterIssue = (masterIssue && masterIssue.isoDate)
-      ? { isoDate: String(masterIssue.isoDate), versionNo: masterIssue.versionNo === undefined ? null : masterIssue.versionNo }
-      : null;
     document.getElementById('publishConfirmBackdrop').classList.remove('hidden');
   }
 
@@ -3370,15 +3895,39 @@
    */
   function downloadWord() {
     if (!state.isoDate) { showMessage('error', '未選擇主日，無法下載。'); return; }
+    if (state.inFlight > 0) return;
     hideMessage();
-    callServer('apiDownloadBulletinDocx', [state.isoDate], function (resp) {
+    // v3（Ivan 測試結果 A 第 16 項）：有未儲存的修改時先問要哪一個版本。草稿不會存到雲端硬碟。
+    if (!hasUnsavedWeekChanges()) { startWordDownload(null); return; }
+    openChoiceDialog('下載 Word', [
+      '這一頁有未儲存的修改。',
+      '「已儲存的版本」：用最後一次儲存的內容產生，並更新雲端硬碟上的最新 Word。',
+      '「包括未儲存修改的版本（草稿）」：連同畫面上未儲存的修改一齊產生，只下載，不存到雲端硬碟，亦不會儲存你的修改。'
+    ], { ok: '已儲存的版本', alt: '包括未儲存修改的版本（草稿）' }, function (choice) {
+      if (choice === 'ok') startWordDownload(null);
+      else if (choice === 'alt') startWordDownload(buildSavePayload());
+    });
+  }
+
+  /**
+   * 用途：真正向伺服器要 Word。`draft` 是 null＝已儲存的版本；否則是與「儲存」同一個形狀的草稿
+   *   （只取週欄位與事奉格，伺服器不寫任何東西）。
+   * Args:
+   *   draft {?Object}
+   * Returns:
+   *   {void}
+   */
+  function startWordDownload(draft) {
+    var args = draft ? [state.isoDate, { draft: { week: draft.week, dutyEdits: draft.dutyEdits,
+      nextWeekDutyEdits: draft.nextWeekDutyEdits } }] : [state.isoDate];
+    callServer('apiDownloadBulletinDocx', args, function (resp) {
       if (!resp.ok) { showMessage('error', resp.error.message); return; }
       triggerBinaryDownload(resp.data.base64, resp.data.fileName,
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
       if (resp.data.wordFile) renderWordFileInfo(resp.data.wordFile);
       var done = downloadWordMessage(resp.data);
       showMessage(done.type, done.text);
-    }, { busyText: '產生 Word 檔中…' });
+    }, { busyText: draft ? '產生 Word 草稿中…' : '產生 Word 檔中…' });
   }
 
   function triggerBinaryDownload(base64, fileName, mimeType) {
@@ -3663,7 +4212,16 @@
     document.getElementById('nextWeekBtn').addEventListener('click', function () { stepWeek(1); });
     document.getElementById('backfillRosterBtn').addEventListener('click', backfillRoster);
     document.getElementById('saveBtn').addEventListener('click', saveWeek);
-    document.getElementById('reloadRosterBtn').addEventListener('click', reloadRosterOnly);
+    // v3：每一個可以輸入的區塊右上角都有一粒「儲存」，與頂部那一粒同一個動作（儲存整個主日）。
+    var sectionSaves = document.querySelectorAll('[data-save-button]');
+    for (var si = 0; si < sectionSaves.length; si++) {
+      if (sectionSaves[si].id === 'saveBtn') continue;
+      sectionSaves[si].addEventListener('click', function () { saveWeek(); });
+    }
+    document.getElementById('copyPreviewLinkBtn').addEventListener('click', function () { copyPreviewLink(); });
+    // v3：程序表「＋」加一項的小表格。
+    document.getElementById('programAddOkBtn').addEventListener('click', confirmProgramAdd);
+    document.getElementById('programAddCancelBtn').addEventListener('click', closeProgramAddForm);
     document.getElementById('statMissing').addEventListener('click', function () {
       document.getElementById('missingPanel').classList.toggle('hidden');
     });
@@ -3675,7 +4233,10 @@
       document.getElementById('conflictPanel').classList.toggle('hidden');
     });
 
-    document.getElementById('fetchFromRosterBtn').addEventListener('click', openFetchFromRosterDialog);
+    // v3：「由職事表重新取數」＝重新讀取職事表、講出你填的與職事表不同的崗位，不覆寫任何一格；
+    //    「以職事表覆寫我的修改…」才會把你改過的名字改回職事表的名字（先列出、勾選、確定）。
+    document.getElementById('fetchFromRosterBtn').addEventListener('click', function () { reloadRosterOnly(); });
+    document.getElementById('overwriteFromRosterBtn').addEventListener('click', function () { openFetchFromRosterDialog(); });
     document.getElementById('fetchCancelBtn').addEventListener('click', cancelFetchFromRoster);
     document.getElementById('fetchConfirmBtn').addEventListener('click', confirmFetchFromRoster);
     document.getElementById('fetchSelectAllBtn').addEventListener('click', function () { setAllFetchCheckboxes(true); });
@@ -3691,7 +4252,6 @@
       savePublishPrefs();
     });
     document.getElementById('publishPdfInput').addEventListener('change', onPublishPdfChosen);
-    wireQuarterOpsEvents();
     document.getElementById('publishRunBtn').addEventListener('click', function () { runPublish(false); });
     document.getElementById('downloadWordBtn').addEventListener('click', downloadWord);
     // 階段 2：版本記錄（摺疊區塊打開時才向伺服器取）。
@@ -3699,12 +4259,30 @@
       if (isSnapshotPanelOpen() && state.isoDate && state.snapshotsLoadedFor !== state.isoDate) loadSnapshotPanel();
     });
     document.getElementById('resetWeekBtn').addEventListener('click', onResetWeekClicked);
+    // v3：版本下拉＋三粒按鈕（預覽是一條連結，揀版本時更新）。
+    document.getElementById('snapshotSelect').addEventListener('change', function () {
+      document.getElementById('snapshotDiffBox').classList.add('hidden');
+      updateSnapshotButtons();
+    });
+    document.getElementById('snapshotDiffBtn').addEventListener('click', function () {
+      var id = selectedSnapshotId();
+      if (id) onSnapshotDiffClicked(id);
+    });
+    document.getElementById('snapshotRestoreBtn').addEventListener('click', function () {
+      var id = selectedSnapshotId();
+      if (id) onSnapshotRestoreClicked(id);
+    });
     document.getElementById('confirmOkBtn').addEventListener('click', function () {
       // G25：處理中不算數（按鈕已停用；這裏是第二道）。
       if (state.inFlight > 0) return;
       settleConfirmDialog(true);
     });
     document.getElementById('confirmCancelBtn').addEventListener('click', function () { settleConfirmDialog(false); });
+    // v3：三選一對話框的第三粒。
+    document.getElementById('confirmAltBtn').addEventListener('click', function () {
+      if (state.inFlight > 0) return;
+      chooseConfirmDialogAlt();
+    });
     document.addEventListener('keydown', onConfirmDialogKeydown);
     document.getElementById('publishConfirmCancelBtn').addEventListener('click', cancelPublishConfirm);
     document.getElementById('publishConfirmOkBtn').addEventListener('click', function () { runPublish(true); });
@@ -3728,289 +4306,19 @@
         }
         schedulePreviewRefresh();
       }
+      // v3：任何輸入（包括事奉框）之後更新「有未儲存的修改」提示。
+      refreshUnsavedIndicator();
     });
-  }
-
-  // =====================================================================
-  // R-038：季度作業
-  //
-  // ⚠️ 每一個伺服器呼叫都經 callServer()，一個都不可以自己叫
-  //    google.script.run——不寫失敗處理的後果是後端拋的錯全部人間蒸發
-  //    （見 docs/已知bug類型.md 事故二十五）。callServer() 順帶處理忙碌
-  //    鎖定：回應未返回之前重複撳，第二下不會發出去。
-  //
-  // ⚠️ 四個唯讀報告共用同一個可捲動面板，不用 alert()：內容動輒過百行，
-  //    alert 會爆，而且爆的時候只見到頭幾行，看的人以為報告只有那麼多。
-  // =====================================================================
-
-  /**
-   * 用途：摺疊／展開「季度作業」區塊。第一次展開才去拿面板資料——
-   *   每次開介面都拿一次，是為一個一季用一次的區塊付每日的代價。
-   * Returns:
-   *   {void}
-   */
-  function toggleQuarterOps() {
-    var body = document.getElementById('quarterOpsBody');
-    var toggle = document.getElementById('quarterOpsToggle');
-    var open = body.classList.contains('hidden');
-
-    body.classList.toggle('hidden', !open);
-    toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
-    document.getElementById('quarterOpsCaret').textContent = open ? '▾' : '▸';
-
-    if (open) refreshQuarterOpsPanel();
-  }
-
-  /**
-   * 用途：拿「季度作業」區塊的現況（季度、DRY_RUN、內容表有沒有建立）。
-   * Args:
-   *   options {{failureNotice:string}=} 第二批測試修正 G27：沒有回應之後自動重新載入時
-   *     剛顯示的那一句；重新載入失敗時保留它，再加 RELOAD_AFTER_NO_RESPONSE_FAILED。
-   * Returns:
-   *   {void}
-   * Raises:
-   *   （無）
-   */
-  function refreshQuarterOpsPanel(options) {
-    // G27：沒有回應之後自動重新載入（failureNotice）亦失敗時，保留原本那一句再加一句，
-    // 頁頂與「季度作業」區塊兩處都不可以被新的錯誤蓋走。
-    var notice = options && options.failureNotice ? String(options.failureNotice) : '';
-    function keepNotice() {
-      var text = notice + RELOAD_AFTER_NO_RESPONSE_FAILED;
-      showQuarterOpsMessage('error', text);
-      showMessage('error', text);
-    }
-    callServer('apiGetQuarterOpsPanel', [state.quarterId || ''], function (resp) {
-      if (!resp.ok) {
-        if (notice) keepNotice();
-        else showQuarterOpsMessage('error', resp.error.message);
-        return;
-      }
-      renderQuarterOpsPanel(resp.data);
-    }, notice ? { busy: 'preview', onError: keepNotice } : { busy: 'preview' });
-  }
-
-  /**
-   * 用途：畫出季度、DRY_RUN 標記與內容表連結。
-   * Args:
-   *   data {Object} apiGetQuarterOpsPanel 的 data。
-   * Returns:
-   *   {void}
-   */
-  function renderQuarterOpsPanel(data) {
-    state.quarterOps = data;
-
-    document.getElementById('quarterOpsQuarter').textContent =
-      data.quarterId ? ('（' + data.quarterId + '）') : '（未能決定季度）';
-
-    // ⚠️ DRY_RUN 一定要顯示喺「寄出內容表連結」旁邊。撳完見到「已寄 12 封」
-    //    而其實一封都冇寄出，是這個系統最容易踩的一種誤會。
-    var dryRunEl = document.getElementById('opInviteDryRun');
-    // D4：先講中文（模擬模式／正式寄出），Config 的鍵放在括號內，IT 一看便知是哪一格。
-    dryRunEl.textContent = data.dryRun
-      ? '模擬模式（DRY_RUN=TRUE）：不會真的寄出'
-      : '正式寄出（DRY_RUN=FALSE）：會真的寄出';
-    dryRunEl.className = 'quarter-ops-dryrun ' + (data.dryRun ? 'is-dryrun' : 'is-live');
-
-    var linkRow = document.getElementById('opContentSheetLinkRow');
-    if (data.contentSheet && data.contentSheet.exists && data.contentSheet.fileUrl) {
-      linkRow.classList.remove('hidden');
-      document.getElementById('opContentSheetLink').href = data.contentSheet.fileUrl;
-      var meta = [];
-      if (data.contentSheet.inviteSentAt) meta.push('連結已寄出：' + data.contentSheet.inviteSentAt);
-      if (data.contentSheet.lastImportedAt) meta.push('最後匯入：' + data.contentSheet.lastImportedAt);
-      document.getElementById('opContentSheetMeta').textContent = meta.join('　｜　');
-    } else {
-      linkRow.classList.add('hidden');
-    }
-  }
-
-  /**
-   * 用途：「季度作業」區塊自己的訊息列。
-   *
-   *   ⚠️ 刻意不用頁頂那一條：這個區塊在頁面很下面，訊息寫在頁頂等於
-   *   沒有寫——使用者撳完只會見到甚麼都沒有發生，然後再撳一次。
-   * Args:
-   *   kind {string} `'error'`／`'info'`／`'success'`。
-   *   text {string}
-   * Returns:
-   *   {void}
-   */
-  function showQuarterOpsMessage(kind, text) {
-    var box = document.getElementById('quarterOpsMessage');
-    box.className = 'quarter-ops-message is-' + kind;
-    box.textContent = text;
-    box.classList.remove('hidden');
-  }
-
-  function hideQuarterOpsMessage() {
-    document.getElementById('quarterOpsMessage').classList.add('hidden');
-  }
-
-  /**
-   * 用途：把一份唯讀報告顯示在可捲動的結果面板。
-   * Args:
-   *   title {string} 報告名稱。
-   *   lines {string[]} 報告內容，一行一個元素。
-   * Returns:
-   *   {void}
-   */
-  function showQuarterOpsReport(title, lines) {
-    var rows = lines || [];
-    document.getElementById('quarterOpsReportTitle').textContent = title;
-    document.getElementById('quarterOpsReportCount').textContent = '共 ' + rows.length + ' 行';
-    document.getElementById('quarterOpsReportBody').textContent = rows.join('\n');
-    document.getElementById('quarterOpsReport').classList.remove('hidden');
-  }
-
-  function hideQuarterOpsReport() {
-    document.getElementById('quarterOpsReport').classList.add('hidden');
-  }
-
-  /**
-   * 用途：目前「季度作業」要處理哪一季。
-   *
-   *   ⚠️ 以伺服器算出來的那一個為準（`quarterOpsPanelData_()`），
-   *   前端不自己猜——兩處各猜一次，介面顯示的季度就會跟實際做的那一季
-   *   不同，而那是最不可能有人發現的一種錯。
-   * Returns:
-   *   {string} 拿不到就回空字串。
-   */
-  function currentOpsQuarterId() {
-    if (state.quarterOps && state.quarterOps.quarterId) return state.quarterOps.quarterId;
-    return state.quarterId || '';
-  }
-
-  /**
-   * 用途：有副作用那四粒的共用流程——先叫預覽 API，把「將會發生什麼」
-   *   顯示出來，使用者確認之後才叫執行 API。
-   *
-   *   ⚠️ 預覽與執行走伺服器端同一組底層函式，所以預覽講的跟實際做的
-   *   一定是同一件事。
-   *
-   *   按「取消」顯示 CANCELLED_NOTHING_WRITTEN_MESSAGE（與重設、還原同一句，G15）。
-   * Args:
-   *   opts {{previewApi:string, runApi:string, args:Array, busyText:string,
-   *          confirmSuffix:string, onDone:(function(Object):void|undefined)}}
-   * Returns:
-   *   {void}
-   * Raises:
-   *   （無）伺服器錯誤經「季度作業」區塊的訊息列顯示。
-   */
-  function runQuarterOp(opts) {
-    if (state.inFlight > 0) return;
-    hideQuarterOpsMessage();
-    hideQuarterOpsReport();
-
-    callServer(opts.previewApi, opts.args, function (resp) {
-      if (!resp.ok) { showQuarterOpsMessage('error', resp.error.message); return; }
-      var data = resp.data;
-      if (!data.ok) {
-        // ⚠️ 「做不到」與「做了但沒有效果」要分得出。底層回的 message
-        //    已經講明下一步要撳哪一粒，原句顯示，不要自己再包裝。
-        showQuarterOpsMessage('error', data.message);
-        if (data.lines && data.lines.length > 0) showQuarterOpsReport(data.title, data.lines);
-        return;
-      }
-
-      var confirmLines = (data.lines || []).concat(['', opts.confirmSuffix]);
-      openConfirmDialog(data.title || '季度作業', confirmLines, function (accepted) {
-        if (!accepted) {
-          showQuarterOpsMessage('info', CANCELLED_NOTHING_WRITTEN_MESSAGE);
-          return;
-        }
-
-        callServer(opts.runApi, opts.args, function (runResp) {
-          if (!runResp.ok) { showQuarterOpsMessage('error', runResp.error.message); return; }
-          if (!runResp.data.ok) { showQuarterOpsMessage('error', runResp.data.message); return; }
-          showQuarterOpsReport(runResp.data.title, runResp.data.lines);
-          showQuarterOpsMessage('success', runResp.data.title + '：完成。');
-          refreshQuarterOpsPanel();
-          if (opts.onDone) opts.onDone(runResp.data);
-        }, { busyText: opts.busyText });
-      });
-    }, { busyText: '計算中…' });
-  }
-
-  /**
-   * 用途：唯讀那四粒的共用流程——叫一次 API，把回傳的行顯示在面板。
-   *   **不寫任何東西。**
-   * Args:
-   *   api {string} api* 函式名稱。
-   *   args {Array}
-   *   busyText {string}
-   * Returns:
-   *   {void}
-   */
-  function runQuarterReport(api, args, busyText) {
-    if (state.inFlight > 0) return;
-    hideQuarterOpsMessage();
-
-    callServer(api, args, function (resp) {
-      if (!resp.ok) { showQuarterOpsMessage('error', resp.error.message); return; }
-      if (!resp.data.ok) {
-        showQuarterOpsMessage('error', resp.data.message);
-        hideQuarterOpsReport();
-        return;
-      }
-      showQuarterOpsReport(resp.data.title, resp.data.lines);
-    }, { busyText: busyText });
-  }
-
-  function wireQuarterOpsEvents() {
-    document.getElementById('quarterOpsToggle').addEventListener('click', toggleQuarterOps);
-    document.getElementById('quarterOpsReportClose').addEventListener('click', hideQuarterOpsReport);
-
-    document.getElementById('opCreateWeeksBtn').addEventListener('click', function () {
-      runQuarterOp({
-        previewApi: 'apiPreviewCreateWeeks', runApi: 'apiRunCreateWeeks',
-        args: [currentOpsQuarterId()], busyText: '建立中…',
-        confirmSuffix: '確定要建立嗎？（已經存在的主日一格都不會改）'
-      });
-    });
-
-    document.getElementById('opContentSheetBtn').addEventListener('click', function () {
-      runQuarterOp({
-        previewApi: 'apiPreviewContentSheetBuild', runApi: 'apiRunContentSheetBuild',
-        args: [currentOpsQuarterId()], busyText: '處理中…',
-        confirmSuffix: '確定要繼續嗎？'
-      });
-    });
-
-    document.getElementById('opInviteBtn').addEventListener('click', function () {
-      var dryRun = state.quarterOps ? state.quarterOps.dryRun : true;
-      runQuarterOp({
-        previewApi: 'apiPreviewContentSheetInvite', runApi: 'apiRunContentSheetInvite',
-        args: [currentOpsQuarterId()], busyText: '寄出中…',
-        // ⚠️ 確認那一句要**再講一次** DRY_RUN，因為這是唯一一粒會真的
-        //    寄信出街的按鈕。旁邊那個標記看漏了，這一句還攔得住。
-        confirmSuffix: dryRun
-          ? '目前是模擬模式（DRY_RUN=TRUE），按「確定」不會真的寄出任何郵件，只會在試算表的 SendLog 留下記錄。確定要繼續嗎？'
-          : '⚠️ 目前是正式寄出（DRY_RUN=FALSE），按「確定」會真的把郵件寄出去。確定要寄嗎？'
-      });
-    });
-
-    document.getElementById('opImportQuarterBtn').addEventListener('click', function () {
-      runQuarterOp({
-        previewApi: 'apiPreviewQuarterContentImport', runApi: 'apiRunQuarterContentImport',
-        args: [currentOpsQuarterId()], busyText: '匯入中…',
-        confirmSuffix: '確定要把整季匯入嗎？',
-        // 匯入會改到目前這一個主日的內容，所以重新載入一次。
-        onDone: function () { if (state.isoDate) loadWeek(state.isoDate); }
-      });
-    });
-
-    document.getElementById('opMissingBtn').addEventListener('click', function () {
-      runQuarterReport('apiQuarterMissingReport', [currentOpsQuarterId()], '整理中…');
-    });
-    document.getElementById('opRosterDiffBtn').addEventListener('click', function () {
-      runQuarterReport('apiRosterDiffReport', [state.isoDate || ''], '比對中…');
-    });
-    document.getElementById('opGoLiveBtn').addEventListener('click', function () {
-      runQuarterReport('apiGoLiveReport', [], '檢查中…');
-    });
-    document.getElementById('opRevisionsBtn').addEventListener('click', function () {
-      runQuarterReport('apiPublishRevisionsReport', [], '讀取中…');
+    // v3：下拉（程序範本、誦讀）改了、以及按了「還原」「保留我的」「×」等按鈕之後，亦更新提示。
+    //    用 setTimeout 等那一下按鈕自己的處理做完才判斷。
+    document.addEventListener('change', function () { refreshUnsavedIndicator(); });
+    document.addEventListener('click', function () { setTimeout(function () { refreshUnsavedIndicator(); }, 0); });
+    // v3：有未儲存的修改而離開或重新整理頁面時，瀏覽器先問一次（嵌入框不准時就沒有提示，不影響其他功能）。
+    window.addEventListener('beforeunload', function (e) {
+      if (!hasUnsavedWeekChanges()) return undefined;
+      e.preventDefault();
+      e.returnValue = '';
+      return '';
     });
   }
 
@@ -4053,11 +4361,14 @@
     document.getElementById('conflictPanel').classList.add('hidden');
     applyBusyState();
     loadPublishPanel();
-    callServer('apiListWeeks', [state.showArchived], onWeeksLoaded, { busyText: '載入中…' });
+    // v3：第一次載入時順手檢查職事表有沒有新季度（有就自動建立該季週報與內容表）。
+    callServer('apiListWeeks', [state.showArchived, { autoCreate: true }], onWeeksLoaded,
+      { busyText: '載入中…（順便檢查職事表有沒有新的季度）' });
   }
 
   function onWeeksLoaded(resp) {
     if (!resp.ok) { showMessage('error', resp.error.message); return; }
+    renderAutoCreateNotice(resp.data.autoCreateNotice);
     renderQuarterEmptyHint(resp.data);
     populateWeekSelectors(resp.data, resp.data.defaultIsoDate);
     if (resp.data.defaultIsoDate) {

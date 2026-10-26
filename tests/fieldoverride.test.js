@@ -342,7 +342,9 @@ test('預覽講的行數與格數，跟實際寫的一樣', function () {
 
 console.log('\n第 2 組：覆寫不被蓋');
 
-test('⚠️ 內容表改值 → 匯入 → 有覆寫那格值不變，報告出現 CONFLICT', function () {
+test('⚠️ v3：內容表改值 → 匯入 → 內容表為準；舊的介面覆寫不再擋住匯入，亦不報 CONFLICT', function () {
+  // v3（Ivan 測試結果 A 第 10 項）：講題等九欄只可以在內容表輸入，沒有「介面可覆寫」。舊的生效覆寫在
+  //    「更新本季內容表」時已經停用（src/ContentSheetMigrateV3.gs）；萬一仍然有，亦不可以擋住內容表的值。
   const env = makeEnv({
     content: { 崇拜程序: [{ SERVICE_DATE: D1, SERMON_TITLE: '內容表新值', ACTIVE: 'TRUE' }] },
     weekRows: [{ SERVICE_DATE: D1, QUARTER_ID: QUARTER_ID, SERMON_TITLE: '幹事覆寫值' }],
@@ -355,14 +357,8 @@ test('⚠️ 內容表改值 → 匯入 → 有覆寫那格值不變，報告出
 
   const applied = env.sandbox.applyContentImport_(QUARTER_ID, {});
   assert.strictEqual(applied.ok, true, JSON.stringify(applied));
-
-  assert.strictEqual(rows(env, 'BULLETIN_WEEKS')[0].SERMON_TITLE, '幹事覆寫值',
-    '有覆寫就不可以被蓋過去');
-
-  const conflicts = applied.plan.conflicts || [];
-  assert.strictEqual(conflicts.length, 1, '要報一筆 CONFLICT');
-  assert.strictEqual(conflicts[0].field, 'SERMON_TITLE');
-  assert.strictEqual(conflicts[0].sourceValue, '內容表新值');
+  assert.strictEqual(rows(env, 'BULLETIN_WEEKS')[0].SERMON_TITLE, '內容表新值', 'v3：內容表為準');
+  assert.strictEqual((applied.plan.conflicts || []).length, 0, 'v3：不再有「你自己改過」的衝突');
 });
 
 test('⚠️ 沒有覆寫的欄位 → 照樣跟隨內容表最新值（規則 2）', function () {
@@ -390,29 +386,36 @@ test('放棄覆寫（ACTIVE=FALSE）→ 再匯入就跟隨內容表', function (
     '已停用的覆寫不可以再攔匯入');
 });
 
-test('computeFieldOverridePlan_：改成與來源相同 → 停用覆寫，不是留住', function () {
-  // ⚠️ 留住的話，那一格會從此不再跟隨內容表，而幹事以為它會。
+test('computeFieldOverridePlan_：v3 沒有可覆寫欄位 → 甚麼都不做；機制本身（日後再有可覆寫欄位時）改成與來源相同 → 停用覆寫', function () {
   const env = makeEnv({});
   const index = env.sandbox.buildFieldOverrideIndex_([{
     SERVICE_DATE: D1, FIELD_KEY: 'SERMON_TITLE', OVERRIDE_VALUE: '覆寫值',
     SOURCE_VALUE_AT_OVERRIDE: '來源值', ACTIVE: true
   }]);
+  const none = env.sandbox.computeFieldOverridePlan_(
+    { SERMON_TITLE: '來源值' }, { SERMON_TITLE: '來源值' }, index, D1);
+  assert.strictEqual(none.upserts.length + none.deactivations.length, 0, 'v3：沒有可覆寫欄位');
+
+  // 機制保留：假設某一欄日後重新設為可覆寫，規則照舊（留住的話那一格從此不跟隨內容表）。
+  env.sandbox.CONTENT_SHEET_OVERRIDABLE_FIELDS = ['SERMON_TITLE'];
   const plan = env.sandbox.computeFieldOverridePlan_(
     { SERMON_TITLE: '來源值' }, { SERMON_TITLE: '來源值' }, index, D1);
-
   assert.strictEqual(plan.upserts.length, 0);
   assert.strictEqual(plan.deactivations.length, 1);
   assert.strictEqual(plan.deactivations[0].fieldKey, 'SERMON_TITLE');
 });
 
-test('applyFieldOverrides_：純函式，不改動傳進來那個物件', function () {
+test('applyFieldOverrides_：純函式，不改動傳進來那個物件；v3 沒有可覆寫欄位 → 原樣', function () {
   const env = makeEnv({});
   const week = { SERMON_TITLE: '原值', PRELUDE: '序樂' };
   const index = env.sandbox.buildFieldOverrideIndex_([{
     SERVICE_DATE: D1, FIELD_KEY: 'SERMON_TITLE', OVERRIDE_VALUE: '覆寫值', ACTIVE: true
   }]);
-  const out = env.sandbox.applyFieldOverrides_(week, D1, index);
+  const v3 = env.sandbox.applyFieldOverrides_(week, D1, index);
+  assert.strictEqual(v3.SERMON_TITLE, '原值', 'v3：舊覆寫不再套用');
 
+  env.sandbox.CONTENT_SHEET_OVERRIDABLE_FIELDS = ['SERMON_TITLE'];
+  const out = env.sandbox.applyFieldOverrides_(week, D1, index);
   assert.strictEqual(out.SERMON_TITLE, '覆寫值');
   assert.strictEqual(out.PRELUDE, '序樂', '沒有覆寫的欄位原樣保留');
   assert.strictEqual(week.SERMON_TITLE, '原值', '不可以改動傳進來那一個');
@@ -450,12 +453,12 @@ test('第三種模式的欄位**不是**唯讀（介面照樣改得到）', func
   });
 });
 
-test('送出第三種模式的欄位 → 不會被當成唯讀而整次拒絕', function () {
+test('v3：送出講題 → 當成唯讀而整次拒絕；浸禮六欄照樣可以送', function () {
   const env = makeEnv({});
   const offending = env.sandbox.findSubmittedReadOnlyFields_({
     week: { SERMON_TITLE: '因信稱義', BAPTISM_OFFICIANT: '甲' }
   });
-  assert.strictEqual(JSON.stringify(offending.week || offending), '[]',
+  assert.strictEqual(JSON.stringify(offending), JSON.stringify(['SERMON_TITLE']),
     '實際：' + JSON.stringify(offending));
 });
 
@@ -802,25 +805,27 @@ test('⚠️ 非浸禮主日六欄全空 → 不報錯、不報警告', function
     '整季只有一個主日是浸禮合堂，其餘全空是正常的：' + JSON.stringify(baptismWarnings));
 });
 
-test('多人欄位一格多位、空格分隔，匯入原樣保存', function () {
+test('v3：浸禮六欄不在內容表——內容表「崇拜程序」帶了浸禮欄位亦不會匯入（只在填寫介面填）', function () {
   const env = makeEnv({
     content: {
       崇拜程序: [{ SERVICE_DATE: D1, BAPTISM_MEMBERS: '陳大文 李小明 王美華', ACTIVE: 'TRUE' }]
-    }
+    },
+    weekRows: [{ SERVICE_DATE: D1, QUARTER_ID: QUARTER_ID, BAPTISM_MEMBERS: '介面填的 名單' }]
   });
   env.sandbox.applyContentImport_(QUARTER_ID, {});
-  assert.strictEqual(rows(env, 'BULLETIN_WEEKS')[0].BAPTISM_MEMBERS, '陳大文 李小明 王美華',
-    '不加尊稱、不重新排序、不拆開再組回去');
+  assert.strictEqual(rows(env, 'BULLETIN_WEEKS')[0].BAPTISM_MEMBERS, '介面填的 名單',
+    '浸禮六欄以填寫介面為準，匯入不可以動');
 });
 
-test('浸禮六欄（內容表 v2 起在「崇拜程序」最後六欄）與 baptismBoxFieldDefs_() 一致', function () {
+test('v3：「崇拜程序」沒有浸禮六欄；最後五欄是序樂、宣召出處、宣召經文、詩歌頌讚、詩班項目名稱', function () {
   const env = makeEnv({});
   const tab = env.sandbox.contentSheetTabDefs_()
     .filter(function (d) { return d.tabName === '崇拜程序'; })[0];
-  const valueKeys = tab.keys.slice(tab.keys.length - 6);
-  assert.strictEqual(JSON.stringify(valueKeys),
-    JSON.stringify(Array.prototype.slice.call(env.sandbox.baptismBoxFieldKeys_())),
-    '六欄的單一真相來源是 baptismBoxFieldDefs_()');
+  Array.prototype.slice.call(env.sandbox.baptismBoxFieldKeys_()).forEach(function (k) {
+    assert.strictEqual(tab.keys.indexOf(k), -1, k + ' 不可以在內容表');
+  });
+  assert.strictEqual(JSON.stringify(Array.prototype.slice.call(tab.keys, tab.keys.length - 5)),
+    JSON.stringify(['PRELUDE', 'CALL_REF', 'CALL_TEXT', 'HYMN_PRAISE', 'CHOIR_LABEL']));
 });
 
 // =====================================================================
@@ -868,7 +873,7 @@ test('F1 匯入後：匯入前載入的分頁只改獻花儲存 → 證道講題
   assert.strictEqual(rows(env, 'BULLETIN_WEEKS')[0].SERMON_TITLE, '內容表再改');
 });
 
-test('F1 匯入後：舊分頁真的改了講題 → 與匯入值衝突，整次拒絕', function () {
+test('F1 匯入後：舊分頁真的改了講題 → v3 講題只可以在內容表改，整次拒絕（CONTENT_SHEET_READONLY）', function () {
   const env = makeEnv({
     content: { 崇拜程序: [{ SERVICE_DATE: D1, SERMON_TITLE: '匯入的新講題', ACTIVE: 'TRUE' }] },
     weekRows: [{ SERVICE_DATE: D1, QUARTER_ID: QUARTER_ID, SERMON_TITLE: '舊講題' }]
@@ -882,115 +887,29 @@ test('F1 匯入後：舊分頁真的改了講題 → 與匯入值衝突，整次
       baseWeek: { SERMON_TITLE: '舊講題' }, week: { SERMON_TITLE: '我在舊分頁改的' }
     });
   } catch (err) { thrown = err; }
-  assert.ok(thrown && thrown.code === 'FIELD_CONFLICT', String(thrown));
+  assert.ok(thrown && thrown.code === 'CONTENT_SHEET_READONLY', String(thrown));
   assert.ok(thrown.message.indexOf('證道講題') !== -1, thrown.message);
   assert.strictEqual(rows(env, 'BULLETIN_WEEKS')[0].SERMON_TITLE, '匯入的新講題');
   assert.strictEqual(rows(env, 'FIELD_OVERRIDE').length, 0);
 });
 
-test('⚠️ F5 覆寫來源值是空白（內容表建立前已在介面填過），內容表值 = 覆寫值 → 匯入後覆寫停用', function () {
-  const env = makeEnv({
-    content: { 崇拜程序: [{ SERVICE_DATE: D1, SERMON_TITLE: '同一個講題', ACTIVE: 'TRUE' }] },
-    weekRows: [{ SERVICE_DATE: D1, QUARTER_ID: QUARTER_ID, SERMON_TITLE: '同一個講題' }],
-    fieldOverride: [overrideRow(D1, 'SERMON_TITLE', '同一個講題', '')]
-  });
-
-  const preview = env.sandbox.previewContentImport_(QUARTER_ID, {});
-  assert.strictEqual(preview.ok, true, JSON.stringify(preview));
-  assert.strictEqual(preview.plan.releases.length, 1, '預覽也要算出會解除一格');
-  assert.strictEqual(rows(env, 'FIELD_OVERRIDE')[0].ACTIVE, true, '預覽是唯讀的，不可以寫');
-  const previewText = env.sandbox.buildContentImportDialogLines_(preview, { applied: false }).join('\n');
-  assert.ok(previewText.indexOf('ℹ️ 有 1 格你之前改過的值，現在已經與內容表一致，將會從此改回跟隨內容表。') !== -1, previewText);
-
-  const applied = env.sandbox.applyContentImport_(QUARTER_ID, {});
-  assert.strictEqual(applied.ok, true);
-  const ov = rows(env, 'FIELD_OVERRIDE');
-  assert.strictEqual(ov.length, 1, '不刪行');
-  assert.strictEqual(ov[0].ACTIVE, false, '覆寫要停用');
-  assert.strictEqual(rows(env, 'BULLETIN_WEEKS')[0].SERMON_TITLE, '同一個講題');
-
-  const audit = rows(env, 'AUDIT_LOG').filter(function (r) { return r.ACTION === 'FIELD_OVERRIDE_RELEASE'; });
-  assert.strictEqual(audit.length, 1, '要記 FIELD_OVERRIDE_RELEASE');
-  assert.strictEqual(audit[0].ROW_KEY, D1 + '#SERMON_TITLE');
-
-  const appliedText = env.sandbox.buildContentImportDialogLines_(applied, { applied: true }).join('\n');
-  assert.ok(appliedText.indexOf('ℹ️ 有 1 格你之前改過的值，現在已經與內容表一致，已從此改回跟隨內容表。') !== -1, appliedText);
-
-  // 之後內容表改值 → 下一次匯入照常更新，沒有 ✋。
-  const tab = env.contentTabs['崇拜程序'];
-  tab.__data[2][tab.__data[1].indexOf('SERMON_TITLE')] = '內容表之後改的';
-  const next = env.sandbox.applyContentImport_(QUARTER_ID, {});
-  assert.strictEqual((next.plan.conflicts || []).length, 0, '不可以再報「你自己改過」');
-  assert.strictEqual(next.plan.releases.length, 0);
-  assert.strictEqual(rows(env, 'BULLETIN_WEEKS')[0].SERMON_TITLE, '內容表之後改的');
-  const nextText = env.sandbox.buildContentImportDialogLines_(next, { applied: true }).join('\n');
-  assert.strictEqual(nextText.indexOf('✋'), -1, nextText);
-});
-
-test('⚠️ F5 內容表改過值之後，幹事改回內容表的新值 → 同樣解除（比的是內容表現值，不是覆寫當時的來源值）', function () {
-  const env = makeEnv({
-    content: { 崇拜程序: [{ SERVICE_DATE: D1, SERMON_TITLE: '內容表新值', ACTIVE: 'TRUE' }] },
-    // 覆寫當時來源是「內容表舊值」；內容表其後改成「內容表新值」；幹事把介面改成同一個新值。
-    weekRows: [{ SERVICE_DATE: D1, QUARTER_ID: QUARTER_ID, SERMON_TITLE: '內容表新值' }],
-    fieldOverride: [overrideRow(D1, 'SERMON_TITLE', '內容表新值', '內容表舊值')]
-  });
-  const applied = env.sandbox.applyContentImport_(QUARTER_ID, {});
-  assert.strictEqual(applied.plan.releases.length, 1);
-  assert.strictEqual(rows(env, 'FIELD_OVERRIDE')[0].ACTIVE, false);
-});
-
-test('F5 內容表值與覆寫值不同 → 覆寫保留，照舊報 ✋，不解除', function () {
+test('⚠️ F5 v3：匯入不再處理介面覆寫（沒有可覆寫欄位）——舊覆寫不解除、不擋、不報；內容表的值照寫', function () {
+  // v3：舊覆寫由「更新本季內容表」移轉時停用（tests/contentsheetv2.test.js 的 v3 移轉測試）。匯入本身不再碰 FieldOverride。
   const env = makeEnv({
     content: { 崇拜程序: [{ SERVICE_DATE: D1, SERMON_TITLE: '內容表的值', ACTIVE: 'TRUE' }] },
     weekRows: [{ SERVICE_DATE: D1, QUARTER_ID: QUARTER_ID, SERMON_TITLE: '幹事的值' }],
     fieldOverride: [overrideRow(D1, 'SERMON_TITLE', '幹事的值', '舊值')]
   });
+  const preview = env.sandbox.previewContentImport_(QUARTER_ID, {});
+  assert.strictEqual(preview.ok, true, JSON.stringify(preview));
+  assert.strictEqual(preview.plan.releases.length, 0);
   const applied = env.sandbox.applyContentImport_(QUARTER_ID, {});
   assert.strictEqual(applied.plan.releases.length, 0);
-  assert.strictEqual(applied.plan.conflicts.length, 1);
-  assert.strictEqual(rows(env, 'FIELD_OVERRIDE')[0].ACTIVE, true);
-  assert.strictEqual(rows(env, 'BULLETIN_WEEKS')[0].SERMON_TITLE, '幹事的值');
+  assert.strictEqual((applied.plan.conflicts || []).length, 0);
+  assert.strictEqual(rows(env, 'BULLETIN_WEEKS')[0].SERMON_TITLE, '內容表的值');
+  assert.strictEqual(rows(env, 'FIELD_OVERRIDE')[0].ACTIVE, true, '匯入不寫 FieldOverride');
   const text = env.sandbox.buildContentImportDialogLines_(applied, { applied: true }).join('\n');
-  assert.strictEqual(text.indexOf('ℹ️ 有'), -1, '沒有解除就不可以講有解除：' + text);
-});
-
-test('F5 已經停用的覆寫不會被重複解除；其他欄位的覆寫不受影響', function () {
-  const env = makeEnv({
-    content: { 崇拜程序: [{ SERVICE_DATE: D1, SERMON_TITLE: '甲', RESPONSE_HYMN: '乙', ACTIVE: 'TRUE' }] },
-    weekRows: [{ SERVICE_DATE: D1, QUARTER_ID: QUARTER_ID, SERMON_TITLE: '甲', RESPONSE_HYMN: '幹事改的詩' }],
-    fieldOverride: [
-      overrideRow(D1, 'SERMON_TITLE', '甲', '', false),
-      overrideRow(D1, 'RESPONSE_HYMN', '幹事改的詩', '舊詩')
-    ]
-  });
-  const applied = env.sandbox.applyContentImport_(QUARTER_ID, {});
-  assert.strictEqual(applied.plan.releases.length, 0, '已停用的不用再解除');
-  const byKey = {};
-  rows(env, 'FIELD_OVERRIDE').forEach(function (r) { byKey[r.FIELD_KEY] = r; });
-  assert.strictEqual(byKey.RESPONSE_HYMN.ACTIVE, true);
-  assert.strictEqual(applied.plan.conflicts.length, 1);
-});
-
-test('F5 單週匯入只解除那一週的覆寫', function () {
-  const env = makeEnv({
-    content: {
-      崇拜程序: [
-        { SERVICE_DATE: D1, SERMON_TITLE: '甲', ACTIVE: 'TRUE' },
-        { SERVICE_DATE: D2, SERMON_TITLE: '乙', ACTIVE: 'TRUE' }
-      ]
-    },
-    weekRows: [
-      { SERVICE_DATE: D1, QUARTER_ID: QUARTER_ID, SERMON_TITLE: '甲' },
-      { SERVICE_DATE: D2, QUARTER_ID: QUARTER_ID, SERMON_TITLE: '乙' }
-    ],
-    fieldOverride: [overrideRow(D1, 'SERMON_TITLE', '甲', ''), overrideRow(D2, 'SERMON_TITLE', '乙', '')]
-  });
-  const applied = env.sandbox.applyContentImport_(QUARTER_ID, { isoDate: D1 });
-  assert.strictEqual(applied.plan.releases.length, 1);
-  const byDate = {};
-  rows(env, 'FIELD_OVERRIDE').forEach(function (r) { byDate[env.sandbox.formatIsoDate_(r.SERVICE_DATE)] = r.ACTIVE; });
-  assert.strictEqual(byDate[D1], false);
-  assert.strictEqual(byDate[D2], true, '另一週不在這次匯入範圍內，不可以動');
+  assert.strictEqual(text.indexOf('✋'), -1, text);
 });
 
 test('F5 預覽與套用走同一組計算：releases 數目一致', function () {

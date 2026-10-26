@@ -181,6 +181,58 @@ function listRosterServiceDatesForQuarter_(quarterId) {
 }
 
 /**
+ * 用途：v3（自動建立季度）：列出職事表每一季的概況——有沒有生成過版本、主日由哪一日到哪一日。
+ *   **唯讀**，與 `readRosterSnapshot_()` 共用同一份 memoized 資料。
+ * Args: （無）
+ * Returns:
+ *   {{quarterId:string, versionCount:number, maxVersion:(number|null), firstIso:string, lastIso:string,
+ *     dateCount:number}[]} 按季度 ID 排序；只列 ServiceDates 有主日的季度。
+ * Raises:
+ *   Error 如果 `ROSTER_SPREADSHEET_ID` 未設定，或底層讀取失敗（見 fetchRosterTables_()）。
+ */
+function listRosterQuarterSummaries_() {
+  var spreadsheetId = getConfig(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, '');
+  if (!spreadsheetId) {
+    throw new Error('listRosterQuarterSummaries_：Config 的 ROSTER_SPREADSHEET_ID 未設定。');
+  }
+  var io = fetchRosterTablesCached_(spreadsheetId, buildRosterSheetNames_());
+  return buildRosterQuarterSummaries_(io.tables);
+}
+
+/**
+ * 用途：v3：由職事表的 `RosterVersions` 與 `ServiceDates` 算出每一季的概況。純函式。
+ * Args:
+ *   tables {{versions:Object[], serviceDates:Object[]}} IO 層的回傳值。
+ * Returns:
+ *   {Object[]} 形狀見 `listRosterQuarterSummaries_()`。
+ * Raises:
+ *   （無）
+ */
+function buildRosterQuarterSummaries_(tables) {
+  var byQuarter = {};
+  ((tables && tables.serviceDates) || []).forEach(function (r) {
+    var qid = String(r.QuarterID || '').trim();
+    if (!qid || !(r.ServiceDate instanceof Date)) return;
+    var iso = formatIsoDate_(r.ServiceDate);
+    if (!byQuarter[qid]) byQuarter[qid] = { quarterId: qid, versionCount: 0, maxVersion: null, firstIso: iso, lastIso: iso, dateCount: 0 };
+    var q = byQuarter[qid];
+    q.dateCount++;
+    if (iso < q.firstIso) q.firstIso = iso;
+    if (iso > q.lastIso) q.lastIso = iso;
+  });
+  ((tables && tables.versions) || []).forEach(function (r) {
+    var q = byQuarter[String(r.QuarterID || '').trim()];
+    if (!q) return;
+    var v = Number(r.VersionNo);
+    if (!isFinite(v) || r.VersionNo === null || r.VersionNo === '') return;
+    q.versionCount++;
+    if (q.maxVersion === null || v > q.maxVersion) q.maxVersion = v;
+  });
+  // ⚠️ 次序不保證（本檔案不准出現排序呼叫，見 tools/lint-readonly-roster.js）；要排就由呼叫方排。
+  return Object.keys(byQuarter).map(function (k) { return byQuarter[k]; });
+}
+
+/**
  * 用途：讀出職事表 `NameMapping` 的全部資料列（白名單三欄：`PersonID`／
  *   `NameTC`／`Active`，見 ROSTER_TABLE_DEFS_.NAME_MAPPING 的說明——
  *   `Email`／`Phone`／`PersonalLinkToken` 這些欄位一律不會被讀進記憶體，

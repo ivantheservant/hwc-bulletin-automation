@@ -213,7 +213,10 @@ test('接線：載入時與輸入時都會更新提示；Index.html 有兩個提
   const render = js.slice(js.indexOf('function renderReadOnly('), js.indexOf('function renderNextWeekDutyBox('));
   assert.ok(render.indexOf('renderFlowerHints(state.flowerRoster)') !== -1);
   assert.ok(render.indexOf('readOnly.flowerRoster') !== -1);
-  const input = js.slice(js.indexOf("document.addEventListener('input'"), js.indexOf('R-038：季度作業'));
+  // v3：「季度作業」區塊已拿走，改用下一個監聽（change）作為終點。
+  const inputStart = js.indexOf("document.addEventListener('input'");
+  const input = js.slice(inputStart, js.indexOf("document.addEventListener('change'", inputStart));
+  assert.ok(inputStart !== -1 && input.length > 0, '找不到 input 監聽');
   assert.ok(input.indexOf('renderFlowerHints(state.flowerRoster)') !== -1);
   const html = readSrc('src/ui/Index.html');
   assert.ok(html.indexOf('id="flowerThisHint"') !== -1 && html.indexOf('id="flowerNextHint"') !== -1);

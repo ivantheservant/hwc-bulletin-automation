@@ -108,7 +108,7 @@ function renderPreviewResponse_(e) {
   }
 
   var params = (e && e.parameter) ? e.parameter : {};
-  var page = buildPreviewPage_(params.date);
+  var page = buildPreviewPage_(params.date, { snapshotId: params.snapshot });
   return HtmlService.createHtmlOutput(page.html)
     .setTitle(APP_NAME + '－草稿預覽')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
@@ -369,9 +369,16 @@ function withApiResult_(fn, context) {
  * Returns:
  *   {{ok:boolean, data:{weeks:Object[], defaultIsoDate:(string|null)}, error?:Object}}
  */
-function apiListWeeks(includeArchived) {
-  return withApiResult_(function () { return listWeeksForWebApp_(includeArchived === true); },
-    { functionName: 'apiListWeeks', argsSummary: 'includeArchived=' + (includeArchived === true) });
+function apiListWeeks(includeArchived, options) {
+  var autoCreate = Boolean(options && options.autoCreate === true);
+  return withApiResult_(function () {
+    // v3：開啟填寫介面（第一次載入）時順手自動建立職事表已有版本的新季度（十分鐘內只檢查一次、每次最多一季）。
+    //    失敗不可以令載入失敗（autoCreateQuartersForWebApp_() 不拋錯）。
+    var notice = autoCreate ? autoCreateQuartersForWebApp_() : '';
+    var data = listWeeksForWebApp_(includeArchived === true);
+    data.autoCreateNotice = notice;
+    return data;
+  }, { functionName: 'apiListWeeks', argsSummary: 'includeArchived=' + (includeArchived === true) + ' autoCreate=' + autoCreate });
 }
 
 /**
@@ -960,9 +967,7 @@ function apiRunPublish(payload) {
     // （個人資料）——`ErrorLog.DETAIL` 兩者都不應該有。
     argsSummary: 'isoDate=' + p.isoDate + ' doPublish=' + (p.doPublish === true)
       + ' doSend=' + (p.doSend === true) + ' confirmed=' + (p.confirmed === true)
-      // 審查後修正 4：確認視窗送回的那一期（格式不對被拒時要看得到送了甚麼）。只是日期與版本，截短。
-      + (p.confirmedMasterIssue === undefined ? ''
-        : ' confirmedMasterIssue=' + String(JSON.stringify(p.confirmedMasterIssue)).slice(0, 80))
+      + ' attachWord=' + (p.attachWord === true)
   });
 }
 
@@ -975,13 +980,16 @@ function apiRunPublish(payload) {
  *   到的」與「選單產生的」會慢慢分岔。
  * Args:
  *   isoDate {string} 主日日期，yyyy-MM-dd。
+ *   options {{draft:Object=}=} v3：`draft` 是與儲存 payload 同形狀的草稿（`week`／`dutyEdits`／
+ *     `nextWeekDutyEdits`），有就產生「包括未儲存修改」的草稿——只下載，不存雲端硬碟、不寫任何工作表。
  * Returns:
- *   {{ok:boolean, data:{fileName:string, base64:string, warnings:Object[]},
+ *   {{ok:boolean, data:{fileName:string, base64:string, warnings:Object[], draft:boolean},
  *     error?:Object}}
  */
-function apiDownloadBulletinDocx(isoDate) {
-  return withApiResult_(function () { return bulletinDocxForDownload_(isoDate); },
-    { functionName: 'apiDownloadBulletinDocx', argsSummary: 'isoDate=' + isoDate });
+function apiDownloadBulletinDocx(isoDate, options) {
+  var o = options || {};
+  return withApiResult_(function () { return bulletinDocxForDownload_(isoDate, o.draft || null); },
+    { functionName: 'apiDownloadBulletinDocx', argsSummary: 'isoDate=' + isoDate + ' draft=' + Boolean(o.draft) });
 }
 
 /**
@@ -1098,12 +1106,20 @@ var PUBLISH_PREFS_KEY_ = 'PUBLISH_PANEL_PREFS';
  *   Error 如果職事表未設定、範本未設定，或者渲染失敗——訊息一律沿用
  *     `generateBulletinDocx_()` 已經組好那一句，不在這裏另寫。
  */
-function bulletinDocxForDownload_(isoDate) {
-  var result = generateBulletinDocx_(isoDate);
+function bulletinDocxForDownload_(isoDate, draft) {
+  var result = generateBulletinDocx_(isoDate, draft ? { modelOptions: buildDraftModelOptions_(isoDate, draft) } : undefined);
   if (!result.ok) {
     var err = new Error(result.message || '未能產生 Word 檔。');
     err.code = result.reason || 'RENDER_FAILED';
     throw err;
+  }
+  // v3：草稿只下載，不存雲端硬碟（雲端硬碟上的「最新 Word」一定是已儲存的內容）。
+  if (draft) {
+    var draftName = String(result.fileName || '').replace(/\.docx$/i, '') + '（草稿）.docx';
+    return {
+      fileName: draftName, base64: Utilities.base64Encode(result.blob.getBytes()),
+      warnings: result.warnings || [], wordFile: null, draft: true
+    };
   }
   var stored = tryStoreLatestBulletinDocx_(isoDate, result, {
     action: 'BULLETIN_DOCX_WEBAPP_SAVE',
@@ -1113,7 +1129,8 @@ function bulletinDocxForDownload_(isoDate) {
     fileName: result.fileName,
     base64: Utilities.base64Encode(result.blob.getBytes()),
     warnings: (result.warnings || []).concat(stored.warning ? [stored.warning] : []),
-    wordFile: stored.wordFile
+    wordFile: stored.wordFile,
+    draft: false
   };
 }
 
@@ -1645,14 +1662,23 @@ function loadWeekForWebApp_(isoDate) {
     }
   });
 
+  // v3（第 13 項）：丁戊己按這一週的安排排列；拿走了的仍然送去介面（`hidden:true`，畫刪除線），
+  //    每一則帶 `arrangeKey`。次序與鍵由 arrangeListItems_() 算，與資料模型同一支。
+  var arrangement = parseListArrangement_(weekRow.LIST_ARRANGEMENT);
+  function arrangedForUi(type, items) {
+    return arrangeListItems_(type, items, arrangement.lists[type]).map(function (a) {
+      return Object.assign({}, a.item, { arrangeKey: a.key, hidden: a.hidden === true, sourceIndex: a.sourceIndex });
+    });
+  }
+
   return {
     isoDate: isoDate,
     week: week,
     lists: {
-      announcements: pickWebAppListItems_(readSheet(SHEETS.ANNOUNCEMENTS), isoDate, ['TEXT']),
-      prayers: pickWebAppListItems_(readSheet(SHEETS.PRAYERS), isoDate, ['TEXT']),
-      fellowships: pickWebAppListItems_(readSheet(SHEETS.FELLOWSHIPS), isoDate,
-        ['FELLOWSHIP_NAME', 'MEETING_DATE', 'MEETING_TIME', 'CONTENT']),
+      announcements: arrangedForUi('announcements', pickWebAppListItems_(readSheet(SHEETS.ANNOUNCEMENTS), isoDate, ['TEXT'])),
+      prayers: arrangedForUi('prayers', pickWebAppListItems_(readSheet(SHEETS.PRAYERS), isoDate, ['TEXT'])),
+      fellowships: arrangedForUi('fellowships', pickWebAppListItems_(readSheet(SHEETS.FELLOWSHIPS), isoDate,
+        ['FELLOWSHIP_NAME', 'MEETING_DATE', 'MEETING_TIME', 'CONTENT'])),
       finance: pickWebAppListItems_(readSheet(SHEETS.FINANCE), isoDate,
         ['ROW_LABEL', 'COL_SPECIAL_OVERSEAS', 'COL_HARDSHIP'])
     },
@@ -1677,6 +1703,9 @@ function loadWeekForWebApp_(isoDate) {
       rosterVersionUsed: model.rosterVersionUsed,
       rosterIsOfficial: model.rosterIsOfficial,
       program: model.program,
+      // v3（第 11 項）：程序表給介面顯示的版本——拿走的行仍在（`removed:true`），每一行帶 `key`／`addedId`。
+      programDisplay: model.programDisplay || [],
+      programPostureOptions: programAddPostureOptions_(),
       // R-041：誦讀下拉旁邊顯示「目前自動值：主禱文」。由後端算好——
       // 月份分組是 Config 改得到的，前端不可以自己算一次。
       recitationAuto: model.recitationAuto || '',
@@ -1719,8 +1748,56 @@ function loadWeekForWebApp_(isoDate) {
     // 季度的定義只應該有一處知道。
     quarterId: model.quarterId,
     // 這個主日在雲端硬碟的最新 Word（`BulletinWeeks.DOC_ID`）；從未存過是 `null`。
-    wordFile: wordFileInfoForWeek_(weekRow, isoDate)
+    wordFile: wordFileInfoForWeek_(weekRow, isoDate),
+    // v3：發佈／寄出只限該週。前端靠它決定頂部「目前已發佈」那一行、發佈與寄出兩個勾選能不能用；
+    //    真正把關在 runPublishFlow_()。
+    publishWindow: buildPublishWindowStatus_(isoDate, webAppTodayIso_()),
+    // v3：你填的名字與職事表不同的崗位（職事表未排定的不算）。每次載入都講出來，名字一律保留你填的。
+    dutyDiffs: buildDutyDiffNotices_(model.rosterDiff),
+    // v3：「查看／修改職事表」按鈕的網址（Config ROSTER_WEBAPP_URL）；空字串就不顯示按鈕。
+    rosterWebAppUrl: rosterWebAppUrlForButton_()
   };
+}
+
+/**
+ * 用途：v3：由比對結果挑出「你填的名字與職事表不同」的崗位——有人手覆寫、職事表有名字（未排定的不算，
+ *   Ivan：職事表空白就不用提）、而兩個名字不同。純函式。
+ *
+ *   ⚠️ 與「衝突」（CONFLICT）不同：衝突只算「職事表在你改了之後又改過」。這裏是每次載入都要講的
+ *   「現在兩邊不同」，名字一律保留你填的，要改回職事表的名字就按「以職事表覆寫我的修改…」。
+ * Args:
+ *   rosterDiff {?Object} `buildRosterDiff_()` 的輸出。
+ * Returns:
+ *   {{postId:string, slotIndex:number, postLabel:string, bulletinName:string, rosterName:string,
+ *     conflict:boolean}[]}
+ * Raises:
+ *   （無）
+ */
+function buildDutyDiffNotices_(rosterDiff) {
+  return ((rosterDiff && rosterDiff.rows) || []).filter(function (r) {
+    var roster = String(r.rosterName || '').trim();
+    return r.hasOverride === true && roster !== '' && roster !== String(r.bulletinName || '').trim();
+  }).map(function (r) {
+    return {
+      postId: r.postId, slotIndex: r.slotIndex, postLabel: r.postLabel,
+      bulletinName: String(r.bulletinName || ''), rosterName: String(r.rosterName || ''),
+      conflict: r.status === ROSTER_DIFF_STATUS.CONFLICT
+    };
+  });
+}
+
+/**
+ * 用途：v3：「查看／修改職事表」按鈕的網址。只接受 `https://` 開頭的網址，其他（包括留空）一律回空字串
+ *   ——一條開不到或者不安全的連結比不顯示更差。
+ * Args: （無）
+ * Returns:
+ *   {string}
+ * Raises:
+ *   （無）
+ */
+function rosterWebAppUrlForButton_() {
+  var url = String(getConfig(CONFIG_KEYS.ROSTER_WEBAPP_URL, '') || '').trim();
+  return /^https:\/\//i.test(url) ? url : '';
 }
 
 /**
@@ -1779,11 +1856,69 @@ function buildContentSheetStatusForWebApp_(quarterId) {
     );
   }
 
+  // v3：「季度作業」區塊已經由填寫介面拿走，內容表比系統舊時要在狀態列直接出「更新本季內容表…」。
+  var schema = contentSheetSchemaStatusCached_(String(row.FILE_ID || ''));
   return {
     exists: true, quarterId: qid,
     fileUrl: String(row.FILE_URL || ''),
-    lastImportedAt: lastImported
+    lastImportedAt: lastImported,
+    schemaStatus: schema.status,
+    schemaMessage: schema.message
   };
+}
+
+/** v3：內容表版面狀態的記錄鍵前綴（指令碼屬性，十分鐘，見 src/TimedProperty.gs）。 */
+var CONTENT_SHEET_SCHEMA_CACHE_PREFIX_ = 'CS_SCHEMA_V3_';
+
+/**
+ * 用途：v3：內容表的版面是不是最新（`checkContentSheetSchema_()`），結果記十分鐘（指令碼屬性）——每次載入一個主日都
+ *   開一次內容表太慢。建立／刷新內容表之後由 `forgetContentSheetSchemaStatus_()` 清走記錄。
+ *   讀不到（檔案開不到、讀取失敗）一律當作 `'OK'`：這只是介面上的提示，真正把關在匯入
+ *   （`previewContentImport_()` 會整次拒絕並講明原因）。
+ * Args:
+ *   fileId {string} 內容表檔案 ID。
+ * Returns:
+ *   {{status:string, message:string}} `status`：`'OK'`／`'OUTDATED'`／`'HEADER_CHANGED'`。
+ * Raises:
+ *   （無）
+ */
+function contentSheetSchemaStatusCached_(fileId) {
+  var id = String(fileId || '').trim();
+  var ok = { status: 'OK', message: '' };
+  if (!id) return ok;
+  var hit = readTimedScriptProperty_(CONTENT_SHEET_SCHEMA_CACHE_PREFIX_ + id, 600);
+  if (hit) {
+    try { return JSON.parse(hit); } catch (parseErr) { /* 重新檢查 */ }
+  }
+  var result = ok;
+  try {
+    var spreadsheet = openContentSpreadsheet_(id);
+    if (!spreadsheet) return ok;
+    var schema = checkContentSheetSchema_(spreadsheet);
+    result = schema.ok ? ok : {
+      status: schema.reason === 'CONTENT_SHEET_HEADER_CHANGED' ? 'HEADER_CHANGED' : 'OUTDATED',
+      message: String(schema.message || '')
+    };
+  } catch (err) {
+    return ok;
+  }
+  writeTimedScriptProperty_(CONTENT_SHEET_SCHEMA_CACHE_PREFIX_ + id, JSON.stringify(result));
+  return result;
+}
+
+/**
+ * 用途：v3：清走某一份內容表的版面狀態記錄（建立／刷新之後）。
+ * Args:
+ *   fileId {string} 內容表檔案 ID。
+ * Returns:
+ *   {void}
+ * Raises:
+ *   （無）
+ */
+function forgetContentSheetSchemaStatus_(fileId) {
+  var id = String(fileId || '').trim();
+  if (!id) return;
+  deleteTimedScriptProperty_(CONTENT_SHEET_SCHEMA_CACHE_PREFIX_ + id);
 }
 
 /**
@@ -1925,7 +2060,11 @@ function previewProgramForWebApp_(isoDate, draftFields) {
   //    見 buildBulletinModel_()），否則填寫介面的程序預覽與印出來的不一樣。
   draftWeek = applyPreludeDefault_(draftWeek, getConfig(CONFIG_KEYS.PRELUDE_DEFAULT, ''));
   var program = buildProgramTable_(draftWeek, snapshot);
-  return { templateId: program.templateId, rows: program.rows };
+  return {
+    templateId: program.templateId, rows: program.rows,
+    // v3：草稿的程序增刪／換範本之後，介面要重畫那張可以拿走、加項的表。
+    displayRows: program.displayRows || [], editWarnings: program.editWarnings || []
+  };
 }
 
 // =====================================================================
@@ -1941,13 +2080,12 @@ function previewProgramForWebApp_(isoDate, draftFields) {
  */
 function getRosterFetchCandidates_(isoDate) {
   var diff = computeRosterDiff_(isoDate);
-  var rows = diff.rows
-    .filter(function (r) {
-      return r.status === ROSTER_DIFF_STATUS.CONFLICT || r.status === ROSTER_DIFF_STATUS.OVERRIDDEN;
-    })
-    .map(function (r) {
-      return Object.assign({}, r, { defaultChecked: r.status === ROSTER_DIFF_STATUS.CONFLICT });
-    });
+  // v3：「以職事表覆寫我的修改」——列出你改過、而職事表有名字（未排定的不改）又與你填的不同的格，
+  //    預設全部勾選。職事表未排定的格保留你填的（Ivan：職事表空白就不覆寫）。
+  var rows = buildDutyDiffNotices_(diff).map(function (d) {
+    var row = diff.rows.filter(function (r) { return r.postId === d.postId && r.slotIndex === d.slotIndex; })[0];
+    return Object.assign({}, row, { defaultChecked: true });
+  });
   return { rows: rows, rosterVersion: diff.rosterVersion };
 }
 

@@ -90,14 +90,13 @@ function contentImportTargets_() {
       tabName: '崇拜人數', kind: 'WEEK_ATTENDANCE', targetSheet: SHEETS.BULLETIN_WEEKS,
       fieldMap: attendanceImportFieldMap_(), repeatUntil: false
     },
-    // ⚠️ R-043／R-045：**第三種模式**（內容表為來源、介面可覆寫），
-    //    `overridable: true` 就是那個分別：有 FieldOverride 的欄位，匯入
-    //    **不會蓋過去**，只在差異報告標 CONFLICT。
-    //    內容表 v2：「宣召」「浸禮合堂」兩張舊分頁已併入「崇拜程序」（決定 4），
+    // v3（2026-10-26）：「崇拜程序」九欄只可以在內容表填（CONTENT_SHEET_READONLY_FIELDS.WEEK），
+    //    所以不再是第三種模式：匯入一律以內容表為準（不再看 FieldOverride，舊覆寫由「更新本季內容表」停用）。
+    //    `overridable` 的機制保留在 computeContentImportPlan_()（CONTENT_SHEET_OVERRIDABLE_FIELDS 是空的）。
     //    對應表由分頁定義衍生（見 worshipImportFieldMap_()），不另抄一份。
     {
       tabName: '崇拜程序', kind: 'WEEK', targetSheet: SHEETS.BULLETIN_WEEKS,
-      fieldMap: worshipImportFieldMap_(), repeatUntil: false, overridable: true
+      fieldMap: worshipImportFieldMap_(), repeatUntil: false
     }
   ];
 }
@@ -859,10 +858,20 @@ function checkContentSheetSchema_(spreadsheet) {
   var pendingLegacy = legacyMergedTabDefs_().filter(function (def) {
     return Boolean(spreadsheet.getSheetByName(def.tabName));
   }).map(function (def) { return def.tabName; });
+  var worshipTabName = contentSheetWorshipTabDef_().tabName;
+  var v2Keys = contentSheetWorshipKeysV2_();
   contentSheetTabDefs_().forEach(function (tabDef) {
     var sheet = spreadsheet.getSheetByName(tabDef.tabName);
     if (!sheet) return;
     var verdict = compareContentTabHeaderKeys_(tabDef.keys, readContentTabHeaderKeys_(sheet, tabDef.keys.length));
+    // v3：v2 的「崇拜程序」（第 12 欄是浸禮主禮）不是「被人改過」，是未更新——當作 OUTDATED，
+    //    講明要拿走浸禮六欄並加「詩班項目名稱」。
+    if (verdict.status === 'HEADER_CHANGED' && tabDef.tabName === worshipTabName) {
+      var longHeader = readContentTabHeaderKeys_(sheet, v2Keys.length);
+      if (v2Keys.every(function (k, i) { return longHeader[i] === k; })) {
+        verdict = { status: 'OUTDATED', missing: 1, column: 12, expected: 'CHOIR_LABEL', actual: '', v2: true };
+      }
+    }
     tabs.push({ tabName: tabDef.tabName, status: verdict.status });
     if (verdict.status === 'OUTDATED') outdated.push({ tabDef: tabDef, verdict: verdict });
     if (verdict.status === 'HEADER_CHANGED') changed.push({ tabDef: tabDef, verdict: verdict });
@@ -880,6 +889,7 @@ function checkContentSheetSchema_(spreadsheet) {
   }
   if (outdated.length > 0 || pendingLegacy.length > 0) {
     var reasons = outdated.map(function (o) {
+      if (o.verdict.v2) return '「' + o.tabDef.tabName + '」仍然有浸禮六欄，未加「詩班項目名稱」';
       return '「' + o.tabDef.tabName + '」少了 ' + o.verdict.missing + ' 欄';
     }).concat(pendingLegacy.map(function (name) {
       return '仍然有舊的「' + name + '」分頁（內容要搬入「崇拜程序」）';
@@ -887,7 +897,7 @@ function checkContentSheetSchema_(spreadsheet) {
     return {
       ok: false, reason: 'CONTENT_SHEET_OUTDATED', tabs: tabs,
       message: '本季內容表比系統舊（' + reasons.join('、') + '），這次匯入整次拒絕，一格都沒有寫。'
-        + '請先在填寫介面「季度作業」按「建立／刷新本季內容表」，再匯入。'
+        + '請先在填寫介面按內容表狀態列的「更新本季內容表…」（或者試算表選單的「建立本季內容表」），再匯入。'
     };
   }
   return { ok: true, reason: '', message: '', tabs: tabs };
@@ -963,7 +973,8 @@ function previewContentImport_(quarterId, options) {
   if (!row) {
     return {
       ok: false, quarterId: qid, scope: 'QUARTER', reason: 'NO_CONTENT_SHEET',
-      message: '季度「' + qid + '」尚未建立內容表。請先在下面「季度作業」區塊按「建立／刷新本季內容表」。'
+      message: '季度「' + qid + '」尚未建立內容表。職事表已經有這一季的話，系統會自動建立（每日一次，或者重新開啟填寫介面）；'
+        + '亦可以在試算表選單「內容表 ▸ 建立本季內容表」立即建立。'
     };
   }
 

@@ -166,7 +166,7 @@ test('按字母序載入全部 src/*.gs 之後，跨檔案常數與函式都正�
 
   assert.strictEqual(typeof sandbox.seedProgramTemplatesRows_, 'function');
   const rows = sandbox.seedProgramTemplatesRows_();
-  assert.strictEqual(rows.length, 45, 'seedProgramTemplatesRows_() 應該回傳 45 行（15+17+13）');
+  assert.strictEqual(rows.length, 58, 'seedProgramTemplatesRows_() 應該回傳 58 行（15+17+13+13，v3 加了 TPL_COMBINED）');
 
   assert.strictEqual(typeof sandbox.onOpen, 'function', 'onOpen 一定要能被定義出來，這正是原本的事故（載入失敗）會壞掉的地方');
 });

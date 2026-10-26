@@ -712,90 +712,36 @@ test('沒有權限的呼叫者 → 全部 api* 都擋得住（沿用既有那一
 
 console.log('\n第 7 組：前端');
 
-test('每一個新 api* 呼叫都經 callServer()，沒有一個直接叫 google.script.run', function () {
+// v3（Ivan 測試結果 A 第 15 項）：「季度作業」區塊已經由填寫介面拿走（季度與內容表改為自動建立，
+// 內容表的更新在單週面板「更新本季內容表…」）。伺服器那邊的 api* 與核心照舊保留（上面幾組照樣驗），
+// 試算表選單亦照舊可以用；這裏守住填寫介面不再留下半截的季度作業。
+test('v3：填寫介面沒有季度作業區塊，前端亦不再叫季度作業那幾個 api*', function () {
+  const idx = fs.readFileSync(path.join(__dirname, '..', 'src', 'ui', 'Index.html'), 'utf8');
   const ui = fs.readFileSync(path.join(__dirname, '..', 'src', 'ui', 'Script.html'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'src', 'ui', 'Style.html'), 'utf8');
   const code = stripComments(ui);
-
-  // ⚠️ 這一條守住的是「有沒有寫失敗處理」這件事本身：不寫的後果是
-  //    後端拋的錯全部人間蒸發（見 docs/已知bug類型.md 事故二十五）。
-  const block = code.slice(code.indexOf('function wireQuarterOpsEvents('));
-  assert.ok(block.length > 0, '找不到 wireQuarterOpsEvents()');
-  assert.strictEqual(block.indexOf('google.script.run'), -1);
-
+  ['quarter-ops-panel', 'id="quarterOpsBody"', 'id="opInviteDryRun"'].forEach(function (marker) {
+    assert.strictEqual(idx.indexOf(marker), -1, 'Index.html 仍有 ' + marker);
+  });
+  ['function wireQuarterOpsEvents(', 'function runQuarterOp(', 'function runQuarterReport(', 'function toggleQuarterOps('].forEach(function (fn) {
+    assert.strictEqual(code.indexOf(fn), -1, 'Script.html 仍有 ' + fn);
+  });
+  // 「建立／刷新本季內容表」那兩個（apiPreviewContentSheetBuild／apiRunContentSheetBuild）仍然由單週面板的
+  // 「更新本季內容表…」用，不在這份清單。
   ['apiGetQuarterOpsPanel', 'apiPreviewCreateWeeks', 'apiRunCreateWeeks',
-    'apiPreviewContentSheetBuild', 'apiRunContentSheetBuild',
     'apiPreviewContentSheetInvite', 'apiRunContentSheetInvite',
     'apiPreviewQuarterContentImport', 'apiRunQuarterContentImport',
     'apiQuarterMissingReport', 'apiRosterDiffReport', 'apiGoLiveReport',
     'apiPublishRevisionsReport'].forEach(function (name) {
-    assert.ok(code.indexOf("'" + name + "'") !== -1, '前端沒有用到 ' + name);
+    assert.strictEqual(code.indexOf("'" + name + "'"), -1, '前端仍然叫 ' + name);
   });
+  assert.ok(code.indexOf("callServer('apiPreviewContentSheetBuild'") !== -1, '「更新本季內容表…」照舊先預覽');
+  assert.strictEqual(css.indexOf('.quarter-ops-report-body'), -1, 'Style.html 仍有季度作業的樣式');
 });
 
-test('⚠️ 唯讀報告不可以用 alert()——內容過百行，alert 會爆而且只見到頭幾行', function () {
+test('單一主日那粒「重新匯入」仍然講明範圍', function () {
   const ui = fs.readFileSync(path.join(__dirname, '..', 'src', 'ui', 'Script.html'), 'utf8');
-  const code = stripComments(ui);
-  const block = code.slice(code.indexOf('function runQuarterReport('),
-    code.indexOf('function wireQuarterOpsEvents('));
-
-  assert.ok(block.length > 0);
-  assert.strictEqual(block.indexOf('alert('), -1);
-  assert.ok(code.indexOf('function showQuarterOpsReport(') !== -1,
-    '要有一個可捲動的結果面板');
-});
-
-test('有副作用那四粒一律先預覽、後確認', function () {
-  const ui = fs.readFileSync(path.join(__dirname, '..', 'src', 'ui', 'Script.html'), 'utf8');
-  const code = stripComments(ui);
-  const block = code.slice(code.indexOf('function runQuarterOp('),
-    code.indexOf('function runQuarterReport('));
-
-  assert.ok(block.indexOf('opts.previewApi') !== -1);
-  // F9：改用頁內確認對話框，不再用瀏覽器原生的 window.confirm。
-  assert.strictEqual(block.indexOf('window.confirm'), -1, '不可以再用原生確認視窗');
-  assert.ok(block.indexOf('openConfirmDialog(') !== -1, '確認之後才可以叫執行 API');
-  const confirmPos = block.indexOf('openConfirmDialog(');
-  assert.ok(block.indexOf('opts.runApi') > confirmPos,
-    '執行 API 一定要排在確認之後——排在前面等於沒有確認');
-});
-
-test('「寄出內容表連結」旁邊顯示 DRY_RUN，而且確認那一句再講一次', function () {
-  const idx = fs.readFileSync(path.join(__dirname, '..', 'src', 'ui', 'Index.html'), 'utf8');
-  const ui = fs.readFileSync(path.join(__dirname, '..', 'src', 'ui', 'Script.html'), 'utf8');
-
-  assert.ok(idx.indexOf('id="opInviteDryRun"') !== -1, '按鈕旁邊要有 DRY_RUN 標記');
-  // D4：先講中文、Config 的鍵放括號內；「撳」改「按」。
-  assert.ok(ui.indexOf('模擬模式（DRY_RUN=TRUE）：不會真的寄出') !== -1);
-  assert.ok(ui.indexOf('正式寄出（DRY_RUN=FALSE）：會真的寄出') !== -1);
-  // ⚠️ 旁邊那個標記看漏了，確認那一句還攔得住。
-  assert.ok(ui.indexOf('目前是正式寄出（DRY_RUN=FALSE），按「確定」會真的把郵件寄出去') !== -1);
-});
-
-test('季度作業區塊預設摺疊（一季做一次的事，不應該霸住每週要做的事）', function () {
-  const idx = fs.readFileSync(path.join(__dirname, '..', 'src', 'ui', 'Index.html'), 'utf8');
-  assert.ok(idx.indexOf('id="quarterOpsBody" class="quarter-ops-body hidden"') !== -1,
-    '預設要是摺疊的');
-  assert.ok(idx.indexOf('aria-expanded="false"') !== -1);
-});
-
-test('季度作業區塊排在「發佈及匯出」之上', function () {
-  const idx = fs.readFileSync(path.join(__dirname, '..', 'src', 'ui', 'Index.html'), 'utf8');
-  assert.ok(idx.indexOf('quarter-ops-panel') < idx.indexOf('publish-panel'),
-    '季度作業要排在發佈之前——流程上它是先做的');
-});
-
-test('單一主日那粒「重新匯入」講明範圍，跟整季那一粒分得出', function () {
-  const ui = fs.readFileSync(path.join(__dirname, '..', 'src', 'ui', 'Script.html'), 'utf8');
-  assert.ok(ui.indexOf('重新匯入（只限這一個主日）') !== -1,
-    '兩者範圍不同是刻意的，名稱一定要講得出範圍');
-  assert.ok(ui.indexOf('從內容表匯入（整季）') !== -1);
-});
-
-test('報告面板有上限而且可捲動（不設上限會把整頁推長到捲極都捲唔完）', function () {
-  const css = fs.readFileSync(path.join(__dirname, '..', 'src', 'ui', 'Style.html'), 'utf8');
-  const block = css.slice(css.indexOf('.quarter-ops-report-body'));
-  assert.ok(block.indexOf('max-height') !== -1);
-  assert.ok(block.indexOf('overflow: auto') !== -1);
+  assert.ok(ui.indexOf('重新匯入（只限這一個主日）') !== -1, '名稱一定要講得出範圍');
 });
 
 // =====================================================================

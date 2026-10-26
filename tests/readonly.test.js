@@ -215,13 +215,18 @@ test('1b-4. 可覆寫清單與內容表分頁（overridable）推算出來的完
     '宣告 ' + JSON.stringify(declared) + '　推算 ' + JSON.stringify(derived));
 });
 
-test('1b-5. 浸禮六欄與 baptismBoxFieldDefs_() 一致（六欄的單一真相來源）', function () {
+test('1b-5. v3：浸禮六欄只在填寫介面填——不在唯讀清單、不在可覆寫清單，而在可編輯清單（單一真相來源 baptismBoxFieldDefs_()）', function () {
   const env = makeEnv({});
   const fromDefs = env.sandbox.baptismBoxFieldKeys_().slice().sort();
-  const inOverridable = env.sandbox.CONTENT_SHEET_OVERRIDABLE_FIELDS
-    .filter(function (k) { return fromDefs.indexOf(k) !== -1; }).sort();
-  assert.strictEqual(JSON.stringify(inOverridable), JSON.stringify(fromDefs),
-    '六欄的單一真相來源是 baptismBoxFieldDefs_()，兩邊不可以分岔');
+  const readOnly = env.sandbox.CONTENT_SHEET_READONLY_FIELDS.WEEK;
+  const overridable = env.sandbox.CONTENT_SHEET_OVERRIDABLE_FIELDS;
+  const editable = env.sandbox.webAppEditableWeekFieldKeys_();
+  fromDefs.forEach(function (k) {
+    assert.strictEqual(readOnly.indexOf(k), -1, k + ' 不可以是唯讀');
+    assert.strictEqual(overridable.indexOf(k), -1, k + ' 不再經 FieldOverride');
+    assert.ok(editable.indexOf(k) !== -1, k + ' 要可以在介面儲存');
+  });
+  assert.strictEqual(overridable.length, 0, 'v3：沒有「內容表為來源、介面可覆寫」的欄位');
 });
 
 test('1d. 前後端共用同一份：apiLoadWeek 的 readOnly.readOnlyFields 就是那一份', function () {
@@ -247,10 +252,10 @@ test('1e. 每一個唯讀欄位都有給人看的名稱（訊息不可以只講�
 
 // 內容表 v2：宣召兩欄併入「崇拜程序」之後改為第三種模式（可覆寫），唯讀週欄位由十五個變十三個
 // （十二個人數欄＋人數統計日期）。這裏釘死剛好十三個——多了或少了都要有人想過為甚麼。
-test('2a. 十三個唯讀週欄位，逐個單獨送，全部被拒且一筆 AuditLog 都沒有', function () {
+test('2a. 二十二個唯讀週欄位（v3：人數十三欄＋崇拜程序九欄），逐個單獨送，全部被拒且一筆 AuditLog 都沒有', function () {
   const env0 = makeEnv({});
   const keys = env0.sandbox.CONTENT_SHEET_READONLY_FIELDS.WEEK;
-  assert.strictEqual(keys.length, 13, '應該有十三個：' + keys.length);
+  assert.strictEqual(keys.length, 22, '應該有二十二個：' + keys.length);
 
   const bad = [];
   keys.forEach(function (key) {
@@ -314,11 +319,11 @@ test('3a. 唯讀欄位混一個可寫欄位：整次拒絕，可寫那一欄也�
 
 test('3b. 只送可寫欄位：照樣存得到（防線不可以擋錯人）', function () {
   const env = makeEnv({});
-  const r = attemptSave(env, basicPayload({ week: { SERMON_TITLE: '正常的講題' } }));
+  const r = attemptSave(env, basicPayload({ week: { FLOWER_THIS_WEEK: '正常的獻花' } }));
   assert.strictEqual(r.rejected, false, r.message);
   assert.ok(r.auditWritten > 0);
   const week = env.sandbox.readBulletinWeekRowWithRowNo_(ISO);
-  assert.strictEqual(week.SERMON_TITLE, '正常的講題');
+  assert.strictEqual(week.FLOWER_THIS_WEEK, '正常的獻花');
 });
 
 // ⚠️ 舊版前端（使用者瀏覽器有快取）會送 `announcements: []`、
@@ -328,12 +333,12 @@ test('3b. 只送可寫欄位：照樣存得到（防線不可以擋錯人）', f
 test('3c. 唯讀欄位帶空值：不算送出，不會擋住整次儲存', function () {
   const env = makeEnv({});
   const r = attemptSave(env, basicPayload({
-    week: { ATT_ENG_WORSHIP: '', ATT_CANE_WORSHIP: '   ', SERMON_TITLE: '正常的講題' },
+    week: { ATT_ENG_WORSHIP: '', ATT_CANE_WORSHIP: '   ', SERMON_TITLE: '', FLOWER_THIS_WEEK: '正常的獻花' },
     announcements: []
   }));
   assert.strictEqual(r.rejected, false, r.message);
   const week = env.sandbox.readBulletinWeekRowWithRowNo_(ISO);
-  assert.strictEqual(week.SERMON_TITLE, '正常的講題');
+  assert.strictEqual(week.FLOWER_THIS_WEEK, '正常的獻花');
 });
 
 // =====================================================================
@@ -368,16 +373,17 @@ test('4c. 拒絕訊息是書面語繁體中文', function () {
   assertWrittenChinese(assert, '唯讀欄位拒絕訊息', r.message);
 });
 
-test('4d. 內容表 v2：宣召兩欄、序樂、詩歌頌讚經真入口儲存得到，並各寫一筆 FieldOverride（第三種模式）', function () {
+test('4d. v3：宣召兩欄、序樂、詩歌頌讚改為只可以在內容表輸入——經真入口送就整次拒絕，一格都沒有寫，FieldOverride 一行都沒有', function () {
   const env = makeEnv({});
   const week = { CALL_REF: '詩篇 100:1-2', CALL_TEXT: '普天下當向耶和華歡呼！', PRELUDE: '介面序樂', HYMN_PRAISE: '介面詩歌' };
   const r = attemptSave(env, basicPayload({ week: week }));
-  assert.strictEqual(r.rejected, false, r.message);
-  const saved = env.sandbox.readBulletinWeekRowWithRowNo_(ISO);
-  Object.keys(week).forEach(function (k) { assert.strictEqual(saved[k], week[k], k); });
-  const overrides = env.sandbox.readSheet('FieldOverride').filter(function (o) { return o.ACTIVE === true; })
-    .map(function (o) { return o.FIELD_KEY; }).sort();
-  assert.strictEqual(JSON.stringify(overrides), JSON.stringify(['CALL_REF', 'CALL_TEXT', 'HYMN_PRAISE', 'PRELUDE']));
+  assert.strictEqual(r.rejected, true);
+  assert.strictEqual(r.code, 'CONTENT_SHEET_READONLY');
+  assert.strictEqual(r.auditWritten, 0);
+  ['宣召出處', '宣召經文', '序樂', '詩歌頌讚'].forEach(function (label) {
+    assert.ok(r.message.indexOf(label) !== -1, label + '：' + r.message);
+  });
+  assert.strictEqual(env.sandbox.readSheet('FieldOverride').length, 0);
 });
 
 // =====================================================================
@@ -387,7 +393,7 @@ test('4d. 內容表 v2：宣召兩欄、序樂、詩歌頌讚經真入口儲存�
 test('5a. findSubmittedReadOnlyFields_：沒有唯讀欄位時回空陣列', function () {
   const env = makeEnv({});
   const found = env.sandbox.findSubmittedReadOnlyFields_(basicPayload({
-    week: { SERMON_TITLE: '講題' }
+    week: { FLOWER_THIS_WEEK: '獻花', PROGRAM_EDITS: '{"v":1,"hidden":[],"added":[]}' }
   }));
   assert.strictEqual(found.length, 0);
 });

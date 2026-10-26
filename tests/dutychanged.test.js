@@ -161,7 +161,7 @@ console.log('\n後端（真正入口 apiSaveWeek）：本週事奉');
 test('D9-1（FF-17）只改序樂 → 衝突保留：覆寫對照的職事表值不變、不新增覆寫；事奉格一格都沒有送', function () {
   const sb = makeConflictEnv();
   const before = overrideRows(sb, W);
-  const r = save(sb, W, { patch: { PRELUDE: '新序樂' } });
+  const r = save(sb, W, { patch: { PAGE_TITLE: '新序樂' } });
   assert.strictEqual(r.resp.ok, true, JSON.stringify(r.resp.error));
   assert.deepStrictEqual(r.payload.dutyEdits, [], '前提：前端不送沒有改的格');
   assert.strictEqual(r.resp.data.message.text, '已儲存，更新了 1 個欄位。');
@@ -175,7 +175,7 @@ test('D9-2（FF-26）分頁開着期間職事表把主席由陳大文改成張�
   const tab = load(sb, W);
   assert.strictEqual(chairSlot(tab, 'dutyBoxPage1').bulletinName, '陳大文', '前提：載入時是陳大文');
   rosterChangesChair(sb, W, '張三');
-  const r = save(sb, W, { tab: tab, patch: { PRELUDE: '新序樂' } });
+  const r = save(sb, W, { tab: tab, patch: { PAGE_TITLE: '新序樂' } });
   assert.strictEqual(r.resp.ok, true, JSON.stringify(r.resp.error));
   assert.deepStrictEqual(overrideRows(sb, W), [], '一筆覆寫都沒有新增');
   const again = load(sb, W);
@@ -259,7 +259,7 @@ test('D9-7 職事表追上了覆寫（W 的主席覆寫是李小明，職事表�
   assert.strictEqual(audit.length, 1);
   assert.ok(audit[0].NOTES.indexOf('職事表現在亦是「李小明」，與人手覆寫相同，儲存時自動改回跟隨職事表') !== -1, audit[0].NOTES);
   assert.strictEqual(chairSlot(load(sb, W), 'dutyBoxPage1').bulletinName, '李小明', '畫面名字不變');
-  const wBefore = save(sb, W_BEFORE, { tab: tabBefore, patch: { PRELUDE: 'W-7 序樂' } });
+  const wBefore = save(sb, W_BEFORE, { tab: tabBefore, patch: { PAGE_TITLE: 'W-7 序樂' } });
   assert.strictEqual(wBefore.resp.ok, true, 'W-7 不應收到 STALE：' + JSON.stringify(wBefore.resp.error));
   assertWrittenChinese(assert, 'D9 自動停用備註', [audit[0].NOTES]);
 
@@ -268,7 +268,7 @@ test('D9-7 職事表追上了覆寫（W 的主席覆寫是李小明，職事表�
   save(sb2, W, { duty: { 'CHAIR#1': '李小明' } });
   rosterChangesChair(sb2, W, '李小明');
   rewindLastSavedAt(sb2, W, '2026-10-02');
-  const r2 = save(sb2, W, { patch: { PRELUDE: '新序樂' } });
+  const r2 = save(sb2, W, { patch: { PAGE_TITLE: '新序樂' } });
   assert.strictEqual(r2.resp.ok, true, JSON.stringify(r2.resp.error));
   assert.strictEqual(activeChair(sb2, W), null);
   assert.strictEqual(r2.resp.data.message.text.indexOf('已儲存，更新了 1 個欄位。'), 0, r2.resp.data.message.text);
@@ -276,7 +276,7 @@ test('D9-7 職事表追上了覆寫（W 的主席覆寫是李小明，職事表�
 
 test('D9-8 沒有衝突、沒有覆寫時行為不變：只改序樂不碰 DutyOverride；改主席 → 新增覆寫（對照值是現在的職事表）；改回職事表的名字 → 停用（不刪行）', function () {
   const sb = makeEnv();
-  const r1 = save(sb, W, { patch: { PRELUDE: '新序樂' } });
+  const r1 = save(sb, W, { patch: { PAGE_TITLE: '新序樂' } });
   assert.strictEqual(r1.resp.ok, true, JSON.stringify(r1.resp.error));
   assert.deepStrictEqual(overrideRows(sb, W), []);
   rewindLastSavedAt(sb, W, '2026-10-02');
@@ -297,7 +297,7 @@ console.log('\n後端（真正入口 apiSaveWeek）：下週事奉（寫下一�
 test('D9-9 下週事奉 W+7 有衝突，W 只改序樂 → W+7 的衝突保留、不新增覆寫', function () {
   const sb = makeNextConflictEnv();
   const before = overrideRows(sb, W_AFTER);
-  const r = save(sb, W, { patch: { PRELUDE: '新序樂' } });
+  const r = save(sb, W, { patch: { PAGE_TITLE: '新序樂' } });
   assert.strictEqual(r.resp.ok, true, JSON.stringify(r.resp.error));
   assert.deepStrictEqual(r.payload.nextWeekDutyEdits, []);
   assert.strictEqual(conflictCount(sb, W_AFTER), 1);
@@ -309,7 +309,7 @@ test('D9-10 W 的分頁開着期間職事表把 W+7 的主席改了 → W 只改
   const tab = load(sb, W);
   assert.strictEqual(chairSlot(tab, 'nextWeekDuty').bulletinName, '陳大文');
   rosterChangesChair(sb, W_AFTER, '下週張');
-  const r = save(sb, W, { tab: tab, patch: { PRELUDE: '新序樂' } });
+  const r = save(sb, W, { tab: tab, patch: { PAGE_TITLE: '新序樂' } });
   assert.strictEqual(r.resp.ok, true, JSON.stringify(r.resp.error));
   assert.deepStrictEqual(overrideRows(sb, W_AFTER), []);
   assert.strictEqual(chairSlot(load(sb, W), 'nextWeekDuty').bulletinName, '下週張');
@@ -336,7 +336,7 @@ test('D9-12 下週事奉：職事表把 W+7 的主席亦改成覆寫的名字 �
   save(sb, W, { next: { 'CHAIR#1': '下週李' } });
   rosterChangesChair(sb, W_AFTER, '下週李');
   rewindLastSavedAt(sb, W, '2026-10-02');
-  const r = save(sb, W, { patch: { PRELUDE: '新序樂' } });
+  const r = save(sb, W, { patch: { PAGE_TITLE: '新序樂' } });
   assert.strictEqual(r.resp.ok, true, JSON.stringify(r.resp.error));
   assert.strictEqual(activeChair(sb, W_AFTER), null);
   assert.strictEqual(overrideRows(sb, W_AFTER).length, 1, '不刪行');
@@ -350,7 +350,7 @@ test('D9-13 舊版前端（沒有 payloadVersion，照送全部事奉格）→ C
   const snapshot = function () { return JSON.stringify([sb.readSheet('BulletinWeeks'), sb.readSheet('DutyOverride'), sb.readSheet('AuditLog')]); };
   const before = snapshot();
   [undefined, 1, '2'].forEach(function (version) {
-    const payload = { isoDate: W, lastSavedAt: tab.lastSavedAt, week: { PRELUDE: '舊分頁的序樂' }, baseWeek: { PRELUDE: tab.week.PRELUDE || '' },
+    const payload = { isoDate: W, lastSavedAt: tab.lastSavedAt, week: { PAGE_TITLE: '舊分頁的序樂' }, baseWeek: { PAGE_TITLE: tab.week.PAGE_TITLE || '' },
       dutyEdits: [{ postId: 'CHAIR', slotIndex: 1, name: '李小明' }], nextWeekDutyEdits: [{ postId: 'CHAIR', slotIndex: 1, name: '陳大文' }] };
     if (version !== undefined) payload.payloadVersion = version;
     const resp = sb.apiSaveWeek(plain(payload));
@@ -367,8 +367,8 @@ test('D9-13 舊版前端（沒有 payloadVersion，照送全部事奉格）→ C
 test('D9-14 沒有帶事奉格的 payload（自測機、亂行機、程式叫的儲存）不要求版本，照常儲存', function () {
   const sb = makeEnv();
   const tab = load(sb, W);
-  const resp = sb.apiSaveWeek(plain({ isoDate: W, lastSavedAt: tab.lastSavedAt, week: { PRELUDE: '新序樂' },
-    baseWeek: { PRELUDE: tab.week.PRELUDE || '' }, dutyEdits: [] }));
+  const resp = sb.apiSaveWeek(plain({ isoDate: W, lastSavedAt: tab.lastSavedAt, week: { PAGE_TITLE: '新序樂' },
+    baseWeek: { PAGE_TITLE: tab.week.PAGE_TITLE || '' }, dutyEdits: [] }));
   assert.strictEqual(resp.ok, true, JSON.stringify(resp.error));
 });
 
@@ -494,7 +494,7 @@ function makeUi(sb) {
     console: console,
     google: makeFakeGoogle(calls),
     document: dom.document,
-    window: {},
+    window: { addEventListener: noop },
     setTimeout: function () { return 0; },
     clearTimeout: noop,
     el: function (tag, className) { return dom.makeEl(tag, className); },
@@ -506,9 +506,9 @@ function makeUi(sb) {
       speakerForm: null, fetchCandidates: [], quarterOps: null, flowerRoster: { thisWeek: '', nextWeek: '' },
       publish: { pdfBase64: '', pdfName: '', pdfIsoDate: '', panel: null, confirmButton: '' }
     },
-    form: { PRELUDE: '' },
+    form: { PAGE_TITLE: '' },
     collectWeekFieldsFromForm: function () { return Object.assign({}, ctx.form); },
-    applyWeekFieldsToForm: function () { ctx.form = { PRELUDE: String(ctx.state.week.PRELUDE || '') }; },
+    applyWeekFieldsToForm: function () { ctx.form = { PAGE_TITLE: String(ctx.state.week.PAGE_TITLE || '') }; },
     CONTENT_SHEET_WEEK_FIELDS: [],
     syncSelectorsTo: noop, renderRosterGapBanner: noop, populateSelectOptions: noop, populatePrayerHeadingOptions: noop,
     renderAllLists: noop, renderStats: noop, renderConflictStat: noop, renderFillGridLink: noop, renderPreviewLink: noop,
@@ -521,7 +521,11 @@ function makeUi(sb) {
     runPublish: noop, downloadWord: noop, isSnapshotPanelOpen: function () { return false; }, loadSnapshotPanel: noop,
     onResetWeekClicked: noop, onSpeakerFormCreateClicked: noop, onSpeakerFormRefreshClicked: noop,
     onSpeakerFormCopyClicked: noop, settleConfirmDialog: noop, onConfirmDialogKeydown: noop, cancelPublishConfirm: noop,
-    schedulePreviewRefresh: noop, setPublishButtonsBusy: noop
+    schedulePreviewRefresh: noop, setPublishButtonsBusy: noop,
+    // v3：wireStaticEvents() 新接的幾粒（與事奉框無關）。
+    copyPreviewLink: noop, confirmProgramAdd: noop, closeProgramAddForm: noop, refreshUnsavedIndicator: noop,
+    updateSnapshotButtons: noop, selectedSnapshotId: function () { return ''; }, onSnapshotDiffClicked: noop,
+    onSnapshotRestoreClicked: noop, renderPublishWindow: noop, renderDutyDiffNotice: noop, renderRosterAppLink: noop
   };
   vm.createContext(ctx);
   const code = [
@@ -541,7 +545,7 @@ function makeUi(sb) {
     region(js, 'week-switch-guard'),
     between(js, 'function reloadRosterOnly(', 'function buildSavePayload('),
     between(js, 'function buildSavePayload(', 'function refreshWeekSelectorLabels('),
-    between(js, 'function wireStaticEvents(', 'function toggleQuarterOps(')
+    between(js, 'function wireStaticEvents(', 'function wireGlobalErrorHandlers(')
   ].join('\n');
   vm.runInContext(code, ctx);
   ctx.wireStaticEvents();
@@ -585,9 +589,9 @@ function makeUi(sb) {
         lines: dom.elements.confirmDialogBody.children.map(function (c) { return c.textContent; })
       };
     },
-    /** 按「重讀職事表（本主日，不覆寫）」（wireStaticEvents() 接上的真按鈕）。 */
+    /** 按「由職事表重新取數（不覆寫）」（v3 取代頂部的「重讀職事表」；wireStaticEvents() 接上的真按鈕）。 */
     clickReloadRoster: function () {
-      dom.document.getElementById('reloadRosterBtn').listeners.click({});
+      dom.document.getElementById('fetchFromRosterBtn').listeners.click({});
       answerLoad();
     },
     /** 某一個事奉框（'dutyBoxPage1Body' 或 'nextWeekDutyBody'）第一行的第一格。 */
@@ -626,14 +630,14 @@ test('D9-16 載入有衝突的一週 → 只改序樂按「儲存」→ 兩個�
   const ui = makeUi(sb);
   ui.open(W);
   assert.strictEqual(ui.ctx.hasUnsavedWeekChanges(), false, '前提：剛載入沒有改動');
-  ui.ctx.form.PRELUDE = '新序樂';
+  ui.ctx.form.PAGE_TITLE = '新序樂';
   assert.strictEqual(ui.ctx.hasUnsavedWeekChanges(), true);
   const r = ui.clickSave();
   assert.strictEqual(r.resp.ok, true, JSON.stringify(r.resp.error));
   assert.strictEqual(r.payload.payloadVersion, 2);
   assert.deepStrictEqual(r.payload.dutyEdits, []);
   assert.deepStrictEqual(r.payload.nextWeekDutyEdits, []);
-  assert.deepStrictEqual(r.payload.week, { PRELUDE: '新序樂' });
+  assert.deepStrictEqual(r.payload.week, { PAGE_TITLE: '新序樂' });
   assert.strictEqual(conflictCount(sb, W), 1, '衝突保留');
   assert.strictEqual(ui.message(), '已儲存，更新了 1 個欄位。');
 });
@@ -701,7 +705,7 @@ test('D9-19 分頁開着期間職事表換人 → 只改序樂按「儲存」→
   s.type('陳大文 ');
   assert.strictEqual(ui.ctx.hasUnsavedWeekChanges(), false, '只多了空白，不算改動');
   rosterChangesChair(sb, W, '張三');
-  ui.ctx.form.PRELUDE = '新序樂';
+  ui.ctx.form.PAGE_TITLE = '新序樂';
   const r = ui.clickSave();
   assert.strictEqual(r.resp.ok, true, JSON.stringify(r.resp.error));
   assert.deepStrictEqual(r.payload.dutyEdits, []);
@@ -720,7 +724,7 @@ test('D9-20 職事表已經追上覆寫的衝突格：不顯示「保留我的�
   assert.ok(s.row.classList.contains('is-conflict'), '前提：覆寫對照的職事表值（陳大文）與現在（李小明）不同，算衝突');
   assert.strictEqual(s.keepButton(), null);
   assert.strictEqual(s.hint(), ui.ctx.DUTY_CAUGHT_UP_HINT);
-  ui.ctx.form.PRELUDE = '新序樂';
+  ui.ctx.form.PAGE_TITLE = '新序樂';
   const r = ui.clickSave();
   assert.strictEqual(r.resp.ok, true, JSON.stringify(r.resp.error));
   assert.deepStrictEqual(r.payload.dutyEdits, []);
@@ -1000,8 +1004,8 @@ test('RV5-1 經 apiSaveWeek：payload 沒有 nextWeekDutyEdits 這個鍵 → W+7
   const tab = load(sb, W);
   const auditBefore = auditRowsFor(sb, W_AFTER).length;
   const snapshotsBefore = sb.readSheet('WeekSnapshots').length;
-  const resp = sb.apiSaveWeek(plain({ isoDate: W, lastSavedAt: tab.lastSavedAt, week: { PRELUDE: '自測序樂' },
-    baseWeek: { PRELUDE: tab.week.PRELUDE || '' }, dutyEdits: [] }));
+  const resp = sb.apiSaveWeek(plain({ isoDate: W, lastSavedAt: tab.lastSavedAt, week: { PAGE_TITLE: '自測序樂' },
+    baseWeek: { PAGE_TITLE: tab.week.PAGE_TITLE || '' }, dutyEdits: [] }));
   assert.strictEqual(resp.ok, true, JSON.stringify(resp.error));
   assert.ok(activeChair(sb, W_AFTER), 'W+7 的覆寫仍然生效');
   assert.strictEqual(auditRowsFor(sb, W_AFTER).length, auditBefore, 'W+7 沒有 AuditLog');
@@ -1009,7 +1013,7 @@ test('RV5-1 經 apiSaveWeek：payload 沒有 nextWeekDutyEdits 這個鍵 → W+7
   assert.strictEqual(resp.data.message.text, '已儲存，更新了 1 個欄位。');
 
   // 對照：填寫介面一定帶 nextWeekDutyEdits（空陣列）→ 照舊自動停用（D9-12 的行為）。
-  const r = save(sb, W, { patch: { PRELUDE: '介面序樂' } });
+  const r = save(sb, W, { patch: { PAGE_TITLE: '介面序樂' } });
   assert.strictEqual(r.resp.ok, true, JSON.stringify(r.resp.error));
   assert.deepStrictEqual(r.payload.nextWeekDutyEdits, []);
   assert.strictEqual(activeChair(sb, W_AFTER), null);
@@ -1041,7 +1045,8 @@ test('RV5-2 真正入口：亂行機「經填寫介面改幾格」揀中沙盒�
 
 console.log('\n審查後修正 7：「重讀職事表」不再靜靜丟掉未儲存的事奉改動');
 
-const RV7_PROMPT = '重讀職事表會丟失你未儲存的事奉改動，確定嗎？';
+// v3（Ivan 測試結果 A 第 7 項）：頂部「重讀職事表」改為事奉框內的「由職事表重新取數（不覆寫）」，確認句跟着改。
+const RV7_PROMPT = '重新取數會按職事表最新內容重畫事奉框，你未儲存的事奉改動會丟失，確定嗎？';
 
 function apiLoadCount(ui) { return ui.calls.filter(function (c) { return c.name === 'apiLoadWeek'; }).length; }
 
@@ -1049,13 +1054,13 @@ test('RV7-1 沒有未儲存的事奉改動（只改了表單其他欄位）→ �
   const sb = makeEnv();
   const ui = makeUi(sb);
   ui.open(W);
-  ui.ctx.form.PRELUDE = '未儲存的序樂';
+  ui.ctx.form.PAGE_TITLE = '未儲存的序樂';
   const before = apiLoadCount(ui);
-  ui.click('reloadRosterBtn');
+  ui.click('fetchFromRosterBtn');
   assert.strictEqual(ui.dialog(), null);
   assert.strictEqual(apiLoadCount(ui), before + 1, '直接送出');
   ui.take('apiLoadWeek').ok(plain(sb.apiLoadWeek(W)));
-  assert.strictEqual(ui.ctx.form.PRELUDE, '未儲存的序樂');
+  assert.strictEqual(ui.ctx.form.PAGE_TITLE, '未儲存的序樂');
 });
 
 test('RV7-2 事奉框改了名字 → 按「重讀職事表」→ 出頁內確認對話框（那一句原文）、一個請求都未送；按「取消」→ 甚麼都不做：名字仍在、仍算未儲存、訊息列不變、沒有請求', function () {
@@ -1065,8 +1070,8 @@ test('RV7-2 事奉框改了名字 → 按「重讀職事表」→ 出頁內確�
   ui.slot('dutyBoxPage1Body').type('王五');
   const messageBefore = ui.message();
   const before = apiLoadCount(ui);
-  ui.click('reloadRosterBtn');
-  assert.deepStrictEqual(ui.dialog(), { title: '重讀職事表', lines: [RV7_PROMPT] });
+  ui.click('fetchFromRosterBtn');
+  assert.deepStrictEqual(ui.dialog(), { title: '由職事表重新取數', lines: [RV7_PROMPT] });
   assert.strictEqual(apiLoadCount(ui), before, '確認之前不送');
   ui.click('confirmCancelBtn');
   assert.strictEqual(ui.dialog(), null);
@@ -1083,7 +1088,7 @@ test('RV7-3 同一情境按「確定」→ 送出重讀；職事表已經換了�
   ui.open(W);
   ui.slot('dutyBoxPage1Body').type('王五');
   rosterChangesChair(sb, W, '張三');
-  ui.click('reloadRosterBtn');
+  ui.click('fetchFromRosterBtn');
   ui.click('confirmOkBtn');
   assert.strictEqual(ui.dialog(), null);
   ui.take('apiLoadWeek').ok(plain(sb.apiLoadWeek(W)));
@@ -1096,7 +1101,7 @@ test('RV7-4 下週事奉框的改動、本週衝突格按了「保留我的」�
   const uiNext = makeUi(sbNext);
   uiNext.open(W);
   uiNext.slot('nextWeekDutyBody').type('下週王');
-  uiNext.click('reloadRosterBtn');
+  uiNext.click('fetchFromRosterBtn');
   assert.ok(uiNext.dialog(), '下週事奉框的改動');
 
   const sbKeep = makeConflictEnv();
@@ -1104,7 +1109,7 @@ test('RV7-4 下週事奉框的改動、本週衝突格按了「保留我的」�
   uiKeep.open(W);
   const k = uiKeep.slot('dutyBoxPage1Body');
   k.click(k.keepButton());
-  uiKeep.click('reloadRosterBtn');
+  uiKeep.click('fetchFromRosterBtn');
   assert.ok(uiKeep.dialog(), '「保留我的」');
 
   const sbFollow = makeOverriddenEnv();
@@ -1112,7 +1117,7 @@ test('RV7-4 下週事奉框的改動、本週衝突格按了「保留我的」�
   uiFollow.open(W);
   const f = uiFollow.slot('dutyBoxPage1Body');
   f.click(f.restoreButton());
-  uiFollow.click('reloadRosterBtn');
+  uiFollow.click('fetchFromRosterBtn');
   assert.ok(uiFollow.dialog(), '「還原」');
 });
 

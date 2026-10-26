@@ -235,6 +235,28 @@ function ensureContentTabColumns_(sheet, n) {
 }
 
 /**
+ * 用途：v3：刪走一張分頁的幾欄（整欄刪除，連標題、資料、格式）。只用於內容表 v2 → v3 刪走「崇拜程序」
+ *   的浸禮六欄（資料已先搬入週報）。分頁欄數不夠就只刪到最後一欄。
+ * Args:
+ *   sheet {Sheet} 分頁。
+ *   startCol {number} 由第幾欄開始（1 起算）。
+ *   count {number} 刪幾欄。
+ * Returns:
+ *   {number} 實際刪了幾欄。
+ * Raises:
+ *   Error 刪欄失敗時原樣拋出。
+ */
+function deleteContentTabColumns_(sheet, startCol, count) {
+  var have = Number(sheet.getMaxColumns()) || 0;
+  var start = Number(startCol) || 0;
+  if (start < 1 || start > have) return 0;
+  var n = Math.min(Number(count) || 0, have - start + 1);
+  if (n < 1) return 0;
+  sheet.deleteColumns(start, n);
+  return n;
+}
+
+/**
  * 用途：內容表 v2：把一段範圍設成純文字格式（`@`）。寫入之前用，否則「3:16」之類的值會被試算表
  *   轉成時間。
  * Args:

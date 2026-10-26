@@ -156,7 +156,7 @@ test('真正入口：apiSaveWeek() 有改動時，回傳的 data.message 是 suc
   });
   var resp = sb.apiSaveWeek({
     isoDate: '2027-10-03', lastSavedAt: null,
-    week: { SERMON_TITLE: '因信稱義' }, baseWeek: { SERMON_TITLE: '' },
+    week: { FLOWER_THIS_WEEK: '因信稱義' }, baseWeek: { FLOWER_THIS_WEEK: '' },
     announcements: [], prayers: [], fellowships: [], finance: []
   });
   assert.strictEqual(resp.ok, true, JSON.stringify(resp));
@@ -170,7 +170,7 @@ test('真正入口：apiSaveWeek() 沒有改動時，回傳的 data.message 是 
   });
   var first = sb.apiSaveWeek({
     isoDate: '2027-10-03', lastSavedAt: null,
-    week: { SERMON_TITLE: '不變的講題' }, baseWeek: { SERMON_TITLE: '' },
+    week: { FLOWER_THIS_WEEK: '不變的講題' }, baseWeek: { FLOWER_THIS_WEEK: '' },
     announcements: [], prayers: [], fellowships: [], finance: []
   });
   assert.strictEqual(first.ok, true, JSON.stringify(first));
@@ -178,7 +178,7 @@ test('真正入口：apiSaveWeek() 沒有改動時，回傳的 data.message 是 
   var reloadedLastSavedAt = sb.readSheet('BulletinWeeks')[0].LAST_SAVED_AT;
   var second = sb.apiSaveWeek({
     isoDate: '2027-10-03', lastSavedAt: reloadedLastSavedAt,
-    week: { SERMON_TITLE: '不變的講題' }, baseWeek: { SERMON_TITLE: '不變的講題' },
+    week: { FLOWER_THIS_WEEK: '不變的講題' }, baseWeek: { FLOWER_THIS_WEEK: '不變的講題' },
     announcements: [], prayers: [], fellowships: [], finance: []
   });
   assert.strictEqual(second.ok, true, JSON.stringify(second));
@@ -221,65 +221,57 @@ function g16Actions(sb, fromIndex) {
     .filter(function (a) { return a.indexOf('WEBAPP_SAVE_WEEK') === 0 || a.indexOf('FIELD_OVERRIDE_') === 0; })));
 }
 
-test('G16-1 真正入口 apiSaveWeek：只改一個內容表欄位（回應詩歌）→ 訊息「已儲存，更新了 1 個欄位。」；AuditLog 照舊有欄位與覆寫記錄兩筆', function () {
+// v3（Ivan 測試結果 A 第 10 項）：回應詩歌、詩班項目名稱等九欄改為只可以在內容表輸入，介面不再有覆寫
+//    （FieldOverride 不再有可覆寫欄位）。G16-1 至 G16-4 原本測「內容表欄位＋覆寫記錄」的計數，改測新規則。
+test('G16-1 v3 真正入口 apiSaveWeek：送內容表才可以改的欄位（回應詩歌）→ 整次拒絕（CONTENT_SHEET_READONLY），一格都沒有寫', function () {
   var sb = makeG16Env();
-  var data = g16Save(sb, { RESPONSE_HYMN: '幹事改的詩歌' }, { RESPONSE_HYMN: '內容表的詩歌' });
-  assert.deepStrictEqual(g16Actions(sb), ['WEBAPP_SAVE_WEEK RESPONSE_HYMN', 'FIELD_OVERRIDE_SET RESPONSE_HYMN'],
-    '前提：與瀏覽器重測一樣，兩筆 AuditLog');
-  assert.strictEqual(data.changedFieldCount, 1);
-  assert.strictEqual(data.sideRecordCount, 1);
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(data.message)), { type: 'success', text: '已儲存，更新了 1 個欄位。' });
+  var auditBefore = sb.readSheet('AuditLog').length;
+  var weekBefore = JSON.stringify(sb.readSheet('BulletinWeeks'));
+  var resp = sb.apiSaveWeek({
+    isoDate: G16_DATE, lastSavedAt: null,
+    week: { RESPONSE_HYMN: '幹事改的詩歌' }, baseWeek: { RESPONSE_HYMN: '內容表的詩歌' }
+  });
+  assert.strictEqual(resp.ok, false);
+  assert.strictEqual(resp.error.code, 'CONTENT_SHEET_READONLY');
+  assert.ok(resp.error.message.indexOf('回應詩歌') !== -1, '訊息要講出是哪一欄');
+  assert.strictEqual(sb.readSheet('AuditLog').length, auditBefore);
+  assert.strictEqual(JSON.stringify(sb.readSheet('BulletinWeeks')), weekBefore);
+  assertWrittenChinese(assert, 'G16-1 v3 訊息', [resp.error.message]);
 });
 
-// 內容表 v2：序樂併入內容表「崇拜程序」（第三種模式），不再是「普通欄位」；改用仍然只在填寫介面
-// 填的「詩班項目名稱」（決定 4）。
-test('G16-2 真正入口 apiSaveWeek：改兩個（一個內容表欄位、一個普通欄位「詩班項目名稱」）→「已儲存，更新了 2 個欄位。」', function () {
+test('G16-2 v3 真正入口 apiSaveWeek：改兩個介面欄位（程序表大標題、本週獻花）→「已儲存，更新了 2 個欄位。」', function () {
   var sb = makeG16Env();
-  var data = g16Save(sb,
-    { RESPONSE_HYMN: '幹事改的詩歌', CHOIR_LABEL: '詩班獻詩' },
-    { RESPONSE_HYMN: '內容表的詩歌', CHOIR_LABEL: '' });
-  assert.strictEqual(g16Actions(sb).length, 3, '前提：兩個欄位加一筆覆寫記錄');
+  var data = g16Save(sb, { PAGE_TITLE: '宣教主日', FLOWER_THIS_WEEK: '陳姊妹' }, { PAGE_TITLE: '', FLOWER_THIS_WEEK: '' });
+  assert.deepStrictEqual(g16Actions(sb), ['WEBAPP_SAVE_WEEK PAGE_TITLE', 'WEBAPP_SAVE_WEEK FLOWER_THIS_WEEK']);
   assert.strictEqual(data.changedFieldCount, 2);
+  assert.strictEqual(data.sideRecordCount, 0);
   assert.strictEqual(data.message.text, '已儲存，更新了 2 個欄位。');
 });
 
-test('G16-3 真正入口 apiSaveWeek：把內容表欄位改回內容表原值 →「已儲存，更新了 1 個欄位。」（欄位一筆、取消覆寫一筆）', function () {
+test('G16-3 v3 真正入口 apiSaveWeek：這一週的程序增刪（PROGRAM_EDITS）照一般欄位儲存，訊息「更新了 1 個欄位」', function () {
   var sb = makeG16Env();
-  g16Save(sb, { RESPONSE_HYMN: '幹事改的詩歌' }, { RESPONSE_HYMN: '內容表的詩歌' });
-  var auditBefore = sb.readSheet('AuditLog').length;
-  var data = g16Save(sb, { RESPONSE_HYMN: '內容表的詩歌' }, { RESPONSE_HYMN: '幹事改的詩歌' });
-  assert.deepStrictEqual(g16Actions(sb, auditBefore), ['WEBAPP_SAVE_WEEK RESPONSE_HYMN', 'FIELD_OVERRIDE_CLEAR ACTIVE'],
-    '前提：與瀏覽器重測一樣，欄位一筆、取消覆寫一筆');
-  assert.strictEqual(data.changedFieldCount, 1);
+  var edits = JSON.stringify({ v: 1, hidden: ['拍照#1'], added: [] });
+  var data = g16Save(sb, { PROGRAM_EDITS: edits }, { PROGRAM_EDITS: '' });
+  assert.deepStrictEqual(g16Actions(sb), ['WEBAPP_SAVE_WEEK PROGRAM_EDITS']);
+  assert.strictEqual(sb.readSheet('BulletinWeeks')[0].PROGRAM_EDITS, edits);
   assert.strictEqual(data.message.text, '已儲存，更新了 1 個欄位。');
 });
 
-test('G16-4 真正入口 apiSaveWeek：欄位本身沒有改變、只取消一筆覆寫 → 不可以講「沒有偵測到任何改動」，講只更新了 1 筆覆寫記錄；最後儲存時間有更新', function () {
+test('G16-4 v3 真正入口 apiSaveWeek：程序增刪格式不對 → 整次拒絕（INVALID_ARRANGEMENT），一格都沒有寫；只更新覆寫記錄的訊息照舊（事奉框覆寫用）', function () {
   var sb = makeG16Env();
-  g16Save(sb, { RESPONSE_HYMN: '幹事改的詩歌' }, { RESPONSE_HYMN: '內容表的詩歌' });
-  // 季度填寫表同步把那一格寫回內容表的值：FillSync 只寫 BulletinWeeks 那一格，
-  // 不碰 FieldOverride，亦不更新 LAST_SAVED_AT。這裏直接寫那一格代替那一次同步。
-  // 最後儲存時間撥回一個舊時間，才看得出這次儲存有沒有更新它（測試跑得比時鐘快）。
-  var rowInfo = sb.readBulletinWeekRowWithRowNo_(G16_DATE);
-  var weekSheet = sb.SpreadsheetApp.getActiveSpreadsheet().getSheetByName('BulletinWeeks');
-  var keys = sb.COLUMNS.BULLETIN_WEEKS.keys;
-  weekSheet.getRange(rowInfo.__rowNo, keys.indexOf('RESPONSE_HYMN') + 1).setValue('內容表的詩歌');
-  var oldSavedAt = new Date(2026, 9, 1, 9, 0, 0);
-  weekSheet.getRange(rowInfo.__rowNo, keys.indexOf('LAST_SAVED_AT') + 1).setValue(oldSavedAt);
   var auditBefore = sb.readSheet('AuditLog').length;
-
-  // 較早載入的分頁（載入時是幹事改的詩歌）把它改回內容表的值再儲存。
-  var data = g16Save(sb, { RESPONSE_HYMN: '內容表的詩歌' }, { RESPONSE_HYMN: '幹事改的詩歌' });
-  assert.deepStrictEqual(g16Actions(sb, auditBefore), ['FIELD_OVERRIDE_CLEAR ACTIVE'], '前提：只有取消覆寫一筆，欄位沒有寫');
-  assert.strictEqual(data.changedFieldCount, 0);
-  assert.strictEqual(data.sideRecordCount, 1);
-  assert.strictEqual(data.message.type, 'success');
-  assert.strictEqual(data.message.text,
+  var resp = sb.apiSaveWeek({
+    isoDate: G16_DATE, lastSavedAt: null,
+    week: { PROGRAM_EDITS: '{壞了', PAGE_TITLE: '不應寫入' }, baseWeek: { PROGRAM_EDITS: '', PAGE_TITLE: '' }
+  });
+  assert.strictEqual(resp.ok, false);
+  assert.strictEqual(resp.error.code, 'INVALID_ARRANGEMENT');
+  assert.strictEqual(sb.readSheet('AuditLog').length, auditBefore);
+  assert.strictEqual(String(sb.readSheet('BulletinWeeks')[0].PAGE_TITLE || ''), '');
+  var msg = JSON.parse(JSON.stringify(sb.buildSaveResultMessage_(0, 1)));
+  assert.strictEqual(msg.text,
     '已儲存。欄位內容沒有改變，只更新了 1 筆覆寫記錄（例如取消已經與內容表或職事表相同的覆寫，或記下覆寫對照的職事表現值）。');
-  assert.ok(data.message.text.indexOf('沒有偵測到任何改動') === -1);
-  assert.notStrictEqual(new Date(sb.readSheet('BulletinWeeks')[0].LAST_SAVED_AT).getTime(), oldSavedAt.getTime(),
-    '有寫入就要更新最後儲存時間');
-  assertWrittenChinese(assert, 'G16 訊息', [data.message.text]);
+  assertWrittenChinese(assert, 'G16-4 v3 訊息', [resp.error.message, msg.text]);
 });
 
 test('G16-5 countSaveChanges_：事奉框同一格幾筆條目只算一個欄位；只更新覆寫對照的職事表值、取消一筆名字已經相同的覆寫算附帶記錄；本週與下週同一崗位是兩個欄位', function () {

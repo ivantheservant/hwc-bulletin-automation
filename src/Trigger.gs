@@ -206,7 +206,9 @@ function removeAllSendTriggers_() {
   var triggers = ScriptApp.getProjectTriggers();
   var removed = 0;
   triggers.forEach(function (t) {
-    if (t.getHandlerFunction() === 'weeklyBulletinSendTrigger_') {
+    // v3：每日自動建立季度的觸發器與自動寄送一齊安裝、一齊移除。
+    var handler = t.getHandlerFunction();
+    if (handler === 'weeklyBulletinSendTrigger_' || handler === 'dailyQuarterAutoCreateTrigger_') {
       ScriptApp.deleteTrigger(t);
       removed++;
     }
@@ -250,7 +252,7 @@ function installWeeklySendTrigger_() {
   var removedCount = removeAllSendTriggers_();
 
   var weekdayName = getConfig(CONFIG_KEYS.SEND_WEEKDAY, 'MONDAY');
-  var hour = normalizeInt_(getConfig(CONFIG_KEYS.SEND_HOUR, '8'));
+  var hour = normalizeInt_(getConfig(CONFIG_KEYS.SEND_HOUR, '6'));
   var minute = normalizeInt_(getConfig(CONFIG_KEYS.SEND_MINUTE, '0'));
   var weekDayEnum = resolveScriptAppWeekDay_(weekdayName);
 
@@ -260,7 +262,16 @@ function installWeeklySendTrigger_() {
     .atHour(hour)
     .create();
 
-  return { weekday: weekdayName, hour: hour, minute: minute, removedCount: removedCount };
+  // v3：每日自動建立季度（職事表有新季度的版本時建立週報與內容表）。排在寄送之前一小時，
+  //    星期一的草稿預覽寄出之前，新季度已經建好。
+  var dailyHour = (hour + 23) % 24;
+  ScriptApp.newTrigger('dailyQuarterAutoCreateTrigger_')
+    .timeBased()
+    .everyDays(1)
+    .atHour(dailyHour)
+    .create();
+
+  return { weekday: weekdayName, hour: hour, minute: minute, removedCount: removedCount, dailyHour: dailyHour };
 }
 
 /**
@@ -278,6 +289,7 @@ function menuInstallSendTrigger_() {
       '安裝自動寄送觸發器',
       [
         '已安裝：每週' + weekdayLabel + '　約 ' + result.hour + ':' + pad2Trigger_(result.minute) + ' 執行一次。',
+        '另外每日約 ' + result.dailyHour + ':00 檢查一次職事表有沒有新季度（有就自動建立該季週報與內容表）。',
         (result.removedCount > 0 ? '（先移除了 ' + result.removedCount + ' 個舊的同名觸發器，避免重複寄送。）' : ''),
         '',
         '⚠️ Apps Script 的時間觸發器只保證在指定小時內執行，不保證準確在',

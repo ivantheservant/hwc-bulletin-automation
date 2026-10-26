@@ -191,7 +191,7 @@ test('真正入口：apiSaveWeek() 在工作表結構落後於程式碼時拒絕
   var resp = sb.apiSaveWeek({
     isoDate: '2027-10-03',
     lastSavedAt: null,
-    week: { SERMON_TITLE: '不應該存得進去' },
+    week: { FLOWER_THIS_WEEK: '不應該存得進去' },
     announcements: [], prayers: [], fellowships: [], finance: []
   });
 
@@ -211,7 +211,7 @@ test('真正入口：schema 正常時 apiSaveWeek() 照常運作（確認上一�
   var resp = sb.apiSaveWeek({
     isoDate: '2027-10-03',
     lastSavedAt: null,
-    week: { SERMON_TITLE: '正常儲存' }, baseWeek: { SERMON_TITLE: '' },
+    week: { FLOWER_THIS_WEEK: '正常儲存' }, baseWeek: { FLOWER_THIS_WEEK: '' },
     announcements: [], prayers: [], fellowships: [], finance: []
   });
   assert.strictEqual(resp.ok, true, JSON.stringify(resp));
@@ -225,7 +225,7 @@ test('D11 部署之後、按「初始化工作表」之前：Config 未有 SEND_
     .map(function (d) { return { KEY: d.key, VALUE: d.value, NOTE: '', EDITABLE: true }; });
   var sb2 = makeFullEnv({ configRows: configRows });
   assertArrayEqual(sb2.checkSheetSchema_().missingConfigKeys, ['SEND_ONLY_DEDUP_SEC']);
-  var resp = sb2.apiSaveWeek({ isoDate: '2027-10-03', lastSavedAt: null, week: { SERMON_TITLE: 'x' }, baseWeek: { SERMON_TITLE: '' } });
+  var resp = sb2.apiSaveWeek({ isoDate: '2027-10-03', lastSavedAt: null, week: { FLOWER_THIS_WEEK: 'x' }, baseWeek: { FLOWER_THIS_WEEK: '' } });
   assert.strictEqual(resp.ok, false);
   assert.strictEqual(resp.error.code, 'SCHEMA_OUTDATED');
 });

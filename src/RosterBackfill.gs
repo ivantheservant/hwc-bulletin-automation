@@ -274,11 +274,7 @@ function backfillRosterForQuarter_(quarterId) {
   }
 
   var resolution = resolveQuarterServiceDates_(qid);
-  var templateConfig = {
-    baptismKeywords: getConfigTextList_(CONFIG_KEYS.TEMPLATE_KEYWORDS_BAPTISM, '浸禮'),
-    anniversaryKeywords: getConfigTextList_(CONFIG_KEYS.TEMPLATE_KEYWORDS_ANNIVERSARY, '堂慶,週年'),
-    templateDefault: getConfig(CONFIG_KEYS.TEMPLATE_DEFAULT, 'TPL_NORMAL')
-  };
+  var templateConfig = readProgramTemplateConfig_();
   var fieldKeys = rosterDerivedWeekFieldKeys_();
 
   var statusBefore = countRosterStatuses_(targets.map(function (t) { return t.row; }));

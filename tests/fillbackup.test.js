@@ -106,7 +106,7 @@ test('1h. 真正入口：大量資料會真的被分拆成多行，還原得回�
     return {
       SERVICE_DATE: ['2027-11-07', '2027-11-14', '2027-11-21', '2027-11-28'][i],
       QUARTER_ID: QUARTER_ID, WEEK_OF_MONTH: i + 1, STATUS: 'DRAFT',
-      SERMON_TITLE: '很長的講題'.repeat(4000)
+      FLOWER_THIS_WEEK: '很長的講題'.repeat(4000)
     };
   });
   const env = makeFillEnv({ weekRows: bigWeeks, withGrid: false });
@@ -120,7 +120,7 @@ test('1h. 真正入口：大量資料會真的被分拆成多行，還原得回�
 
   const payload = env.sandbox.parseFillBackupPayload_(backups[0]);
   assert.strictEqual(payload.bulletinWeeks.length, 4);
-  assert.strictEqual(payload.bulletinWeeks[0].SERMON_TITLE, '很長的講題'.repeat(4000),
+  assert.strictEqual(payload.bulletinWeeks[0].FLOWER_THIS_WEEK, '很長的講題'.repeat(4000),
     '串回來的內容要一字不差');
 });
 
@@ -222,10 +222,10 @@ test('2f. 真正入口：超過 FILL_BACKUP_KEEP 時真的刪走最舊的（唯�
 test('3. 還原之前一定會再備份一次（原因 BEFORE_RESTORE）', function () {
   const env = makeFillEnv({ withGrid: false });
 
-  // 先備份現況（SERMON_TITLE 是空的）
+  // 先備份現況（FLOWER_THIS_WEEK 是空的）
   const backup = env.sandbox.createFillBackup_(QUARTER_ID, FILL_BACKUP_REASON.MANUAL);
   // 改一格
-  env.sandbox.writeBulletinWeekField_('2027-11-07', 'SERMON_TITLE', '改過之後的講題');
+  env.sandbox.writeBulletinWeekField_('2027-11-07', 'FLOWER_THIS_WEEK', '改過之後的講題');
 
   const result = env.sandbox.restoreFillBackup_(QUARTER_ID, backup.backupId);
   assert.strictEqual(result.ok, true);
@@ -237,10 +237,10 @@ test('3. 還原之前一定會再備份一次（原因 BEFORE_RESTORE）', funct
 
 test('3b. 還原之後，安全備份可以把改動再還原回來', function () {
   const env = makeFillEnv({ withGrid: false });
-  env.sandbox.writeBulletinWeekField_('2027-11-07', 'SERMON_TITLE', '原本的講題');
+  env.sandbox.writeBulletinWeekField_('2027-11-07', 'FLOWER_THIS_WEEK', '原本的講題');
 
   const first = env.sandbox.createFillBackup_(QUARTER_ID, FILL_BACKUP_REASON.MANUAL);
-  env.sandbox.writeBulletinWeekField_('2027-11-07', 'SERMON_TITLE', '後來改成這個');
+  env.sandbox.writeBulletinWeekField_('2027-11-07', 'FLOWER_THIS_WEEK', '後來改成這個');
 
   const restore = env.sandbox.restoreFillBackup_(QUARTER_ID, first.backupId);
   assert.strictEqual(restore.restoredCount, 1);
@@ -248,14 +248,14 @@ test('3b. 還原之後，安全備份可以把改動再還原回來', function (
   const afterRestore = env.sandbox.readSheet('BulletinWeeks').filter(function (r) {
     return env.sandbox.fillGridCellText_(r.SERVICE_DATE) === '2027-11-07';
   })[0];
-  assert.strictEqual(afterRestore.SERMON_TITLE, '原本的講題');
+  assert.strictEqual(afterRestore.FLOWER_THIS_WEEK, '原本的講題');
 
   // 再用安全備份還原回去
   env.sandbox.restoreFillBackup_(QUARTER_ID, restore.safetyBackupId);
   const afterUndo = env.sandbox.readSheet('BulletinWeeks').filter(function (r) {
     return env.sandbox.fillGridCellText_(r.SERVICE_DATE) === '2027-11-07';
   })[0];
-  assert.strictEqual(afterUndo.SERMON_TITLE, '後來改成這個', '安全備份要真的還原得回去');
+  assert.strictEqual(afterUndo.FLOWER_THIS_WEEK, '後來改成這個', '安全備份要真的還原得回去');
 });
 
 // =====================================================================
@@ -264,29 +264,29 @@ test('3b. 還原之後，安全備份可以把改動再還原回來', function (
 
 test('4a. buildFillRestorePlan_：只列出真的有差異的格', function () {
   const plan = buildFillRestorePlan_(
-    { bulletinWeeks: [{ SERVICE_DATE: '2027-11-07', SERMON_TITLE: '備份的講題', HYMN_PRAISE: '一樣的' }] },
-    { '2027-11-07': { SERMON_TITLE: '現在的講題', HYMN_PRAISE: '一樣的' } }
+    { bulletinWeeks: [{ SERVICE_DATE: '2027-11-07', FLOWER_THIS_WEEK: '備份的講題', FLOWER_NEXT_WEEK: '一樣的' }] },
+    { '2027-11-07': { FLOWER_THIS_WEEK: '現在的講題', FLOWER_NEXT_WEEK: '一樣的' } }
   );
   assert.strictEqual(plan.changes.length, 1);
-  assert.strictEqual(plan.changes[0].fieldKey, 'SERMON_TITLE');
+  assert.strictEqual(plan.changes[0].fieldKey, 'FLOWER_THIS_WEEK');
   assert.strictEqual(plan.changes[0].oldValue, '現在的講題');
   assert.strictEqual(plan.changes[0].newValue, '備份的講題');
 });
 
 test('4b. buildFillRestorePlan_：只還原可編輯欄，系統欄（STATUS／DOC_ID 等）不動', function () {
   const plan = buildFillRestorePlan_(
-    { bulletinWeeks: [{ SERVICE_DATE: '2027-11-07', STATUS: 'SENT', DOC_ID: 'old', SERMON_TITLE: 'A' }] },
-    { '2027-11-07': { STATUS: 'DRAFT', DOC_ID: 'new', SERMON_TITLE: 'B' } }
+    { bulletinWeeks: [{ SERVICE_DATE: '2027-11-07', STATUS: 'SENT', DOC_ID: 'old', FLOWER_THIS_WEEK: 'A' }] },
+    { '2027-11-07': { STATUS: 'DRAFT', DOC_ID: 'new', FLOWER_THIS_WEEK: 'B' } }
   );
   const fields = plan.changes.map(function (c) { return c.fieldKey; });
-  assert.ok(fields.indexOf('SERMON_TITLE') !== -1);
+  assert.ok(fields.indexOf('FLOWER_THIS_WEEK') !== -1);
   assert.strictEqual(fields.indexOf('STATUS'), -1, '系統欄不可以被還原——還原它只會令狀態與現實脫節');
   assert.strictEqual(fields.indexOf('DOC_ID'), -1);
 });
 
 test('4c. buildFillRestorePlan_：備份裡有、現在沒有的主日 → 不新增行', function () {
   const plan = buildFillRestorePlan_(
-    { bulletinWeeks: [{ SERVICE_DATE: '2099-01-01', SERMON_TITLE: 'A' }] },
+    { bulletinWeeks: [{ SERVICE_DATE: '2099-01-01', FLOWER_THIS_WEEK: 'A' }] },
     { '2027-11-07': {} }
   );
   assert.strictEqual(plan.changes.length, 0);
@@ -296,8 +296,8 @@ test('4d. buildFillRestorePlan_：affectedDates 去重並排序', function () {
   const plan = buildFillRestorePlan_(
     {
       bulletinWeeks: [
-        { SERVICE_DATE: '2027-11-14', SERMON_TITLE: 'B', HYMN_PRAISE: 'B2' },
-        { SERVICE_DATE: '2027-11-07', SERMON_TITLE: 'A' }
+        { SERVICE_DATE: '2027-11-14', FLOWER_THIS_WEEK: 'B', FLOWER_NEXT_WEEK: 'B2' },
+        { SERVICE_DATE: '2027-11-07', FLOWER_THIS_WEEK: 'A' }
       ]
     },
     { '2027-11-07': {}, '2027-11-14': {} }
@@ -307,12 +307,12 @@ test('4d. buildFillRestorePlan_：affectedDates 去重並排序', function () {
 
 test('4e. 真正入口：還原逐格記 AuditLog', function () {
   const env = makeFillEnv({ withGrid: false });
-  env.sandbox.writeBulletinWeekField_('2027-11-07', 'SERMON_TITLE', '原本的');
-  env.sandbox.writeBulletinWeekField_('2027-11-07', 'HYMN_PRAISE', '原本的詩歌');
+  env.sandbox.writeBulletinWeekField_('2027-11-07', 'FLOWER_THIS_WEEK', '原本的');
+  env.sandbox.writeBulletinWeekField_('2027-11-07', 'FLOWER_NEXT_WEEK', '原本的詩歌');
 
   const backup = env.sandbox.createFillBackup_(QUARTER_ID, FILL_BACKUP_REASON.MANUAL);
-  env.sandbox.writeBulletinWeekField_('2027-11-07', 'SERMON_TITLE', '改過');
-  env.sandbox.writeBulletinWeekField_('2027-11-07', 'HYMN_PRAISE', '改過的詩歌');
+  env.sandbox.writeBulletinWeekField_('2027-11-07', 'FLOWER_THIS_WEEK', '改過');
+  env.sandbox.writeBulletinWeekField_('2027-11-07', 'FLOWER_NEXT_WEEK', '改過的詩歌');
 
   env.sandbox.restoreFillBackup_(QUARTER_ID, backup.backupId);
 
@@ -323,9 +323,9 @@ test('4e. 真正入口：還原逐格記 AuditLog', function () {
 
 test('4f. previewFillRestore_：唯讀，不會寫入任何一格', function () {
   const env = makeFillEnv({ withGrid: false });
-  env.sandbox.writeBulletinWeekField_('2027-11-07', 'SERMON_TITLE', '原本的');
+  env.sandbox.writeBulletinWeekField_('2027-11-07', 'FLOWER_THIS_WEEK', '原本的');
   const backup = env.sandbox.createFillBackup_(QUARTER_ID, FILL_BACKUP_REASON.MANUAL);
-  env.sandbox.writeBulletinWeekField_('2027-11-07', 'SERMON_TITLE', '改過');
+  env.sandbox.writeBulletinWeekField_('2027-11-07', 'FLOWER_THIS_WEEK', '改過');
 
   const before = JSON.stringify(env.sandbox.readSheet('BulletinWeeks'));
   const preview = env.sandbox.previewFillRestore_(QUARTER_ID, backup.backupId);
@@ -339,13 +339,13 @@ test('4f. previewFillRestore_：唯讀，不會寫入任何一格', function () 
 test('4g. previewFillRestore_：欄位摘要按欄位分組計數', function () {
   const env = makeFillEnv({ withGrid: false });
   const backup = env.sandbox.createFillBackup_(QUARTER_ID, FILL_BACKUP_REASON.MANUAL);
-  env.sandbox.writeBulletinWeekField_('2027-11-07', 'SERMON_TITLE', 'A');
-  env.sandbox.writeBulletinWeekField_('2027-11-14', 'SERMON_TITLE', 'B');
+  env.sandbox.writeBulletinWeekField_('2027-11-07', 'FLOWER_THIS_WEEK', 'A');
+  env.sandbox.writeBulletinWeekField_('2027-11-14', 'FLOWER_THIS_WEEK', 'B');
 
   const preview = env.sandbox.previewFillRestore_(QUARTER_ID, backup.backupId);
-  const summary = preview.fieldSummary.filter(function (f) { return f.fieldKey === 'SERMON_TITLE'; })[0];
+  const summary = preview.fieldSummary.filter(function (f) { return f.fieldKey === 'FLOWER_THIS_WEEK'; })[0];
   assert.strictEqual(summary.count, 2);
-  assert.strictEqual(summary.label, '證道講題', '摘要要用人看得懂的中文欄名');
+  assert.strictEqual(summary.label, '本週獻花', '摘要要用人看得懂的中文欄名');
 });
 
 test('4h. previewFillRestore_：找不到備份 → ok:false，不拋錯', function () {
@@ -358,10 +358,10 @@ test('4h. previewFillRestore_：找不到備份 → ok:false，不拋錯', funct
 test('4i. 季度填寫表已停用（內容表 v2，審查 D1）：還原之後不再更新 FillSnapshot', function () {
   const env = makeFillEnv({ withGrid: false });
   env.sandbox.createOrRefreshFillGrid_(QUARTER_ID);
-  env.sandbox.writeBulletinWeekField_('2027-11-07', 'SERMON_TITLE', '原本的');
+  env.sandbox.writeBulletinWeekField_('2027-11-07', 'FLOWER_THIS_WEEK', '原本的');
 
   const backup = env.sandbox.createFillBackup_(QUARTER_ID, FILL_BACKUP_REASON.MANUAL);
-  env.sandbox.writeBulletinWeekField_('2027-11-07', 'SERMON_TITLE', '改過');
+  env.sandbox.writeBulletinWeekField_('2027-11-07', 'FLOWER_THIS_WEEK', '改過');
   const before = JSON.stringify(env.sandbox.readSheet('FillSnapshot'));
   env.sandbox.restoreFillBackup_(QUARTER_ID, backup.backupId);
 
@@ -369,7 +369,7 @@ test('4i. 季度填寫表已停用（內容表 v2，審查 D1）：還原之後�
   const week = env.sandbox.readSheet('BulletinWeeks').filter(function (r) {
     return env.sandbox.fillGridCellText_(r.SERVICE_DATE) === '2027-11-07';
   })[0];
-  assert.strictEqual(week.SERMON_TITLE, '原本的', '還原照樣寫入 BulletinWeeks');
+  assert.strictEqual(week.FLOWER_THIS_WEEK, '原本的', '還原照樣寫入 BulletinWeeks');
 });
 
 // =====================================================================

@@ -105,18 +105,18 @@ function gridRow(isoDate, values) {
 test('buildFillSyncPlan_：只回報有差異的格，SAME 只計數不列出', function () {
   const plan = buildFillSyncPlan_({
     quarterId: QUARTER_ID,
-    gridRows: [gridRow('2027-11-07', { SERMON_TITLE: '新講題', HYMN_PRAISE: '同一首' })],
-    weekRowsByIso: { '2027-11-07': { SERMON_TITLE: '舊講題', HYMN_PRAISE: '同一首' } },
+    gridRows: [gridRow('2027-11-07', { FLOWER_THIS_WEEK: '新講題', FLOWER_NEXT_WEEK: '同一首' })],
+    weekRowsByIso: { '2027-11-07': { FLOWER_THIS_WEEK: '舊講題', FLOWER_NEXT_WEEK: '同一首' } },
     snapshotIndex: {
-      [fillSnapshotKey_('2027-11-07', 'SERMON_TITLE')]: '舊講題',
-      [fillSnapshotKey_('2027-11-07', 'HYMN_PRAISE')]: '同一首'
+      [fillSnapshotKey_('2027-11-07', 'FLOWER_THIS_WEEK')]: '舊講題',
+      [fillSnapshotKey_('2027-11-07', 'FLOWER_NEXT_WEEK')]: '同一首'
     }
   });
 
   assert.strictEqual(plan.pushCount, 1);
   assert.strictEqual(plan.conflictCount, 0);
   assert.strictEqual(plan.cells.length, 1, 'SAME 的格不應該出現在 cells 內');
-  assert.strictEqual(plan.cells[0].fieldKey, 'SERMON_TITLE');
+  assert.strictEqual(plan.cells[0].fieldKey, 'FLOWER_THIS_WEEK');
 });
 
 test('buildFillSyncPlan_：三個唯讀欄不參與同步', function () {
@@ -135,9 +135,9 @@ test('buildFillSyncPlan_：三個唯讀欄不參與同步', function () {
 test('buildFillSyncPlan_：每一格都帶得出上次同步時的值（衝突對話框要顯示三個值）', function () {
   const plan = buildFillSyncPlan_({
     quarterId: QUARTER_ID,
-    gridRows: [gridRow('2027-11-07', { SERMON_TITLE: 'A' })],
-    weekRowsByIso: { '2027-11-07': { SERMON_TITLE: 'B' } },
-    snapshotIndex: { [fillSnapshotKey_('2027-11-07', 'SERMON_TITLE')]: 'C' }
+    gridRows: [gridRow('2027-11-07', { FLOWER_THIS_WEEK: 'A' })],
+    weekRowsByIso: { '2027-11-07': { FLOWER_THIS_WEEK: 'B' } },
+    snapshotIndex: { [fillSnapshotKey_('2027-11-07', 'FLOWER_THIS_WEEK')]: 'C' }
   });
   assert.strictEqual(plan.cells[0].status, FILL_SYNC_STATUS.CONFLICT);
   assert.strictEqual(plan.cells[0].snapshotValue, 'C');
@@ -209,9 +209,9 @@ test('buildFillGridHeaderRows_：三行標題，群組合併範圍正確', funct
 });
 
 test('fillGridColumnIndex_ / fillGridColumnDefAt_：互為反查', function () {
-  const idx = fillGridColumnIndex_('SERMON_TITLE');
+  const idx = fillGridColumnIndex_('FLOWER_THIS_WEEK');
   assert.ok(idx > 0);
-  assert.strictEqual(fillGridColumnDefAt_(idx).key, 'SERMON_TITLE');
+  assert.strictEqual(fillGridColumnDefAt_(idx).key, 'FLOWER_THIS_WEEK');
   assert.strictEqual(fillGridColumnIndex_('NOT_A_KEY'), -1);
   assert.strictEqual(fillGridColumnDefAt_(9999), null);
 });
@@ -344,7 +344,7 @@ function setSystemCell(env, isoDate, fieldKey, value) {
 
 test('同步 PUSH：只有格子表改過 → 寫回 BulletinWeeks 並記 AuditLog', function () {
   const env = makeSyncedEnv();
-  setGridCell(env, '2027-11-07', 'SERMON_TITLE', '因信稱義');
+  setGridCell(env, '2027-11-07', 'FLOWER_THIS_WEEK', '因信稱義');
 
   const plan = env.sandbox.syncFillGrid_(QUARTER_ID);
   assert.strictEqual(plan.pushCount, 1);
@@ -353,14 +353,14 @@ test('同步 PUSH：只有格子表改過 → 寫回 BulletinWeeks 並記 AuditL
   const week = env.sandbox.readSheet('BulletinWeeks').filter(function (r) {
     return env.sandbox.fillGridCellText_(r.SERVICE_DATE) === '2027-11-07';
   })[0];
-  assert.strictEqual(week.SERMON_TITLE, '因信稱義');
+  assert.strictEqual(week.FLOWER_THIS_WEEK, '因信稱義');
 
   assert.ok(env.sandbox.readSheet('AuditLog').some(function (r) { return r.ACTION === 'FILL_SYNC_PUSH'; }));
 });
 
 test('同步 PULL：只有系統改過 → 刷新格子表並記 AuditLog', function () {
   const env = makeSyncedEnv();
-  setSystemCell(env, '2027-11-07', 'SERMON_TITLE', '由填寫介面改的');
+  setSystemCell(env, '2027-11-07', 'FLOWER_THIS_WEEK', '由填寫介面改的');
 
   const plan = env.sandbox.syncFillGrid_(QUARTER_ID);
   assert.strictEqual(plan.pullCount, 1);
@@ -368,7 +368,7 @@ test('同步 PULL：只有系統改過 → 刷新格子表並記 AuditLog', func
 
   const rows = env.sandbox.readFillGridRows_(QUARTER_ID);
   const row = rows.filter(function (r) { return r.isoDate === '2027-11-07'; })[0];
-  assert.strictEqual(row.values.SERMON_TITLE, '由填寫介面改的');
+  assert.strictEqual(row.values.FLOWER_THIS_WEEK, '由填寫介面改的');
 
   assert.ok(env.sandbox.readSheet('AuditLog').some(function (r) { return r.ACTION === 'FILL_SYNC_PULL'; }));
 });
@@ -379,8 +379,8 @@ test('同步 PULL：只有系統改過 → 刷新格子表並記 AuditLog', func
 
 test('2. 衝突：兩邊都改過 → 一格都沒有被寫入，兩邊的值都保留', function () {
   const env = makeSyncedEnv();
-  setGridCell(env, '2027-11-07', 'SERMON_TITLE', '格子表的講題');
-  setSystemCell(env, '2027-11-07', 'SERMON_TITLE', '系統的講題');
+  setGridCell(env, '2027-11-07', 'FLOWER_THIS_WEEK', '格子表的講題');
+  setSystemCell(env, '2027-11-07', 'FLOWER_THIS_WEEK', '系統的講題');
 
   const plan = env.sandbox.syncFillGrid_(QUARTER_ID);
   assert.strictEqual(plan.conflictCount, 1);
@@ -390,18 +390,18 @@ test('2. 衝突：兩邊都改過 → 一格都沒有被寫入，兩邊的值都
   // 兩邊都要維持原樣
   const gridRow = env.sandbox.readFillGridRows_(QUARTER_ID)
     .filter(function (r) { return r.isoDate === '2027-11-07'; })[0];
-  assert.strictEqual(gridRow.values.SERMON_TITLE, '格子表的講題', '格子表的值不可以被蓋掉');
+  assert.strictEqual(gridRow.values.FLOWER_THIS_WEEK, '格子表的講題', '格子表的值不可以被蓋掉');
 
   const week = env.sandbox.readSheet('BulletinWeeks').filter(function (r) {
     return env.sandbox.fillGridCellText_(r.SERVICE_DATE) === '2027-11-07';
   })[0];
-  assert.strictEqual(week.SERMON_TITLE, '系統的講題', '系統的值不可以被蓋掉');
+  assert.strictEqual(week.FLOWER_THIS_WEEK, '系統的講題', '系統的值不可以被蓋掉');
 });
 
 test('2b. 衝突：快照維持原樣，下一次同步仍然報成衝突（不會無聲消失）', function () {
   const env = makeSyncedEnv();
-  setGridCell(env, '2027-11-07', 'SERMON_TITLE', '格子表的講題');
-  setSystemCell(env, '2027-11-07', 'SERMON_TITLE', '系統的講題');
+  setGridCell(env, '2027-11-07', 'FLOWER_THIS_WEEK', '格子表的講題');
+  setSystemCell(env, '2027-11-07', 'FLOWER_THIS_WEEK', '系統的講題');
 
   env.sandbox.syncFillGrid_(QUARTER_ID);
   const second = env.sandbox.syncFillGrid_(QUARTER_ID);
@@ -410,8 +410,8 @@ test('2b. 衝突：快照維持原樣，下一次同步仍然報成衝突（不�
 
 test('2c. 衝突：AuditLog 不會出現 PUSH／PULL 記錄', function () {
   const env = makeSyncedEnv();
-  setGridCell(env, '2027-11-07', 'SERMON_TITLE', 'A');
-  setSystemCell(env, '2027-11-07', 'SERMON_TITLE', 'B');
+  setGridCell(env, '2027-11-07', 'FLOWER_THIS_WEEK', 'A');
+  setSystemCell(env, '2027-11-07', 'FLOWER_THIS_WEEK', 'B');
   env.sandbox.syncFillGrid_(QUARTER_ID);
 
   const audit = env.sandbox.readSheet('AuditLog');
@@ -420,14 +420,14 @@ test('2c. 衝突：AuditLog 不會出現 PUSH／PULL 記錄', function () {
 
 test('2d. 衝突：刷新格子表時，衝突格的格子表值仍然不會被蓋掉', function () {
   const env = makeSyncedEnv();
-  setGridCell(env, '2027-11-07', 'SERMON_TITLE', '格子表的講題');
-  setSystemCell(env, '2027-11-07', 'SERMON_TITLE', '系統的講題');
+  setGridCell(env, '2027-11-07', 'FLOWER_THIS_WEEK', '格子表的講題');
+  setSystemCell(env, '2027-11-07', 'FLOWER_THIS_WEEK', '系統的講題');
 
   env.sandbox.createOrRefreshFillGrid_(QUARTER_ID);
 
   const gridRow = env.sandbox.readFillGridRows_(QUARTER_ID)
     .filter(function (r) { return r.isoDate === '2027-11-07'; })[0];
-  assert.strictEqual(gridRow.values.SERMON_TITLE, '格子表的講題',
+  assert.strictEqual(gridRow.values.FLOWER_THIS_WEEK, '格子表的講題',
     '刷新格子表時也要守住「衝突不蓋任何一邊」');
 });
 
@@ -491,7 +491,7 @@ test('3b. （內部函式）唯讀欄 _DATE 被改 → 用那一行在格子表�
 test('3c. （內部函式）可編輯欄被改 → applyFillGridEdit_ 寫回 BulletinWeeks，不會被當成唯讀欄還原', function () {
   const env = makeSyncedEnv();
   const sheet = env.sheets['Fill_' + QUARTER_ID];
-  const col = env.sandbox.fillGridColumnIndex_('SERMON_TITLE');
+  const col = env.sandbox.fillGridColumnIndex_('FLOWER_THIS_WEEK');
 
   sheet.getRange(4, col).setValue('新講題');
   env.sandbox.applyFillGridEdit_(sheet, editEvent(env, 4, col).range, QUARTER_ID);
@@ -499,7 +499,7 @@ test('3c. （內部函式）可編輯欄被改 → applyFillGridEdit_ 寫回 Bul
   const week = env.sandbox.readSheet('BulletinWeeks').filter(function (r) {
     return env.sandbox.fillGridCellText_(r.SERVICE_DATE) === '2027-11-07';
   })[0];
-  assert.strictEqual(week.SERMON_TITLE, '新講題');
+  assert.strictEqual(week.FLOWER_THIS_WEEK, '新講題');
   assert.strictEqual(String(sheet.getRange(4, col).getValue()), '新講題', '可編輯欄不可以被還原');
 });
 
@@ -511,7 +511,7 @@ test('3f. 內容表 v2：onFillGridEdit_ 在 Fill_ 改可編輯欄、唯讀欄�
     snapshot: JSON.stringify(env.sandbox.readSheet('FillSnapshot')),
     audit: env.sandbox.readSheet('AuditLog').length
   };
-  const col = env.sandbox.fillGridColumnIndex_('SERMON_TITLE');
+  const col = env.sandbox.fillGridColumnIndex_('FLOWER_THIS_WEEK');
   const weekCol = env.sandbox.fillGridColumnIndex_('_WEEK');
   sheet.getRange(4, col).setValue('新講題');
   sheet.getRange(4, weekCol).setValue('999');
@@ -557,7 +557,7 @@ test('3e.「建立／刷新季度填寫表」會清走唯讀三欄既有的殘�
 test('4. （內部函式）多格貼上：applyFillGridEdit_ 一次貼 2 行 × 2 欄，四格都要各自寫回', function () {
   const env = makeSyncedEnv();
   const sheet = env.sheets['Fill_' + QUARTER_ID];
-  const startCol = env.sandbox.fillGridColumnIndex_('SERMON_TITLE');
+  const startCol = env.sandbox.fillGridColumnIndex_('FLOWER_THIS_WEEK');
 
   sheet.getRange(4, startCol).setValue('講題一');
   sheet.getRange(4, startCol + 1).setValue('回應詩歌一');
@@ -572,8 +572,8 @@ test('4. （內部函式）多格貼上：applyFillGridEdit_ 一次貼 2 行 × 
   });
 
   const defAt = env.sandbox.fillGridColumnDefAt_(startCol + 1);
-  assert.strictEqual(weeks['2027-11-07'].SERMON_TITLE, '講題一');
-  assert.strictEqual(weeks['2027-11-14'].SERMON_TITLE, '講題二');
+  assert.strictEqual(weeks['2027-11-07'].FLOWER_THIS_WEEK, '講題一');
+  assert.strictEqual(weeks['2027-11-14'].FLOWER_THIS_WEEK, '講題二');
   assert.strictEqual(weeks['2027-11-07'][defAt.key], '回應詩歌一');
   assert.strictEqual(weeks['2027-11-14'][defAt.key], '回應詩歌二');
 });
@@ -709,14 +709,14 @@ test('9. 內容表 v2：Web App 儲存之後，Fill_ 與 FillSnapshot 一格都�
 
   env.sandbox.saveWeekFromWebApp_({
     isoDate: '2027-11-07', lastSavedAt: null,
-    week: { SERMON_TITLE: '經填寫介面改的' }, baseWeek: { SERMON_TITLE: '' },
+    week: { FLOWER_THIS_WEEK: '經填寫介面改的' }, baseWeek: { FLOWER_THIS_WEEK: '' },
     announcements: [], prayers: [], fellowships: [], finance: []
   });
 
   const week = env.sandbox.readSheet('BulletinWeeks').filter(function (r) {
     return env.sandbox.fillGridCellText_(r.SERVICE_DATE) === '2027-11-07';
   })[0];
-  assert.strictEqual(week.SERMON_TITLE, '經填寫介面改的', '儲存本身照常寫入週報');
+  assert.strictEqual(week.FLOWER_THIS_WEEK, '經填寫介面改的', '儲存本身照常寫入週報');
   assert.strictEqual(JSON.stringify(env.sandbox.readSheet('FillSnapshot')), snapshotBefore, 'FillSnapshot 不可以變');
   assert.strictEqual(JSON.stringify(env.sandbox.readFillGridRows_(QUARTER_ID)), gridBefore, 'Fill_ 不可以變');
 });
@@ -724,17 +724,17 @@ test('9. 內容表 v2：Web App 儲存之後，Fill_ 與 FillSnapshot 一格都�
 test('9d. 內容表 v2：refreshFillSnapshotAfterSave_() 一開始就返回，Fill_ 與快照都不寫', function () {
   const env = makeSyncedEnv();
   const snapshotBefore = JSON.stringify(env.sandbox.readSheet('FillSnapshot'));
-  env.sandbox.refreshFillSnapshotAfterSave_('2027-11-07', [{ field: 'SERMON_TITLE', newValue: 'A' }]);
+  env.sandbox.refreshFillSnapshotAfterSave_('2027-11-07', [{ field: 'FLOWER_THIS_WEEK', newValue: 'A' }]);
   const gridRow = env.sandbox.readFillGridRows_(QUARTER_ID)
     .filter(function (r) { return r.isoDate === '2027-11-07'; })[0];
-  assert.notStrictEqual(gridRow.values.SERMON_TITLE, 'A', 'Fill_ 那一格不可以被刷新');
+  assert.notStrictEqual(gridRow.values.FLOWER_THIS_WEEK, 'A', 'Fill_ 那一格不可以被刷新');
   assert.strictEqual(JSON.stringify(env.sandbox.readSheet('FillSnapshot')), snapshotBefore);
 });
 
 test('9e. refreshFillSnapshotAfterSave_：快照寫入失敗不會令儲存失敗', function () {
   const env = makeSyncedEnv();
   assert.doesNotThrow(function () {
-    env.sandbox.refreshFillSnapshotAfterSave_('1999-01-01', [{ field: 'SERMON_TITLE', newValue: 'A' }]);
+    env.sandbox.refreshFillSnapshotAfterSave_('1999-01-01', [{ field: 'FLOWER_THIS_WEEK', newValue: 'A' }]);
   }, '找不到季度時應該靜靜略過，不可以拋錯');
 });
 
@@ -760,7 +760,7 @@ test('buildFillSnapshotIndex_：只收指定季度的行', function () {
 
 test('buildFillProgressByGroup_：逐個群組算已填／待填', function () {
   const progress = buildFillProgressByGroup_([
-    { isoDate: '2027-11-07', values: { SERMON_TITLE: '有值', HYMN_PRAISE: '' } }
+    { isoDate: '2027-11-07', values: { PAGE_TITLE: '有值', RECITATION_OVERRIDE: '' } }
   ]);
   const program = progress.filter(function (p) { return p.group === '崇拜程序'; })[0];
   assert.ok(program.total > 0);
@@ -780,12 +780,12 @@ test('buildFillProgressByGroup_：唯讀欄不計入進度（那些不是要人�
 
 test('處理衝突：選「用格子表」→ 寫回系統，快照更新，衝突消失', function () {
   const env = makeSyncedEnv();
-  setGridCell(env, '2027-11-07', 'SERMON_TITLE', '格子表的');
-  setSystemCell(env, '2027-11-07', 'SERMON_TITLE', '系統的');
+  setGridCell(env, '2027-11-07', 'FLOWER_THIS_WEEK', '格子表的');
+  setSystemCell(env, '2027-11-07', 'FLOWER_THIS_WEEK', '系統的');
   env.sandbox.syncFillGrid_(QUARTER_ID);
 
   const result = env.sandbox.resolveFillConflicts_(QUARTER_ID, [
-    { isoDate: '2027-11-07', fieldKey: 'SERMON_TITLE', choice: 'GRID' }
+    { isoDate: '2027-11-07', fieldKey: 'FLOWER_THIS_WEEK', choice: 'GRID' }
   ]);
   assert.strictEqual(result.appliedGrid, 1);
 
@@ -795,27 +795,27 @@ test('處理衝突：選「用格子表」→ 寫回系統，快照更新，衝�
 
 test('處理衝突：選「用系統」→ 刷新格子表', function () {
   const env = makeSyncedEnv();
-  setGridCell(env, '2027-11-07', 'SERMON_TITLE', '格子表的');
-  setSystemCell(env, '2027-11-07', 'SERMON_TITLE', '系統的');
+  setGridCell(env, '2027-11-07', 'FLOWER_THIS_WEEK', '格子表的');
+  setSystemCell(env, '2027-11-07', 'FLOWER_THIS_WEEK', '系統的');
   env.sandbox.syncFillGrid_(QUARTER_ID);
 
   env.sandbox.resolveFillConflicts_(QUARTER_ID, [
-    { isoDate: '2027-11-07', fieldKey: 'SERMON_TITLE', choice: 'SYSTEM' }
+    { isoDate: '2027-11-07', fieldKey: 'FLOWER_THIS_WEEK', choice: 'SYSTEM' }
   ]);
 
   const gridRow = env.sandbox.readFillGridRows_(QUARTER_ID)
     .filter(function (r) { return r.isoDate === '2027-11-07'; })[0];
-  assert.strictEqual(gridRow.values.SERMON_TITLE, '系統的');
+  assert.strictEqual(gridRow.values.FLOWER_THIS_WEEK, '系統的');
 });
 
 test('處理衝突：選「暫不處理」→ 完全不動，下次仍然報成衝突', function () {
   const env = makeSyncedEnv();
-  setGridCell(env, '2027-11-07', 'SERMON_TITLE', '格子表的');
-  setSystemCell(env, '2027-11-07', 'SERMON_TITLE', '系統的');
+  setGridCell(env, '2027-11-07', 'FLOWER_THIS_WEEK', '格子表的');
+  setSystemCell(env, '2027-11-07', 'FLOWER_THIS_WEEK', '系統的');
   env.sandbox.syncFillGrid_(QUARTER_ID);
 
   const result = env.sandbox.resolveFillConflicts_(QUARTER_ID, [
-    { isoDate: '2027-11-07', fieldKey: 'SERMON_TITLE', choice: 'SKIP' }
+    { isoDate: '2027-11-07', fieldKey: 'FLOWER_THIS_WEEK', choice: 'SKIP' }
   ]);
   assert.strictEqual(result.skipped, 1);
 

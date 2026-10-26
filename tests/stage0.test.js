@@ -281,7 +281,9 @@ function loadPublishResultRegion(startIsoDate, options) {
     publishPdfName: { textContent: '未選擇' },
     doPublishCheck: { checked: false },
     doSendCheck: { checked: false },
-    publishCustomEmails: { value: '' }
+    publishCustomEmails: { value: '' },
+    // v3：寄出時「一併附上最新已儲存的 Word 檔」。
+    attachWordCheck: { checked: false }
   };
   /** 假 FileReader：`deferred` 時要測試自己呼叫 `finish()`，模擬讀檔比換週慢。 */
   function FakeFileReader() {

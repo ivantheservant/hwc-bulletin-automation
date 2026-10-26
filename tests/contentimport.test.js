@@ -411,8 +411,9 @@ test('16b. 該季未建立內容表 → 明確錯誤，叫人先建立', functio
   const result = env.sandbox.previewContentImport_(QUARTER_ID, {});
   assert.strictEqual(result.ok, false);
   assert.strictEqual(result.reason, 'NO_CONTENT_SHEET');
-  assert.ok(result.message.indexOf('「季度作業」區塊按「建立／刷新本季內容表」') !== -1, result.message);
-  assert.strictEqual(result.message.indexOf('選單'), -1, '整季匯入現時在填寫介面進行，不再指向選單：' + result.message);
+  assert.ok(result.message.indexOf('試算表選單「內容表 ▸ 建立本季內容表」') !== -1, result.message);
+  assert.strictEqual(result.message.indexOf('季度作業'), -1, 'v3：填寫介面已經沒有「季度作業」區塊');
+  // v3：「季度作業」區塊已經由填寫介面拿走，所以改為指向自動建立與試算表選單。
 });
 
 test('17. 財政：TITLE_OVERRIDE 有值不會寫進 Finance（那張表沒有這一欄），四個數字欄照樣對應', function () {
@@ -533,11 +534,14 @@ test('21b. 七個唯讀區塊的欄位清單由 contentImportTargets_() 衍生�
   const attKeys = env.sandbox.COLUMNS.BULLETIN_WEEKS.keys.filter(function (k) { return /^ATT_/.test(k); });
 
   attKeys.forEach(function (k) { assert.ok(owned.indexOf(k) !== -1, k + ' 應該被接管'); });
-  // 內容表 v2：宣召兩欄併入「崇拜程序」，改為第三種模式（可覆寫），不再是唯讀。
-  assert.strictEqual(owned.indexOf('CALL_REF'), -1);
-  assert.strictEqual(owned.indexOf('CALL_TEXT'), -1);
+  // v3（Ivan 測試結果 A 第 10 項）：「崇拜程序」九欄改為只可以在內容表輸入（唯讀），不再是第三種模式。
+  ['SCRIPTURE_REF', 'SERMON_TITLE', 'RESPONSE_HYMN', 'CHOIR_TITLE', 'PRELUDE', 'CALL_REF', 'CALL_TEXT',
+    'HYMN_PRAISE', 'CHOIR_LABEL'].forEach(function (k) {
+    assert.ok(owned.indexOf(k) !== -1, k + ' 應該只可以在內容表輸入');
+  });
   assert.ok(owned.indexOf('ATTENDANCE_DATE') !== -1);
-  assert.strictEqual(owned.indexOf('SERMON_TITLE'), -1, '講題仍然可以在介面編輯');
+  assert.strictEqual(owned.indexOf('FLOWER_THIS_WEEK'), -1, '獻花仍然在介面編輯');
+  assert.strictEqual(owned.indexOf('BAPTISM_OFFICIANT'), -1, '浸禮六欄只在介面編輯');
 
   assertArrayEqual(env.sandbox.contentSheetOwnedListTypes_().slice().sort(),
     ['announcements', 'fellowships', 'finance', 'prayers']);
@@ -903,7 +907,7 @@ test('V5-2 「崇拜程序」第 2 行是定義的前綴（舊版、未移轉）
   assert.strictEqual(week.ok, true, JSON.stringify(week));
   assert.strictEqual(week.data.ok, false);
   assert.strictEqual(week.data.reason, 'CONTENT_SHEET_OUTDATED');
-  ['「崇拜程序」少了 2 欄', '整次拒絕，一格都沒有寫', '建立／刷新本季內容表'].forEach(function (piece) {
+  ['「崇拜程序」少了 2 欄', '整次拒絕，一格都沒有寫', '更新本季內容表…', '建立本季內容表'].forEach(function (piece) {
     assert.ok(week.data.message.indexOf(piece) !== -1, '缺少：' + piece + '\n' + week.data.message);
   });
   const quarter = env.sandbox.apiRunQuarterContentImport(QUARTER_ID);
@@ -913,7 +917,7 @@ test('V5-2 「崇拜程序」第 2 行是定義的前綴（舊版、未移轉）
   env.sandbox.menuImportFromContentSheet_();
   const alert = env.uiAlerts[env.uiAlerts.length - 1];
   assert.strictEqual(alert.title, '未能匯入');
-  assert.ok(alert.body.indexOf('建立／刷新本季內容表') !== -1, alert.body);
+  assert.ok(alert.body.indexOf('更新本季內容表…') !== -1, alert.body);
 
   assert.deepStrictEqual(importSnapshot(env), before);
   assert.strictEqual(JSON.stringify(env.contentTabs['崇拜程序'].__data), contentBefore, '內容表一格都不寫');
@@ -1023,26 +1027,28 @@ test('V5-8 清單類：「連續到」被轉成日期 → 不知道範圍，整�
 
 console.log('\n內容表 v2：崇拜程序逐欄三態');
 
-test('V6-1 「崇拜程序」每一個值欄逐欄跑三態：沒有覆寫就跟隨；有覆寫就 CONFLICT 不蓋；覆寫值等於內容表就解除；只匯入一個主日時另一個主日一格不動', function () {
+test('V6-1 v3：「崇拜程序」九個值欄全部只可以在內容表輸入——逐欄：內容表為準（有舊覆寫亦一樣）；只匯入一個主日時另一個主日一格不動', function () {
   const sb0 = makeEnv({}).sandbox;
   const keys = Object.keys(sb0.worshipImportFieldMap_());
-  assert.strictEqual(keys.length, 14, '原有四欄＋序樂、宣召兩欄、詩歌頌讚＋浸禮六欄：' + keys.join('、'));
-  const overridable = Array.prototype.slice.call(sb0.CONTENT_SHEET_OVERRIDABLE_FIELDS);
-  assert.deepStrictEqual(keys.slice().sort(), overridable.slice().sort(), '可覆寫清單＝崇拜程序的值欄');
+  assert.strictEqual(keys.length, 9, '原有四欄＋序樂、宣召兩欄、詩歌頌讚、詩班項目名稱：' + keys.join('、'));
+  assert.strictEqual(sb0.CONTENT_SHEET_OVERRIDABLE_FIELDS.length, 0, 'v3：沒有可覆寫欄位');
+  keys.forEach(function (k) {
+    assert.ok(sb0.CONTENT_SHEET_READONLY_FIELDS.WEEK.indexOf(k) !== -1, k + ' 應該是唯讀（只可以在內容表輸入）');
+  });
 
   const bad = [];
   keys.forEach(function (key) {
-    ['FOLLOW', 'CONFLICT', 'RELEASE'].forEach(function (mode) {
+    ['FOLLOW', 'OLD_OVERRIDE'].forEach(function (mode) {
       const w1 = { SERVICE_DATE: '2027-10-03', QUARTER_ID: QUARTER_ID };
       const w2 = { SERVICE_DATE: '2027-10-10', QUARTER_ID: QUARTER_ID };
       w1[key] = '週報舊值';
       w2[key] = '另一週舊值';
       const c1 = { SERVICE_DATE: '2027-10-03', ACTIVE: 'TRUE' };
       const c2 = { SERVICE_DATE: '2027-10-10', ACTIVE: 'TRUE' };
-      c1[key] = mode === 'RELEASE' ? '幹事改的' : '內容表新值';
+      c1[key] = '內容表新值';
       c2[key] = '另一週新值';
       const env = makeEnv({ weekRows: [w1, w2], content: { 崇拜程序: [c1, c2] } });
-      if (mode !== 'FOLLOW') {
+      if (mode === 'OLD_OVERRIDE') {
         env.sandbox.writeSheet('FieldOverride', [{
           SERVICE_DATE: env.sandbox.normalizeDate_('2027-10-03'), FIELD_KEY: key, OVERRIDE_VALUE: '幹事改的',
           SOURCE_VALUE_AT_OVERRIDE: '週報舊值', OVERRIDE_AT: new Date(), OVERRIDE_BY: 'x', REASON: '', ACTIVE: true, NOTES: ''
@@ -1052,11 +1058,8 @@ test('V6-1 「崇拜程序」每一個值欄逐欄跑三態：沒有覆寫就跟
       const resp = env.sandbox.apiRunContentImport('2027-10-03');
       const got = weekOf(env, '2027-10-03')[key];
       const other = weekOf(env, '2027-10-10')[key];
-      const ov = env.sandbox.readSheet('FieldOverride')[0];
-      const expected = mode === 'FOLLOW' ? '內容表新值' : '幹事改的';
-      const ok = resp.ok && resp.data.ok && got === expected && other === '另一週舊值'
-        && (mode === 'FOLLOW' || ov.ACTIVE === (mode === 'CONFLICT'));
-      if (!ok) bad.push(key + '／' + mode + '：值「' + got + '」、另一週「' + other + '」、覆寫 ' + (ov ? ov.ACTIVE : '（沒有）'));
+      const ok = resp.ok && resp.data.ok && got === '內容表新值' && other === '另一週舊值';
+      if (!ok) bad.push(key + '／' + mode + '：值「' + got + '」、另一週「' + other + '」');
     });
   });
   assert.deepStrictEqual(bad, [], bad.join('\n'));

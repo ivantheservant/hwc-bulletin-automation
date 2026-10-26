@@ -809,7 +809,13 @@ function applySpeakerFormAnswer_(answer, todayIso) {
     { key: 'SERMON_TITLE', label: '證道講題', value: answer.title }
   ];
   var overrideIndex = readFieldOverrideIndexForDate_(isoDate);
-  var blocked = fields.filter(function (f) { return Boolean(overrideIndex[fieldOverrideKey_(isoDate, f.key)]); });
+  // v3（Ivan 測試結果 A 第 10 項）：只有現時仍然可覆寫的欄位（CONTENT_SHEET_OVERRIDABLE_FIELDS，現時沒有）
+  //    才會被人手覆寫擋住。講題、讀經經文只在內容表輸入；v3 之前在介面改過留下的舊覆寫已經不再套用
+  //    （applyFieldOverrides_() 同一個規則），用它來擋只會令講員的答案靜靜不入週報。
+  var blocked = fields.filter(function (f) {
+    return CONTENT_SHEET_OVERRIDABLE_FIELDS.indexOf(f.key) !== -1
+      && Boolean(overrideIndex[fieldOverrideKey_(isoDate, f.key)]);
+  });
   var writable = fields.filter(function (f) { return blocked.indexOf(f) === -1; });
 
   // 來源：該季已有內容表就以內容表為準，否則是 BulletinWeeks 本身。
@@ -858,7 +864,7 @@ function applySpeakerFormAnswer_(answer, todayIso) {
     changes.forEach(function (f) { values[f.key] = f.value; });
     var upsert = upsertContentWeekValues_(spreadsheet, tabName, tabDef.keys, isoDate, values);
     if (!upsert.ok) {
-      throw new Error('內容表沒有「' + tabName + '」分頁，沒有寫入。請先在填寫介面「季度作業」刷新本季內容表。');
+      throw new Error('內容表沒有「' + tabName + '」分頁，沒有寫入。請先在填寫介面按內容表狀態列的「更新本季內容表…」。');
     }
     var imported = applyContentImport_(quarterId, { isoDate: isoDate, tabNames: [tabName], skipSnapshot: true });
     if (!imported.ok) {
