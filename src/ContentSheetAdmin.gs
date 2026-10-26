@@ -609,6 +609,7 @@ function sendContentSheetInvite_(quarterId) {
   var plainBody = htmlBody.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 
   var sendLogRows = [];
+  var failed = [];
   recipientsResult.recipients.forEach(function (recipient) {
     var status = 'CONTENT_SHEET_INVITE';
     var errorMessage = '';
@@ -619,6 +620,7 @@ function sendContentSheetInvite_(quarterId) {
       } catch (mailErr) {
         status = 'FAILED';
         errorMessage = (mailErr && mailErr.message) ? mailErr.message : String(mailErr);
+        failed.push(errorMessage);
       }
     }
 
@@ -636,9 +638,32 @@ function sendContentSheetInvite_(quarterId) {
   });
 
   writeSendLogRows_(sendLogRows);
-  updateContentSheetField_(qid, 'INVITE_SENT_AT', new Date());
 
-  return { sent: true, dryRun: dryRun, recipientCount: recipientsResult.recipients.length };
+  // v3 重測（獨立審查）：全部寄不出就不可以講成功，亦不記「已寄出」。
+  if (!dryRun && failed.length === recipientsResult.recipients.length) {
+    return {
+      sent: false, dryRun: dryRun, recipientCount: 0, reason: 'SEND_FAILED',
+      message: '全部 ' + failed.length + ' 個收件人都寄不出（第一個錯誤：' + failed[0] + '），詳情見 SendLog。'
+    };
+  }
+  updateContentSheetField_(qid, 'INVITE_SENT_AT', new Date());
+  // v3 重測（獨立審查）：真的寄出（不論經選單、季度作業還是星期一自動流程）都記指紋，星期一自動流程
+  //    才不會再寄一次。以前只有自動流程記，人手寄過的季度到了提前期仍然會再收到一封。
+  if (!dryRun) recordContentSheetInviteFingerprint_(qid, contentSheetInviteFingerprint_(qid));
+
+  return { sent: true, dryRun: dryRun, recipientCount: recipientsResult.recipients.length - failed.length,
+    failedCount: failed.length };
+}
+
+/**
+ * 用途：「已經寄過某一季內容表邀請」的指紋（`ConflictNoticeLog`）。一處定義。
+ * Args:
+ *   quarterId {string} 季度 ID。
+ * Returns:
+ *   {string}
+ */
+function contentSheetInviteFingerprint_(quarterId) {
+  return 'CONTENT_SHEET_INVITE|' + String(quarterId || '').trim();
 }
 
 /**
@@ -705,15 +730,22 @@ function autoCreateContentSheetsForUpcomingQuarters_() {
   // 只睇 `BulletinWeeks` 已經有資料嘅季度——同
   // `findQuartersWithoutFillGrid_()` 同一個道理：職事表可能有好多季，
   // 但只有已經「建立本季空白週報」嗰啲先至輪到內容表。
+  // v3 重測（獨立審查）：已封存的季度與自測沙盒季度不理——以前已封存的季度內容表那一行是 ACTIVE=FALSE，
+  //    buildOrRefreshContentSheet_() 找不到就每星期一另建一份新的。
   var quarterIds = {};
+  var archivedQuarter = {};
   readSheet(SHEETS.BULLETIN_WEEKS).forEach(function (r) {
     var qid = String(r.QUARTER_ID || '').trim();
-    if (qid) quarterIds[qid] = true;
+    if (!qid) return;
+    quarterIds[qid] = true;
+    if (r.ARCHIVED === true) archivedQuarter[qid] = true;
   });
+  var selfTestQuarterId = String(getConfig(CONFIG_KEYS.SELFTEST_QUARTER_ID, '') || '').trim();
 
   Object.keys(quarterIds).sort().forEach(function (qid) {
-    var fingerprint = 'CONTENT_SHEET_INVITE|' + qid;
+    var fingerprint = contentSheetInviteFingerprint_(qid);
     if (notified[fingerprint]) { result.skipped.push(qid); return; }
+    if (archivedQuarter[qid] || (selfTestQuarterId && qid === selfTestQuarterId)) { result.skipped.push(qid); return; }
 
     var serviceDates;
     try {
@@ -723,6 +755,9 @@ function autoCreateContentSheetsForUpcomingQuarters_() {
       return;
     }
     if (serviceDates.length === 0) { result.skipped.push(qid); return; }
+    // v3 重測（獨立審查）：已經完結的季度（最後一個主日已過）不再建立內容表、不再寄邀請。
+    var lastIso = serviceDates.reduce(function (a, b) { return String(b) > a ? String(b) : a; }, '');
+    if (lastIso && lastIso < todayIso) { result.skipped.push(qid); return; }
     if (!isWithinContentSheetLeadWindow_(todayIso, serviceDates[0], config.leadDays)) {
       result.skipped.push(qid);
       return;
@@ -746,8 +781,7 @@ function autoCreateContentSheetsForUpcomingQuarters_() {
     var invite = sendContentSheetInvite_(qid);
     if (!invite.sent) { result.skipped.push(qid); return; }
     result.invited.push(qid);
-
-    if (!invite.dryRun) recordContentSheetInviteFingerprint_(qid, fingerprint);
+    // 指紋由 sendContentSheetInvite_() 真的寄出時記下（人手寄出亦一樣），這裏不再記一次。
   });
 
   return result;

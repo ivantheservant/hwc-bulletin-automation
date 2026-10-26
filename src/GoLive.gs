@@ -150,10 +150,11 @@ function buildGoLiveChecklist_() {
   var simulated = String(getConfig(CONFIG_KEYS.WEBAPP_SIMULATED_TODAY, '') || '').trim();
   items.push({
     label: '上線前：模擬今日（測試設定）',
-    status: simulated ? S.YELLOW : S.GREEN,
+    // v3 重測（獨立審查）：紅色——模擬今日亦影響自動建立季度、預覽連結與打開時落在哪一週，忘記清空會靜靜出錯。
+    status: simulated ? S.RED : S.GREEN,
     message: simulated
       ? '⚠️ Config 的 ' + CONFIG_KEYS.WEBAPP_SIMULATED_TODAY + ' 是「' + simulated + '」：填寫介面當今日是這一天——'
-        + '只可以發佈、寄出那一週，打開時落在那一週，自動建立季度亦按這一日計（星期一自動寄送不受影響）。正式使用前要清空。'
+        + '只可以發佈、寄出那一週，打開時落在那一週，自動建立季度與預覽連結（不帶日期那一條）亦按這一日計（星期一自動寄送不受影響）。正式使用前一定要清空。'
       : '未填：填寫介面與自動建立季度用真正的今日。'
   });
 

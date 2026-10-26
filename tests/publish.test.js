@@ -1905,6 +1905,28 @@ test('W-5（獨立審查）要附上的 Word 在這一週最後一次改動之�
   assert.ok(env4.sandbox.savedWordStalenessNotice_(G2_SELECTED).indexOf('讀不到要附上的 Word 是幾時產生的') !== -1);
 });
 
+test('G2-9 v3 重測（獨立審查）只寄出、真的寄（DRY_RUN=FALSE）而全部收件人都寄不出 → ok:false SEND_FAILED（以前照講「已寄出」）；部分寄不出 → 講明幾個', function () {
+  const env = makeG2Env({ config: { DRY_RUN: 'FALSE', PUBLISH_DEDUP_SEC: '0' } });
+  env.sandbox.MailApp.sendEmail = function () { throw new Error('Service invoked too many times for one day: email.'); };
+  const result = env.sandbox.runPublishFlow_({
+    isoDate: G2_SELECTED, doPublish: false, doSend: true, groups: ['IT'], customEmails: '', confirmed: true
+  });
+  assert.strictEqual(result.ok, false, JSON.stringify(result));
+  assert.strictEqual(result.reason, 'SEND_FAILED');
+  assert.ok(result.message.indexOf('寄不出') !== -1 && result.message.indexOf('too many times') !== -1, result.message);
+  assert.ok(readSendLog(env).length >= 1 && readSendLog(env).every(function (r) { return r.STATUS === 'FAILED'; }), 'SendLog 照記 FAILED');
+
+  const env2 = makeG2Env({ config: { DRY_RUN: 'FALSE', PUBLISH_DEDUP_SEC: '0' } });
+  let n = 0;
+  env2.sandbox.MailApp.sendEmail = function () { n++; if (n === 1) throw new Error('Invalid email'); };
+  const r2 = env2.sandbox.runPublishFlow_({
+    isoDate: G2_SELECTED, doPublish: false, doSend: true, groups: ['IT'], customEmails: 'extra@example.com', confirmed: true
+  });
+  assert.strictEqual(r2.ok, true, JSON.stringify(r2));
+  assert.strictEqual(r2.sent.failedCount, 1);
+  assert.ok(r2.lines.join('\n').indexOf('另有 1 個寄不出') !== -1, r2.lines.join('\n'));
+});
+
 // =====================================================================
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');

@@ -597,7 +597,10 @@ function sendPreviewNotice_(isoDate) {
     return out;
   }
 
-  var previewUrl = buildPreviewUrl_();
+  // v3 重測（獨立審查）：這封信講的主日就是下一個主日的話，用那條固定不變的連結（不帶日期）；不是的話
+  //    （例如選單試寄另一個主日、或者測試時填了模擬今日）帶日期，免得信講一個主日、連結開另一個。
+  var comingSunday = nextSundayOnOrAfter_(webAppTodayIso_().todayIso);
+  var previewUrl = buildPreviewUrl_(String(isoDate || '').trim() === comingSunday ? '' : isoDate);
   out.previewUrl = previewUrl;
   if (!previewUrl) {
     out.reason = 'NO_URL';
@@ -657,6 +660,7 @@ function sendPreviewNotice_(isoDate) {
   var plainBody = renderEmailTemplate_(bodyTemplate, vars, []);
 
   var sendLogRows = [];
+  var failed = [];
   recipientsResult.recipients.forEach(function (recipient) {
     var status = 'PREVIEW';
     var errorMessage = '';
@@ -667,6 +671,7 @@ function sendPreviewNotice_(isoDate) {
       } catch (mailErr) {
         status = 'FAILED';
         errorMessage = (mailErr && mailErr.message) ? mailErr.message : String(mailErr);
+        failed.push(errorMessage);
       }
     }
 
@@ -685,11 +690,18 @@ function sendPreviewNotice_(isoDate) {
 
   writeSendLogRows_(sendLogRows);
 
+  // v3 重測（獨立審查）：全部寄不出（額度用完、地址錯）就不可以講成功——觸發器靠 `sent:false` 才會記 ErrorLog。
+  var total = recipientsResult.recipients.length;
+  if (!dryRun && failed.length === total) {
+    out.reason = 'SEND_FAILED';
+    out.message = '草稿預覽信全部 ' + total + ' 個收件人都寄不出（第一個錯誤：' + failed[0] + '），詳情見 SendLog。';
+    return out;
+  }
   out.sent = true;
   out.reason = 'OK';
-  out.recipientCount = recipientsResult.recipients.length;
-  out.message = (dryRun ? '（試行）' : '') + '草稿預覽連結已寄給 '
-    + recipientsResult.recipients.length + ' 個收件人。';
+  out.recipientCount = total - failed.length;
+  out.message = (dryRun ? '（試行）' : '') + '草稿預覽連結已寄給 ' + (total - failed.length) + ' 個收件人。'
+    + (failed.length > 0 ? '⚠️ 另有 ' + failed.length + ' 個寄不出，詳情見 SendLog。' : '');
   return out;
 }
 
@@ -716,6 +728,16 @@ function menuTestSendPreviewNotice_() {
     if (!isIsoDateShape_(isoDate) || isoDateToTime_(isoDate) === null) {
       ui.alert('日期格式不對：「' + isoDate + '」。請用 yyyy-MM-dd，例如 2028-07-09。');
       return;
+    }
+    if (!isIsoDateSunday_(isoDate)) {
+      ui.alert('「' + isoDate + '」不是星期日，沒有寄。請輸入主日的日期。');
+      return;
+    }
+    if (normalizeBoolean_(getConfig(CONFIG_KEYS.DRY_RUN, 'TRUE')) !== true) {
+      var confirm = ui.alert('真的寄出',
+        'Config 的 DRY_RUN 是 FALSE：會真的把 ' + isoDate + ' 的草稿預覽信寄給 Recipients 內的收件人。確定嗎？',
+        ui.ButtonSet.YES_NO);
+      if (confirm !== ui.Button.YES) return;
     }
     var out = sendPreviewNotice_(isoDate);
     ui.alert(

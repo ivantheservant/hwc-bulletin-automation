@@ -610,12 +610,12 @@ test('上線前檢查（唯讀）多一項「自動建立季度」：列出現�
   assert.ok(offItem.message.indexOf('AUTO_CREATE_QUARTERS 是 FALSE') !== -1, offItem.message);
 });
 
-test('上線前檢查：「模擬今日」填了就 🟡 並講明正式使用前要清空；未填 🟢', function () {
+test('上線前檢查：「模擬今日」填了就 🔴（v3 重測：它亦影響自動建立季度與預覽連結）並講明正式使用前要清空；未填 🟢', function () {
   const pick = function (env) { return plain(env.sandbox.buildGoLiveChecklist_()).filter(function (i) { return i.label === '上線前：模擬今日（測試設定）'; })[0]; };
   const on = makeEnv({ config: { WEBAPP_SIMULATED_TODAY: '2028-04-05' } });
   const item = pick(on);
-  assert.strictEqual(item.status, on.sandbox.SELF_CHECK_STATUS_.YELLOW);
-  assert.ok(item.message.indexOf('2028-04-05') !== -1 && item.message.indexOf('正式使用前要清空') !== -1, item.message);
+  assert.strictEqual(item.status, on.sandbox.SELF_CHECK_STATUS_.RED);
+  assert.ok(item.message.indexOf('2028-04-05') !== -1 && item.message.indexOf('正式使用前一定要清空') !== -1, item.message);
   const off = makeEnv();
   assert.strictEqual(pick(off).status, off.sandbox.SELF_CHECK_STATUS_.GREEN);
   assertWrittenChinese(assert, '模擬今日', [item.message, pick(off).message]);

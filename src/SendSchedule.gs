@@ -29,6 +29,10 @@
  *
  *   ⚠️ 「已寄過」也刻意不認 `FAILED`。寄失敗代表**沒有寄到**，下一次
  *   觸發要再試同一期，不是跳過它。
+ *
+ * ⚠️ v3 重測（2026-10-27，獨立審查）：**星期一觸發器不再用這一支**，改用 `weeklyTriggerTargetSunday_()`
+ *   （src/Trigger.gs）：只寄今日或之後第一個主日，寄過就略過，不會提早寄出再下一期。預覽連結（不帶日期）
+ *   亦不用這一支（見 `resolvePreviewIsoDate_()`）。這一支仍然用於選單的預設日期與 `resolveWorkingQuarter_()`。
  */
 
 'use strict';

@@ -1504,6 +1504,7 @@ function sendPublishNotice_(isoDate, options) {
   var body = renderEmailTemplate_(template.body, vars, []);
 
   var sendLogRows = [];
+  var failed = [];
   resolved.recipients.forEach(function (recipient) {
     var status = sendStatus;
     var errorMessage = '';
@@ -1516,6 +1517,7 @@ function sendPublishNotice_(isoDate, options) {
       } catch (mailErr) {
         status = 'FAILED';
         errorMessage = (mailErr && mailErr.message) ? mailErr.message : String(mailErr);
+        failed.push(errorMessage);
       }
     }
 
@@ -1534,10 +1536,19 @@ function sendPublishNotice_(isoDate, options) {
 
   writeSendLogRows_(sendLogRows);
 
+  // v3 重測（獨立審查）：全部寄不出（額度用完、地址錯）就回 ok:false——以前照樣講「已寄出：N 個收件人」。
+  if (!config.dryRun && failed.length === resolved.recipients.length) {
+    return {
+      ok: false, reason: 'SEND_FAILED',
+      message: '全部 ' + failed.length + ' 個收件人都寄不出（第一個錯誤：' + failed[0] + '），詳情見 SendLog。'
+    };
+  }
+
   return {
     ok: true,
     dryRun: config.dryRun,
-    recipientCount: resolved.recipients.length,
+    recipientCount: resolved.recipients.length - failed.length,
+    failedCount: failed.length,
     groups: (o.groups || []).slice(),
     attached: attachedPdf,
     attachedWord: attachedWord,
@@ -2075,7 +2086,8 @@ function buildPublishResultLines_(result) {
   if (o.sent) {
     lines.push(o.sent.dryRun
       ? '⚠️ 模擬模式開啟中：已記錄 ' + o.sent.recipientCount + ' 個收件人，但沒有真的寄出。'
-      : '已寄出：' + o.sent.recipientCount + ' 個收件人。');
+      : '已寄出：' + o.sent.recipientCount + ' 個收件人。'
+        + (Number(o.sent.failedCount) > 0 ? '⚠️ 另有 ' + o.sent.failedCount + ' 個寄不出，詳情見 SendLog。' : ''));
     // v3：通知信講選中的主日：預覽連結、本季內容表連結；這一期已發佈才有 master 連結。
     lines.push('通知信內容：' + (o.sent.noticeIsoDate || '') + ' 的預覽連結、本季內容表連結'
       + (o.sent.masterIncluded ? '、master 連結（這一期已發佈）。' : '（這一期未發佈，所以沒有 master 連結）。'));

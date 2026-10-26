@@ -19,10 +19,12 @@ var WEEKDAY_LABELS_ = Object.freeze({
 });
 
 /**
- * 用途：觸發器**唯一**會呼叫的入口函式。用
- *   `resolveNextSendSundayIso_()`（src/SendSchedule.gs）算出目標主日
- *   ——今日之後（含今日）最近的一個星期日，已經真的寄過就順延一週。
- *   算不出就記一筆 `ErrorLog` 並結束，不寄送任何郵件。
+ * 用途：觸發器**唯一**會呼叫的入口函式。目標主日＝**真正的今日**之後（含今日）最近的一個星期日
+ *   （`weeklyTriggerTargetSunday_()`）。那一期已經**真的寄過**（SendLog 有非試行的 SENT）就記一筆
+ *   AuditLog、不寄草稿預覽信亦不寄週報，**不會**改寄再下一期。算不出就記一筆 `ErrorLog` 並結束。
+ *   v3 重測（2026-10-27，獨立審查）：以前用 `resolveNextSendSundayIso_()`，那一期寄過就順延一週——同一個
+ *   星期一跑第二次（例如移交之後兩個帳戶各有一個觸發器），或者上星期有人用選單真的試寄了這一期，
+ *   星期一就會提早 13 日把再下一期寄給全部收件人。
  *   整個函式包 try/catch，任何失敗都寫 `ErrorLog`（`SOURCE='TRIGGER'`）
  *   而不是讓例外無聲無息地消失在觸發器的執行紀錄裡。
  * Args: （無，時間觸發器固定簽章：沒有參數）
@@ -31,11 +33,10 @@ var WEEKDAY_LABELS_ = Object.freeze({
  */
 function weeklyBulletinSendTrigger_() {
   try {
-    // ⚠️ 目標主日一律經 resolveNextSendSundayIso_()（src/SendSchedule.gs），
-    //    不在這裡自己算。舊版是「今日 ＋ SEND_TARGET_OFFSET_DAYS 天」，那條
-    //    算式只在觸發日是星期一時才落在星期日；星期六跑會得出星期五。
-    //    見 docs/已知bug類型.md 事故三十。
-    var schedule = resolveNextSendSundayIso_();
+    // ⚠️ 目標主日經 weeklyTriggerTargetSunday_()（數星期幾，不是加天數）。舊版是「今日 ＋
+    //    SEND_TARGET_OFFSET_DAYS 天」，那條算式只在觸發日是星期一時才落在星期日（事故三十）；
+    //    之後改用 resolveNextSendSundayIso_()，寄過就順延一週，會提早寄出再下一期（v3 重測獨立審查）。
+    var schedule = weeklyTriggerTargetSunday_();
     var todayIso = schedule.todayIso;
     var targetIso = schedule.isoDate;
 
@@ -44,8 +45,7 @@ function weeklyBulletinSendTrigger_() {
         source: ERROR_LOG_SOURCE.TRIGGER,
         functionName: 'weeklyBulletinSendTrigger_',
         errorCode: 'NEXT_SUNDAY_UNRESOLVED',
-        message: describeNextSendSunday_(schedule)
-          + '　直接結束，不寄送任何郵件。'
+        message: schedule.reason + '　直接結束，不寄送任何郵件。'
       });
       return;
     }
@@ -60,7 +60,7 @@ function weeklyBulletinSendTrigger_() {
         errorCode: 'TARGET_NOT_SUNDAY',
         message: '算出來的目標日期（' + targetIso + '，今天 ' + todayIso
           + '）不是星期日，不猜測正確日期，直接結束，不寄送任何郵件。'
-          + '這代表 resolveNextSendSundayIso_() 被改壞了，請檢查 src/SendSchedule.gs。'
+          + '這代表 weeklyTriggerTargetSunday_()／nextSundayOnOrAfter_() 被改壞了。'
       });
       return;
     }
@@ -131,6 +131,16 @@ function weeklyBulletinSendTrigger_() {
       });
     }
 
+    // v3 重測（獨立審查）：這一期已經真的寄過 → 草稿預覽信與週報都不再寄，亦不改寄再下一期。
+    if (schedule.alreadySent) {
+      appendAuditLog_({
+        action: 'WEEKLY_SEND_SKIPPED', sheetName: SHEETS.SEND_LOG, rowKey: targetIso,
+        notes: '星期一自動寄送：' + targetIso + ' 這一期 SendLog 已經有正式寄出（SENT）的紀錄，'
+          + '這一次不再寄草稿預覽信與週報（不會提早改寄再下一期）。今日 ' + todayIso + '。'
+      });
+      return;
+    }
+
     // R-033：草稿預覽連結。包一層 try/catch——預覽寄不到不應該連累週報，
     //    那是兩件獨立的事；失敗記一筆 ErrorLog 就好。
     try {
@@ -163,6 +173,36 @@ function weeklyBulletinSendTrigger_() {
       detail: buildErrorDetail_(err)
     });
   }
+}
+
+/**
+ * 用途：星期一觸發器的目標主日：**真正的今日**（Config `SYS_TIMEZONE`；不看模擬今日）之後（含今日）最近的
+ *   一個星期日，並講明那一期是否已經真的寄過。**不會**順延到再下一期（見 `weeklyBulletinSendTrigger_()`）。
+ * Args:
+ *   options {{todayIso?:string, sentIsoList?:string[]}=} 測試用的注入點；正式流程不傳。
+ * Returns:
+ *   {{ok:boolean, todayIso:string, isoDate:string, alreadySent:boolean, reason:string}}
+ * Raises:
+ *   （無：讀不到日期改回 `ok:false` 加原因）
+ */
+function weeklyTriggerTargetSunday_(options) {
+  var opts = options || {};
+  var todayIso = opts.todayIso;
+  if (!todayIso) {
+    try {
+      todayIso = Utilities.formatDate(new Date(), getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland'), 'yyyy-MM-dd');
+    } catch (err) {
+      return { ok: false, todayIso: '', isoDate: '', alreadySent: false,
+        reason: '讀不到今日日期（Config SYS_TIMEZONE 可能有誤）：' + ((err && err.message) ? err.message : String(err)) };
+    }
+  }
+  var sunday = nextSundayOnOrAfter_(todayIso);
+  if (!sunday) {
+    return { ok: false, todayIso: todayIso, isoDate: '', alreadySent: false,
+      reason: '今日日期不是合法的 yyyy-MM-dd：' + JSON.stringify(todayIso) };
+  }
+  var sent = opts.sentIsoList || readSentBulletinSundays_();
+  return { ok: true, todayIso: todayIso, isoDate: sunday, alreadySent: sent.indexOf(sunday) !== -1, reason: '' };
 }
 
 /**
