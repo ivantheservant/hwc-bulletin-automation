@@ -477,6 +477,13 @@ test('由職事表重新取數（真入口 fetchFromRosterForWebApp_）：有覆
   assert.deepStrictEqual(reasonsOf(env, D).sort(), ['ROSTER_FETCH', 'WEBAPP_SAVE']);
   const fetchVersion = versionsOf(env, D).filter(function (v) { return v.reason === 'ROSTER_FETCH'; })[0];
   assert.strictEqual(payloadOf(env, D, fetchVersion.snapshotId).dutyOverrides.length, 1, '取消之前覆寫還在');
+  // v3 重測（2026-10-27）：版本下拉的名稱跟介面按鈕「以職事表覆寫我的修改…」，不再叫「由職事表重新取數」
+  //    （那是另一粒不寫任何東西的按鈕）。
+  const listed = JSON.parse(JSON.stringify(env.sandbox.listWeekSnapshotsForWebApp_(D))).versions
+    .filter(function (v) { return v.reason === 'ROSTER_FETCH'; })[0];
+  assert.strictEqual(listed.reasonLabel, '以職事表覆寫');
+  const audit = env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'FETCH_FROM_ROSTER'; });
+  assert.ok(audit.length === 1 && audit[0].NOTES.indexOf('以職事表覆寫：') === 0, JSON.stringify(audit));
 });
 
 test('補抓空白的事奉欄位（真入口 backfillRosterForQuarter_）：有補到的主日各存一個版本；再補一次沒有東西可補就不存', function () {

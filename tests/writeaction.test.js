@@ -1242,7 +1242,7 @@ test('D13-3 由職事表重新取數（真正入口 apiFetchFromRoster）：另�
   const resp = sb.apiFetchFromRoster(env.iso, [{ postId: 'CHAIR', slotIndex: 1 }]);
   assert.strictEqual(resp.ok, false);
   assert.strictEqual(resp.error.code, 'LOCK_TIMEOUT');
-  assert.strictEqual(resp.error.message, D13_BUSY_HEAD + '請稍等再按一次「由職事表重新取數」。');
+  assert.strictEqual(resp.error.message, D13_BUSY_HEAD + '請稍等再按一次「以職事表覆寫我的修改…」。');
   const after = JSON.parse(wholeBook(sb));
   Object.keys(before).forEach(function (k) {
     if (k === 'ERROR_LOG') return;

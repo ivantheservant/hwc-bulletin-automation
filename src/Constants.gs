@@ -1095,7 +1095,7 @@ var SPEAKER_FORM_RESULTS = Object.freeze({
  * |---|---|
  * | `WEBAPP_SAVE` | 填寫介面儲存（含「下週事奉」改到下一個主日的那一個） |
  * | `CONTENT_IMPORT_WEEK` / `CONTENT_IMPORT_QUARTER` | 內容表匯入（單週／整季，每個受影響的主日各一個） |
- * | `ROSTER_BACKFILL` / `ROSTER_FETCH` | 補抓空白事奉欄位／由職事表重新取數 |
+ * | `ROSTER_BACKFILL` / `ROSTER_FETCH` | 補抓空白事奉欄位／以職事表覆寫我的修改（v3 之前叫「由職事表重新取數」） |
  * | `GRID_SYNC` / `GRID_EDIT` / `GRID_CONFLICT` | 季度填寫表的寫回（同一主日有時間限制，見 `SNAPSHOT_THROTTLE_MINUTES`） |
  * | `BEFORE_RESET` / `BEFORE_RESTORE` | 重設這一週、還原到某個版本之前的安全版本 |
  * | `SPEAKER_FORM` | 講員表格答案寫入之前 |
@@ -1106,7 +1106,9 @@ var WEEK_SNAPSHOT_REASONS = Object.freeze({
   CONTENT_IMPORT_WEEK: '內容表匯入（單一主日）',
   CONTENT_IMPORT_QUARTER: '內容表匯入（整季）',
   ROSTER_BACKFILL: '補抓空白的事奉欄位',
-  ROSTER_FETCH: '由職事表重新取數',
+  // v3 重測（2026-10-27）：這個動作在介面叫「以職事表覆寫我的修改…」；「由職事表重新取數（不覆寫）」是另一粒、
+  //    不寫任何東西的按鈕。以前版本下拉列出「由職事表重新取數」，令人以為是那一粒。
+  ROSTER_FETCH: '以職事表覆寫',
   GRID_SYNC: '季度填寫表同步',
   GRID_EDIT: '季度填寫表直接編輯',
   GRID_CONFLICT: '處理填寫表衝突',

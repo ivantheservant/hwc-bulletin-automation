@@ -643,6 +643,24 @@ test('自動建立只限第一個主日在 AUTO_CREATE_QUARTERS_LEAD_DAYS 日之
   assert.ok(item.message.indexOf('90 日之內') !== -1, item.message);
 });
 
+test('開啟填寫介面（真入口 autoCreateQuartersForWebApp_）：Config AUTO_CREATE_QUARTERS 是 FALSE 時不出橫幅、一格都不寫（v3 重測：以前每次開頁都出「沒有自動建立」）', function () {
+  const store = {};
+  const props = { getProperty: function (k) { return store[k] === undefined ? null : store[k]; }, setProperty: function (k, v) { store[k] = String(v); }, deleteProperty: function (k) { delete store[k]; } };
+  const env = makeEnv({ config: { AUTO_CREATE_QUARTERS: 'FALSE', AUTO_CREATE_QUARTERS_LEAD_DAYS: '0' },
+    extraStubs: { PropertiesService: { getScriptProperties: function () { return props; }, getUserProperties: function () { return props; } } } });
+  addRosterQuarter(env, '2031T1', ['2031-01-05'], 1);
+  const sb = env.sandbox;
+  const rowsBefore = sb.readSheet('BulletinWeeks').length;
+  assert.strictEqual(sb.autoCreateQuartersForWebApp_(), '');
+  assert.strictEqual(sb.readSheet('BulletinWeeks').length, rowsBefore, '停用就不建');
+  // 開啟之後同一條入口照常講結果（這個環境內容表建不到，所以講「未能自動建立」）——即是只有停用時才靜默。
+  const on = makeEnv({ config: { AUTO_CREATE_QUARTERS_LEAD_DAYS: '0' },
+    extraStubs: { PropertiesService: { getScriptProperties: function () { const s2 = {}; return { getProperty: function (k) { return s2[k] === undefined ? null : s2[k]; }, setProperty: function (k, v) { s2[k] = String(v); }, deleteProperty: function (k) { delete s2[k]; } }; } } } });
+  addRosterQuarter(on, '2031T1', ['2031-01-05'], 1);
+  const msg = on.sandbox.autoCreateQuartersForWebApp_();
+  assert.ok(msg.indexOf('2027T4') !== -1, '開啟時照常講：' + msg);
+});
+
 test('開啟填寫介面：先記下「已檢查」才做（兩個分頁同時打開只做一次；做的途中出錯亦不會每次開頁都重試）；週報建立經指令碼鎖', function () {
   const store = {};
   const props = { getProperty: function (k) { return store[k] === undefined ? null : store[k]; }, setProperty: function (k, v) { store[k] = String(v); }, deleteProperty: function (k) { delete store[k]; } };

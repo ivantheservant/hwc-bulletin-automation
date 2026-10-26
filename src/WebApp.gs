@@ -2121,7 +2121,7 @@ function fetchFromRosterForWebApp_(isoDate, selections) {
   return withScriptLock_('apiFetchFromRoster', SAVE_LOCK_WAIT_MS_, function () {
     return fetchFromRosterLocked_(isoDate, picked);
   }, function () {
-    throw buildLockTimeoutError_(SAVE_LOCK_WAIT_MS_, '請稍等再按一次「由職事表重新取數」。');
+    throw buildLockTimeoutError_(SAVE_LOCK_WAIT_MS_, '請稍等再按一次「以職事表覆寫我的修改…」。');
   });
 }
 
@@ -2171,7 +2171,7 @@ function fetchFromRosterLocked_(isoDate, picked) {
       field: 'ACTIVE',
       oldValue: 'TRUE',
       newValue: 'FALSE',
-      notes: '由職事表重新取數：人手覆寫「' + String(existing.OVERRIDE_NAME || '') + '」已取消，改回跟隨職事表。記錄保留，不刪行。'
+      notes: '以職事表覆寫：人手覆寫「' + String(existing.OVERRIDE_NAME || '') + '」已取消，改回跟隨職事表。記錄保留，不刪行。'
     });
     cleared++;
   });

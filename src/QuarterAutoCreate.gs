@@ -291,6 +291,9 @@ function autoCreateQuartersForWebApp_() {
     //    每一次開頁都重讀職事表、重試、再寫一行 ErrorLog。其餘的季度十分鐘之後再開頁，或者由每日觸發器處理。
     writeTimedScriptProperty_(AUTO_CREATE_QUARTERS_CHECKED_KEY_, '1');
     var result = runAutoCreateQuarters_({ maxQuarters: 1, source: 'WEBAPP' });
+    // v3 重測（2026-10-27）：停用（Config FALSE、職事表未設定）時不出橫幅——以前每次開頁都出一條黃色
+    //    「沒有自動建立」，對幹事沒有用處；停用與否由「上線前檢查」講明。
+    if (result.enabled === false) return '';
     return result.message || '';
   } catch (err) {
     appendErrorLog_({
