@@ -1198,7 +1198,9 @@ function wordFileInfoForWeek_(weekRow, isoDate) {
  */
 function listWeeksForWebApp_(includeArchived) {
   var rows = readSheet(SHEETS.BULLETIN_WEEKS);
-  var todayIso = formatIsoDate_(new Date());
+  // v3 重測（2026-10-27）：與發佈時窗同一個「今日」——測試時 Config WEBAPP_SIMULATED_TODAY 填了，打開就落在
+  //    模擬那一週（未填就是真正的今日，與以前一樣）。
+  var todayIso = webAppTodayIso_().todayIso;
 
   var publishIndex = weekSelectorPublishIndex_(readSheet(SHEETS.PUBLISH_LOG));
   var missingIndex = weekSelectorMissingIndex_(

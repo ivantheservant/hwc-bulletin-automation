@@ -690,5 +690,47 @@ function sendPreviewNotice_(isoDate) {
   return out;
 }
 
+/**
+ * 用途：v3 重測（2026-10-27）：選單「試寄星期一草稿預覽信（依 DRY_RUN 設定）」。問一個主日日期，經星期一觸發器
+ *   用的同一條 `sendPreviewNotice_()` 寄出草稿預覽信（預覽連結＋本季內容表連結），不必等到星期一，亦可以試測試季度
+ *   （例如 2028T3）。預設日期是填寫介面「今日」（`webAppTodayIso_()`，即模擬今日填了就用它）之後的第一個主日。
+ *   `DRY_RUN` 是 TRUE 時只寫 SendLog，不會真的寄出。
+ * Args: （無）
+ * Returns:
+ *   {void}
+ */
+function menuTestSendPreviewNotice_() {
+  var ui = SpreadsheetApp.getUi();
+  try {
+    var defaultIso = nextSundayOnOrAfter_(webAppTodayIso_().todayIso) || '';
+    var resp = ui.prompt(
+      '試寄星期一草稿預覽信（依 DRY_RUN 設定）',
+      '請輸入主日日期，格式 yyyy-MM-dd' + (defaultIso ? '（留空就用 ' + defaultIso + '）' : '') + '：',
+      ui.ButtonSet.OK_CANCEL
+    );
+    if (resp.getSelectedButton() !== ui.Button.OK) return;
+    var isoDate = resp.getResponseText().trim() || defaultIso;
+    if (!isIsoDateShape_(isoDate) || isoDateToTime_(isoDate) === null) {
+      ui.alert('日期格式不對：「' + isoDate + '」。請用 yyyy-MM-dd，例如 2028-07-09。');
+      return;
+    }
+    var out = sendPreviewNotice_(isoDate);
+    ui.alert(
+      '試寄草稿預覽信',
+      [
+        '主日日期：' + isoDate,
+        out.sent ? out.message : ('沒有寄：' + out.message),
+        '是否試行（DRY_RUN）：' + (out.dryRun ? '是（沒有真的寄出任何郵件）' : '否'),
+        '',
+        '詳情見 SendLog 工作表（狀態 PREVIEW，「內文摘要」一欄是信的內容）。'
+      ].join('\n'),
+      ui.ButtonSet.OK
+    );
+  } catch (err) {
+    logMenuError_('menuTestSendPreviewNotice_', err);
+    ui.alert('試寄失敗', enrichAuthError_(err), ui.ButtonSet.OK);
+  }
+}
+
 /** 草稿預覽信用哪一個 `EmailTemplates` 範本。 */
 var PREVIEW_EMAIL_TEMPLATE_ID_ = 'PREVIEW_NOTICE';

@@ -616,7 +616,8 @@ function isWithinPublishWindow_(isoDate, todayIso) {
 
 /**
  * 用途：填寫介面用的「今日」：Config `WEBAPP_SIMULATED_TODAY` 有合法日期就用它（測試用），
- *   否則用系統時區的真正今日。只供填寫介面的發佈時窗與「目前已發佈」那一行使用，自動寄送不用它。
+ *   否則用系統時區的真正今日。填寫介面的發佈時窗、「目前已發佈」那一行、打開時落在哪一週，以及自動建立季度
+ *   （v3 重測）用它；星期一自動寄送不用它。
  * Args: （無）
  * Returns:
  *   {{todayIso:string, simulated:boolean, simulatedRaw:string}}

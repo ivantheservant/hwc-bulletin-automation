@@ -123,6 +123,7 @@ function onOpen() {
       // 內容表 v2：部署之後按一次（先預覽、後「是／否」，可以重複執行）。見 src/RetireLegacy.gs。
       .addItem(RETIRE_LEGACY_MENU_LABEL_, 'menuRetireLegacyFeatures_'))
     .addItem('試寄下週週報（依 DRY_RUN 設定）', 'menuTestSendBulletin_')
+    .addItem('試寄星期一草稿預覽信（依 DRY_RUN 設定）', 'menuTestSendPreviewNotice_')
     .addItem('預覽週報郵件內容', 'menuPreviewBulletinEmail_')
     .addItem('安裝自動寄送觸發器', 'menuInstallSendTrigger_')
     .addItem('移除自動寄送觸發器', 'menuRemoveSendTrigger_')

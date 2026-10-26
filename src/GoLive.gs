@@ -152,9 +152,9 @@ function buildGoLiveChecklist_() {
     label: '上線前：模擬今日（測試設定）',
     status: simulated ? S.YELLOW : S.GREEN,
     message: simulated
-      ? '⚠️ Config 的 ' + CONFIG_KEYS.WEBAPP_SIMULATED_TODAY + ' 是「' + simulated + '」：填寫介面當今日是這一天，'
-        + '只可以發佈、寄出那一週。正式使用前要清空。'
-      : '未填：填寫介面用真正的今日決定可以發佈、寄出哪一週。'
+      ? '⚠️ Config 的 ' + CONFIG_KEYS.WEBAPP_SIMULATED_TODAY + ' 是「' + simulated + '」：填寫介面當今日是這一天——'
+        + '只可以發佈、寄出那一週，打開時落在那一週，自動建立季度亦按這一日計（星期一自動寄送不受影響）。正式使用前要清空。'
+      : '未填：填寫介面與自動建立季度用真正的今日。'
   });
 
   return items;

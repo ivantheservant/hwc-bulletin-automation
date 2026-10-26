@@ -953,7 +953,7 @@ var DEFAULTS = Object.freeze([
   { key: CONFIG_KEYS.SPEAKER_FORM_CLOSED_MESSAGE, value: '講員資料改為在內容表「崇拜程序」填寫，請聯絡幹事。', note: '內容表 v2：講員表格已停用。「季度工具 ▸ 停用舊功能」關閉表格收件時，講員用舊連結打開會見到這一句。表格不會刪除' },
 
   // ---- v3（2026-10-26 Ivan 測試結果 A）----
-  { key: CONFIG_KEYS.WEBAPP_SIMULATED_TODAY, value: '', note: '⚠️ 只供測試：填一個日期（yyyy-MM-dd），填寫介面就當今日是這一天——只影響「發佈／寄出只限該週」與頂部「目前已發佈」那一行，不影響自動寄送。正式使用前一定要清空' },
+  { key: CONFIG_KEYS.WEBAPP_SIMULATED_TODAY, value: '', note: '⚠️ 只供測試：填一個日期（yyyy-MM-dd），填寫介面就當今日是這一天——影響「發佈／寄出只限該週」、頂部「目前已發佈」那一行、打開時落在哪一週、自動建立季度；不影響星期一自動寄送。正式使用前一定要清空' },
   { key: CONFIG_KEYS.ROSTER_WEBAPP_URL, value: '', note: '職事表系統填寫介面的網址。填了之後，週報填寫介面「本週事奉」旁邊會出現「查看／修改職事表」按鈕；留空就不顯示' },
   { key: CONFIG_KEYS.TEMPLATE_KEYWORDS_COMBINED, value: '合堂,聯合', note: '特別主日標題／類型含這些關鍵詞（而不是浸禮或堂慶）就用三堂聯合崇拜範本 TPL_COMBINED（逗號分隔）' },
   { key: CONFIG_KEYS.TEMPLATE_FILE_ID_COMBINED, value: '', note: '三堂聯合崇拜（TPL_COMBINED）Word 範本的雲端硬碟檔案 ID。留空就用堂慶三堂聯合崇拜那一個（TEMPLATE_FILE_ID_ANNIVERSARY）' },

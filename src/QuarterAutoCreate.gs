@@ -172,7 +172,10 @@ function buildAutoCreateQuartersPlanNow_() {
   if (!getConfig(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, '')) {
     return { enabled: false, disabledReason: '職事表未設定，沒有自動建立。', plan: [] };
   }
-  var tz = getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland');
+  // v3 重測（2026-10-27）：「今日」與填寫介面同一個（webAppTodayIso_()）：測試時 Config WEBAPP_SIMULATED_TODAY
+  //    填了就按那一日計，可以在測試季度（例如 2028T3）試自動建立，而不會建立真正的季度；未填就是真正的今日。
+  //    自動寄送（星期一）不受影響。
+  var today = webAppTodayIso_();
   var weekQuarterIds = {};
   readSheet(SHEETS.BULLETIN_WEEKS).forEach(function (r) {
     var qid = String(r.QUARTER_ID || '').trim();
@@ -186,11 +189,12 @@ function buildAutoCreateQuartersPlanNow_() {
   });
   return {
     enabled: true, disabledReason: '',
+    todayIso: today.todayIso, simulated: today.simulated === true,
     plan: planAutoCreateQuarters_({
       rosterQuarters: listRosterQuarterSummaries_(),
       weekQuarterIds: weekQuarterIds,
       contentSheetQuarterIds: contentSheetQuarterIds,
-      todayIso: Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd'),
+      todayIso: today.todayIso,
       excludedQuarterIds: [getConfig(CONFIG_KEYS.SELFTEST_QUARTER_ID, '')],
       leadDays: autoCreateLeadDays_()
     })
@@ -232,6 +236,9 @@ function buildAutoCreateQuartersGoLiveItem_(S) {
   }
   var leadDays = autoCreateLeadDays_();
   var scope = leadDays > 0 ? '（只看第一個主日在 ' + leadDays + ' 日之內的季度，Config ' + CONFIG_KEYS.AUTO_CREATE_QUARTERS_LEAD_DAYS + '）' : '';
+  if (planned.simulated) {
+    scope += '（按 Config ' + CONFIG_KEYS.WEBAPP_SIMULATED_TODAY + '「' + planned.todayIso + '」當今日計）';
+  }
   if (planned.plan.length === 0) {
     return { label: label, status: S.GREEN, message: '職事表已有版本、而且未完結的季度' + scope + '，週報與內容表都已經建立，沒有東西要自動建立。' };
   }

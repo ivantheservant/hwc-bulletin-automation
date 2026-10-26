@@ -1045,5 +1045,67 @@ test('Index.html：程序表與三張清單的隱藏欄位跟隨「儲存」送�
   assert.ok((html.match(/data-save-button/g) || []).length >= 4, '每一個輸入區塊一粒');
 });
 
+// =====================================================================
+// v3 重測（2026-10-27）：模擬今日亦用於自動建立季度與打開時落在哪一週；試寄星期一草稿預覽信
+// =====================================================================
+
+console.log('\nv3 重測：模擬今日與試寄草稿預覽信');
+
+test('自動建立（真入口 runAutoCreateQuarters_）：Config 模擬今日填了就按那一日計——測試季度可以自動建立，真正今日以為太遠的季度亦一樣；未填就照真正的今日', function () {
+  const sim = makeEnv({ config: { WEBAPP_SIMULATED_TODAY: '2031-01-01' } });
+  addRosterQuarter(sim, '2031T1', ['2031-01-05', '2031-01-12'], 1);
+  const r = plain(sim.sandbox.runAutoCreateQuarters_({}));
+  const made = r.created.filter(function (c) { return c.quarterId === '2031T1'; })[0];
+  assert.ok(made && made.weeksAdded === 2, JSON.stringify(r));
+  assert.strictEqual(r.created.filter(function (c) { return c.quarterId === QUARTER_ID; }).length, 0, '模擬今日之前已完結的季度不建');
+  const item = plain(sim.sandbox.buildGoLiveChecklist_()).filter(function (i) { return i.label === '上線前：自動建立季度'; })[0];
+  assert.ok(item.message.indexOf('WEBAPP_SIMULATED_TODAY「2031-01-01」當今日計') !== -1, item.message);
+
+  const real = makeEnv();
+  addRosterQuarter(real, '2031T1', ['2031-01-05', '2031-01-12'], 1);
+  const r2 = plain(real.sandbox.runAutoCreateQuarters_({}));
+  assert.strictEqual(r2.created.filter(function (c) { return c.quarterId === '2031T1'; }).length, 0, '未填模擬今日：照真正的今日，遠期季度不建');
+});
+
+test('打開填寫介面（真入口 listWeeksForWebApp_）：模擬今日填了就落在模擬那一週；未填照舊落在真正今日之後第一個未發佈的主日', function () {
+  const sim = makeEnv({ config: { WEBAPP_SIMULATED_TODAY: '2027-11-10' } });
+  assert.strictEqual(plain(sim.sandbox.listWeeksForWebApp_(false)).defaultIsoDate, D_NEXT);
+  const real = makeEnv();
+  assert.strictEqual(plain(real.sandbox.listWeeksForWebApp_(false)).defaultIsoDate, D);
+});
+
+test('選單「試寄星期一草稿預覽信」（真入口 menuTestSendPreviewNotice_）：留空用模擬今日之後的主日；經星期一同一條 sendPreviewNotice_，DRY_RUN 只寫 SendLog，信內有預覽連結', function () {
+  const seed = plain(makeEnv().sandbox.seedEmailTemplatesRows_());
+  const alerts = [];
+  const env = makeEnv({
+    config: { WEBAPP_SIMULATED_TODAY: '2027-11-10', DRY_RUN: 'TRUE' },
+    fill: {
+      emailTemplates: seed,
+      ui: {
+        prompt: function () { return { getSelectedButton: function () { return 'OK'; }, getResponseText: function () { return ''; } }; },
+        alert: function () { alerts.push(Array.prototype.slice.call(arguments).join('\n')); return 'OK'; }
+      }
+    }
+  });
+  env.sandbox.menuTestSendPreviewNotice_();
+  const rows = env.sandbox.readSheet('SendLog').filter(function (r) { return r.STATUS === 'PREVIEW'; });
+  assert.ok(rows.length >= 1, '寫了 SendLog：' + JSON.stringify(alerts));
+  assert.strictEqual(env.sandbox.formatIsoDate_(rows[0].SERVICE_DATE), D_NEXT);
+  assert.strictEqual(rows[0].DRY_RUN, true);
+  assert.ok(String(rows[0].BODY_PREVIEW).indexOf(PREVIEW_URL) !== -1, rows[0].BODY_PREVIEW);
+  assert.strictEqual(env.mail.calls.length, 0, 'DRY_RUN 不寄');
+  assert.ok(alerts.length === 1 && alerts[0].indexOf('主日日期：' + D_NEXT) !== -1 && alerts[0].indexOf('是（沒有真的寄出任何郵件）') !== -1, JSON.stringify(alerts));
+  assertWrittenChinese(assert, '試寄草稿預覽信', alerts);
+
+  // 日期格式不對：講明，不寄。
+  const bad = [];
+  const env2 = makeEnv({ fill: { emailTemplates: seed, ui: {
+    prompt: function () { return { getSelectedButton: function () { return 'OK'; }, getResponseText: function () { return '下星期'; } }; },
+    alert: function (t) { bad.push(String(t)); return 'OK'; } } } });
+  env2.sandbox.menuTestSendPreviewNotice_();
+  assert.ok(bad.length === 1 && bad[0].indexOf('日期格式不對') !== -1, JSON.stringify(bad));
+  assert.strictEqual(env2.sandbox.readSheet('SendLog').length, 0);
+});
+
 console.log('\n通過 ' + pass + ' 項，失敗 ' + fail + ' 項。');
 process.exit(fail === 0 ? 0 : 1);
