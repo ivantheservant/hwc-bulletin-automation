@@ -257,6 +257,50 @@ function deleteContentTabColumns_(sheet, startCol, count) {
 }
 
 /**
+ * 用途：v3：讀一張分頁由第 1 行起的原始格值（包括第 1、2 行標題），刪欄之前整張複製作備份用。
+ * Args:
+ *   sheet {Sheet} 分頁。
+ *   numCols {number} 讀幾欄（分頁欄數不夠就補空白）。
+ * Returns:
+ *   {Array[]} 原始格值（Date 物件照原樣）；分頁全空回空陣列。
+ * Raises:
+ *   Error 讀取失敗時原樣拋出。
+ */
+function readContentTabRawValues_(sheet, numCols) {
+  var want = Math.max(0, Number(numCols) || 0);
+  var lastRow = sheet.getLastRow();
+  if (want === 0 || lastRow < 1) return [];
+  var available = Math.min(want, Math.max(0, Number(sheet.getMaxColumns()) || 0));
+  var values = available > 0 ? sheet.getRange(1, 1, lastRow, available).getValues() : [];
+  return values.map(function (row) {
+    var r = row.slice();
+    while (r.length < want) r.push('');
+    return r;
+  });
+}
+
+/**
+ * 用途：v3：把一批原始格值由第 1 行第 1 欄起寫入一張分頁（備份分頁用；分頁欄數不夠先補欄）。
+ *   寫之前把範圍設成純文字，免得「3:16」之類的值被轉成時間（Date 物件照原樣寫回）。
+ * Args:
+ *   sheet {Sheet} 分頁（新建、空白）。
+ *   values {Array[]} 每一行一樣長。
+ * Returns:
+ *   {number} 寫了幾行。
+ * Raises:
+ *   Error 寫入失敗時原樣拋出。
+ */
+function writeContentTabRawValues_(sheet, values) {
+  if (!values || values.length === 0) return 0;
+  var cols = values[0].length;
+  ensureContentTabColumns_(sheet, cols);
+  var range = sheet.getRange(1, 1, values.length, cols);
+  range.setNumberFormat('@');
+  range.setValues(values);
+  return values.length;
+}
+
+/**
  * 用途：內容表 v2：把一段範圍設成純文字格式（`@`）。寫入之前用，否則「3:16」之類的值會被試算表
  *   轉成時間。
  * Args:

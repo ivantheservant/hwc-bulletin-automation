@@ -764,7 +764,9 @@ var CONFIG_KEYS = Object.freeze({
   TEMPLATE_KEYWORDS_COMBINED: 'TEMPLATE_KEYWORDS_COMBINED',
   TEMPLATE_FILE_ID_COMBINED: 'TEMPLATE_FILE_ID_COMBINED',
   // 職事表有新季度（已生成版本）時自動建立該季週報與內容表。
-  AUTO_CREATE_QUARTERS: 'AUTO_CREATE_QUARTERS'
+  AUTO_CREATE_QUARTERS: 'AUTO_CREATE_QUARTERS',
+  // 自動建立只限第一個主日在今日起 N 日之內的季度（職事表內遠期的測試季度不會被建立）。
+  AUTO_CREATE_QUARTERS_LEAD_DAYS: 'AUTO_CREATE_QUARTERS_LEAD_DAYS'
 });
 
 // =====================================================================
@@ -955,7 +957,8 @@ var DEFAULTS = Object.freeze([
   { key: CONFIG_KEYS.ROSTER_WEBAPP_URL, value: '', note: '職事表系統填寫介面的網址。填了之後，週報填寫介面「本週事奉」旁邊會出現「查看／修改職事表」按鈕；留空就不顯示' },
   { key: CONFIG_KEYS.TEMPLATE_KEYWORDS_COMBINED, value: '合堂,聯合', note: '特別主日標題／類型含這些關鍵詞（而不是浸禮或堂慶）就用三堂聯合崇拜範本 TPL_COMBINED（逗號分隔）' },
   { key: CONFIG_KEYS.TEMPLATE_FILE_ID_COMBINED, value: '', note: '三堂聯合崇拜（TPL_COMBINED）Word 範本的雲端硬碟檔案 ID。留空就用堂慶三堂聯合崇拜那一個（TEMPLATE_FILE_ID_ANNIVERSARY）' },
-  { key: CONFIG_KEYS.AUTO_CREATE_QUARTERS, value: 'TRUE', note: '職事表某一季已經生成版本（未正式發出亦算）、而且該季未完結時，自動建立該季的週報與內容表（每日一次，以及開啟填寫介面時）。設 FALSE 就停用，改用選單人手建立' }
+  { key: CONFIG_KEYS.AUTO_CREATE_QUARTERS, value: 'TRUE', note: '職事表某一季已經生成版本（未正式發出亦算）、而且該季未完結時，自動建立該季的週報與內容表（每日一次，以及開啟填寫介面時）。設 FALSE 就停用，改用選單人手建立' },
+  { key: CONFIG_KEYS.AUTO_CREATE_QUARTERS_LEAD_DAYS, value: '90', note: '自動建立只限第一個主日在今日起多少日之內的季度（預設 90 日；0＝不限）。職事表內遠期的測試季度因此不會被自動建立；要早一點建立就用選單人手建立' }
 ]);
 
 // =====================================================================

@@ -1494,7 +1494,7 @@ function sendPublishNotice_(isoDate, options) {
   var vars = buildSendNoticeVars_({
     churchName: config.churchName, isoDate: noticeIsoDate,
     previewUrl: buildPreviewUrl_(noticeIsoDate),
-    contentSheetUrl: contentSheetUrlForIsoDate_(noticeIsoDate),
+    contentSheetText: contentSheetLinkForIsoDate_(noticeIsoDate).text,
     masterUrl: config.masterFileId ? masterPdfLinks_(config.masterFileId).view : '',
     masterOnThisWeek: masterOnThisWeek,
     attachedPdf: attachedPdf, attachedWord: attachedWord
@@ -1699,7 +1699,13 @@ function runPublishFlow_(payload) {
   // 第二批測試修正 G2：只寄出而 master 不是選中那一期，一樣要出視窗、要勾
   // 方框——否則那一行提醒根本沒有機會被看見。與 DRY_RUN 那一句同樣不計入
   // `needsConfirm`／`forcedReason`。
-  var needsConfirmDialog = precheck.needsConfirm || precheck.dryRunPublishNotice;
+  // v3（獨立審查）：要附上的 Word 在這一週最後一次改動之前產生 → 一樣要出視窗、要勾方框（不自動重新產生：
+  //    雲端硬碟上那一份可能有人手改動）。不計入 needsConfirm／forcedReason。
+  precheck.staleWordNotice = attachWord ? savedWordStalenessNotice_(isoDate) : '';
+  if (precheck.staleWordNotice) {
+    precheck.lines = precheck.lines.concat(['', precheck.staleWordNotice]);
+  }
+  var needsConfirmDialog = precheck.needsConfirm || precheck.dryRunPublishNotice || Boolean(precheck.staleWordNotice);
   if (needsConfirmDialog && p.confirmed !== true) {
     return {
       ok: false, reason: 'NEEDS_CONFIRM', precheck: precheck, lines: precheck.lines,
@@ -1804,7 +1810,11 @@ function runPublishFlowLocked_(payload, ctx) {
   // ---- 寄出 ----
   if (doSend) {
     // v3：只寄出時 master 連結是不是這一期（是就放 master 連結）。在鎖之內讀，與發佈寫 PublishLog 同一把鎖。
-    var masterNow = doPublish ? { onThisWeek: true, versionNo: null } : masterIssueForSend_(config.masterFileId, isoDate);
+    var masterNow = doPublish ? { onThisWeek: true, versionNo: null, unknown: false } : masterIssueForSend_(config.masterFileId, isoDate);
+    if (masterNow.unknown) {
+      // 只寄出才會到這裏（發佈加寄出時 master 一定是這一期）：一封都不寄。
+      return { ok: false, reason: 'MASTER_ISSUE_UNKNOWN', lines: [], message: masterNow.message };
+    }
     var wordBlob = null;
     if (ctx.attachWord) {
       var saved = readSavedWordForSend_(isoDate);

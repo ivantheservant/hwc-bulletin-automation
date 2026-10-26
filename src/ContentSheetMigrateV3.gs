@@ -7,7 +7,10 @@
  *   1. 浸禮六欄搬入週報（BulletinWeeks）：v2 由「崇拜程序」第 L 至 Q 欄、v1 由未改名的「浸禮合堂」
  *      分頁。每一格的值：介面有生效中的覆寫就用覆寫值（那是印出來的值），否則用內容表的值；
  *      內容表空白就**保留週報現值**（不清空任何東西）。
- *   2. v2 才做：刪走「崇拜程序」第 L 至 Q 欄（浸禮六欄）。刪走之後頭十一欄就是 v3 的頭十一欄，
+ *   2. v2 才做：先把「崇拜程序」整張（第 A 至 Q 欄、每一行，包括停用的、季度以外的、同一主日的舊行）
+ *      複製到隱藏分頁「崇拜程序（浸禮六欄，已停用）」，然後刪走第 L 至 Q 欄（浸禮六欄）。第 1 步只搬
+ *      「這一季、週報有那一行的主日、最後一行生效中」的值；其餘的格（停用的行、季度以外、舊行、週報未有
+ *      那一行、被轉成日期的格）不會搬入週報，但一格都不會丟——留在備份分頁。刪走之後頭十一欄就是 v3 的頭十一欄，
  *      第 12 欄「詩班項目名稱」由 `planContentSheetV2Migration_()`（已改用 v3 定義）照新欄的做法
  *      加上，並由週報現值回填。
  *   3. 停用舊的欄位覆寫（`FieldOverride`）：九欄與浸禮六欄都不再是「內容表為來源、介面可覆寫」。
@@ -31,6 +34,16 @@
  */
 
 'use strict';
+
+/** v3：刪走浸禮六欄之前整張「崇拜程序」的備份分頁（隱藏、警告式保護、A1 註解；不會刪）。 */
+var CONTENT_SHEET_V3_BAPTISM_BACKUP_TAB_ = '崇拜程序（浸禮六欄，已停用）';
+
+/** 備份分頁 A1 的註解。 */
+var CONTENT_SHEET_V3_BAPTISM_BACKUP_NOTE_ = '已停用（2026-10-26）：這是刪走浸禮六欄之前「崇拜程序」整張的備份，'
+  + '浸禮副框改在填寫介面填。請不要再填這一張。';
+
+/** 備份分頁的保護說明（警告式保護）。 */
+var CONTENT_SHEET_V3_BAPTISM_BACKUP_PROTECTION_ = '週報系統：刪走浸禮六欄之前「崇拜程序」的備份';
 
 /**
  * 用途：v3「崇拜程序」只可以在內容表填的九欄（扣除主日日期、有效、備註）。由分頁定義衍生，不另抄。
@@ -145,7 +158,9 @@ function simulateWorshipRowsAfterV3Drop_(v2Rows, v3Keys) {
  *     overrideConflicts:{isoDate:string, key:string, overrideValue:string, contentValue:string}[],
  *     overrideDeactivations:{row:Object, isoDate:string, field:string, overrideValue:string, kind:string}[],
  *     counts:{baptismCells:number, baptismDates:number, overrideCellWrites:number, overrideConflicts:number,
- *       overrideDeactivations:number}}}
+ *       overrideDeactivations:number, baptismCellsInSheet:number}}}
+ *     `baptismCellsInSheet`：v2「崇拜程序」第 L 至 Q 欄有字的格數（每一行，包括停用的與季度以外的）——
+ *     刪欄之前整張複製到備份分頁，預覽要講出有幾格。
  *     `source`：`'OVERRIDE'`（介面覆寫值）／`'CONTENT'`（內容表的值）。`kind`：`'WORSHIP'`／`'BAPTISM'`。
  * Raises:
  *   （無）
@@ -160,7 +175,8 @@ function planContentSheetV3Upgrade_(input) {
   var plan = {
     isV2: isV2, deleteBaptismColumns: isV2,
     baptismWrites: [], baptismNoWeekRow: [], overrideCellWrites: [], overrideConflicts: [], overrideDeactivations: [],
-    counts: { baptismCells: 0, baptismDates: 0, overrideCellWrites: 0, overrideConflicts: 0, overrideDeactivations: 0 }
+    counts: { baptismCells: 0, baptismDates: 0, overrideCellWrites: 0, overrideConflicts: 0, overrideDeactivations: 0,
+      baptismCellsInSheet: 0 }
   };
 
   var inQuarter = {};
@@ -184,6 +200,11 @@ function planContentSheetV3Upgrade_(input) {
   }
   if (isV2) {
     takeSource(worship.v2Rows);
+    (worship.v2Rows || []).forEach(function (row) {
+      baptismKeys.forEach(function (key) {
+        if ((row.__typeIssues || []).indexOf(key) !== -1 || migrationText_(row[key]) !== '') plan.counts.baptismCellsInSheet++;
+      });
+    });
   } else {
     (o.legacy || []).forEach(function (entry) {
       if (entry.kind === 'BAPTISM' && !entry.renamed) takeSource(entry.rows);
@@ -295,12 +316,13 @@ function contentSheetV3PlanHasWrites_(plan) {
  *   plan {Object} `planContentSheetV3Upgrade_()` 的輸出（`contentSheetV3PlanHasWrites_()` 為真）。
  *   quarterId {string} 季度 ID（AuditLog 用）。
  * Returns:
- *   {{weekCells:number, deletedColumns:number, contentCells:number, deactivated:number, snapshotWarnings:string[]}}
+ *   {{weekCells:number, deletedColumns:number, contentCells:number, deactivated:number, snapshotWarnings:string[],
+ *     backupRows:number}} `backupRows`：這一次寫入備份分頁的行數（備份分頁已經存在就是 0）。
  * Raises:
  *   Error 任何一步失敗時原樣拋出（已寫的保留；重跑結果相同，見檔頭）。
  */
 function applyContentSheetV3Upgrade_(spreadsheet, worshipSheet, plan, quarterId) {
-  var out = { weekCells: 0, deletedColumns: 0, contentCells: 0, deactivated: 0, snapshotWarnings: [] };
+  var out = { weekCells: 0, deletedColumns: 0, contentCells: 0, deactivated: 0, snapshotWarnings: [], backupRows: 0 };
 
   // ---- 第 1 步：浸禮六欄寫入週報（逐格 AuditLog）----
   if (plan.baptismWrites.length > 0) {
@@ -323,16 +345,33 @@ function applyContentSheetV3Upgrade_(spreadsheet, worshipSheet, plan, quarterId)
     touchWeeksLastSavedAt_(dates, new Date());
   }
 
-  // ---- 第 2 步：v2 才做，刪走「崇拜程序」第 L 至 Q 欄（浸禮六欄）----
+  // ---- 第 2 步：v2 才做，先整張備份，再刪走「崇拜程序」第 L 至 Q 欄（浸禮六欄）----
+  //    ⚠️ 第 1 步只搬「這一季、週報有那一行、最後一行生效中」的值；其餘有字的格（停用的行、季度以外、
+  //       同一主日的舊行、週報未有那一行、被轉成日期的格）刪欄之後就沒有了，所以一定要先備份。
+  //       備份分頁已經存在（上一次中途失敗）就不再寫：那一份是更早、未刪欄時的樣子。
   if (plan.deleteBaptismColumns && worshipSheet) {
     var v2Keys = contentSheetWorshipKeysV2_();
+    var backup = ensureContentTab_(spreadsheet, CONTENT_SHEET_V3_BAPTISM_BACKUP_TAB_);
+    if (backup.created) {
+      out.backupRows = writeContentTabRawValues_(backup.sheet, readContentTabRawValues_(worshipSheet, v2Keys.length));
+      appendAuditLog_({
+        action: 'CONTENT_SHEET_MIGRATE_V3', sheetName: SHEETS.CONTENT_SHEETS, rowKey: quarterId, field: '崇拜程序',
+        newValue: '備份 ' + out.backupRows + ' 行',
+        notes: '內容表 v3：刪走浸禮六欄之前，「崇拜程序」第 A 至 ' + contentColumnLetter_(v2Keys.length) + ' 欄整張（'
+          + out.backupRows + ' 行，包括標題）已複製到隱藏分頁「' + CONTENT_SHEET_V3_BAPTISM_BACKUP_TAB_ + '」。'
+      });
+    }
+    ensureRetiredContentTabState_(backup.sheet,
+      inspectRetiredContentTab_(backup.sheet, CONTENT_SHEET_V3_BAPTISM_BACKUP_NOTE_, CONTENT_SHEET_V3_BAPTISM_BACKUP_PROTECTION_),
+      CONTENT_SHEET_V3_BAPTISM_BACKUP_NOTE_, CONTENT_SHEET_V3_BAPTISM_BACKUP_PROTECTION_);
     var firstBaptismCol = v2Keys.indexOf(baptismBoxFieldKeys_()[0]) + 1;
     out.deletedColumns = deleteContentTabColumns_(worshipSheet, firstBaptismCol, v2Keys.length - firstBaptismCol + 1);
     appendAuditLog_({
       action: 'CONTENT_SHEET_MIGRATE_V3', sheetName: SHEETS.CONTENT_SHEETS, rowKey: quarterId, field: '崇拜程序',
       newValue: '刪欄 ' + out.deletedColumns,
       notes: '內容表 v3：「崇拜程序」第 ' + contentColumnLetter_(firstBaptismCol) + ' 至 '
-        + contentColumnLetter_(v2Keys.length) + ' 欄（浸禮六欄）已刪走；資料已先搬入週報（' + out.weekCells + ' 格）。'
+        + contentColumnLetter_(v2Keys.length) + ' 欄（浸禮六欄）已刪走；這一季的資料已先搬入週報（' + out.weekCells
+        + ' 格），刪欄之前整張已備份到「' + CONTENT_SHEET_V3_BAPTISM_BACKUP_TAB_ + '」。'
     });
   }
 
@@ -388,11 +427,15 @@ function buildContentSheetV3UpgradeLines_(plan, options) {
       + ' 格搬入週報（之後在填寫介面「丙之二」改）。');
   }
   if (plan.baptismNoWeekRow.length > 0) {
-    lines.push('　⚠️ ' + plan.baptismNoWeekRow.length + ' 格浸禮資料的主日在週報未有一行，沒有搬（內容表保留原值）：'
-      + plan.baptismNoWeekRow.slice(0, 5).map(function (b) { return b.isoDate; }).join('、'));
+    lines.push('　⚠️ ' + plan.baptismNoWeekRow.length + ' 格浸禮資料的主日在週報未有一行，沒有搬入週報'
+      + (plan.isV2 ? '（保留在備份分頁「' + CONTENT_SHEET_V3_BAPTISM_BACKUP_TAB_ + '」）' : '（內容表保留原值）') + '：'
+      + plan.baptismNoWeekRow.map(function (b) { return b.isoDate; }).filter(function (d, i, arr) { return arr.indexOf(d) === i; })
+        .slice(0, 5).join('、'));
   }
   if (plan.isV2) {
-    lines.push('　「崇拜程序」第 L 至 Q 欄（浸禮六欄）' + will + '刪走；之後加「詩班項目名稱」一欄。');
+    lines.push('　「崇拜程序」第 L 至 Q 欄（浸禮六欄）共 ' + plan.counts.baptismCellsInSheet + ' 格有字。刪走之前，「崇拜程序」整張'
+      + will + '複製到隱藏分頁「' + CONTENT_SHEET_V3_BAPTISM_BACKUP_TAB_ + '」（不會刪；停用的行、季度以外的行亦在內）；'
+      + '然後' + will + '刪走這六欄，並加上「詩班項目名稱」一欄。');
   }
   if (plan.counts.overrideDeactivations > 0) {
     lines.push('　以前在填寫介面改過的 ' + plan.counts.overrideDeactivations + ' 格' + will + '停用'

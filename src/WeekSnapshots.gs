@@ -336,6 +336,9 @@ function diffWeekSnapshotState_(payload, current, postDisplayRows) {
   var curWeek = current.weekRow || {};
 
   webAppEditableWeekFieldKeys_().forEach(function (key) {
+    // 版本裏沒有這一欄（例如 v3 之前存的版本沒有程序增刪、清單次序）：還原不會改它，看差異亦不列
+    // （與 planWeekSnapshotRestore_() 同一個規則；看差異講的就是還原會做的）。
+    if (!Object.prototype.hasOwnProperty.call(snapWeek, key)) return;
     var snapValue = weekSnapshotText_(snapWeek[key]);
     var curValue = weekSnapshotText_(curWeek[key]);
     if (snapValue === curValue) return;

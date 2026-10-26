@@ -162,7 +162,7 @@ test('V3-1 真入口 apiRunContentSheetBuild：浸禮六欄搬入週報（覆寫
   assert.ok(audit.some(function (r) { return r.ACTION === 'CONTENT_SHEET_MIGRATE_V3' && String(r.NEW_VALUE).indexOf('刪欄 6') === 0; }));
 
   const text = data.lines.join('\n');
-  ['內容表更新成新版', '浸禮副框：已把 1 個主日共 2 格搬入週報', '第 L 至 Q 欄（浸禮六欄）已刪走',
+  ['內容表更新成新版', '浸禮副框：已把 1 個主日共 2 格搬入週報', '整張已複製到隱藏分頁「崇拜程序（浸禮六欄，已停用）」', '然後已刪走這六欄',
     '以前在填寫介面改過的 3 格已停用', '1 格內容表是空白', '之後以內容表為準', '「回應詩歌」：介面「介面的詩」，內容表「內容表的詩」'
   ].forEach(function (piece) { assert.ok(text.indexOf(piece) !== -1, '結果缺少：' + piece + '\n' + text); });
   assertWrittenChinese(assert, 'v3 更新結果', data.lines);
@@ -179,7 +179,7 @@ test('V3-2 預覽（apiPreviewContentSheetBuild）唯讀，講的數字與實際
   assert.strictEqual(contentSnapshot(env), before, '預覽一格都不寫');
   assert.strictEqual(JSON.stringify(env.sandbox.readSheet('BulletinWeeks')), weeksBefore);
   const text = preview.data.lines.join('\n');
-  ['浸禮副框：會把 1 個主日共 2 格搬入週報', '第 L 至 Q 欄（浸禮六欄）會刪走', '以前在填寫介面改過的 3 格會停用'].forEach(function (piece) {
+  ['浸禮副框：會把 1 個主日共 2 格搬入週報', '第 L 至 Q 欄（浸禮六欄）共 3 格有字', '然後會刪走這六欄', '以前在填寫介面改過的 3 格會停用'].forEach(function (piece) {
     assert.ok(text.indexOf(piece) !== -1, '預覽缺少：' + piece + '\n' + text);
   });
   const data = run(env);
@@ -266,6 +266,55 @@ test('V3-8 版本記錄：搬入週報之前替受影響的主日各存一個「
   const snaps = env.sandbox.readSheet('WeekSnapshots').filter(function (r) { return r.REASON === 'CONTENT_SHEET_UPGRADE'; });
   const dates = Array.from(new Set(snaps.map(function (r) { return env.sandbox.formatIsoDate_(r.SERVICE_DATE); }))).sort();
   assert.deepStrictEqual(dates, [D1], '只有真的改到週報的主日（D4 週報已經是覆寫值）');
+});
+
+// 獨立審查（2026-10-26）：第 1 步只搬「這一季、週報有那一行、最後一行生效中」的值；刪欄之前沒有備份的話，
+// 其餘有字的格（季度以外、同一主日的舊行、停用的行、週報未有那一行的主日）會連同那六欄一齊消失，而預覽還講
+// 「內容表保留原值」。改為刪欄之前整張「崇拜程序」複製到隱藏分頁。
+test('V3-9 刪走浸禮六欄之前整張備份：季度以外、同一主日的舊行、停用的行、週報未有那一行的主日，浸禮資料一格都不會丟；預覽與結果講明', function () {
+  const BACKUP = '崇拜程序（浸禮六欄，已停用）';
+  const env = contentEnv.makeEnv({
+    contentLayout: 'v2',
+    weekRows: [D1, D2, D3, D4].map(function (iso) { return { SERVICE_DATE: iso, QUARTER_ID: QUARTER_ID }; }),
+    content: {
+      崇拜程序: [
+        { SERVICE_DATE: '2027-09-26', ACTIVE: 'TRUE', BAPTISM_OFFICIANT: '域外牧師' },
+        { SERVICE_DATE: D1, ACTIVE: 'TRUE', BAPTISM_OFFICIANT: '第一行牧師' },
+        { SERVICE_DATE: D1, ACTIVE: 'TRUE', BAPTISM_OFFICIANT: '最後一行牧師' },
+        { SERVICE_DATE: D2, ACTIVE: 'FALSE', BAPTISM_MEMBERS: '停用行名單' },
+        { SERVICE_DATE: D5, ACTIVE: 'TRUE', BAPTISM_OFFICIANT: '未有週報的牧師' }
+      ]
+    }
+  });
+  const preview = env.sandbox.apiPreviewContentSheetBuild(QUARTER_ID);
+  assert.strictEqual(preview.ok, true, JSON.stringify(preview));
+  const pl = preview.data.lines.join('\n');
+  assert.ok(pl.indexOf('共 5 格有字') !== -1 && pl.indexOf('會複製到隱藏分頁「' + BACKUP + '」') !== -1, pl);
+  assert.ok(pl.indexOf('保留在備份分頁') !== -1, pl);
+  assert.strictEqual(pl.indexOf('內容表保留原值'), -1, 'v2 會刪欄，不可以講「內容表保留原值」');
+  assert.strictEqual(env.contentTabs[BACKUP], undefined, '預覽唯讀');
+
+  const data = run(env);
+  const backup = env.contentTabs[BACKUP];
+  assert.ok(backup, '要有備份分頁');
+  const flat = JSON.stringify(backup.__data);
+  ['域外牧師', '第一行牧師', '最後一行牧師', '停用行名單', '未有週報的牧師'].forEach(function (v) {
+    assert.ok(flat.indexOf(v) !== -1, v + ' 要在備份分頁');
+  });
+  assert.deepStrictEqual(plain(backup.__data[1]).slice(0, LEGACY_V2_WORSHIP_TAB_DEF.keys.length), LEGACY_V2_WORSHIP_TAB_DEF.keys, '連第 2 行機器鍵一齊備份');
+  assert.strictEqual(backup.isSheetHidden(), true);
+  assert.ok(String(backup.getRange(1, 1, 1, 1).getNote()).indexOf('已停用（2026-10-26）') === 0);
+  assert.strictEqual(weekOf(env, D1).BAPTISM_OFFICIANT, '最後一行牧師', '這一季、週報有那一行的主日照樣搬入週報');
+  assert.strictEqual(JSON.stringify(env.contentTabs['崇拜程序'].__data).indexOf('牧師'), -1, '崇拜程序已經沒有浸禮六欄');
+  const lines = data.lines.join('\n');
+  assert.ok(lines.indexOf('已複製到隱藏分頁「' + BACKUP + '」') !== -1, lines);
+  assert.ok(env.sandbox.readSheet('AuditLog').some(function (r) { return String(r.NEW_VALUE).indexOf('備份') === 0; }));
+  assertWrittenChinese(assert, 'V3-9', [pl, lines]);
+
+  // 再按一次：已經是 v3，不再備份、不再刪欄；備份分頁原封不動。
+  const before = JSON.stringify(backup.__data);
+  run(env);
+  assert.strictEqual(JSON.stringify(env.contentTabs[BACKUP].__data), before);
 });
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');

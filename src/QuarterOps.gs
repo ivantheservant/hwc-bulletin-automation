@@ -303,7 +303,12 @@ function previewContentSheetBuild_(quarterId) {
     if (migration.needsMigration) {
       lines.push('');
       buildContentSheetMigrationLines_(migration, { applied: false, created: false }).forEach(function (l) { lines.push(l); });
-      lines.push('⚠️ 除了上面列出的空白格與新增行，同工已經填落去的資料一格都不會改。');
+      lines.push(upgradeLines.length > 0
+        ? '⚠️ 除了上面列出的各項（刪走浸禮六欄之前會整張備份），同工已經填落去的資料一格都不會改。'
+        : '⚠️ 除了上面列出的空白格與新增行，同工已經填落去的資料一格都不會改。');
+    } else if (upgradeLines.length > 0) {
+      buildContentSheetMigrationLines_(migration, { applied: false, created: false }).forEach(function (l) { lines.push(l); });
+      lines.push('⚠️ 除了上面列出的各項，同工已經填落去的資料一格都不會改。');
     } else {
       lines.push('已經是新版，沒有需要移轉。');
       buildContentSheetMigrationLines_(migration, { applied: false, created: false }).forEach(function (l) { lines.push(l); });

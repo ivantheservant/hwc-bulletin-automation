@@ -120,14 +120,14 @@ function applyProgramEdits_(rows, rawEdits) {
 
   // 加的行：插在指定那一行之後（可以是範本行 `名稱#n`，或者另一個加的行 `add:<id>`）；`'__END__'`＝最後。
   // 同一個位置加了幾項，按加的次序排。插入一項之後，下一項如果指向同一個位置，要排在它之後。
-  var unplaced = [];
+  // ⚠️ 「加在最後」的行即時放到最後（不是全部處理完才放）：之後另一項可以「加在它之後」（獨立審查）。
   edits.added.forEach(function (a) {
     var addedRow = {
       seqNo: null, itemName: a.itemName, content: a.content,
       posture: a.posture, fullWidth: false, sourceRow: null,
       key: '', removed: false, added: true, addedId: a.id, after: a.after
     };
-    if (a.after === '__END__') { unplaced.push(addedRow); return; }
+    if (a.after === '__END__') { display.push(addedRow); return; }
     var anchorIndex = -1;
     for (var i = 0; i < display.length; i++) {
       var d = display[i];
@@ -138,7 +138,7 @@ function applyProgramEdits_(rows, rawEdits) {
         code: 'PROGRAM_ADD_ANCHOR_MISSING',
         message: '程序表加的「' + a.itemName + '」原本排在一項現在已經不在範本內的項目之後，現在放在最後，請在填寫介面核對。'
       });
-      unplaced.push(addedRow);
+      display.push(addedRow);
       return;
     }
     // 跳過已經插在同一個位置之後的行（它們亦是指向同一個 anchor，或者指向那些行）。
@@ -149,7 +149,6 @@ function applyProgramEdits_(rows, rawEdits) {
     }
     display.splice(insertAt, 0, addedRow);
   });
-  unplaced.forEach(function (r) { display.push(r); });
 
   var finalRows = display.filter(function (d) { return d.removed !== true; }).map(function (d) {
     return {

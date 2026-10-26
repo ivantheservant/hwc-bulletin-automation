@@ -637,12 +637,13 @@ function sendPreviewNotice_(isoDate) {
 
   // v3（第 5 項）：一併附上本季內容表的連結。工作表上的舊範本沒有 {{ContentSheetUrl}} 的話，在信末加一段，
   //    不要求幹事先改範本。
-  var contentSheetUrl = contentSheetUrlForIsoDate_(isoDate);
+  var contentSheet = contentSheetLinkForIsoDate_(isoDate);
+  var contentSheetUrl = contentSheet.url;
   var vars = {
     ChurchName: getConfig(CONFIG_KEYS.CHURCH_NAME, ''),
     ServiceDate: isoDate,
     PreviewUrl: previewUrl,
-    ContentSheetUrl: contentSheetUrl || '（本季未有內容表）',
+    ContentSheetUrl: contentSheet.text,
     RosterPendingNote: pendingNote
   };
   var bodyTemplate = String(template.BODY || '');

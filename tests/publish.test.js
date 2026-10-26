@@ -1379,7 +1379,9 @@ test('G2-4 v3 只寄出、選中的主日就是 master 現時那一期 → 信�
   assert.ok(env.mails[0].body.indexOf('https://docs.google.com/spreadsheets/d/CS_2027T4/edit') !== -1, '那一季自己的內容表');
 });
 
-test('G2-5 v3 只寄出、PublishLog 最新一行的主日日期讀不到 → 照寄，只是沒有 master 連結（讀不到不可以當成這一期已發佈）', function () {
+// 獨立審查（2026-10-26）：以前這一條寫「照寄，只是沒有 master 連結」——信內會講「這一期尚未發佈」，而那一期
+// 可能其實已經發佈（讀不到不等於未發佈，bug class 2）。改為整次不寄，講明要核對 PublishLog。
+test('G2-5 v3 只寄出、PublishLog 最新一行的主日日期讀不到 → 一封都不寄（讀不到不可以講成「尚未發佈」，亦不可以當成已發佈）', function () {
   const env = makeG2Env({
     publishLog: [{
       SERVICE_DATE: '', VERSION_NO: 1, PUBLISHED_AT: '2027-11-06',
@@ -1390,9 +1392,23 @@ test('G2-5 v3 只寄出、PublishLog 最新一行的主日日期讀不到 → �
   const result = env.sandbox.runPublishFlow_({
     isoDate: G2_SELECTED, doPublish: false, doSend: true, groups: ['IT'], customEmails: '', confirmed: true
   });
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(result.reason, 'MASTER_ISSUE_UNKNOWN');
+  assert.ok(result.message.indexOf('PublishLog') !== -1 && result.message.indexOf('沒有寄出') !== -1, result.message);
+  assert.strictEqual(readSendLog(env).length, 0);
+  assert.strictEqual(env.mails.length, 0);
+});
+
+test('G2-5b 讀不到本季內容表的連結 → 照寄，信內寫「讀不到」（不是「本季未有內容表」），ErrorLog 有一行', function () {
+  const env = makeG2Env({ config: { DRY_RUN: 'FALSE', PUBLISH_DEDUP_SEC: '0' } });
+  env.sandbox.findContentSheetRow_ = function () { throw new Error('ContentSheets 讀不到'); };
+  const result = env.sandbox.runPublishFlow_({
+    isoDate: G2_SELECTED, doPublish: false, doSend: true, groups: ['IT'], customEmails: '', confirmed: true
+  });
   assert.strictEqual(result.ok, true, result.message);
-  assert.strictEqual(result.sent.masterIncluded, false);
-  assert.strictEqual(readSendLog(env).length, 1);
+  assert.ok(env.mails[0].body.indexOf('（讀不到本季內容表的連結，請聯絡幹事）') !== -1, env.mails[0].body);
+  assert.strictEqual(env.mails[0].body.indexOf('本季未有內容表'), -1);
+  assert.ok(env.sandbox.readSheet('ErrorLog').some(function (r) { return r.ERROR_CODE === 'CONTENT_SHEET_LINK_UNREADABLE'; }));
 });
 
 test('G2-6 v3 只寄出、正式 master 而 PublishLog 只有自測的行 → 照寄，沒有 master 連結（自測那一期不算正式 master 那一期）', function () {
@@ -1803,12 +1819,23 @@ test('W-2 Config WEBAPP_SIMULATED_TODAY 有合法日期 → 用它當今日（�
   assert.strictEqual(bad.sandbox.buildPublishWindowStatus_(G2_SELECTED, today).simulatedInvalid, true);
 });
 
+/** 用沙盒自己的 Date 寫入那一週的時間欄（沙盒的 instanceof Date 才認得）。 */
+function setWeekTimes(env, times) {
+  const info = env.sandbox.readBulletinWeekRowWithRowNo_(G2_SELECTED);
+  Object.keys(times).forEach(function (key) {
+    const t = times[key];
+    const d = require('vm').runInContext('new Date(' + t[0] + ',' + t[1] + ',' + t[2] + ',' + t[3] + ',' + t[4] + ',0)', env.sandbox);
+    env.sandbox.writeWeekCell_(info.__rowNo, key, d);
+  });
+}
+
 test('W-3 寄出並勾「一併附上最新已儲存的 Word 檔」：有 DOC_ID → 附上那個 Word；結果講明', function () {
   const env = makeG2Env({
     config: { DRY_RUN: 'FALSE', PUBLISH_DEDUP_SEC: '0' },
     extraWeekRows: [{ SERVICE_DATE: G2_SELECTED, QUARTER_ID: '2028T2', WEEK_OF_MONTH: 2, STATUS: 'DRAFT', DOC_ID: 'WORD_2028_04_09' }],
     savedWordFiles: [{ fileId: 'WORD_2028_04_09', name: '2028-04-09_粵語堂週報.docx' }]
   });
+  setWeekTimes(env, { LAST_GENERATED_AT: [2028, 3, 5, 9, 0] });
   const done = env.sandbox.runPublishFlow_(Object.assign({}, D6_PAYLOAD, { attachWord: true }));
   assert.strictEqual(done.ok, true, done.message);
   assert.strictEqual(done.sent.attachedWord, true);
@@ -1827,6 +1854,55 @@ test('W-4 勾了附上 Word 而這個主日未有已儲存的 Word → NO_SAVED_
   assert.strictEqual(readSendLog(env).length, 0);
   assert.strictEqual(env.mails.length, 0);
   assertWrittenChinese(assert, '沒有 Word', [result.message]);
+});
+
+test('W-5（獨立審查）要附上的 Word 在這一週最後一次改動之前產生 → 寄出前檢查視窗講明（產生時間、改動時間與原因），要勾方框才寄；勾了照附那一份（不自動重新產生）', function () {
+  const env = makeG2Env({
+    config: { DRY_RUN: 'FALSE', PUBLISH_DEDUP_SEC: '0' },
+    extraWeekRows: [{ SERVICE_DATE: G2_SELECTED, QUARTER_ID: '2028T2', WEEK_OF_MONTH: 2, STATUS: 'DRAFT', DOC_ID: 'WORD_2028_04_09' }],
+    savedWordFiles: [{ fileId: 'WORD_2028_04_09', name: '2028-04-09_粵語堂週報.docx' }]
+  });
+  // ⚠️ 假工作表只保留日期（toRealmSafeCellValue），所以用不同的日子；真的試算表保留到秒。
+  setWeekTimes(env, { LAST_GENERATED_AT: [2028, 3, 4, 9, 0], LAST_SAVED_AT: [2028, 3, 5, 10, 15] });
+  const first = env.sandbox.runPublishFlow_(Object.assign({}, D6_PAYLOAD, { attachWord: true, confirmed: false }));
+  assert.strictEqual(first.ok, false);
+  assert.strictEqual(first.reason, 'NEEDS_CONFIRM');
+  const notice = first.lines.filter(function (l) { return l.indexOf('要附上的 Word 是') !== -1; })[0];
+  assert.ok(notice && notice.indexOf('是 2028-04-04') !== -1 && notice.indexOf('（2028-04-05') !== -1 && notice.indexOf('填寫介面儲存') !== -1,
+    first.lines.join('\n'));
+  assert.strictEqual(env.mails.length, 0, '確認之前一封都不寄');
+  assertWrittenChinese(assert, 'Word 舊了', [notice]);
+
+  const done = env.sandbox.runPublishFlow_(Object.assign({}, D6_PAYLOAD, { attachWord: true, confirmed: true }));
+  assert.strictEqual(done.ok, true, done.message);
+  assert.strictEqual(env.mails[0].attachments[0].getName(), '2028-04-09_粵語堂週報.docx', '照附雲端硬碟上那一份');
+
+  // 沒有勾附上 Word：不會因為 Word 舊了而出視窗。
+  const env2 = makeG2Env({
+    config: { DRY_RUN: 'FALSE', PUBLISH_DEDUP_SEC: '0' },
+    extraWeekRows: [{ SERVICE_DATE: G2_SELECTED, QUARTER_ID: '2028T2', WEEK_OF_MONTH: 2, STATUS: 'DRAFT', DOC_ID: 'WORD_2028_04_09' }]
+  });
+  setWeekTimes(env2, { LAST_GENERATED_AT: [2028, 3, 4, 9, 0], LAST_SAVED_AT: [2028, 3, 5, 10, 15] });
+  const plainSend = env2.sandbox.runPublishFlow_(Object.assign({}, D6_PAYLOAD, { confirmed: false }));
+  assert.ok(plainSend.lines.join('\n').indexOf('要附上的 Word 是') === -1, plainSend.lines.join('\n'));
+
+  // 匯入、還原等不改 LAST_SAVED_AT 的改動：看寫入之前存的版本。Word 之後才產生 → 不提醒。
+  const env3 = makeG2Env({
+    config: { DRY_RUN: 'FALSE', PUBLISH_DEDUP_SEC: '0' },
+    extraWeekRows: [{ SERVICE_DATE: G2_SELECTED, QUARTER_ID: '2028T2', WEEK_OF_MONTH: 2, STATUS: 'DRAFT', DOC_ID: 'WORD_2028_04_09' }]
+  });
+  setWeekTimes(env3, { LAST_GENERATED_AT: [2026, 0, 1, 9, 0] });
+  env3.sandbox.createWeekSnapshot_(G2_SELECTED, 'CONTENT_IMPORT_WEEK');
+  const viaImport = env3.sandbox.savedWordStalenessNotice_(G2_SELECTED);
+  assert.ok(viaImport.indexOf('由內容表匯入') !== -1 || viaImport.indexOf('匯入') !== -1, viaImport);
+  setWeekTimes(env3, { LAST_GENERATED_AT: [2031, 0, 1, 9, 0] });
+  assert.strictEqual(env3.sandbox.savedWordStalenessNotice_(G2_SELECTED), '', 'Word 在最後一次改動之後產生：不提醒');
+  // 讀不到產生時間：不當作是最新，照樣提醒。
+  const env4 = makeG2Env({
+    config: { DRY_RUN: 'FALSE', PUBLISH_DEDUP_SEC: '0' },
+    extraWeekRows: [{ SERVICE_DATE: G2_SELECTED, QUARTER_ID: '2028T2', WEEK_OF_MONTH: 2, STATUS: 'DRAFT', DOC_ID: 'WORD_2028_04_09' }]
+  });
+  assert.ok(env4.sandbox.savedWordStalenessNotice_(G2_SELECTED).indexOf('讀不到要附上的 Word 是幾時產生的') !== -1);
 });
 
 // =====================================================================

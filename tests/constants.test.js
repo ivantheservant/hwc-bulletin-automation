@@ -190,8 +190,8 @@ test('CONFIG_KEYS 剛好 128 個（與 DEFAULTS 一一對應）', function () {
   // D11：多了 SEND_ONLY_DEDUP_SEC（126 → 127）。
   // 內容表 v2：多了 SPEAKER_FORM_CLOSED_MESSAGE（講員表格停用時表格上的一句，127 → 128）。
   // v3：+5（WEBAPP_SIMULATED_TODAY、ROSTER_WEBAPP_URL、TEMPLATE_KEYWORDS_COMBINED、TEMPLATE_FILE_ID_COMBINED、
-  //    AUTO_CREATE_QUARTERS，128 → 133）。
-  assert.strictEqual(Object.keys(CONFIG_KEYS).length, 133);
+  //    AUTO_CREATE_QUARTERS，128 → 133）；獨立審查之後 +1（AUTO_CREATE_QUARTERS_LEAD_DAYS，133 → 134）。
+  assert.strictEqual(Object.keys(CONFIG_KEYS).length, 134);
 });
 
 test('這一輪新增的 Config 鍵 FINANCE_PERIOD_LABEL_PATTERN 有定義、有預設值', function () {
@@ -224,8 +224,8 @@ test('CONFIG_KEYS 每一個值都有對應的 DEFAULTS 項目（不會有「有�
   });
 });
 
-test('DEFAULTS 剛好 133 筆（105 ＋ R-035 兩個 ＋ 階段 1 一個 ＋ 階段 2 兩個 ＋ 階段 3 十六個 ＋ D11 一個 ＋ 內容表 v2 一個 ＋ v3 五個）', function () {
-  assert.strictEqual(DEFAULTS.length, 133);
+test('DEFAULTS 剛好 134 筆（105 ＋ R-035 兩個 ＋ 階段 1 一個 ＋ 階段 2 兩個 ＋ 階段 3 十六個 ＋ D11 一個 ＋ 內容表 v2 一個 ＋ v3 六個）', function () {
+  assert.strictEqual(DEFAULTS.length, 134);
 });
 
 test('內容表那 10 個 Config 鍵齊備，而且 ID 類 seed 成空字串', function () {

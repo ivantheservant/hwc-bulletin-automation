@@ -22,11 +22,26 @@
 /** 開啟填寫介面時「十分鐘內只檢查一次」的記錄鍵（指令碼屬性，見 src/TimedProperty.gs）。 */
 var AUTO_CREATE_QUARTERS_CHECKED_KEY_ = 'AUTO_CREATE_QUARTERS_CHECKED_V3';
 
+/** 建週報時等指令碼鎖的上限（毫秒）。與儲存、匯入同一把鎖。 */
+var AUTO_CREATE_LOCK_WAIT_MS_ = 30000;
+
+/**
+ * 用途：某一季的內容表自動建立失敗過的記錄鍵（開啟填寫介面時一日內不再試）。
+ * Args:
+ *   quarterId {string}
+ * Returns:
+ *   {string}
+ */
+function autoCreateSheetFailedKey_(quarterId) {
+  return 'AUTO_CREATE_SHEET_FAILED_' + String(quarterId || '');
+}
+
 /**
  * 用途：算出要自動建立甚麼。純函式。
  * Args:
  *   input {{rosterQuarters:Object[], weekQuarterIds:Object<string,boolean>,
- *     contentSheetQuarterIds:Object<string,boolean>, todayIso:string, excludedQuarterIds:string[]}}
+ *     contentSheetQuarterIds:Object<string,boolean>, todayIso:string, excludedQuarterIds:string[], leadDays:number=}}
+ *     `leadDays`：只建立第一個主日在今日起這麼多日之內的季度；0 或省略＝不限。
  *     `rosterQuarters` 見 `listRosterQuarterSummaries_()`；`weekQuarterIds`＝週報已經有（任何一行）的季度；
  *     `contentSheetQuarterIds`＝已經登記內容表（有效）的季度。
  * Returns:
@@ -47,6 +62,8 @@ function planAutoCreateQuarters_(input) {
     if (!qid || excluded.indexOf(qid) !== -1) return;
     if (!(Number(q.versionCount) > 0)) return;            // 職事表未生成任何版本
     if (!today || String(q.lastIso || '') < today) return; // 該季已經完結
+    var lead = Number(o.leadDays) || 0;
+    if (lead > 0 && String(q.firstIso || '') > addDaysToIsoDate_(today, lead)) return; // 太遠（例如職事表內的測試季度）
     var createWeeks = weeks[qid] !== true;
     var createContentSheet = sheets[qid] !== true;
     if (!createWeeks && !createContentSheet) return;
@@ -81,7 +98,13 @@ function runAutoCreateQuarters_(options) {
     result.message = planned.disabledReason;
     return result;
   }
-  var plan = planned.plan;
+  // 開啟填寫介面時：內容表最近一日內自動建立失敗過的季度先不再試內容表（每日觸發器照試），免得每十分鐘
+  //    重試一次、ErrorLog 洗版，亦不會擋住排在後面的季度。只欠內容表的季度整季略過，不佔「每次一季」。
+  var webapp = source === 'WEBAPP';
+  var plan = planned.plan.map(function (item) {
+    var skipSheet = webapp && item.createContentSheet && Boolean(readTimedScriptProperty_(autoCreateSheetFailedKey_(item.quarterId), 86400));
+    return Object.assign({}, item, { createContentSheet: item.createContentSheet && !skipSheet });
+  }).filter(function (item) { return item.createWeeks || item.createContentSheet; });
   var max = Number(opts.maxQuarters) > 0 ? Number(opts.maxQuarters) : plan.length;
   result.pending = Math.max(0, plan.length - max);
 
@@ -89,7 +112,11 @@ function runAutoCreateQuarters_(options) {
     var entry = { quarterId: item.quarterId, weeksAdded: 0, contentSheetCreated: false, contentSheetUrl: '' };
     try {
       if (item.createWeeks) {
-        var weeks = createBlankBulletinWeeks_(item.quarterId);
+        // ⚠️ 經指令碼鎖（獨立審查）：每日觸發器與開頁、或者兩個分頁同時建同一季，第二個要等第一個寫完才讀，
+        //    createBlankBulletinWeeks_() 只加未有的主日，所以不會重複加行。
+        var weeks = withScriptLock_('runAutoCreateQuarters_', AUTO_CREATE_LOCK_WAIT_MS_, function () {
+          return createBlankBulletinWeeks_(item.quarterId);
+        });
         entry.weeksAdded = weeks.added;
         appendAuditLog_({
           action: 'AUTO_CREATE_WEEKS', sheetName: SHEETS.BULLETIN_WEEKS, rowKey: item.quarterId,
@@ -104,6 +131,7 @@ function runAutoCreateQuarters_(options) {
           entry.contentSheetCreated = built.created === true;
           entry.contentSheetUrl = String(built.fileUrl || '');
         } else {
+          writeTimedScriptProperty_(autoCreateSheetFailedKey_(item.quarterId), '1');
           result.skipped.push({ quarterId: item.quarterId, reason: built.message || built.reason || '' });
           appendErrorLog_({
             source: ERROR_LOG_SOURCE.TRIGGER, functionName: 'runAutoCreateQuarters_',
@@ -150,10 +178,11 @@ function buildAutoCreateQuartersPlanNow_() {
     var qid = String(r.QUARTER_ID || '').trim();
     if (qid) weekQuarterIds[qid] = true;
   });
+  // ⚠️ 與 findContentSheetRow_() 同一個準則（ACTIVE === true），兩處講的「已經有內容表」一樣（獨立審查）。
   var contentSheetQuarterIds = {};
   readSheet(SHEETS.CONTENT_SHEETS).forEach(function (r) {
     var qid = String(r.QUARTER_ID || '').trim();
-    if (qid && r.ACTIVE !== false) contentSheetQuarterIds[qid] = true;
+    if (qid && r.ACTIVE === true) contentSheetQuarterIds[qid] = true;
   });
   return {
     enabled: true, disabledReason: '',
@@ -162,9 +191,22 @@ function buildAutoCreateQuartersPlanNow_() {
       weekQuarterIds: weekQuarterIds,
       contentSheetQuarterIds: contentSheetQuarterIds,
       todayIso: Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd'),
-      excludedQuarterIds: [getConfig(CONFIG_KEYS.SELFTEST_QUARTER_ID, '')]
+      excludedQuarterIds: [getConfig(CONFIG_KEYS.SELFTEST_QUARTER_ID, '')],
+      leadDays: autoCreateLeadDays_()
     })
   };
+}
+
+/**
+ * 用途：讀 Config `AUTO_CREATE_QUARTERS_LEAD_DAYS`。不是非負整數就用 90（寧可保守，亦不可以變成不限）。
+ * Args: （無）
+ * Returns:
+ *   {number} 0＝不限。
+ */
+function autoCreateLeadDays_() {
+  var raw = String(getConfig(CONFIG_KEYS.AUTO_CREATE_QUARTERS_LEAD_DAYS, '90') || '').trim();
+  if (!/^\d+$/.test(raw)) return 90;
+  return Number(raw);
 }
 
 /**
@@ -188,12 +230,14 @@ function buildAutoCreateQuartersGoLiveItem_(S) {
   if (!planned.enabled) {
     return { label: label, status: S.YELLOW, message: '⚠️ ' + planned.disabledReason + '新一季要人手用選單建立週報與內容表。' };
   }
+  var leadDays = autoCreateLeadDays_();
+  var scope = leadDays > 0 ? '（只看第一個主日在 ' + leadDays + ' 日之內的季度，Config ' + CONFIG_KEYS.AUTO_CREATE_QUARTERS_LEAD_DAYS + '）' : '';
   if (planned.plan.length === 0) {
-    return { label: label, status: S.GREEN, message: '職事表已有版本、而且未完結的季度，週報與內容表都已經建立，沒有東西要自動建立。' };
+    return { label: label, status: S.GREEN, message: '職事表已有版本、而且未完結的季度' + scope + '，週報與內容表都已經建立，沒有東西要自動建立。' };
   }
   return {
     label: label, status: S.YELLOW,
-    message: '開啟填寫介面（每十分鐘最多一季）或每日觸發器會自動建立：'
+    message: '開啟填寫介面（每十分鐘最多一季）或每日觸發器會自動建立' + scope + '：'
       + planned.plan.map(function (p) {
         var what = [];
         if (p.createWeeks) what.push('週報');
@@ -243,10 +287,10 @@ function buildAutoCreateQuartersMessage_(result) {
 function autoCreateQuartersForWebApp_() {
   try {
     if (readTimedScriptProperty_(AUTO_CREATE_QUARTERS_CHECKED_KEY_, 600)) return '';
-    var result = runAutoCreateQuarters_({ maxQuarters: 1, source: 'WEBAPP' });
-    // ⚠️ 一律記下（即使仍有未建立的季度）：否則某一季的內容表一直建不到時，每一次開頁都會重讀職事表、
-    //    重試、再寫一行 ErrorLog。其餘的季度十分鐘之後再開頁，或者由每日觸發器處理（訊息已講明）。
+    // ⚠️ 先記下才做（獨立審查）：兩個分頁差不多同時打開，只有先到的一個會做；做的途中出錯亦不會令之後
+    //    每一次開頁都重讀職事表、重試、再寫一行 ErrorLog。其餘的季度十分鐘之後再開頁，或者由每日觸發器處理。
     writeTimedScriptProperty_(AUTO_CREATE_QUARTERS_CHECKED_KEY_, '1');
+    var result = runAutoCreateQuarters_({ maxQuarters: 1, source: 'WEBAPP' });
     return result.message || '';
   } catch (err) {
     appendErrorLog_({

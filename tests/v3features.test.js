@@ -173,6 +173,17 @@ test('applyProgramEdits_：同名兩行分得開（#1、#2）；錨點已經不�
   assertWrittenChinese(assert, '程序增刪警告', out.warnings.concat(bad.warnings).map(function (w) { return w.message; }));
 });
 
+test('applyProgramEdits_（獨立審查）：「加在最後」的一項之後再「加在它之後」→ 排在它之後，不會出「找不到位置」', function () {
+  const sb = makeEnv().sandbox;
+  const out = plain(sb.applyProgramEdits_(tplRows(['序樂', '家事報告']), JSON.stringify({ hidden: [], added: [
+    { id: 'a1', after: '__END__', itemName: '特別分享' },
+    { id: 'a2', after: '__END__', itemName: '拍照' },
+    { id: 'a3', after: 'add:a1', itemName: '回應' }
+  ] })));
+  assert.deepStrictEqual(out.rows.map(function (r) { return r.itemName; }), ['序樂', '家事報告', '特別分享', '回應', '拍照']);
+  assert.deepStrictEqual(out.warnings, []);
+});
+
 test('describeProgramEdits_／describeListArrangement_：版本記錄看差異用的一句', function () {
   const sb = makeEnv().sandbox;
   assert.strictEqual(sb.describeProgramEdits_(''), '');
@@ -295,6 +306,16 @@ test('清單安排格式不對（工作表那一格壞了）→ 照原本次序�
   const model = env.sandbox.buildBulletinModel_(D);
   assert.deepStrictEqual(plain(model.announcements.map(function (a) { return a.text; })), ['甲', '乙', '丙']);
   assert.ok(model.warnings.some(function (w) { return w.code === 'LIST_ARRANGEMENT_INVALID'; }));
+});
+
+test('看差異（獨立審查）：版本裏沒有的欄（v3 之前存的版本沒有程序增刪）不列出——與還原一樣不會改它', function () {
+  const sb = makeEnv().sandbox;
+  const rows = plain(sb.diffWeekSnapshotState_({ week: { PAGE_TITLE: '舊' }, dutyOverrides: [], fieldOverrides: [] },
+    { weekRow: { PAGE_TITLE: '新', PROGRAM_EDITS: JSON.stringify({ hidden: ['拍照#1'], added: [] }) }, dutyRows: [], fieldRows: [] }, []));
+  assert.deepStrictEqual(rows.map(function (r) { return r.label; }), ['程序表大標題']);
+  const plan = plain(sb.planWeekSnapshotRestore_({ week: { PAGE_TITLE: '舊' }, dutyOverrides: [], fieldOverrides: [] },
+    { weekRow: { PAGE_TITLE: '新', PROGRAM_EDITS: '{"hidden":["拍照#1"]}' }, dutyRowsAll: [], fieldRowsAll: [] }));
+  assert.deepStrictEqual(plan.fieldChanges.map(function (c) { return c.field; }), ['PAGE_TITLE'], '看差異列出的就是還原會改的');
 });
 
 test('版本記錄看差異：兩欄 JSON 顯示成一句人看得明的話，不是原始 JSON', function () {
@@ -528,7 +549,7 @@ function addRosterQuarter(env, quarterId, isoDates, versionNo) {
 }
 
 test('runAutoCreateQuarters_（真正入口）：職事表多了一季（有版本）→ 自動建週報、記 AuditLog；內容表建不到就記 ErrorLog、其餘照做；再跑一次不重複建', function () {
-  const env = makeEnv({ config: { SELFTEST_QUARTER_ID: '2030T1' } });
+  const env = makeEnv({ config: { SELFTEST_QUARTER_ID: '2030T1', AUTO_CREATE_QUARTERS_LEAD_DAYS: '0' } });
   addRosterQuarter(env, '2031T1', ['2031-01-05', '2031-01-12'], 1);
   addRosterQuarter(env, '2031T2', ['2031-04-06'], 0);         // 未有版本：不建
   addRosterQuarter(env, '2030T1', ['2030-01-06'], 1);         // 沙盒季度：不建
@@ -560,7 +581,7 @@ test('runAutoCreateQuarters_：Config AUTO_CREATE_QUARTERS=FALSE → 整個停�
   assert.strictEqual(r.enabled, false);
   assert.strictEqual(off.sandbox.readSheet('BulletinWeeks').filter(function (x) { return x.QUARTER_ID === '2031T1'; }).length, 0);
 
-  const env = makeEnv();
+  const env = makeEnv({ config: { AUTO_CREATE_QUARTERS_LEAD_DAYS: '0' } });
   addRosterQuarter(env, '2031T1', ['2031-01-05'], 1);
   addRosterQuarter(env, '2031T2', ['2031-04-06'], 1);
   const limited = plain(env.sandbox.runAutoCreateQuarters_({ maxQuarters: 1, source: 'WEBAPP' }));
@@ -569,7 +590,7 @@ test('runAutoCreateQuarters_：Config AUTO_CREATE_QUARTERS=FALSE → 整個停�
 });
 
 test('上線前檢查（唯讀）多一項「自動建立季度」：列出現在會建立哪幾季、建立甚麼，與真正建立同一份計畫；一格都不寫；停用時講明', function () {
-  const env = makeEnv();
+  const env = makeEnv({ config: { AUTO_CREATE_QUARTERS_LEAD_DAYS: '0' } });
   addRosterQuarter(env, '2031T1', ['2031-01-05', '2031-01-12'], 1);
   const sb = env.sandbox;
   const rowsBefore = sb.readSheet('BulletinWeeks').length;
@@ -600,10 +621,71 @@ test('上線前檢查：「模擬今日」填了就 🟡 並講明正式使用�
   assertWrittenChinese(assert, '模擬今日', [item.message, pick(off).message]);
 });
 
+test('自動建立只限第一個主日在 AUTO_CREATE_QUARTERS_LEAD_DAYS 日之內（預設 90）：職事表內遠期的測試季度不建；上線前檢查講明範圍', function () {
+  const sb = makeEnv().sandbox;
+  const quarters = [
+    { quarterId: 'NEAR', versionCount: 1, firstIso: '2026-12-06', lastIso: '2027-02-28' },
+    { quarterId: 'FAR', versionCount: 1, firstIso: '2027-06-06', lastIso: '2027-08-29' }
+  ];
+  const plan = function (lead) {
+    return plain(sb.planAutoCreateQuarters_({ rosterQuarters: quarters, todayIso: '2026-10-26', leadDays: lead })).map(function (p) { return p.quarterId; });
+  };
+  assert.deepStrictEqual(plan(90), ['NEAR']);
+  assert.deepStrictEqual(plan(0), ['NEAR', 'FAR'], '0＝不限');
+  assert.strictEqual(sb.autoCreateLeadDays_(), 90, 'Config 預設 90');
+  assert.strictEqual(makeEnv({ config: { AUTO_CREATE_QUARTERS_LEAD_DAYS: '亂寫' } }).sandbox.autoCreateLeadDays_(), 90, '不合法就用 90，不會變成不限');
+
+  const env = makeEnv();
+  addRosterQuarter(env, '2031T1', ['2031-01-05'], 1);
+  const r = plain(env.sandbox.runAutoCreateQuarters_({}));
+  assert.strictEqual(r.created.filter(function (c) { return c.quarterId === '2031T1'; }).length, 0, '遠期季度不建');
+  const item = plain(env.sandbox.buildGoLiveChecklist_()).filter(function (i) { return i.label === '上線前：自動建立季度'; })[0];
+  assert.ok(item.message.indexOf('90 日之內') !== -1, item.message);
+});
+
+test('開啟填寫介面：先記下「已檢查」才做（兩個分頁同時打開只做一次；做的途中出錯亦不會每次開頁都重試）；週報建立經指令碼鎖', function () {
+  const store = {};
+  const props = { getProperty: function (k) { return store[k] === undefined ? null : store[k]; }, setProperty: function (k, v) { store[k] = String(v); }, deleteProperty: function (k) { delete store[k]; } };
+  const env = makeEnv({ config: { AUTO_CREATE_QUARTERS_LEAD_DAYS: '0' },
+    extraStubs: { PropertiesService: { getScriptProperties: function () { return props; }, getUserProperties: function () { return props; } } } });
+  const sb = env.sandbox;
+  let reads = 0;
+  sb.runAutoCreateQuarters_ = function () { reads++; throw new Error('職事表讀不到'); };
+  sb.autoCreateQuartersForWebApp_();
+  sb.autoCreateQuartersForWebApp_();
+  assert.strictEqual(reads, 1, '出錯之後十分鐘內不再試');
+  const code = readSrc('src/QuarterAutoCreate.gs');
+  const body = code.slice(code.indexOf('function autoCreateQuartersForWebApp_('), code.indexOf('function dailyQuarterAutoCreateTrigger_('));
+  assert.ok(body.indexOf('writeTimedScriptProperty_(') < body.indexOf('runAutoCreateQuarters_('), '先記下才做');
+  const run = code.slice(code.indexOf('function runAutoCreateQuarters_('), code.indexOf('function buildAutoCreateQuartersPlanNow_('));
+  assert.ok(/withScriptLock_\([^)]*function \(\) \{\s*return createBlankBulletinWeeks_\(/.test(run), '建週報經指令碼鎖');
+});
+
+test('開啟填寫介面：某一季內容表自動建立失敗過，一日內不再試那一季的內容表（每日觸發器照試），亦不擋住排在後面的季度', function () {
+  const store = {};
+  const props = { getProperty: function (k) { return store[k] === undefined ? null : store[k]; }, setProperty: function (k, v) { store[k] = String(v); }, deleteProperty: function (k) { delete store[k]; } };
+  const env = makeEnv({ config: { AUTO_CREATE_QUARTERS_LEAD_DAYS: '0' },
+    extraStubs: { PropertiesService: { getScriptProperties: function () { return props; }, getUserProperties: function () { return props; } } } });
+  const sb = env.sandbox;
+  addRosterQuarter(env, '2031T1', ['2031-01-05'], 1);
+  // 第一次（每日觸發器）：2027T4 與 2031T1 的內容表都建不到（這個環境沒有資料夾）→ 記下失敗。
+  sb.runAutoCreateQuarters_({ source: 'TRIGGER' });
+  assert.ok(store[sb.autoCreateSheetFailedKey_(QUARTER_ID)], '記下 2027T4 內容表失敗');
+  const errorsBefore = sb.readSheet('ErrorLog').length;
+  // 開頁：兩季都只欠內容表、一日內失敗過 → 整季略過，不再試、不再寫 ErrorLog。
+  const webapp = plain(sb.runAutoCreateQuarters_({ maxQuarters: 1, source: 'WEBAPP' }));
+  assert.strictEqual(webapp.skipped.length, 0, JSON.stringify(webapp));
+  assert.strictEqual(sb.readSheet('ErrorLog').length, errorsBefore);
+  // 每日觸發器照試。
+  const daily = plain(sb.runAutoCreateQuarters_({ source: 'TRIGGER' }));
+  assert.ok(daily.skipped.length >= 1, JSON.stringify(daily));
+});
+
 test('開啟填寫介面（真正入口 apiListWeeks，autoCreate）：自動建立並在頂部講一句；十分鐘內不再檢查；出錯不令載入失敗', function () {
   const store = {};
   const props = { getProperty: function (k) { return store[k] === undefined ? null : store[k]; }, setProperty: function (k, v) { store[k] = String(v); }, deleteProperty: function (k) { delete store[k]; } };
-  const env = makeEnv({ extraStubs: { PropertiesService: { getScriptProperties: function () { return props; }, getUserProperties: function () { return props; } } } });
+  const env = makeEnv({ config: { AUTO_CREATE_QUARTERS_LEAD_DAYS: '0' },
+    extraStubs: { PropertiesService: { getScriptProperties: function () { return props; }, getUserProperties: function () { return props; } } } });
   addRosterQuarter(env, '2031T1', ['2031-01-05'], 1);
   addRosterQuarter(env, '2031T2', ['2031-04-06'], 1);
   const sb = env.sandbox;
