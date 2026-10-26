@@ -1107,5 +1107,23 @@ test('選單「試寄星期一草稿預覽信」（真入口 menuTestSendPreview
   assert.strictEqual(env2.sandbox.readSheet('SendLog').length, 0);
 });
 
+test('預覽連結不帶日期（真入口 renderPreviewResponse_）＝今日或之後第一個主日：正式寄出（SENT）之後不會跳去再下一個主日；模擬今日填了就按它', function () {
+  const env = makeEnv({ config: { WEBAPP_SIMULATED_TODAY: '2027-11-02' } });
+  // 星期一早上六時正式寄出了 2027-11-07 那一週（DRY_RUN=FALSE 才會寫 SENT）。
+  env.sandbox.writeSendLogRows_([{ TIMESTAMP: new Date(), SERVICE_DATE: env.sandbox.normalizeDate_(D), RECIPIENT_EMAIL: 'a@x.com',
+    SUBJECT: 's', STATUS: 'SENT', DRY_RUN: false, ROSTER_VERSION_USED: '', ERROR: '', BODY_PREVIEW: '' }]);
+  assert.deepStrictEqual(plain(env.sandbox.resolveNextSendSundayIso_({ todayIso: '2027-11-02' })).isoDate, D_NEXT, '前提：星期一寄送那一支會略過已寄的主日');
+  const html = previewHtml(env, {});
+  assert.ok(html.indexOf(D) !== -1 && html.indexOf('主日日期') !== -1, '顯示這一週（' + D + '），不是 ' + D_NEXT);
+  assert.strictEqual(plain(env.sandbox.buildPreviewPage_('')).isoDate, D);
+  // 主日當日就是當日。
+  const sunday = makeEnv({ config: { WEBAPP_SIMULATED_TODAY: D } });
+  assert.strictEqual(plain(sunday.sandbox.buildPreviewPage_('')).isoDate, D);
+  // 格式不對：照樣講明，顯示下一個主日。
+  const bad = plain(env.sandbox.buildPreviewPage_('abcd'));
+  assert.strictEqual(bad.isoDate, D);
+  assert.ok(String(bad.html).indexOf('格式不正確') !== -1);
+});
+
 console.log('\n通過 ' + pass + ' 項，失敗 ' + fail + ' 項。');
 process.exit(fail === 0 ? 0 : 1);

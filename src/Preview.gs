@@ -104,9 +104,11 @@ function isPreviewCallerAuthorized_() {
 /**
  * 用途：決定預覽要顯示哪一個主日。
  *
- *   ⚠️ 不帶日期就是「下一個主日」，而且用的是與星期一寄週報**同一支**
- *   `resolveNextSendSundayIso_()`——兩處各自算一次「下一個主日」，遲早會
- *   在某個星期給出不同答案，而那種不一致最難查。
+ *   ⚠️ 不帶日期就是「下一個主日」＝今日（主日當日就是今日）或之後第一個主日，「今日」與填寫介面同一個
+ *   （`webAppTodayIso_()`，測試時模擬今日填了就用它）。
+ *   v3 重測（2026-10-27）修正：以前用星期一寄週報那一支 `resolveNextSendSundayIso_()`，它會略過「已經
+ *   寄出（SENT）」的主日——正式寄送（DRY_RUN=FALSE）之後，星期一早上六時寄出那一週的週報，同一日開預覽
+ *   連結就跳去再下一個主日，整個星期都顯示錯的一期（DRY_RUN=TRUE 時不會發生，所以測試一直見不到）。
  *   F10：網址有帶 `date` 但格式不對（例如 `date=abcd`）時，照樣顯示下一個
  *   主日，但一定要用 `warning` 講出來——靜靜改顯示另一個主日，核對的人會
  *   以為自己看的就是自己指定的那一期。
@@ -125,21 +127,22 @@ function resolvePreviewIsoDate_(requestedIso) {
     return { isoDate: iso, requested: true, message: '', warning: '' };
   }
 
-  var schedule = resolveNextSendSundayIso_();
-  if (schedule.ok) {
+  var todayIso = webAppTodayIso_().todayIso;
+  var comingSunday = nextSundayOnOrAfter_(todayIso);
+  if (comingSunday) {
     // 網址原文可以任意長，只取頭 40 字顯示。
     var shown = iso.length > 40 ? (iso.slice(0, 40) + '…') : iso;
     var warning = iso === ''
       ? ''
       : '網址的日期「' + shown + '」格式不正確（應為 YYYY-MM-DD），以下顯示下一個主日 '
-        + schedule.isoDate + '。';
-    return { isoDate: schedule.isoDate, requested: false, message: '', warning: warning };
+        + comingSunday + '。';
+    return { isoDate: comingSunday, requested: false, message: '', warning: warning };
   }
   return {
     isoDate: '',
     requested: false,
     warning: '',
-    message: '算不到下一個主日：' + (schedule.reason || '原因不明')
+    message: '算不到下一個主日（今日：' + todayIso + '）'
       + '　請在網址加上 &date=YYYY-MM-DD 指定要看哪一個主日。'
   };
 }
