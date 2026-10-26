@@ -568,6 +568,38 @@ test('runAutoCreateQuarters_：Config AUTO_CREATE_QUARTERS=FALSE → 整個停�
   assert.ok(limited.message.indexOf('季會在稍後自動建立') !== -1, limited.message);
 });
 
+test('上線前檢查（唯讀）多一項「自動建立季度」：列出現在會建立哪幾季、建立甚麼，與真正建立同一份計畫；一格都不寫；停用時講明', function () {
+  const env = makeEnv();
+  addRosterQuarter(env, '2031T1', ['2031-01-05', '2031-01-12'], 1);
+  const sb = env.sandbox;
+  const rowsBefore = sb.readSheet('BulletinWeeks').length;
+  const item = plain(sb.buildGoLiveChecklist_()).filter(function (i) { return i.label === '上線前：自動建立季度'; })[0];
+  assert.ok(item, '要有這一項');
+  assert.strictEqual(item.status, sb.SELF_CHECK_STATUS_.YELLOW);
+  assert.ok(item.message.indexOf('2031T1（2031-01-05 至 2031-01-12，週報與內容表）') !== -1, item.message);
+  assert.strictEqual(sb.readSheet('BulletinWeeks').length, rowsBefore, '唯讀');
+  assertWrittenChinese(assert, '上線前檢查：自動建立季度', [item.message]);
+  // 與真正建立同一份計畫：建立之後，這一項不再列出 2031T1 的週報。
+  sb.runAutoCreateQuarters_({});
+  const after = plain(sb.buildGoLiveChecklist_()).filter(function (i) { return i.label === '上線前：自動建立季度'; })[0];
+  assert.strictEqual(after.message.indexOf('2031T1（2031-01-05 至 2031-01-12，週報與內容表）'), -1, after.message);
+
+  const off = makeEnv({ config: { AUTO_CREATE_QUARTERS: 'FALSE' } });
+  const offItem = plain(off.sandbox.buildGoLiveChecklist_()).filter(function (i) { return i.label === '上線前：自動建立季度'; })[0];
+  assert.ok(offItem.message.indexOf('AUTO_CREATE_QUARTERS 是 FALSE') !== -1, offItem.message);
+});
+
+test('上線前檢查：「模擬今日」填了就 🟡 並講明正式使用前要清空；未填 🟢', function () {
+  const pick = function (env) { return plain(env.sandbox.buildGoLiveChecklist_()).filter(function (i) { return i.label === '上線前：模擬今日（測試設定）'; })[0]; };
+  const on = makeEnv({ config: { WEBAPP_SIMULATED_TODAY: '2028-04-05' } });
+  const item = pick(on);
+  assert.strictEqual(item.status, on.sandbox.SELF_CHECK_STATUS_.YELLOW);
+  assert.ok(item.message.indexOf('2028-04-05') !== -1 && item.message.indexOf('正式使用前要清空') !== -1, item.message);
+  const off = makeEnv();
+  assert.strictEqual(pick(off).status, off.sandbox.SELF_CHECK_STATUS_.GREEN);
+  assertWrittenChinese(assert, '模擬今日', [item.message, pick(off).message]);
+});
+
 test('開啟填寫介面（真正入口 apiListWeeks，autoCreate）：自動建立並在頂部講一句；十分鐘內不再檢查；出錯不令載入失敗', function () {
   const store = {};
   const props = { getProperty: function (k) { return store[k] === undefined ? null : store[k]; }, setProperty: function (k, v) { store[k] = String(v); }, deleteProperty: function (k) { delete store[k]; } };

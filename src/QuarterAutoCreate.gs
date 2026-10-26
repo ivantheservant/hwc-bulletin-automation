@@ -75,36 +75,13 @@ function runAutoCreateQuarters_(options) {
   var opts = options || {};
   var source = String(opts.source || 'TRIGGER');
   var result = { enabled: true, created: [], skipped: [], pending: 0, message: '' };
-  if (normalizeBoolean_(getConfig(CONFIG_KEYS.AUTO_CREATE_QUARTERS, 'TRUE')) !== true) {
+  var planned = buildAutoCreateQuartersPlanNow_();
+  if (!planned.enabled) {
     result.enabled = false;
-    result.message = 'Config 的 ' + CONFIG_KEYS.AUTO_CREATE_QUARTERS + ' 是 FALSE，沒有自動建立。';
+    result.message = planned.disabledReason;
     return result;
   }
-  if (!getConfig(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, '')) {
-    result.enabled = false;
-    result.message = '職事表未設定，沒有自動建立。';
-    return result;
-  }
-
-  var tz = getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland');
-  var weekQuarterIds = {};
-  readSheet(SHEETS.BULLETIN_WEEKS).forEach(function (r) {
-    var qid = String(r.QUARTER_ID || '').trim();
-    if (qid) weekQuarterIds[qid] = true;
-  });
-  var contentSheetQuarterIds = {};
-  readSheet(SHEETS.CONTENT_SHEETS).forEach(function (r) {
-    var qid = String(r.QUARTER_ID || '').trim();
-    if (qid && r.ACTIVE !== false) contentSheetQuarterIds[qid] = true;
-  });
-
-  var plan = planAutoCreateQuarters_({
-    rosterQuarters: listRosterQuarterSummaries_(),
-    weekQuarterIds: weekQuarterIds,
-    contentSheetQuarterIds: contentSheetQuarterIds,
-    todayIso: Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd'),
-    excludedQuarterIds: [getConfig(CONFIG_KEYS.SELFTEST_QUARTER_ID, '')]
-  });
+  var plan = planned.plan;
   var max = Number(opts.maxQuarters) > 0 ? Number(opts.maxQuarters) : plan.length;
   result.pending = Math.max(0, plan.length - max);
 
@@ -149,6 +126,81 @@ function runAutoCreateQuarters_(options) {
 
   result.message = buildAutoCreateQuartersMessage_(result);
   return result;
+}
+
+/**
+ * 用途：讀出現況，算出「現在自動建立的話會建立甚麼」。真正建立（`runAutoCreateQuarters_()`）與「上線前檢查」
+ *   共用這一支，兩邊講的一樣（bug class 3）。唯讀：只讀週報試算表與職事表。
+ * Args: （無）
+ * Returns:
+ *   {{enabled:boolean, disabledReason:string, plan:Object[]}} `plan` 見 `planAutoCreateQuarters_()`。
+ * Raises:
+ *   Error 職事表讀不到（由呼叫方決定怎樣講）。
+ */
+function buildAutoCreateQuartersPlanNow_() {
+  if (normalizeBoolean_(getConfig(CONFIG_KEYS.AUTO_CREATE_QUARTERS, 'TRUE')) !== true) {
+    return { enabled: false, disabledReason: 'Config 的 ' + CONFIG_KEYS.AUTO_CREATE_QUARTERS + ' 是 FALSE，沒有自動建立。', plan: [] };
+  }
+  if (!getConfig(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, '')) {
+    return { enabled: false, disabledReason: '職事表未設定，沒有自動建立。', plan: [] };
+  }
+  var tz = getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland');
+  var weekQuarterIds = {};
+  readSheet(SHEETS.BULLETIN_WEEKS).forEach(function (r) {
+    var qid = String(r.QUARTER_ID || '').trim();
+    if (qid) weekQuarterIds[qid] = true;
+  });
+  var contentSheetQuarterIds = {};
+  readSheet(SHEETS.CONTENT_SHEETS).forEach(function (r) {
+    var qid = String(r.QUARTER_ID || '').trim();
+    if (qid && r.ACTIVE !== false) contentSheetQuarterIds[qid] = true;
+  });
+  return {
+    enabled: true, disabledReason: '',
+    plan: planAutoCreateQuarters_({
+      rosterQuarters: listRosterQuarterSummaries_(),
+      weekQuarterIds: weekQuarterIds,
+      contentSheetQuarterIds: contentSheetQuarterIds,
+      todayIso: Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd'),
+      excludedQuarterIds: [getConfig(CONFIG_KEYS.SELFTEST_QUARTER_ID, '')]
+    })
+  };
+}
+
+/**
+ * 用途：「上線前檢查」的一項：現在自動建立的話會建立哪幾季（唯讀，一格都不寫）。部署之後、開啟填寫介面
+ *   之前先看這一項，就知道開頁時會建立甚麼。
+ * Args:
+ *   S {Object} `SELF_CHECK_STATUS_`。
+ * Returns:
+ *   {{label:string, status:string, message:string}}
+ * Raises:
+ *   （無）
+ */
+function buildAutoCreateQuartersGoLiveItem_(S) {
+  var label = '上線前：自動建立季度';
+  var planned;
+  try {
+    planned = buildAutoCreateQuartersPlanNow_();
+  } catch (err) {
+    return { label: label, status: S.YELLOW, message: '⚠️ 讀不到職事表，算不到會自動建立哪幾季：' + ((err && err.message) ? err.message : String(err)) };
+  }
+  if (!planned.enabled) {
+    return { label: label, status: S.YELLOW, message: '⚠️ ' + planned.disabledReason + '新一季要人手用選單建立週報與內容表。' };
+  }
+  if (planned.plan.length === 0) {
+    return { label: label, status: S.GREEN, message: '職事表已有版本、而且未完結的季度，週報與內容表都已經建立，沒有東西要自動建立。' };
+  }
+  return {
+    label: label, status: S.YELLOW,
+    message: '開啟填寫介面（每十分鐘最多一季）或每日觸發器會自動建立：'
+      + planned.plan.map(function (p) {
+        var what = [];
+        if (p.createWeeks) what.push('週報');
+        if (p.createContentSheet) what.push('內容表');
+        return p.quarterId + '（' + p.firstIso + ' 至 ' + p.lastIso + '，' + what.join('與') + '）';
+      }).join('；') + '。不想建立的話，先把 Config 的 ' + CONFIG_KEYS.AUTO_CREATE_QUARTERS + ' 改成 FALSE。'
+  };
 }
 
 /**

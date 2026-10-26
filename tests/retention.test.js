@@ -464,12 +464,16 @@ function goLiveItem(env, keyword) {
 
 // 內容表 v2：第 4 項之後加了「上線前：其他觸發器」（Config 人手改動稽核＝1、兩個已停用的＝0，
 // 預期清單在 src/TriggerInventory.gs），最後加了「上線前：內容表版本」（審查 F8），所以由九項變十一項。
-test('十一項齊備，一項都不可以少（第九項是階段 3 的講員表格；內容表 v2 加了「其他觸發器」「內容表版本」）', function () {
+// v3 再加「上線前：自動建立季度」（部署之後、開啟填寫介面之前，先看會自動建立哪幾季）與
+// 「上線前：模擬今日（測試設定）」，共十三項。
+test('十三項齊備，一項都不可以少（第九項是階段 3 的講員表格；內容表 v2 加了「其他觸發器」「內容表版本」；v3 加了「自動建立季度」「模擬今日」）', function () {
   const env = makeEnv({});
   const items = env.sandbox.buildGoLiveChecklist_();
-  assert.strictEqual(items.length, 11, '實際：' + items.map(function (i) { return i.label; }).join('、'));
+  assert.strictEqual(items.length, 13, '實際：' + items.map(function (i) { return i.label; }).join('、'));
+  assert.ok(items.some(function (i) { return i.label === '上線前：模擬今日（測試設定）'; }));
   assert.ok(items.some(function (i) { return i.label === '上線前：其他觸發器'; }));
   assert.ok(items.some(function (i) { return i.label === '上線前：內容表版本'; }));
+  assert.ok(items.some(function (i) { return i.label === '上線前：自動建立季度'; }));
   items.forEach(function (i) {
     assert.ok(i.label && i.status && i.message, '每一項都要有標題、燈色、說明：' + JSON.stringify(i));
   });

@@ -143,6 +143,20 @@ function buildGoLiveChecklist_() {
   var versionVerdict = buildContentSheetVersionItem_(inspectContentSheetVersions_(), S);
   items.push({ label: '上線前：內容表版本', status: versionVerdict.status, message: versionVerdict.message });
 
+  // ---- 11. v3：現在自動建立的話會建立哪幾季（與真正建立共用 buildAutoCreateQuartersPlanNow_()）----
+  items.push(buildAutoCreateQuartersGoLiveItem_(S));
+
+  // ---- 12. v3：測試用的「模擬今日」要在正式使用前清空（填了就只可以發佈／寄出模擬那一週）----
+  var simulated = String(getConfig(CONFIG_KEYS.WEBAPP_SIMULATED_TODAY, '') || '').trim();
+  items.push({
+    label: '上線前：模擬今日（測試設定）',
+    status: simulated ? S.YELLOW : S.GREEN,
+    message: simulated
+      ? '⚠️ Config 的 ' + CONFIG_KEYS.WEBAPP_SIMULATED_TODAY + ' 是「' + simulated + '」：填寫介面當今日是這一天，'
+        + '只可以發佈、寄出那一週。正式使用前要清空。'
+      : '未填：填寫介面用真正的今日決定可以發佈、寄出哪一週。'
+  });
+
   return items;
 }
 
