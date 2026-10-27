@@ -141,6 +141,10 @@ function weeklyBulletinSendTrigger_() {
       return;
     }
 
+    // 2026-10-28（Ivan 測試結果 B）：寄出之前先由內容表自動匯入這一期（有改動才寫；失敗只記 ErrorLog，
+    //    照樣寄出現有內容）。與填寫介面載入同一支 autoImportContentForWeek_()。
+    autoImportContentForWeek_(targetIso, 'TRIGGER');
+
     // R-033：草稿預覽連結。包一層 try/catch——預覽寄不到不應該連累週報，
     //    那是兩件獨立的事；失敗記一筆 ErrorLog 就好。
     try {

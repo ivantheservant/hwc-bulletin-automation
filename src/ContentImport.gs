@@ -1465,3 +1465,57 @@ function buildContentImportReportLines_(result) {
 
   return lines;
 }
+
+/**
+ * 用途：2026-10-28（Ivan 測試結果 B）：**自動**把內容表的最新內容匯入這一個主日。填寫介面每次載入一週
+ *   （包括儲存之後重新載入）與星期一自動寄送之前都叫這一支，幹事不用再按「重新匯入」。
+ *
+ *   ⚠️ 與「重新匯入」按鈕、選單匯入同一組函式（`previewContentImport_()`／`applyContentImport_()`，
+ *   bug class 3）。只在真的有改動時才寫（寫入之前照樣存版本，逐格 AuditLog）；沒有改動一格都不寫。
+ *   本季未有內容表、內容表比系統舊、找不到季度——一律不寫、不拋錯，交回一句說明（載入週報不可以因為
+ *   內容表出問題而整頁失敗）。已封存的主日不動。
+ * Args:
+ *   isoDate {string} 主日日期，yyyy-MM-dd。
+ *   source {string} 誰叫的（AuditLog 備註用），例如 `'WEBAPP_LOAD'`、`'TRIGGER'`。
+ * Returns:
+ *   {{ran:boolean, changed:number, reason:string, message:string}}
+ *     `ran`＝有試過匯入（找得到季度與內容表）；`changed`＝寫了幾項（新增＋修改＋刪除＋解除覆寫）；
+ *     `reason` 為空字串＝正常，否則是 `previewContentImport_()` 的原因代碼或 `ERROR`／`ARCHIVED`。
+ * Raises:
+ *   （無）任何錯誤都轉成 `reason:'ERROR'` 並記 ErrorLog。
+ */
+function autoImportContentForWeek_(isoDate, source) {
+  var iso = String(isoDate || '').trim();
+  try {
+    var quarterId = lookupQuarterIdForIsoDate_(iso);
+    if (!quarterId) return { ran: false, changed: 0, reason: 'NO_QUARTER', message: '' };
+    if (!findContentSheetRow_(quarterId)) return { ran: false, changed: 0, reason: 'NO_CONTENT_SHEET', message: '' };
+    var weekRow = findBulletinWeekRow_(readSheet(SHEETS.BULLETIN_WEEKS), iso);
+    if (weekRow && weekRow.ARCHIVED === true) return { ran: false, changed: 0, reason: 'ARCHIVED', message: '' };
+
+    var preview = previewContentImport_(quarterId, { isoDate: iso });
+    if (!preview.ok) return { ran: true, changed: 0, reason: preview.reason || 'PREVIEW_FAILED', message: preview.message || '' };
+    var plan = preview.plan || {};
+    var changeCount = Number(plan.added || 0) + Number(plan.updated || 0) + Number(plan.removed || 0)
+      + ((plan.releases || []).length);
+    if (changeCount === 0) return { ran: true, changed: 0, reason: '', message: '' };
+
+    var applied = applyContentImport_(quarterId, { isoDate: iso });
+    if (!applied.ok) return { ran: true, changed: 0, reason: applied.reason || 'APPLY_FAILED', message: applied.message || '' };
+    appendAuditLog_({
+      action: 'CONTENT_AUTO_IMPORT_WEEK', sheetName: SHEETS.CONTENT_SHEETS, rowKey: iso,
+      newValue: '+' + applied.plan.added + ' ~' + applied.plan.updated + ' -' + applied.plan.removed,
+      notes: '自動由內容表匯入 ' + iso + '（季度 ' + quarterId + '，' + String(source || '') + '）。'
+    });
+    return { ran: true, changed: changeCount, reason: '', message: '' };
+  } catch (err) {
+    appendErrorLog_({
+      source: source === 'TRIGGER' ? ERROR_LOG_SOURCE.TRIGGER : ERROR_LOG_SOURCE.SERVER,
+      functionName: 'autoImportContentForWeek_',
+      errorCode: (err && err.code) || 'ERROR',
+      message: '自動由內容表匯入 ' + iso + ' 失敗：' + ((err && err.message) ? err.message : String(err)),
+      detail: buildErrorDetail_(err, { argsSummary: 'isoDate=' + iso + ' source=' + source })
+    });
+    return { ran: true, changed: 0, reason: 'ERROR', message: (err && err.message) ? err.message : String(err) };
+  }
+}

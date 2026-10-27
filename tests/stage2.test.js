@@ -1223,7 +1223,12 @@ test('接線：展開時才載入；載入週報後刷新；還原／重設走�
     assert.ok(js.slice(at, at + 200).indexOf('selectedSnapshotId()') !== -1, id + ' 要用揀中的版本');
   });
   const buttons = js.slice(js.indexOf('function updateSnapshotButtons('), js.indexOf('function onSnapshotDiffClicked('));
-  assert.ok(buttons.indexOf("'&snapshot=' + encodeURIComponent(id)") !== -1, '預覽連結帶版本編號');
+  // 2026-10-28（Ivan 測試結果 B 第 4 項）：「預覽這個版本」改為看那個版本的 Word：按鈕經 selectedSnapshotId() 叫 openWordPreview。
+  assert.ok(buttons.indexOf('link.disabled = !id') !== -1, '未揀版本時「預覽這個版本」停用');
+  const previewAt = js.indexOf("document.getElementById('snapshotPreviewLink').addEventListener('click'");
+  assert.ok(previewAt !== -1, 'snapshotPreviewLink 未接線');
+  assert.ok(js.slice(previewAt, previewAt + 200).indexOf('selectedSnapshotId()') !== -1
+    && js.slice(previewAt, previewAt + 200).indexOf('openWordPreview({ snapshotId: id })') !== -1, '預覽這個版本帶版本編號');
   assert.ok(html.indexOf('<details class="panel snapshot-panel"') !== -1, '版本記錄區塊預設摺疊（details）');
   assert.ok(html.indexOf('重設這一週…') !== -1);
 

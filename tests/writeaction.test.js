@@ -610,7 +610,9 @@ test('G13-10 分類：Script.html 用到的每一個 api 名稱都分了寫入�
     'apiDiffWeekSnapshot', 'apiGetRosterFetchCandidates', 'apiGetPublishStatus',
     'apiGetQuarterOpsPanel', 'apiPreviewCreateWeeks', 'apiPreviewContentSheetBuild', 'apiPreviewContentSheetInvite',
     'apiPreviewQuarterContentImport', 'apiQuarterMissingReport', 'apiRosterDiffReport', 'apiGoLiveReport',
-    'apiPublishRevisionsReport', 'apiDownloadBulletinDocx', 'apiSavePublishPrefs', 'apiLogClientError'
+    'apiPublishRevisionsReport', 'apiDownloadBulletinDocx', 'apiSavePublishPrefs', 'apiLogClientError',
+    // 2026-10-28：Word 預覽與「下載 Word」同一類（只更新雲端硬碟上同一個 Word，再按一次無害），有自己的逾時句。
+    'apiOpenWordPreview'
   ];
   const used = {};
   (js.match(/'api[A-Z][A-Za-z]+'/g) || []).forEach(function (s) { used[s.slice(1, -1)] = true; });
@@ -1353,14 +1355,16 @@ test('G15-3 與「更新本季內容表…」同一個常數：按「取消」�
   assert.strictEqual(js.split(CANCELLED).length - 1, 1, '字眼只可以在常數那一處');
 });
 
-test('G19-1 「重新匯入（只限這一個主日）」→ 對話框按「取消」→「已取消，一格都沒有寫。」（以前是「已取消，沒有寫入任何資料。」），沒有送出 apiRunContentImport', function () {
+test('G19-1（2026-10-28 Ivan 測試結果 B 第 1 項改）「由內容表匯入」不再先預覽、不再問：直接送 apiRunContentImport，不打開確認對話框；完成後只講一句', function () {
   const ui = makeUi({ extra: [['function startContentImport(', 'function applyBaptismPanelVisibility(']] });
   ui.ctx.startContentImport();
-  ui.take('apiPreviewContentImport').ok({ ok: true, data: { ok: true, summary: { added: 1, updated: 0, removed: 0 }, lines: ['會新增 1 項。'] } });
-  assert.strictEqual(ui.els.confirmDialogBackdrop.classList.contains('hidden'), false, '前提：確認對話框打開了');
-  ui.click('confirmCancelBtn');
-  assert.deepStrictEqual(ui.message(), { type: 'info', text: CANCELLED });
-  assert.strictEqual(ui.count('apiRunContentImport'), 0);
+  assert.strictEqual(ui.count('apiPreviewContentImport'), 0, '不再先預覽');
+  assert.strictEqual(ui.count('apiRunContentImport'), 1, '直接匯入');
+  assert.strictEqual(ui.els.confirmDialogBackdrop.classList.contains('hidden'), true, '沒有確認對話框');
+  ui.take('apiRunContentImport').ok({ ok: true, data: { ok: true,
+    summary: { added: 0, updated: 0, removed: 0, releases: 0, noChangeMessage: '內容表與週報現況一致，沒有任何改動。' },
+    lines: ['', '', ''] } });
+  assert.deepStrictEqual(ui.message(), { type: 'info', text: '內容表與週報現況一致，沒有任何改動。' });
 });
 
 // 內容表 v2：G19-2（「建立講員表格」按取消）拿走——講員表格已停用，那個對話框已不存在。
@@ -1406,7 +1410,8 @@ test('G19-4 Script.html 內每一個 openConfirmDialog() 的取消分支：會�
   assert.deepStrictEqual(titles, ["'由內容表匯入'", "'更新本季內容表'", "'還原到這個版本'", "'重設這一週'", "'換週'", "'由職事表重新取數'"],
     '對話框有增減：先檢查取消分支，再更新這裏');
   // 三選一對話框只有「下載 Word」一處，取消甚麼都不做（不是寫入，不講「一格都沒有寫」）。
-  assert.deepStrictEqual((js.match(/openChoiceDialog\('[^']+'/g) || []), ["openChoiceDialog('下載 Word'"]);
+  // 2026-10-28：加「開啟預覽」（Word 預覽，有未儲存修改時問用哪一個版本；取消甚麼都不做）。
+  assert.deepStrictEqual((js.match(/openChoiceDialog\('[^']+'/g) || []), ["openChoiceDialog('下載 Word'", "openChoiceDialog('開啟預覽'"]);
   assert.strictEqual(js.indexOf('已取消，沒有寫入任何資料。'), -1, '舊字眼不再出現');
 });
 

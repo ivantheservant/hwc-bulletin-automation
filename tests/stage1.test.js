@@ -174,10 +174,11 @@ test('flowerHintText：留空 → 職事表名字加「留空就用職事表的�
   assert.strictEqual(t.api.text('假甲家庭', '   '), '職事表：假甲家庭（留空就用職事表的名字）');
 });
 
-test('flowerHintText：改成別的名字 → 「已改，職事表是：X」；改回一樣就回到第一句', function () {
+test('flowerHintText：改成別的名字 → 「已改，職事表是：X」；與職事表一樣（2026-10-28 載入時預先填入）→「來自職事表」', function () {
   const t = loadFlowerHint();
   assert.strictEqual(t.api.text('假甲家庭', '假丙家庭'), '已改，職事表是：假甲家庭');
-  assert.strictEqual(t.api.text('假甲家庭', '假甲家庭'), '職事表：假甲家庭（留空就用職事表的名字）');
+  assert.strictEqual(t.api.text('假甲家庭', '假甲家庭'), '來自職事表（改了就以你填的為準）');
+  assert.strictEqual(t.api.text('假甲家庭', ' 假甲家庭 '), '來自職事表（改了就以你填的為準）');
 });
 
 test('flowerHintText：職事表沒有名字 → 不顯示提示', function () {

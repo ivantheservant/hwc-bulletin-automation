@@ -126,7 +126,7 @@ function tplRows(names) {
 
 test('parseProgramEdits_：空白＝沒有增刪；格式不對標 invalid；項目名稱或 id 空白的「加一項」略過；立坐不在選項內改回「眾 坐」', function () {
   const sb = makeEnv().sandbox;
-  assert.deepStrictEqual(plain(sb.parseProgramEdits_('')), { hidden: [], added: [], invalid: false });
+  assert.deepStrictEqual(plain(sb.parseProgramEdits_('')), { hidden: [], added: [], order: [], invalid: false });
   assert.strictEqual(sb.parseProgramEdits_('{壞').invalid, true);
   assert.strictEqual(sb.parseProgramEdits_('[1,2]').invalid, true);
   const parsed = plain(sb.parseProgramEdits_(JSON.stringify({

@@ -499,6 +499,8 @@
    */
   var NOT_READ_ONLY_OUTSIDE_RECOVERY = {
     apiDownloadBulletinDocx: 'download',
+    // 2026-10-28：「開啟預覽」「預覽這個版本」產生 Word 存雲端硬碟（原地更新同一個檔案），再開新分頁。
+    apiOpenWordPreview: 'wordpreview',
     apiSavePublishPrefs: 'quiet',
     apiLogClientError: 'quiet'
   };
@@ -550,6 +552,13 @@
       return {
         text: '伺服器在 ' + seconds + ' 秒內沒有回應（' + fnName + '）。'
           + '這是讀取資料，沒有改動週報內容；請稍後重新載入頁面再試。',
+        showAsIs: true
+      };
+    }
+    if (kind === 'wordpreview') {
+      return {
+        text: '伺服器在 ' + seconds + ' 秒內沒有回應（' + fnName + '），Word 預覽未能開啟；'
+          + '請稍後再按一次「開啟預覽」。伺服器可能已經更新了雲端硬碟上的 Word，再按一次只會原地更新同一個檔案。',
         showAsIs: true
       };
     }
@@ -1240,17 +1249,18 @@
   // END confirm-dialog
 
   /**
-   * 用途：「重新匯入」按鈕——先取差異預覽，確認之後才真的寫入。
+   * 用途：「重新匯入」按鈕——2026-10-28（Ivan 測試結果 B）起**直接匯入**，不再先開差異對話框
+   *   （每次載入這一週本來就會自動匯入，這一粒只是「現在再拿一次」）。匯入之前伺服器照樣存版本、
+   *   逐格記 AuditLog，所以要退回可以用版本記錄還原。
    *
-   *   ⚠️ 兩步都走伺服器端**同一組**函式（`previewContentImport_()` ／
-   *   `applyContentImport_()`），與試算表選單那個入口完全一樣。
+   *   ⚠️ 伺服器走的是**同一組**函式（`previewContentImport_()` ／`applyContentImport_()`），
+   *   與試算表選單那個入口完全一樣。`onContentImportPreviewed()` 保留給仍然要先看差異的入口。
    */
   function startContentImport() {
     if (!state.isoDate) return;
     if (state.inFlight > 0) return;
     hideMessage();
-    callServer('apiPreviewContentImport', [state.isoDate], onContentImportPreviewed,
-      { busyText: '計算差異中…' });
+    callServer('apiRunContentImport', [state.isoDate], onContentImportDone, { busyText: '由內容表匯入中…' });
   }
 
   /**
@@ -1326,8 +1336,14 @@
   function onContentImportDone(resp) {
     if (!resp.ok) { showMessage('error', resp.error.message); return; }
     if (!resp.data.ok) { showMessage('error', resp.data.message); return; }
-    var released = (resp.data.summary && resp.data.summary.releases) || 0;
-    showMessage('success', '匯入完成。' + resp.data.lines[2]
+    var summary = resp.data.summary || {};
+    var released = summary.releases || 0;
+    var changeCount = (summary.added || 0) + (summary.updated || 0) + (summary.removed || 0) + released;
+    if (changeCount === 0) {
+      showMessage('info', summary.noChangeMessage || '內容表與週報現況一致，沒有任何改動。');
+      return;
+    }
+    showMessage('success', '已由內容表匯入。' + (resp.data.lines[2] || '')
       + (released > 0 ? '　有 ' + released + ' 格你之前改過的值已改回跟隨內容表。' : ''));
     loadWeek(state.isoDate, { keepMessage: true });
     // 匯入會令這一週的待填數字改變：主日下拉的「待填 N 項」標籤一併刷新（與儲存之後同一做法）。
@@ -1592,32 +1608,55 @@
    *   每一行（伺服器的 displayRows）帶 `key`（範本行，例如「拍照#1」）或 `addedId`（這一週加的行）。
    */
   var programAddAnchor = null;
+  // 2026-10-28（Ivan 測試結果 B）：最近一次畫出來的程序表行。按「×」「＋」「↑」「↓」之後先用它即時改畫面
+  //   （不用等伺服器幾秒），伺服器重算回來再以伺服器為準。只作畫面用，不是真相來源。
+  var programRowsCache = [];
 
   function readProgramEdits() {
     var input = document.getElementById('programEditsInput');
     var text = input ? String(input.value || '').trim() : '';
-    var edits = { hidden: [], added: [] };
+    var edits = { hidden: [], added: [], order: [] };
     if (!text) return edits;
     try {
       var obj = JSON.parse(text);
       if (obj && Array.isArray(obj.hidden)) edits.hidden = obj.hidden.slice();
       if (obj && Array.isArray(obj.added)) edits.added = obj.added.slice();
+      if (obj && Array.isArray(obj.order)) edits.order = obj.order.slice();
     } catch (err) { /* 格式不對：伺服器照範本印並出警告；這裏當作沒有增刪，再改一次就會寫回正確格式 */ }
     return edits;
   }
 
   function writeProgramEdits(edits) {
     var input = document.getElementById('programEditsInput');
-    var empty = edits.hidden.length === 0 && edits.added.length === 0;
-    input.value = empty ? '' : JSON.stringify({ v: 1, hidden: edits.hidden, added: edits.added });
+    var order = edits.order || [];
+    var empty = edits.hidden.length === 0 && edits.added.length === 0 && order.length === 0;
+    var payload = { v: 1, hidden: edits.hidden, added: edits.added };
+    if (order.length > 0) payload.order = order;
+    input.value = empty ? '' : JSON.stringify(payload);
     schedulePreviewRefresh();
     refreshUnsavedIndicator();
+  }
+
+  /** 程序表一行的識別碼（與伺服器 programDisplayRowId_() 同一個規則）。 */
+  function programRowId(r) {
+    if (!r) return '';
+    return r.added ? ('add:' + String(r.addedId || '')) : String(r.key || '');
+  }
+
+  /** 即時改畫面：用改過的行重畫，並亮起「更新中…」，等伺服器重算。 */
+  function showProgramRowsNow(rows) {
+    renderProgramPreview(rows);
+    var busy = document.getElementById('previewBusyIndicator');
+    if (busy) busy.classList.remove('hidden');
   }
 
   function toggleProgramRow(key, remove) {
     var edits = readProgramEdits();
     edits.hidden = edits.hidden.filter(function (k) { return k !== key; });
     if (remove) edits.hidden.push(key);
+    showProgramRowsNow(programRowsCache.map(function (r) {
+      return (!r.added && r.key === key) ? Object.assign({}, r, { removed: remove === true }) : r;
+    }));
     writeProgramEdits(edits);
   }
 
@@ -1630,6 +1669,32 @@
     });
     // 加在這一行之後的其他加項，改為加在它原本的位置之後，免得變成「找不到位置」。
     edits.added.forEach(function (a) { if (a.after === 'add:' + addedId) a.after = anchorOfRemoved || '__END__'; });
+    edits.order = (edits.order || []).filter(function (id) { return id !== 'add:' + addedId; });
+    showProgramRowsNow(programRowsCache.filter(function (r) { return !(r.added && r.addedId === addedId); }));
+    writeProgramEdits(edits);
+  }
+
+  /**
+   * 用途：2026-10-28：把一行向上（-1）或向下（+1）移一格。次序記在 PROGRAM_EDITS.order（整張表的識別碼），
+   *   真正排次序仍然在伺服器 applyProgramEdits_()。
+   * Args:
+   *   rowId {string} `programRowId()`。
+   *   direction {number} -1 或 +1。
+   * Returns:
+   *   {void}
+   */
+  function moveProgramRow(rowId, direction) {
+    var rows = programRowsCache.slice();
+    var index = -1;
+    for (var i = 0; i < rows.length; i++) { if (programRowId(rows[i]) === rowId) { index = i; break; } }
+    var target = index + direction;
+    if (index === -1 || target < 0 || target >= rows.length) return;
+    var moving = rows[index];
+    rows[index] = rows[target];
+    rows[target] = moving;
+    var edits = readProgramEdits();
+    edits.order = rows.map(programRowId).filter(function (id) { return id !== ''; });
+    showProgramRowsNow(rows);
     writeProgramEdits(edits);
   }
 
@@ -1656,21 +1721,35 @@
       return;
     }
     var edits = readProgramEdits();
-    edits.added.push({
+    var anchor = programAddAnchor || '__END__';
+    var added = {
       id: 'a' + Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36),
-      after: programAddAnchor || '__END__',
+      after: anchor,
       itemName: name,
       content: String(document.getElementById('programAddContent').value || '').trim(),
       posture: document.getElementById('programAddPosture').value
-    });
+    };
+    edits.added.push(added);
+    // 即時畫面：插在錨點那一行之後（最後＝表尾）。改過次序的話，新的一行亦放入次序，排在錨點之後。
+    var rows = programRowsCache.slice();
+    var at = rows.length;
+    if (anchor !== '__END__') {
+      for (var i = 0; i < rows.length; i++) { if (programRowId(rows[i]) === anchor) { at = i + 1; break; } }
+    }
+    rows.splice(at, 0, { itemName: added.itemName, content: added.content, posture: added.posture,
+      added: true, addedId: added.id, removed: false, key: '' });
+    if ((edits.order || []).length > 0) edits.order = rows.map(programRowId).filter(function (id) { return id !== ''; });
     closeProgramAddForm();
+    showProgramRowsNow(rows);
     writeProgramEdits(edits);
   }
 
   function renderProgramPreview(rows) {
+    programRowsCache = (rows || []).slice();
     var tbody = document.getElementById('programPreviewBody');
     tbody.innerHTML = '';
-    (rows || []).forEach(function (r) {
+    var list = rows || [];
+    list.forEach(function (r, index) {
       var tr = el('tr', r.removed ? 'is-removed' : (r.added ? 'is-added' : ''));
       [r.itemName, r.content, r.fullWidth ? '' : r.posture].forEach(function (text) {
         var td = el('td');
@@ -1688,6 +1767,14 @@
       if (r.key || r.added) {
         var anchor = r.added ? ('add:' + r.addedId) : r.key;
         actions.appendChild(makeSmallButton('＋', function () { openProgramAddForm(anchor, r.itemName); }));
+        // 2026-10-28：改次序（與家事報告等清單一樣用 ↑↓）。
+        var rowId = programRowId(r);
+        var up = makeSmallButton('↑', function () { moveProgramRow(rowId, -1); });
+        if (index === 0) up.disabled = true;
+        actions.appendChild(up);
+        var down = makeSmallButton('↓', function () { moveProgramRow(rowId, 1); });
+        if (index === list.length - 1) down.disabled = true;
+        actions.appendChild(down);
       }
       tr.appendChild(actions);
       tbody.appendChild(tr);
@@ -1705,12 +1792,28 @@
   // 可編輯欄位
   // =====================================================================
 
+  /**
+   * 2026-10-28（Ivan 測試結果 B）：獻花兩格與事奉格一樣——職事表有名字而週報那一格空白，輸入框直接
+   *   顯示職事表的名字（可以改）。輸入框的值等於職事表的名字＝跟隨職事表，收集時當空白（週報那一格維持
+   *   空白，職事表之後改了名字照樣跟）；改成別的名字才算人手填。
+   */
+  var FLOWER_FIELD_ROSTER_KEYS = { FLOWER_THIS_WEEK: 'thisWeek', FLOWER_NEXT_WEEK: 'nextWeek' };
+
+  function flowerRosterNameFor(key) {
+    var rosterKey = FLOWER_FIELD_ROSTER_KEYS[key];
+    if (!rosterKey) return '';
+    var roster = state.flowerRoster || {};
+    return String(roster[rosterKey] === null || roster[rosterKey] === undefined ? '' : roster[rosterKey]).trim();
+  }
+
   function applyWeekFieldsToForm() {
     var fields = document.querySelectorAll('[data-field]');
     for (var i = 0; i < fields.length; i++) {
       var fieldEl = fields[i];
       var key = fieldEl.getAttribute('data-field');
-      fieldEl.value = state.week[key] || '';
+      var value = state.week[key] || '';
+      if (!String(value).trim() && FLOWER_FIELD_ROSTER_KEYS[key]) value = flowerRosterNameFor(key);
+      fieldEl.value = value;
     }
   }
 
@@ -1719,7 +1822,13 @@
     var fields = document.querySelectorAll('[data-field]');
     for (var i = 0; i < fields.length; i++) {
       var fieldEl = fields[i];
-      week[fieldEl.getAttribute('data-field')] = fieldEl.value;
+      var key = fieldEl.getAttribute('data-field');
+      var value = fieldEl.value;
+      if (FLOWER_FIELD_ROSTER_KEYS[key]) {
+        var rosterName = flowerRosterNameFor(key);
+        if (rosterName && String(value || '').trim() === rosterName) value = '';
+      }
+      week[key] = value;
     }
     return week;
   }
@@ -1731,7 +1840,8 @@
    *   同一個 `rosterFlowerName_()`），這裏只負責按欄位現值挑哪一句，
    *   不自己從職事表重算名字。
    *     - 職事表沒有名字 → 不顯示提示；
-   *     - 欄位留空或與職事表相同 → 「職事表：X（留空就用職事表的名字）」；
+   *     - 欄位與職事表相同（2026-10-28 起載入時直接填入職事表的名字）→ 「來自職事表（改了就以你填的為準）」；
+   *     - 欄位留空 → 「職事表：X（留空就用職事表的名字）」；
    *     - 欄位已改成別的 → 「已改，職事表是：X」。
    * Args:
    *   rosterName {string} 職事表 `FLOWER` 崗位的名字；沒有就傳空字串。
@@ -1743,9 +1853,8 @@
     var roster = String(rosterName === null || rosterName === undefined ? '' : rosterName).trim();
     if (roster === '') return '';
     var current = String(currentValue === null || currentValue === undefined ? '' : currentValue).trim();
-    if (current === '' || current === roster) {
-      return '職事表：' + roster + '（留空就用職事表的名字）';
-    }
+    if (current === roster) return '來自職事表（改了就以你填的為準）';
+    if (current === '') return '職事表：' + roster + '（留空就用職事表的名字）';
     return '已改，職事表是：' + roster;
   }
 
@@ -2089,15 +2198,11 @@
    */
   function updateSnapshotButtons() {
     var id = selectedSnapshotId();
+    // 2026-10-28：「預覽這個版本」改為看那個版本的 Word（openWordPreview()），不再是網頁連結。
     var link = document.getElementById('snapshotPreviewLink');
-    var base = state.previewUrl || '';
-    if (id && base) {
-      link.setAttribute('href', base + '&snapshot=' + encodeURIComponent(id));
-      link.classList.remove('hidden');
-    } else {
-      link.removeAttribute('href');
-      link.classList.add('hidden');
-    }
+    if (id) link.classList.remove('hidden');
+    else link.classList.add('hidden');
+    link.disabled = !id;
     document.getElementById('snapshotDiffBtn').disabled = !id;
     document.getElementById('snapshotRestoreBtn').disabled = !id;
     var version = (state.snapshotVersions || []).filter(function (v) { return v.snapshotId === id; })[0] || null;
@@ -2882,6 +2987,8 @@
     populatePrayerHeadingOptions(data.options.prayerBlockHeadingOptions);
     document.getElementById('attCantoneseSubLabel').textContent = '粵語堂' + (data.options.cantoneseSubColumnLabel || '主堂');
 
+    // 2026-10-28：獻花兩格要在填表之前知道職事表的名字（空白就直接顯示職事表的名字）。
+    state.flowerRoster = (data.readOnly && data.readOnly.flowerRoster) || { thisWeek: '', nextWeek: '' };
     applyWeekFieldsToForm();
     // F1：基準值要在「表單剛填好」這一刻記下，取表單實際顯示的值（下拉選單
     // 配不到選項時會變成空白，基準值要跟畫面一致，才不會把沒動過的欄位當成改動）。
@@ -2909,6 +3016,28 @@
     renderRosterAppLink(data.rosterWebAppUrl);
     setLoaded(true);
     refreshUnsavedIndicator();
+    // 2026-10-28：自動由內容表匯入的結果（有改動才講）。
+    renderAutoImportNotice(data.autoImport);
+  }
+
+  /**
+   * 用途：2026-10-28：載入一週時伺服器已經自動由內容表匯入（`data.autoImport`），有改動就講一句；
+   *   內容表未能匯入（例如內容表比系統舊）亦講一句。沒有內容表、沒有改動就不講。純畫面。
+   * Args:
+   *   autoImport {?{ran:boolean, changed:number, reason:string, message:string}} `apiLoadWeek` 的 `autoImport`。
+   * Returns:
+   *   {void}
+   */
+  function renderAutoImportNotice(autoImport) {
+    var a = autoImport || {};
+    var quietReasons = ['', 'NO_QUARTER', 'NO_CONTENT_SHEET', 'ARCHIVED'];
+    if (Number(a.changed || 0) > 0) {
+      showMessage('info', '已自動由內容表更新這一週 ' + a.changed + ' 項（內容表最新的內容）。');
+      return;
+    }
+    if (quietReasons.indexOf(String(a.reason || '')) === -1) {
+      showMessage('info', '這一週未能自動由內容表匯入：' + (a.message || a.reason) + '　畫面顯示的是週報現有的內容。');
+    }
   }
 
   /**
@@ -2923,22 +3052,18 @@
    *   {void}
    */
   function renderPreviewLink(url) {
-    var link = document.getElementById('previewLink');
-    // v3：「這一個主日的預覽連結」框（與職事表系統的永久連結框同一個樣子）。
+    // 2026-10-28：頂部「開啟預覽」改為 Word 預覽（openWordPreview()），不再用這條網址；這裏只畫
+    //   「這一個主日的預覽連結」框（唯讀網頁，星期一寄給堂委執事的同一條）。
     var urlBox = document.getElementById('previewLinkUrl');
     var openLink = document.getElementById('openPreviewLink');
     document.getElementById('copyPreviewLinkDone').classList.add('hidden');
     state.previewUrl = url || '';
     if (!url) {
-      link.classList.add('hidden');
-      link.removeAttribute('href');
       urlBox.textContent = '（取不到預覽網址：請 IT 在 Config 填 PREVIEW_WEBAPP_URL）';
       openLink.classList.add('hidden');
       openLink.removeAttribute('href');
       return;
     }
-    link.href = url;
-    link.classList.remove('hidden');
     urlBox.textContent = url;
     openLink.href = url;
     openLink.classList.remove('hidden');
@@ -3939,6 +4064,80 @@
     }, { busyText: draft ? '產生 Word 草稿中…' : '產生 Word 檔中…' });
   }
 
+  /**
+   * 用途：2026-10-28（Ivan 測試結果 B 第 4 項）：「開啟預覽」與「預覽這個版本」＝產生 Word、存到雲端硬碟
+   *   （原地更新同一個檔案），再用新分頁開啟雲端硬碟的 Word 檢視器，與下載的 Word 完全一樣。
+   *   新分頁一定要在按鈕的 click 之內同步開（`window.open`），否則瀏覽器會當作彈出視窗擋掉；伺服器回來
+   *   之後才把網址放進去。擋了就在按鈕旁邊出一條連結。
+   *   有未儲存的修改時（只限「開啟預覽」）先問要哪一個版本，與「下載 Word」一樣。
+   * Args:
+   *   options {?{snapshotId:string}} 有 `snapshotId`＝看那一個版本；null＝看這一期。
+   * Returns:
+   *   {void}
+   */
+  function openWordPreview(options) {
+    if (!state.isoDate) { showMessage('error', '未選擇主日，無法預覽。'); return; }
+    if (state.inFlight > 0) return;
+    hideMessage();
+    var snapshotId = options && options.snapshotId ? String(options.snapshotId) : '';
+    if (snapshotId || !hasUnsavedWeekChanges()) {
+      startWordPreview(snapshotId ? { snapshotId: snapshotId } : {});
+      return;
+    }
+    openChoiceDialog('開啟預覽', [
+      '這一頁有未儲存的修改。',
+      '「已儲存的版本」：用最後一次儲存的內容產生，並更新雲端硬碟上的最新 Word。',
+      '「包括未儲存修改的版本（草稿）」：連同畫面上未儲存的修改一齊產生，另存為「草稿預覽」，不會儲存你的修改。'
+    ], { ok: '已儲存的版本', alt: '包括未儲存修改的版本（草稿）' }, function (choice) {
+      if (choice === 'ok') startWordPreview({});
+      else if (choice === 'alt') {
+        var draft = buildSavePayload();
+        startWordPreview({ draft: { week: draft.week, dutyEdits: draft.dutyEdits,
+          nextWeekDutyEdits: draft.nextWeekDutyEdits } });
+      }
+    });
+  }
+
+  /**
+   * 用途：真正向伺服器要 Word 預覽，並把網址放進同步開好的新分頁。
+   * Args:
+   *   serverOptions {{draft:?Object, snapshotId:?string}} 原樣傳給 `apiOpenWordPreview`。
+   * Returns:
+   *   {void}
+   */
+  function startWordPreview(serverOptions) {
+    var fallback = document.getElementById('wordPreviewFallbackLink');
+    fallback.classList.add('hidden');
+    fallback.removeAttribute('href');
+    var win = null;
+    try { win = window.open('', '_blank'); } catch (e) { win = null; }
+    if (win) {
+      try { win.document.title = '產生 Word 預覽中…'; win.document.body.textContent = '產生 Word 預覽中，請稍候…'; } catch (e2) { /* 跨來源時寫不到，不緊要 */ }
+    }
+    var busy = serverOptions.snapshotId ? '產生這個版本的 Word 預覽中…'
+      : (serverOptions.draft ? '產生 Word 草稿預覽中…' : '產生 Word 預覽中…');
+    callServer('apiOpenWordPreview', [state.isoDate, serverOptions], function (resp) {
+      if (!resp.ok) {
+        if (win) { try { win.close(); } catch (e3) { /* 已關 */ } }
+        showMessage('error', resp.error.message);
+        return;
+      }
+      var url = resp.data.url;
+      if (resp.data.wordFile && resp.data.kind === 'SAVED') renderWordFileInfo(resp.data.wordFile);
+      var opened = false;
+      if (win) { try { win.location.href = url; opened = true; } catch (e4) { opened = false; } }
+      if (!opened) {
+        fallback.href = url;
+        fallback.classList.remove('hidden');
+      }
+      var label = resp.data.kind === 'SNAPSHOT' ? '這個版本的 Word 預覽'
+        : (resp.data.kind === 'DRAFT' ? 'Word 草稿預覽（包括未儲存的修改）' : '這一期最新的 Word');
+      var warn = (resp.data.warnings && resp.data.warnings.length) ? ('（' + resp.data.warnings.length + ' 項提示，見下面的警告）') : '';
+      showMessage('success', (opened ? '已在新分頁開啟' : '已產生') + label + '：' + resp.data.fileName + warn
+        + (opened ? '' : '。瀏覽器擋了新分頁，請按「開啟預覽」旁邊的連結。'));
+    }, { busyText: busy });
+  }
+
   function triggerBinaryDownload(base64, fileName, mimeType) {
     var binary = atob(base64);
     var bytes = new Uint8Array(binary.length);
@@ -4263,6 +4462,11 @@
     document.getElementById('publishPdfInput').addEventListener('change', onPublishPdfChosen);
     document.getElementById('publishRunBtn').addEventListener('click', function () { runPublish(false); });
     document.getElementById('downloadWordBtn').addEventListener('click', downloadWord);
+    document.getElementById('previewLink').addEventListener('click', function () { openWordPreview(null); });
+    document.getElementById('snapshotPreviewLink').addEventListener('click', function () {
+      var id = selectedSnapshotId();
+      if (id) openWordPreview({ snapshotId: id });
+    });
     // 階段 2：版本記錄（摺疊區塊打開時才向伺服器取）。
     document.getElementById('snapshotPanel').addEventListener('toggle', function () {
       if (isSnapshotPanelOpen() && state.isoDate && state.snapshotsLoadedFor !== state.isoDate) loadSnapshotPanel();

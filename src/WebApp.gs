@@ -411,8 +411,14 @@ function apiBackfillRoster(quarterId) {
  *     `loadWeekForWebApp_()`。
  */
 function apiLoadWeek(isoDate) {
-  return withApiResult_(function () { return loadWeekForWebApp_(isoDate); },
-    { functionName: 'apiLoadWeek', argsSummary: 'isoDate=' + isoDate });
+  return withApiResult_(function () {
+    // 2026-10-28（Ivan 測試結果 B）：載入之前先自動由內容表匯入這一個主日（有改動才寫），
+    //    幹事不用再按「重新匯入」。內容表出問題不影響載入，只在結果帶一句說明。
+    var autoImport = autoImportContentForWeek_(isoDate, 'WEBAPP_LOAD');
+    var data = loadWeekForWebApp_(isoDate);
+    data.autoImport = autoImport;
+    return data;
+  }, { functionName: 'apiLoadWeek', argsSummary: 'isoDate=' + isoDate });
 }
 
 /**
@@ -990,6 +996,89 @@ function apiDownloadBulletinDocx(isoDate, options) {
   var o = options || {};
   return withApiResult_(function () { return bulletinDocxForDownload_(isoDate, o.draft || null); },
     { functionName: 'apiDownloadBulletinDocx', argsSummary: 'isoDate=' + isoDate + ' draft=' + Boolean(o.draft) });
+}
+
+/**
+ * 用途：2026-10-28（Ivan 測試結果 B）：「開啟預覽」與「預覽這個版本」改為看 **Word 的樣子**（與印刷版
+ *   同一個版面），不再是另一種排法的網頁。前端呼叫，產生 Word 存到雲端硬碟，回傳檔案網址，由前端開新分頁。
+ *
+ *   三種：
+ *     - 已儲存的內容（預設）：與「下載 Word」的已儲存版本同一條路——更新這個主日的**最新 Word**
+ *       （`tryStoreLatestBulletinDocx_()`），回傳它的網址。
+ *     - `options.draft`（包括未儲存的修改）：另存一份「（草稿預覽）」，**不碰最新 Word**、不寫任何工作表。
+ *     - `options.snapshotId`（某一個版本）：另存一份「（版本預覽）」，同樣不碰最新 Word。
+ *   後兩種放在輸出資料夾的子資料夾「版本預覽」，同一個主日同一種只有一個檔（每次覆寫，不會越積越多）。
+ *
+ *   ⚠️ 產生用的是同一個 `generateBulletinDocx_()`（bug class 3）。網頁版的草稿預覽連結（「這一個主日的
+ *   預覽連結」框、星期一寄給堂委執事的那一條）不變，仍然是唯讀網頁——那一條要給沒有雲端硬碟權限的人看。
+ * Args:
+ *   isoDate {string} 主日日期，yyyy-MM-dd。
+ *   options {{draft:Object=, snapshotId:string=}=}
+ * Returns:
+ *   {{ok:boolean, data:{url:string, fileName:string, kind:string, wordFile:(Object|null), warnings:Object[]},
+ *     error?:Object}} `kind`：`SAVED`／`DRAFT`／`SNAPSHOT`。
+ */
+function apiOpenWordPreview(isoDate, options) {
+  var o = options || {};
+  return withApiResult_(function () { return bulletinWordPreview_(isoDate, o); },
+    { functionName: 'apiOpenWordPreview', argsSummary: 'isoDate=' + isoDate + ' draft=' + Boolean(o.draft)
+      + ' snapshot=' + String(o.snapshotId || '') });
+}
+
+/** 版本預覽／草稿預覽 Word 放在輸出資料夾哪一個子資料夾。 */
+var WORD_PREVIEW_SUBFOLDER_ = '版本預覽';
+
+/**
+ * 用途：`apiOpenWordPreview()` 的實作。
+ * Args:
+ *   isoDate {string} 主日日期。
+ *   options {{draft:Object=, snapshotId:string=}} 見 `apiOpenWordPreview()`。
+ * Returns:
+ *   {{url:string, fileName:string, kind:string, wordFile:(Object|null), warnings:Object[]}}
+ * Raises:
+ *   Error 產生失敗（`code` 是 `generateBulletinDocx_()` 的原因）、輸出資料夾未設定或存不到、找不到版本。
+ */
+function bulletinWordPreview_(isoDate, options) {
+  var o = options || {};
+  var snapshotId = String(o.snapshotId || '').trim();
+  var kind = snapshotId ? 'SNAPSHOT' : (o.draft ? 'DRAFT' : 'SAVED');
+  var modelOptions;
+  if (kind === 'SNAPSHOT') modelOptions = buildSnapshotModelOptions_(isoDate, snapshotId).options;
+  else if (kind === 'DRAFT') modelOptions = buildDraftModelOptions_(isoDate, o.draft);
+
+  var result = generateBulletinDocx_(isoDate, modelOptions ? { modelOptions: modelOptions } : undefined);
+  if (!result.ok) {
+    var err = new Error(result.message || '未能產生 Word 檔。');
+    err.code = result.reason || 'RENDER_FAILED';
+    throw err;
+  }
+
+  if (kind === 'SAVED') {
+    var stored = tryStoreLatestBulletinDocx_(isoDate, result, {
+      action: 'BULLETIN_DOCX_WEBAPP_PREVIEW',
+      notes: '填寫介面「開啟預覽」同時更新了這個主日的最新 Word。'
+    });
+    if (!stored.wordFile) {
+      var storeErr = new Error((stored.warning && stored.warning.message) || 'Word 已產生，但存不到雲端硬碟，無法預覽。');
+      storeErr.code = (stored.warning && stored.warning.code) || 'WORD_STORE_FAILED';
+      throw storeErr;
+    }
+    return {
+      url: stored.wordFile.url, fileName: result.fileName, kind: kind, wordFile: stored.wordFile,
+      warnings: (result.warnings || []).concat(stored.warning ? [stored.warning] : [])
+    };
+  }
+
+  var folderId = getConfig(CONFIG_KEYS.BULLETIN_OUTPUT_FOLDER_ID, '');
+  if (!folderId) {
+    var noFolder = new Error('尚未設定輸出資料夾（Config 的 BULLETIN_OUTPUT_FOLDER_ID），無法預覽 Word。');
+    noFolder.code = 'WORD_NOT_STORED';
+    throw noFolder;
+  }
+  var suffix = kind === 'SNAPSHOT' ? '（版本預覽）' : '（草稿預覽）';
+  var name = String(result.fileName || '').replace(/\.docx$/i, '') + suffix + '.docx';
+  var written = writeLatestOutputFile_(result.blob, folderId, name, WORD_PREVIEW_SUBFOLDER_);
+  return { url: written.url, fileName: name, kind: kind, wordFile: null, warnings: result.warnings || [] };
 }
 
 /**

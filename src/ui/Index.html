@@ -59,9 +59,10 @@
       <span class="topbar-spacer"></span>
       <!-- v3：有未儲存的修改時出現，提醒按「儲存」（每一個可以輸入的區塊右上角亦有一粒「儲存」）。 -->
       <span id="unsavedHint" class="unsaved-hint hidden">有未儲存的修改，請按「儲存」</span>
-      <!-- R-033：草稿預覽。新分頁開啟，唯讀，不會影響目前正在填的東西。 -->
-      <a id="previewLink" class="btn btn-secondary hidden" target="_blank" rel="noopener"
-         title="用新分頁開啟這一個主日的草稿預覽（唯讀，版面與正式印刷版不同）">開啟預覽</a>
+      <!-- 2026-10-28（Ivan 測試結果 B 第 4 項）：「開啟預覽」＝用新分頁開啟這一期最新的 Word（雲端硬碟的 Word 檢視器）。 -->
+      <button id="previewLink" type="button" class="btn btn-secondary"
+              title="產生這一期的 Word，並用新分頁開啟（與下載的 Word 完全一樣）">開啟預覽</button>
+      <a id="wordPreviewFallbackLink" class="btn btn-small hidden" target="_blank" rel="noopener">瀏覽器擋了新分頁：按這裏開啟 Word 預覽</a>
       <!-- R-036：職事表整季未有資料時用的補抓鈕。隨時可以按，只填空白格。 -->
       <button id="backfillRosterBtn" type="button" class="btn btn-secondary"
               title="把職事表已經有、而週報仍然空白的事奉格補回去（整季）。⚠️ 只填空白格，不會覆寫你填過的任何一格，所以隨時可以重試。">補抓空白欄位（不覆寫）</button>
@@ -223,7 +224,7 @@
       <h3>程序表即時預覽 <span id="previewBusyIndicator" class="preview-busy hidden">更新中…</span></h3>
       <p class="hint">
         按每一行右邊的「×」可以在這一週拿走那一項（變成刪除線，再按「還原」就回來）；
-        按「＋ 在下面加一項」可以在這一週加一項（例如「特別分享」）。改完要按「儲存」才生效，只影響這一個主日。
+        按「＋」可以在那一行下面加一項（例如「特別分享」）；按「↑」「↓」可以改次序。改完要按「儲存」才生效，只影響這一個主日。
       </p>
       <table class="preview-table program-edit-table">
         <thead><tr><th>項目</th><th>內容</th><th>立坐</th><th class="program-edit-col"></th></tr></thead>
@@ -394,7 +395,7 @@
       <div id="snapshotStatus" class="hint"></div>
       <div class="snapshot-picker">
         <select id="snapshotSelect"></select>
-        <a id="snapshotPreviewLink" class="btn btn-small hidden" target="_blank" rel="noopener">預覽這個版本</a>
+        <button id="snapshotPreviewLink" type="button" class="btn btn-small hidden">預覽這個版本</button>
         <button id="snapshotDiffBtn" type="button" class="btn btn-small">看差異</button>
         <button id="snapshotRestoreBtn" type="button" class="btn btn-small">還原到這個版本…</button>
       </div>

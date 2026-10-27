@@ -4,7 +4,7 @@
  * v3（2026-10-26 Ivan 測試結果 A，第 11、13 項）：每一週在填寫介面的兩種「版面安排」——
  *
  *   1. 程序增刪（`BulletinWeeks.PROGRAM_EDITS`）：這一週拿走範本某幾項（例如「拍照」）、加幾項
- *      （例如「特別分享」）。
+ *      （例如「特別分享」）；2026-10-28（Ivan 測試結果 B）起亦可以改次序（`order`）。
  *   2. 丁戊己三張清單的次序與刪除（`BulletinWeeks.LIST_ARRANGEMENT`）：拖動改次序、按「×」在這一週拿走。
  *      清單的**內容**仍然只在內容表改；這裏只記次序與拿走了哪幾則。
  *
@@ -38,21 +38,23 @@ function programAddPostureOptions_() {
  *   raw {*} 工作表那一格（空白＝沒有增刪）。
  * Returns:
  *   {{hidden:string[], added:{id:string, after:string, itemName:string, content:string, posture:string}[],
- *     invalid:boolean}}
+ *     order:string[], invalid:boolean}}
+ *     `order`（2026-10-28）：這一週程序表的次序，每項是範本行的鍵（`拍照#1`）或加的行（`add:<id>`）；
+ *     空陣列＝照範本（與加項位置）的次序。
  * Raises:
  *   （無）
  */
 function parseProgramEdits_(raw) {
-  var empty = { hidden: [], added: [], invalid: false };
+  var empty = { hidden: [], added: [], order: [], invalid: false };
   var text = String(raw === null || raw === undefined ? '' : raw).trim();
   if (!text) return empty;
   var obj;
   try {
     obj = JSON.parse(text);
   } catch (err) {
-    return { hidden: [], added: [], invalid: true };
+    return { hidden: [], added: [], order: [], invalid: true };
   }
-  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return { hidden: [], added: [], invalid: true };
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return { hidden: [], added: [], order: [], invalid: true };
   var postures = programAddPostureOptions_();
   var hidden = (Array.isArray(obj.hidden) ? obj.hidden : []).map(function (k) { return String(k || ''); })
     .filter(function (k) { return k !== ''; });
@@ -68,7 +70,59 @@ function parseProgramEdits_(raw) {
       posture: postures.indexOf(posture) !== -1 ? posture : POSTURE.SIT
     };
   });
-  return { hidden: hidden, added: added, invalid: false };
+  var seenOrder = {};
+  var order = (Array.isArray(obj.order) ? obj.order : []).map(function (k) { return String(k || ''); })
+    .filter(function (k) {
+      if (k === '' || seenOrder[k]) return false;
+      seenOrder[k] = true;
+      return true;
+    });
+  return { hidden: hidden, added: added, order: order, invalid: false };
+}
+
+/**
+ * 用途：2026-10-28：程序表一行的識別碼（排次序用）：範本行用鍵（`拍照#1`），加的行用 `add:<id>`。純函式。
+ * Args:
+ *   row {Object} `applyProgramEdits_()` 的 `display` 其中一行。
+ * Returns:
+ *   {string}
+ * Raises:
+ *   （無）
+ */
+function programDisplayRowId_(row) {
+  if (!row) return '';
+  return row.added ? ('add:' + String(row.addedId || '')) : String(row.key || '');
+}
+
+/**
+ * 用途：2026-10-28：按 `order` 重新排程序表。純函式。
+ *   做法：`order` 有列明的行，按 `order` 的次序放回**它們原本佔的位置**；`order` 沒有列明的行（例如
+ *   範本後來改了、新加的範本項目）留在原位。所以範本由平常改成合堂，只有兩邊都有的項目按你排的次序，
+ *   其餘照新範本的次序，不會全部擠到最後。
+ * Args:
+ *   display {Object[]} 插入加項之後的顯示行。
+ *   order {string[]} `parseProgramEdits_()` 的 `order`。
+ * Returns:
+ *   {Object[]} 新陣列（行物件不複製）。
+ * Raises:
+ *   （無）
+ */
+function applyProgramOrder_(display, order) {
+  var list = display || [];
+  if (!order || order.length === 0) return list.slice();
+  var byId = {};
+  list.forEach(function (d) { byId[programDisplayRowId_(d)] = d; });
+  var ordered = order.filter(function (id) { return Object.prototype.hasOwnProperty.call(byId, id); })
+    .map(function (id) { return byId[id]; });
+  var inOrder = {};
+  ordered.forEach(function (d) { inOrder[programDisplayRowId_(d)] = true; });
+  var next = 0;
+  return list.map(function (d) {
+    if (!inOrder[programDisplayRowId_(d)]) return d;
+    var picked = ordered[next];
+    next++;
+    return picked;
+  });
 }
 
 /**
@@ -150,6 +204,9 @@ function applyProgramEdits_(rows, rawEdits) {
     display.splice(insertAt, 0, addedRow);
   });
 
+  // 2026-10-28：這一週改過次序就按次序排（拿走的行照樣跟次序，還原之後回到你排的位置）。
+  display = applyProgramOrder_(display, edits.order);
+
   var finalRows = display.filter(function (d) { return d.removed !== true; }).map(function (d) {
     return {
       seqNo: d.seqNo, itemName: d.itemName, content: d.content, posture: d.posture,
@@ -207,6 +264,7 @@ function describeProgramEdits_(rawEdits) {
   if (edits.added.length > 0) {
     parts.push('加入：' + edits.added.map(function (a) { return a.itemName + (a.content ? '（' + a.content + '）' : ''); }).join('、'));
   }
+  if (edits.order.length > 0) parts.push('改了次序');
   return parts.join('；');
 }
 
