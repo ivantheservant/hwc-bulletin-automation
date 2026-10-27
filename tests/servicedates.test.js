@@ -81,7 +81,7 @@ function baseStubs() {
 const boot = loadAllSrcFilesInOrder(baseStubs());
 
 function rosterSheet(defKey, rows) {
-  const keys = Object.keys(boot.ROSTER_TABLE_DEFS_[defKey].columns);
+  const keys = Object.keys(boot.ROSTER_TABLE_DEFS_[defKey].columns).concat(Object.keys(boot.ROSTER_TABLE_DEFS_[defKey].optionalColumns || {}));
   return makeFakeSheet(keys, keys, rows);
 }
 
@@ -106,7 +106,6 @@ function makeRosterSheets() {
         SpecialID: '', AutoGenerate: true, Notes: ''
       };
     })),
-    SpecialSundays: rosterSheet('SPECIAL_SUNDAYS', []),
     NameMapping: rosterSheet('NAME_MAPPING', []),
     Posts: rosterSheet('POSTS', [])
   };

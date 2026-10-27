@@ -93,11 +93,13 @@ function makeSnapshot(overrides) {
         personId: a.personId === undefined ? null : a.personId,
         personName: a.personName === undefined ? '' : a.personName,
         assignSource: 'AUTO',
-        locked: false
+        locked: false,
+        ruleFlags: a.ruleFlags || []
       };
     })
   };
-  snapshot.slotsByPost = buildRosterSlotIndex_(snapshot, o.communionWeeks || [1]);
+  snapshot.slotsByPost = buildRosterSlotIndex_(snapshot, o.communionWeeks || [1],
+    o.naFlags || ['HARD_COMMUNION_FIRST_SUNDAY', 'HARD_SPECIAL_SUNDAY_SKIP']);
   return snapshot;
 }
 
@@ -310,68 +312,100 @@ test('COMMUNION_WEEKS 改成 [2] → 第 2 個主日才出現聖餐輔禮（證�
   assert.ok(rowFor(build(week2, 1), '聖餐輔禮'));
 });
 
-test('整個合併組都 NOT_APPLICABLE → 該組那一行不出現', function () {
+test('整個合併組都 NOT_APPLICABLE（RuleFlags）→ 該組那一行不出現', function () {
   var snapshot = makeSnapshot({
     weekOfMonth: 2,
-    special: { skipPostIds: ['SOUND', 'PPT'], externalOwner: '', title: '', type: '' },
     posts: { SOUND: {}, PPT: {}, CHAIR: {} },
-    assignments: [{ postId: 'CHAIR', personId: 'P9001', personName: '陳大文' }]
+    assignments: [
+      { postId: 'CHAIR', personId: 'P9001', personName: '陳大文' },
+      { postId: 'SOUND', ruleFlags: ['HARD_SPECIAL_SUNDAY_SKIP'] },
+      { postId: 'PPT', ruleFlags: ['HARD_SPECIAL_SUNDAY_SKIP'] }
+    ]
   });
   var rows = build(snapshot, 1);
   assert.strictEqual(rowFor(rows, '影音'), null);
   assert.ok(rowFor(rows, '主席'));
 });
 
-test('合併組內部分崗位 NOT_APPLICABLE → 只略過該崗位，其餘照合併', function () {
+test('合併組內部分崗位 NOT_APPLICABLE（RuleFlags）→ 只略過該崗位，其餘照合併', function () {
   var snapshot = makeSnapshot({
-    special: { skipPostIds: ['PPT'], externalOwner: '', title: '', type: '' },
     posts: { SOUND: {}, PPT: {} },
     assignments: [
       { postId: 'SOUND', personId: 'P9001', personName: '陳大文' },
-      { postId: 'PPT', personId: 'P9002', personName: '李小明' }
+      { postId: 'PPT', personId: 'P9002', personName: '李小明', ruleFlags: ['HARD_COMMUNION_FIRST_SUNDAY'] }
     ]
   });
   var rows = build(snapshot, 1);
   var av = rowFor(rows, '影音');
   assert.ok(av, '「影音」那一行仍然要在');
-  assert.strictEqual(av.text, '陳大文', 'PPT 被跳過，只剩音響那個人');
+  assert.strictEqual(av.text, '陳大文', 'PPT 這一週不設，只剩音響那個人');
   assertArrayEqual(av.postIds, ['SOUND']);
 });
 
 // =====================================================================
-// EXTERNAL
+// 2026-10-27：RuleFlags 決定「這一週不設」；合堂那一週人手清空的格＝未排定
+// （EXTERNAL／SkipPostIDs 已經拿走：週報不再讀 SpecialSundays）
 // =====================================================================
 
-test('skipPostIds 含 WORSHIP 且有 externalOwner → 顯示「英語堂敬拜隊」', function () {
-  var snapshot = makeSnapshot({
-    special: { skipPostIds: ['WORSHIP'], externalOwner: '英語堂敬拜隊', title: '', type: '' },
+test('RuleFlags 的代號由呼叫方傳入（Config ROSTER_NOT_APPLICABLE_RULE_FLAGS），沒有寫死', function () {
+  var withDefault = makeSnapshot({
     posts: { WORSHIP: {} },
-    assignments: [{ postId: 'WORSHIP', personId: null, personName: '' }]
+    assignments: [{ postId: 'WORSHIP', ruleFlags: ['HARD_SPECIAL_SUNDAY_SKIP'] }]
   });
-  var rows = build(snapshot, 1);
-  var row = rowFor(rows, '領詩');
+  assert.strictEqual(rowFor(build(withDefault, 1), '領詩'), null, '預設代號：這一週不設');
+
+  var configured = makeSnapshot({
+    naFlags: ['SOME_OTHER_FLAG'],
+    posts: { WORSHIP: {} },
+    assignments: [{ postId: 'WORSHIP', ruleFlags: ['HARD_SPECIAL_SUNDAY_SKIP'] }]
+  });
+  var row = rowFor(build(configured, 1), '領詩');
+  assert.ok(row, 'Config 沒有列這個代號 → 不算不設，照樣出一行');
+  assert.strictEqual(row.isPending, true);
+});
+
+test('RuleFlags 不是「不設」的代號（例如 HARD_NO_AUTO_PREACHER）→ 照樣是未排定，一行照出', function () {
+  var snapshot = makeSnapshot({
+    posts: { PREACHER: {} },
+    assignments: [{ postId: 'PREACHER', ruleFlags: ['HARD_NO_AUTO_PREACHER'] }]
+  });
+  var row = rowFor(build(snapshot, 1), '講員');
   assert.ok(row);
-  assert.strictEqual(row.text, '英語堂敬拜隊');
-  assertArrayEqual(row.states, [ROSTER_SLOT_STATE_.EXTERNAL]);
-  assert.strictEqual(row.isPending, false, '外判崗位不算待填');
+  assert.strictEqual(row.isPending, true);
+  assertArrayEqual(row.states, [ROSTER_SLOT_STATE_.PENDING]);
 });
 
-test('skipPostIds 含 WORSHIP 但 externalOwner 空白 → NOT_APPLICABLE，該行不出現', function () {
+test('合堂那一週幹事清空的格（沒有 PersonID、名字和 RuleFlags）→ PENDING、空白，不出錯、不記警告', function () {
   var snapshot = makeSnapshot({
-    special: { skipPostIds: ['WORSHIP'], externalOwner: '', title: '', type: '' },
-    posts: { WORSHIP: {}, CHAIR: {} },
-    assignments: [{ postId: 'CHAIR', personId: 'P9001', personName: '陳大文' }]
+    posts: { USHER: { slotCount: 2 }, CHAIR: {} },
+    assignments: [
+      { postId: 'CHAIR', personId: 'P9001', personName: '陳大文' },
+      { postId: 'USHER', slotIndex: 1 },
+      { postId: 'USHER', slotIndex: 2 }
+    ]
   });
-  assert.strictEqual(rowFor(build(snapshot, 1), '領詩'), null);
+  var warnings = [];
+  var rows = build(snapshot, 1, { warnings: warnings, personDisplayRows: personDisplayRowsFor(['P9001']) });
+  var usher = rowFor(rows, '司事');
+  assert.ok(usher, '填寫介面仍然要見到這一行（印不印由 dutyRowsForPrint_() 決定）');
+  assert.strictEqual(usher.text, '');
+  assert.strictEqual(usher.isPending, true);
+  assertArrayEqual(usher.states, [ROSTER_SLOT_STATE_.PENDING, ROSTER_SLOT_STATE_.PENDING]);
+  assert.strictEqual(warnings.length, 0, '實際警告：' + JSON.stringify(warnings));
 });
 
-test('外判優先於已排定：崗位在 skipPostIds 且有 externalOwner，就算職事表留了人名也顯示負責單位', function () {
-  var snapshot = makeSnapshot({
-    special: { skipPostIds: ['WORSHIP'], externalOwner: '英語堂敬拜隊', title: '', type: '' },
-    posts: { WORSHIP: {} },
-    assignments: [{ postId: 'WORSHIP', personId: 'P9001', personName: '陳大文' }]
-  });
-  assert.strictEqual(rowFor(build(snapshot, 1), '領詩').text, '英語堂敬拜隊');
+test('dutyRowsForPrint_：FALSE（預設）不印沒有名字的行；TRUE 照印；不改次序、不複製行物件', function () {
+  var a = { label: '主席', text: '陳大文' };
+  var b = { label: '司事', text: '  ' };
+  var c = { label: '講員', text: '李牧師' };
+  var rows = [a, b, c];
+  var printed = sandbox.dutyRowsForPrint_(rows, false);
+  assert.strictEqual(printed.length, 2);
+  assert.strictEqual(printed[0], a);
+  assert.strictEqual(printed[1], c);
+  assert.strictEqual(sandbox.dutyRowsForPrint_(rows, undefined).length, 2, '旗標缺了＝預設不印');
+  assert.strictEqual(sandbox.dutyRowsForPrint_(rows, true).length, 3);
+  assert.strictEqual(sandbox.dutyRowsForPrint_(null, false).length, 0);
 });
 
 // =====================================================================

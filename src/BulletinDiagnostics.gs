@@ -63,10 +63,10 @@ function menuCreateBlankBulletinWeeks_() {
  *   已經存在的日期完全不動。每新增一行寫一筆 `AuditLog`。
  *
  *   自動填入的欄位：`SERVICE_DATE`、`QUARTER_ID`、`WEEK_OF_MONTH`、
- *   `SPECIAL_TYPE`（來自 `special.title`）、`PROGRAM_TEMPLATE_ID`（依特別
- *   主日推斷）、`ATTENDANCE_DATE`（主日減 7 天）、`PRELUDE`、`PAGE_TITLE`、
+ *   `SPECIAL_TYPE`（來自 `special.title`）、`ATTENDANCE_DATE`（主日減 7 天）、`PRELUDE`、`PAGE_TITLE`、
  *   `ATTENDANCE_HEADING`、`NEXT_WEEK_HEADING`、`PRAYER_BLOCK_HEADING`
  *   （後五項來自 Config 預設值）、`STATUS`＝`DRAFT`。其餘欄位留空等人手填。
+ *   `PROGRAM_TEMPLATE_ID` 留空＝自動跟每週標題（2026-10-27，見 resolveProgramTemplateId_()）。
  * Args:
  *   quarterId {string} 季度 ID。
  * Returns:
@@ -93,6 +93,7 @@ function createBlankBulletinWeeks_(quarterId) {
 
   var newRows = [];
   var addedDates = [];
+  var addedTemplateAuto = [];
   var skipped = 0;
 
   dates.forEach(function (isoDate) {
@@ -111,8 +112,9 @@ function createBlankBulletinWeeks_(quarterId) {
 
     newRows.push(buildBlankWeekRow_({
       isoDate: isoDate, quarterId: quarterId, snapshot: snapshot,
-      resolvedTemplateId: resolved.templateId, defaults: defaults, rosterStatus: rowRosterStatus
+      defaults: defaults, rosterStatus: rowRosterStatus
     }));
+    addedTemplateAuto.push(resolved.templateId);
     addedDates.push(isoDate);
   });
 
@@ -123,8 +125,9 @@ function createBlankBulletinWeeks_(quarterId) {
         action: 'CREATE_BLANK_BULLETIN_WEEK',
         sheetName: SHEETS.BULLETIN_WEEKS,
         rowKey: isoDate,
-        newValue: newRows[idx].PROGRAM_TEMPLATE_ID,
+        newValue: '',
         notes: '季度 ' + quarterId + ' 的空白週報骨架，特別主日：' + (newRows[idx].SPECIAL_TYPE || '（無）')
+          + '；程序範本留空＝自動（目前：' + addedTemplateAuto[idx] + '）'
       });
     });
   }
@@ -291,12 +294,10 @@ function buildBulletinModelReportLines_(model) {
   lines.push('季度：' + (model.quarterId || '（無）')
     + '　職事表版本：' + (model.rosterVersionUsed === null ? '（尚未生成）' : model.rosterVersionUsed)
     + '　已正式發出：' + (model.rosterIsOfficial ? '是' : '否'));
-  lines.push('特別主日：' + (model.special ? (model.special.type + '／' + model.special.title) : '（無）'));
-  if (model.special) {
-    lines.push('　跳過崗位：' + (model.special.skipPostIds.join('、') || '（無）')
-      + '　外判單位：' + (model.special.externalOwner || '（無）'));
-  }
-  lines.push('程序範本：' + (model.templateId || '（無）'));
+  // 2026-10-27：每週標題來自職事表 ServiceDates.Title（不再讀 SpecialSundays）。
+  lines.push('每週標題（特別主日）：' + (model.special ? model.special.title : '（無，普通主日）'));
+  lines.push('程序範本：' + (model.templateId || '（無）')
+    + (String((model.weekFields || {}).PROGRAM_TEMPLATE_ID || '').trim() ? '（人手揀選）' : '（自動：跟每週標題）'));
   lines.push('大標題：' + model.header.pageTitle + '　封面日期：' + model.header.coverDate);
   lines.push('人數表標題：' + model.header.attendanceHeading + '（' + model.header.attendanceDate + '）');
   lines.push('下週事奉標題：' + model.header.nextWeekHeading + '（' + model.header.nextWeekDate + '）');
@@ -304,9 +305,12 @@ function buildBulletinModelReportLines_(model) {
     + '　下週獻花：' + (model.flowers.nextWeek || '（未填）'));
 
   lines.push('');
-  lines.push('【事奉框（第 1 頁，' + model.dutyBoxPage1.length + ' 行）】');
+  // 2026-10-27：沒有名字、按 Config DUTY_PRINT_EMPTY_ROWS 不印的行標「（不印）」。
+  var printedPage1 = dutyRowsForPrint_(model.dutyBoxPage1, model.dutyPrintEmptyRows === true);
+  lines.push('【事奉框（第 1 頁，' + model.dutyBoxPage1.length + ' 行，印 ' + printedPage1.length + ' 行）】');
   model.dutyBoxPage1.forEach(function (row) {
-    lines.push('　' + row.label + '：' + (row.text || '（待填）') + '　[' + row.states.join(',') + ']');
+    lines.push('　' + row.label + '：' + (row.text || '（待填）') + '　[' + row.states.join(',') + ']'
+      + (printedPage1.indexOf(row) === -1 ? '　（不印）' : ''));
   });
 
   lines.push('');
@@ -319,9 +323,11 @@ function buildBulletinModelReportLines_(model) {
   });
 
   lines.push('');
-  lines.push('【下週事奉（第 3 頁，' + model.nextWeekDuty.length + ' 行）】');
+  var printedPage3 = dutyRowsForPrint_(model.nextWeekDuty, model.dutyPrintEmptyRows === true);
+  lines.push('【下週事奉（第 3 頁，' + model.nextWeekDuty.length + ' 行，印 ' + printedPage3.length + ' 行）】');
   model.nextWeekDuty.forEach(function (row) {
-    lines.push('　' + row.label + '：' + (row.text || '（待填）'));
+    lines.push('　' + row.label + '：' + (row.text || '（待填）')
+      + (printedPage3.indexOf(row) === -1 ? '　（不印）' : ''));
   });
 
   lines.push('');

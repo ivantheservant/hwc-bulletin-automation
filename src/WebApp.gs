@@ -1711,6 +1711,8 @@ function loadWeekForWebApp_(isoDate) {
       // R-041：誦讀下拉旁邊顯示「目前自動值：主禱文」。由後端算好——
       // 月份分組是 Config 改得到的，前端不可以自己算一次。
       recitationAuto: model.recitationAuto || '',
+      // 2026-10-27：程序範本「留空＝自動」時會用哪一個（按每週標題推斷），下拉旁邊提示用。
+      templateAuto: model.templateAuto || '',
       // 階段 1：獻花欄位旁邊的提示。職事表的名字由後端算好（與帶入
       // 獻花同一個 rosterFlowerName_()），前端只負責挑哪一句提示。
       flowerRoster: model.flowerRoster || { thisWeek: '', nextWeek: '' },
@@ -1963,11 +1965,12 @@ function pickWebAppListItems_(rows, isoDate, fieldKeys) {
  * Returns:
  *   {{programTemplateIds:string[], recitationOptions:string[],
  *     prayerBlockHeadingOptions:string[], cantoneseSubColumnLabel:string}}
- *     `recitationOptions` 第一項固定是空字串（代表「留空＝自動」）。
+ *     `recitationOptions` 與 `programTemplateIds` 第一項固定是空字串（代表「留空＝自動」；
+ *     程序範本的自動＝按每週標題推斷，2026-10-27）。
  */
 function webAppFieldOptions_() {
   return {
-    programTemplateIds: uniqueProgramTemplateIds_(readSheet(SHEETS.PROGRAM_TEMPLATES)),
+    programTemplateIds: [''].concat(uniqueProgramTemplateIds_(readSheet(SHEETS.PROGRAM_TEMPLATES))),
     recitationOptions: webAppRecitationOptions_(),
     prayerBlockHeadingOptions: getConfigTextList_(
       CONFIG_KEYS.PRAYER_BLOCK_HEADING_OPTIONS, '代禱事項,宣教消息,宣教代禱消息,宣教代禱事項'

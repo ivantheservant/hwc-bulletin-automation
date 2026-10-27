@@ -50,6 +50,9 @@ function initializeAllSheets() {
   // ⚠️ 一定要排在 seedConfigDefaults_() 之後：那一支只會補**沒有的**鍵，
   //    已經存在的一律不動，所以舊值要在這裏另外處理。
   var configUpgrades = upgradeSystemSeededDefaults_();
+  // 2026-10-27：程序範本改為「留空＝自動跟每週標題」，舊資料裏系統寫入的推斷結果清空一次
+  //    （只做一次，見 src/ProgramTemplateAuto.gs）。排在 ensureSheet_() 之後（要有 BulletinWeeks 與 AuditLog）。
+  var programTemplateAuto = migrateProgramTemplateToAuto_();
   var seedRowsAdded = {
     POST_DISPLAY: seedPostDisplay_(),
     MERGE_GROUPS: seedMergeGroups_(),
@@ -73,6 +76,7 @@ function initializeAllSheets() {
     publishLogBackfill: publishLogBackfill,
     publishLogMd5Backfill: publishLogMd5Backfill,
     configUpgrades: configUpgrades,
+    programTemplateAuto: programTemplateAuto,
     seedRowsAdded: seedRowsAdded
   };
 
@@ -199,8 +203,10 @@ function cleanupDeprecatedConfigKeys_() {
   //    再沒有任何程式碼引用。見 docs/已知bug類型.md 事故三十。
   //    留一個沒有人讀的設定鍵在表上，比刪掉更危險：有人改了它，以為
   //    改到寄送日期，其實什麼都沒有發生。
+  // ⚠️ ROSTER_SHEET_SPECIAL_SUNDAYS（2026-10-27）：週報不再讀職事表的 SpecialSundays（職事表第七十五輪起
+  //    特別主日拿走）。它本來就有值（SpecialSundays），所以不會被自動刪，只會列出來請人手確認後刪除。
   var DEPRECATED_KEYS = ['DOC_TEMPLATE_ID_NORMAL', 'DOC_TEMPLATE_ID_COMBINED',
-    'SEND_TARGET_OFFSET_DAYS'];
+    'SEND_TARGET_OFFSET_DAYS', 'ROSTER_SHEET_SPECIAL_SUNDAYS'];
 
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ensureSheet_(ss, 'CONFIG');
@@ -354,6 +360,10 @@ function writeInitializeDiagnosticsReport_(summary) {
       + '——「補寫不到」不等於「沒問題」，那幾行的 I06 會報「驗證不到」：');
     md5Backfill.skipReasons.forEach(function (reason) { lines.push('　－' + reason); });
   }
+
+  ((summary.programTemplateAuto && summary.programTemplateAuto.lines) || []).forEach(function (line) {
+    lines.push(line);
+  });
 
   Object.keys(summary.seedRowsAdded).forEach(function (id) {
     lines.push(SHEETS[id] + ' 新增行數：' + summary.seedRowsAdded[id]);

@@ -380,7 +380,7 @@ test('12a. DRY_RUN=TRUE 時，就算沒有未填欄位／日期異常，撳「�
   }]);
 
   function rosterSheet(defKey, rows) {
-    const keys = Object.keys(boot.ROSTER_TABLE_DEFS_[defKey].columns);
+    const keys = Object.keys(boot.ROSTER_TABLE_DEFS_[defKey].columns).concat(Object.keys(boot.ROSTER_TABLE_DEFS_[defKey].optionalColumns || {}));
     return makeFakeSheet(keys, keys, rows || []);
   }
   const rosterSheets = {
@@ -391,7 +391,6 @@ test('12a. DRY_RUN=TRUE 時，就算沒有未填欄位／日期異常，撳「�
       ServiceDateID: 'SD1', QuarterID: '2027T4', ServiceDate: '2027-11-07',
       WeekIndex: 1, IsFirstSundayOfMonth: true, ServiceType: '主日崇拜', SpecialID: ''
     }]),
-    SpecialSundays: rosterSheet('SPECIAL_SUNDAYS', []),
     NameMapping: rosterSheet('NAME_MAPPING', []),
     Posts: rosterSheet('POSTS', [])
   };

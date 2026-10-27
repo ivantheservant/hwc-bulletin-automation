@@ -602,7 +602,8 @@ var CONFIG_KEYS = Object.freeze({
   ROSTER_SHEET_VERSIONS: 'ROSTER_SHEET_VERSIONS',
   ROSTER_SHEET_QUARTERS: 'ROSTER_SHEET_QUARTERS',
   ROSTER_SHEET_SERVICE_DATES: 'ROSTER_SHEET_SERVICE_DATES',
-  ROSTER_SHEET_SPECIAL_SUNDAYS: 'ROSTER_SHEET_SPECIAL_SUNDAYS',
+  // ⚠️ 2026-10-27 拿走 ROSTER_SHEET_SPECIAL_SUNDAYS：週報不再讀職事表的 SpecialSundays（職事表第七十五輪起
+  //    特別主日拿走）。Config 工作表上舊的那一行不會被刪，可以不理。
   ROSTER_SHEET_NAME_MAPPING: 'ROSTER_SHEET_NAME_MAPPING',
   ROSTER_SHEET_POSTS: 'ROSTER_SHEET_POSTS',
   ROSTER_TEST_DATE: 'ROSTER_TEST_DATE',
@@ -670,6 +671,10 @@ var CONFIG_KEYS = Object.freeze({
   FILL_AUTO_CREATE_NEXT_QUARTER: 'FILL_AUTO_CREATE_NEXT_QUARTER',
   // ---- prompt9 新增：編號事奉佔位符上限 ----
   DUTY_PLACEHOLDER_MAX: 'DUTY_PLACEHOLDER_MAX',
+  // ---- 2026-10-27（職事表第八十二輪說明）：讀職事表的規則 ----
+  ROSTER_NOT_A_PERSON_TEXTS: 'ROSTER_NOT_A_PERSON_TEXTS',
+  ROSTER_NOT_APPLICABLE_RULE_FLAGS: 'ROSTER_NOT_APPLICABLE_RULE_FLAGS',
+  DUTY_PRINT_EMPTY_ROWS: 'DUTY_PRINT_EMPTY_ROWS',
   // ---- prompt9 §1.6 補漏：FINANCE_TITLE 的組字樣式 ----
   FINANCE_TITLE_PATTERN: 'FINANCE_TITLE_PATTERN',
   // ---- 財政表首欄期別標籤（與 FINANCE_TITLE 用同一個月份來源）----
@@ -775,13 +780,26 @@ var CONFIG_KEYS = Object.freeze({
 // ⚠️ 硬規則：ID／電郵類欄位一律 seed 成空字串，由 Ivan 自己在試算表填。
 // =====================================================================
 
+/**
+ * 職事表格內「不是人」的顯示字的預設值（職事表第八十二輪說明第 3.1 節）：GRID_PENDING_LABEL、
+ * GRID_GAP_LABEL、GRID_NOT_APPLICABLE_LABEL、GRID_SPECIAL_SKIP_LABEL 四個顯示字，加上舊資料可能有的
+ * GRID_PLACEHOLDER_TEXTS。Config `ROSTER_NOT_A_PERSON_TEXTS` 的預設值，亦是純函式層沒有傳入時的後備
+ * （同一個字串，不另抄）。
+ */
+var ROSTER_NOT_A_PERSON_TEXTS_DEFAULT = '（待填）,⚠ 未能安排,—,特殊主日,待確認,另行安排,-,－,N/A,n/a';
+
+/**
+ * 「這一週不設這個崗位」的 RuleFlags 代號預設值（職事表第八十二輪說明第 3 節）。Config
+ * `ROSTER_NOT_APPLICABLE_RULE_FLAGS` 的預設值，亦是純函式層沒有傳入時的後備。
+ */
+var ROSTER_NOT_APPLICABLE_RULE_FLAGS_DEFAULT = 'HARD_COMMUNION_FIRST_SUNDAY,HARD_SPECIAL_SUNDAY_SKIP';
+
 var DEFAULTS = Object.freeze([
   { key: CONFIG_KEYS.ROSTER_SPREADSHEET_ID, value: '', note: '職事表試算表 ID，由 Ivan 填' },
   { key: CONFIG_KEYS.ROSTER_SHEET_ASSIGNMENTS, value: 'RosterAssignments', note: '職事表內「事奉分配」工作表的名稱' },
   { key: CONFIG_KEYS.ROSTER_SHEET_VERSIONS, value: 'RosterVersions', note: '職事表內「版本」工作表的名稱' },
   { key: CONFIG_KEYS.ROSTER_SHEET_QUARTERS, value: 'Quarters', note: '職事表內「季度」工作表的名稱' },
   { key: CONFIG_KEYS.ROSTER_SHEET_SERVICE_DATES, value: 'ServiceDates', note: '職事表內「主日日期」工作表的名稱' },
-  { key: CONFIG_KEYS.ROSTER_SHEET_SPECIAL_SUNDAYS, value: 'SpecialSundays', note: '職事表內「特別主日」工作表的名稱' },
   { key: CONFIG_KEYS.ROSTER_SHEET_NAME_MAPPING, value: 'NameMapping', note: '職事表內「姓名對照」工作表的名稱' },
   { key: CONFIG_KEYS.ROSTER_SHEET_POSTS, value: 'Posts', note: '職事表內「崗位」工作表的名稱' },
   { key: CONFIG_KEYS.ROSTER_TEST_DATE, value: '2027-10-03', note: '「測試讀取職事表」選單預設的測試日期（yyyy-MM-dd）' },
@@ -805,8 +823,8 @@ var DEFAULTS = Object.freeze([
   { key: CONFIG_KEYS.PRELUDE_DEFAULT, value: '主在聖殿中 (生命聖詩 522)', note: '68 期樣本全部相同' },
   { key: CONFIG_KEYS.CANTONESE_SUBCOLUMN_LABEL, value: '主堂', note: '人數表粵語堂子欄標題' },
   { key: CONFIG_KEYS.DIAGNOSTICS_MAX_ROWS, value: '380', note: 'Diagnostics 工作表的資料行數上限，超過會被截斷' },
-  { key: CONFIG_KEYS.TEMPLATE_KEYWORDS_BAPTISM, value: '浸禮', note: '特別主日標題／類型含這些關鍵詞就用浸禮合堂範本（逗號分隔）' },
-  { key: CONFIG_KEYS.TEMPLATE_KEYWORDS_ANNIVERSARY, value: '堂慶,週年', note: '特別主日標題／類型含這些關鍵詞就用堂慶合堂範本（逗號分隔）' },
+  { key: CONFIG_KEYS.TEMPLATE_KEYWORDS_BAPTISM, value: '浸禮', note: '每週標題（職事表「類型」欄）含這些關鍵詞就用浸禮合堂範本（逗號分隔）；只在程序範本留空＝自動時用' },
+  { key: CONFIG_KEYS.TEMPLATE_KEYWORDS_ANNIVERSARY, value: '堂慶,週年', note: '每週標題（職事表「類型」欄）含這些關鍵詞就用堂慶合堂範本（逗號分隔）；只在程序範本留空＝自動時用' },
   { key: CONFIG_KEYS.TEMPLATE_DEFAULT, value: 'TPL_NORMAL', note: '推斷不到特別範本時使用的預設程序範本 ID' },
   {
     key: CONFIG_KEYS.RECITATION_MONTH_GROUPS,
@@ -852,6 +870,26 @@ var DEFAULTS = Object.freeze([
   { key: CONFIG_KEYS.FILL_RECONCILE_HOURS, value: '6', note: '填寫表定時對帳觸發器每隔幾多小時跑一次' },
   { key: CONFIG_KEYS.FILL_AUTO_CREATE_NEXT_QUARTER, value: 'TRUE', note: '每週寄送流程發現職事表有未建立填寫表的季度時，是否自動建立並寄出填寫邀請' },
   { key: CONFIG_KEYS.DUTY_PLACEHOLDER_MAX, value: '20', note: 'DUTY_01..NN／NEXT_DUTY_01..NN 編號事奉佔位符的上限；超出實際事奉行數的一律輸出空字串' },
+  {
+    key: CONFIG_KEYS.ROSTER_NOT_A_PERSON_TEXTS,
+    value: ROSTER_NOT_A_PERSON_TEXTS_DEFAULT,
+    note: '職事表格內「不是人」的顯示字（逗號分隔，去頭尾空白後要一字不差）。職事表的名字是其中一個就當空白（未排定）：'
+      + '不印、不帶入獻花、不算「與職事表不同」。預設照職事表第八十二輪的預設值；職事表改了顯示字（它的 Config GRID_*_LABEL），'
+      + '這裏要跟着改。外部單位名稱（例如英語堂）如果在格內出現，亦可以加入'
+  },
+  {
+    key: CONFIG_KEYS.ROSTER_NOT_APPLICABLE_RULE_FLAGS,
+    value: ROSTER_NOT_APPLICABLE_RULE_FLAGS_DEFAULT,
+    note: '職事表 RosterAssignments.RuleFlags 有其中一個代號（逗號分隔）＝這一週不設這個崗位，整行不印、不列入待填。'
+      + '預設：HARD_COMMUNION_FIRST_SUNDAY（不是聖餐週的聖餐崗位）、HARD_SPECIAL_SUNDAY_SKIP（舊版本的特別主日跳過）'
+  },
+  {
+    key: CONFIG_KEYS.DUTY_PRINT_EMPTY_ROWS,
+    value: 'FALSE',
+    note: '事奉框（第 1 頁）與下週事奉（第 3 頁）沒有名字的崗位行印不印。FALSE（預設）＝不印，整行不出現'
+      + '（例如合堂那一週在職事表清空了的崗位）；TRUE＝照印崗位名、名字留空。只影響 Word、草稿預覽頁和電郵內文；'
+      + '填寫介面一律顯示全部崗位，未排定的崗位仍然列入待填清單'
+  },
   {
     key: CONFIG_KEYS.FINANCE_TITLE_PATTERN,
     value: '聖道堂綜合收支財務報告-{{YEAR}}年 {{MONTH}}月份',
@@ -955,7 +993,7 @@ var DEFAULTS = Object.freeze([
   // ---- v3（2026-10-26 Ivan 測試結果 A）----
   { key: CONFIG_KEYS.WEBAPP_SIMULATED_TODAY, value: '', note: '⚠️ 只供測試：填一個日期（yyyy-MM-dd），填寫介面就當今日是這一天——影響「發佈／寄出只限該週」、頂部「目前已發佈」那一行、打開時落在哪一週、自動建立季度、預覽連結（不帶日期那一條）顯示哪一週；不影響星期一自動寄送。正式使用前一定要清空（上線前檢查會是紅色）' },
   { key: CONFIG_KEYS.ROSTER_WEBAPP_URL, value: '', note: '職事表系統填寫介面的網址。填了之後，週報填寫介面「本週事奉」旁邊會出現「查看／修改職事表」按鈕；留空就不顯示' },
-  { key: CONFIG_KEYS.TEMPLATE_KEYWORDS_COMBINED, value: '合堂,聯合', note: '特別主日標題／類型含這些關鍵詞（而不是浸禮或堂慶）就用三堂聯合崇拜範本 TPL_COMBINED（逗號分隔）' },
+  { key: CONFIG_KEYS.TEMPLATE_KEYWORDS_COMBINED, value: '合堂,聯合', note: '每週標題（職事表「類型」欄）含這些關鍵詞（而不是浸禮或堂慶）就用三堂聯合崇拜範本 TPL_COMBINED（逗號分隔）；只在程序範本留空＝自動時用' },
   { key: CONFIG_KEYS.TEMPLATE_FILE_ID_COMBINED, value: '', note: '三堂聯合崇拜（TPL_COMBINED）Word 範本的雲端硬碟檔案 ID。留空就用堂慶三堂聯合崇拜那一個（TEMPLATE_FILE_ID_ANNIVERSARY）' },
   { key: CONFIG_KEYS.AUTO_CREATE_QUARTERS, value: 'TRUE', note: '職事表某一季已經生成版本（未正式發出亦算）、而且該季未完結時，自動建立該季的週報與內容表（每日一次，以及開啟填寫介面時）。設 FALSE 就停用，改用選單人手建立' },
   { key: CONFIG_KEYS.AUTO_CREATE_QUARTERS_LEAD_DAYS, value: '90', note: '自動建立只限第一個主日在今日起多少日之內的季度（預設 90 日；0＝不限）。職事表內遠期的測試季度因此不會被自動建立；要早一點建立就用選單人手建立' }

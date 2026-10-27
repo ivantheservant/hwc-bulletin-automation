@@ -84,7 +84,7 @@ const boot = loadAllSrcFilesInOrder(baseStubs());
 
 /** 用 ROSTER_TABLE_DEFS_ 的機器鍵組出一張假的職事表分頁。 */
 function rosterSheet(defKey, rows) {
-  const keys = Object.keys(boot.ROSTER_TABLE_DEFS_[defKey].columns);
+  const keys = Object.keys(boot.ROSTER_TABLE_DEFS_[defKey].columns).concat(Object.keys(boot.ROSTER_TABLE_DEFS_[defKey].optionalColumns || {}));
   return makeFakeSheet(keys, keys, rows);
 }
 
@@ -96,7 +96,9 @@ function makeRosterSheets(extraServiceDate) {
   const serviceDateRows = [{
     ServiceDateID: 'SD1', QuarterID: ROSTER_QUARTER, ServiceDate: ROSTER_DATE, WeekIndex: 1,
     IsFirstSundayOfMonth: true, ServiceType: '主日崇拜', SpecialID: 'SP1',
-    AutoGenerate: true, Notes: ''
+    AutoGenerate: true, Notes: '',
+    // 2026-10-27：每週標題改讀 ServiceDates.Title（不再讀 SpecialSundays）。
+    Title: ROSTER_SPECIAL_TITLE
   }];
   if (extraServiceDate) {
     serviceDateRows.push({
@@ -125,13 +127,6 @@ function makeRosterSheets(extraServiceDate) {
       Stage: 'OFFICIAL_SENT', StageUpdatedAt: '2027-09-15'
     }]),
     ServiceDates: rosterSheet('SERVICE_DATES', serviceDateRows),
-    // ⚠️ 特別主日按**日期**比對（見 buildSpecialSundayDateIndex_() 與
-    //    docs/已知bug類型.md 事故四），所以一定要有 ServiceDate 與 Active。
-    SpecialSundays: rosterSheet('SPECIAL_SUNDAYS', [{
-      SpecialID: 'SP1', QuarterID: ROSTER_QUARTER, ServiceDate: ROSTER_DATE,
-      Type: '聖餐', Title: ROSTER_SPECIAL_TITLE, SkipPostIDs: '', LockPostIDs: '',
-      ExternalOwner: '', CommunionOverride: '', TranslationRequired: false, Active: true
-    }]),
     NameMapping: rosterSheet('NAME_MAPPING', [{ PersonID: 'P1', NameTC: ROSTER_PERSON, Active: true }]),
     Posts: rosterSheet('POSTS', [{
       PostID: 'CHAIR', PostNameTC: '主席', SlotCount: 1, DisplayOrder: 1, Active: true,

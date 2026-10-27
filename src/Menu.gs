@@ -174,6 +174,13 @@ function menuInitializeAllSheets_() {
       lines.push('');
     }
 
+    // 2026-10-27：程序範本改為跟每週標題的一次性清理（只在真的做了那一次才列出）。
+    var templateLines = (summary.programTemplateAuto && summary.programTemplateAuto.lines) || [];
+    if (templateLines.length > 0) {
+      templateLines.forEach(function (line) { lines.push(line); });
+      lines.push('');
+    }
+
     lines.push('詳情見 Diagnostics 工作表。');
     ui.alert('初始化完成', lines.join('\n'), ui.ButtonSet.OK);
   } catch (err) {

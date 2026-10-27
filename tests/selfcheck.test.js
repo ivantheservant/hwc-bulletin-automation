@@ -154,7 +154,7 @@ function makeManySundaysEnv(options) {
   ownSheets.BulletinWeeks = ownSheet('BULLETIN_WEEKS', weekRows);
 
   function rosterSheet(defKey, rows) {
-    const keys = Object.keys(boot.ROSTER_TABLE_DEFS_[defKey].columns);
+    const keys = Object.keys(boot.ROSTER_TABLE_DEFS_[defKey].columns).concat(Object.keys(boot.ROSTER_TABLE_DEFS_[defKey].optionalColumns || {}));
     return makeFakeSheet(keys, keys, rows || []);
   }
 
@@ -168,7 +168,6 @@ function makeManySundaysEnv(options) {
         WeekIndex: i + 1, IsFirstSundayOfMonth: i === 0, ServiceType: '主日崇拜', SpecialID: ''
       };
     })),
-    SpecialSundays: rosterSheet('SPECIAL_SUNDAYS', []),
     NameMapping: rosterSheet('NAME_MAPPING', []),
     Posts: rosterSheet('POSTS', []) // 沒有崗位 → dutyBoxPage1 不會產生待排定項目，方便精確算數
   };

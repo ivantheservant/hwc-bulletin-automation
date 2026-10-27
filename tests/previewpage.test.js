@@ -97,7 +97,7 @@ const boot = loadAllSrcFilesInOrder(baseStubs(DEPLOYER));
  */
 function makeRosterSheets() {
   function sheet(defKey, rows) {
-    const keys = Object.keys(boot.ROSTER_TABLE_DEFS_[defKey].columns);
+    const keys = Object.keys(boot.ROSTER_TABLE_DEFS_[defKey].columns).concat(Object.keys(boot.ROSTER_TABLE_DEFS_[defKey].optionalColumns || {}));
     return makeFakeSheet(keys, keys, rows);
   }
   return {
@@ -105,7 +105,6 @@ function makeRosterSheets() {
     RosterVersions: sheet('VERSIONS', []),
     Quarters: sheet('QUARTERS', []),
     ServiceDates: sheet('SERVICE_DATES', []),
-    SpecialSundays: sheet('SPECIAL_SUNDAYS', []),
     NameMapping: sheet('NAME_MAPPING', []),
     Posts: sheet('POSTS', [])
   };

@@ -428,3 +428,26 @@ function joinDutyBoxNames_(texts, separator) {
   });
   return kept.join(separator);
 }
+
+/**
+ * 用途：2026-10-27：事奉框（第 1 頁）／下週事奉（第 3 頁）要**印出來**的那幾行。純函式。
+ *
+ *   Config `DUTY_PRINT_EMPTY_ROWS`：FALSE（預設）＝沒有名字的崗位行不印（例如合堂那一週幹事在
+ *   職事表清空了的崗位）；TRUE＝照印崗位名、名字留空。Word、草稿預覽頁、電郵內文都經這一支，
+ *   規則只有一處。填寫介面與待填清單**不經**這一支：它們一律用全部行，未排定的崗位仍然看得到、
+ *   仍然列入待填。
+ * Args:
+ *   rows {Object[]} `dutyBoxPage1`／`nextWeekDuty`（`buildDutyBoxRows_()` 的輸出）。
+ *   printEmptyRows {boolean} Config `DUTY_PRINT_EMPTY_ROWS` 解析後的值。
+ * Returns:
+ *   {Object[]} 原本的行物件（同一個參考，不複製），次序不變。
+ * Raises:
+ *   （無）
+ */
+function dutyRowsForPrint_(rows, printEmptyRows) {
+  var list = rows || [];
+  if (printEmptyRows === true) return list.slice();
+  return list.filter(function (row) {
+    return String((row && row.text) === null || (row && row.text) === undefined ? '' : row.text).trim() !== '';
+  });
+}

@@ -112,10 +112,23 @@ test('PersonDisplay 行存在但 ACTIVE=FALSE → 視為找不到，記警告', 
   assert.strictEqual(o.warnings[0].code, 'NO_PERSON_DISPLAY');
 });
 
-test('personId 是空字串（例如佔位符 slot）→ 用原名，且不記警告', function () {
-  var o = opts({ personDisplayRows: [] });
-  assert.strictEqual(resolvePersonDisplay_('', '待確認', o), '待確認');
-  assert.strictEqual(o.warnings.length, 0, '沒有 PersonID 本來就查不到，不應該報「缺尊稱設定」');
+test('personId 是空字串（外請講員）→ PersonDisplay 按名字找不到就用原名，且不記警告', function () {
+  var o = opts({ personDisplayRows: [personRow()] });
+  assert.strictEqual(resolvePersonDisplay_('', '黃外請牧師', o), '黃外請牧師');
+  assert.strictEqual(o.warnings.length, 0, '名單以外的名字本來就查不到，不應該報「缺尊稱設定」');
+});
+
+test('2026-10-27：personId 是空字串（臨時幫手）但名字對得上 PersonDisplay → 照樣套尊稱（按名字找，與人手覆寫同一條路）', function () {
+  var o = opts({ personDisplayRows: [personRow({ PERSON_ID: 'P9001', NAME_TC: '陳大文', HONORIFIC: '弟兄' })] });
+  assert.strictEqual(resolvePersonDisplay_('', '陳大文', o), '陳大文弟兄');
+  assert.strictEqual(o.warnings.length, 0);
+  var page3 = opts({ withHonorific: false, personDisplayRows: [personRow({ NAME_TC: '陳大文', HONORIFIC: '弟兄' })] });
+  assert.strictEqual(resolvePersonDisplay_('', '陳大文', page3), '陳大文', '第 3 頁不加弟兄姊妹，規則一樣');
+  var title = opts({ withHonorific: false, personDisplayRows: [personRow({ NAME_TC: '林牧', HONORIFIC: '牧師' })] });
+  assert.strictEqual(resolvePersonDisplay_('', '林牧', title), '林牧牧師', '職稱類一律加');
+  var expired = opts({ personDisplayRows: [personRow({ NAME_TC: '陳大文', EFFECTIVE_TO: d('2027-01-01') })] });
+  assert.strictEqual(resolvePersonDisplay_('', '陳大文', expired), '陳大文', '生效日期一樣要看');
+  assert.strictEqual(expired.warnings.length, 0);
 });
 
 test('有 PersonDisplay 行但 HONORIFIC 留空 → 只有姓名，不記警告', function () {
@@ -219,9 +232,10 @@ test('resolveSlotDisplay_：NOT_APPLICABLE 回 null（代表整行不出現，�
   assert.strictEqual(resolveSlotDisplay_(slot, opts()), null);
 });
 
-test('resolveSlotDisplay_：EXTERNAL 回負責單位名稱', function () {
-  var slot = { postId: 'WORSHIP', state: ROSTER_SLOT_STATE_.EXTERNAL, externalOwner: '英語堂敬拜隊' };
-  assert.strictEqual(resolveSlotDisplay_(slot, opts()), '英語堂敬拜隊');
+test('2026-10-27：ROSTER_SLOT_STATE_ 不再有 EXTERNAL（週報不再讀 SpecialSundays 的外判單位）', function () {
+  assert.strictEqual(ROSTER_SLOT_STATE_.EXTERNAL, undefined);
+  var slot = { postId: 'WORSHIP', state: 'EXTERNAL', externalOwner: '英語堂敬拜隊', personId: null, personName: '' };
+  assert.strictEqual(resolveSlotDisplay_(slot, opts()), '', '舊狀態不再有特別處理，不會印出外判單位名');
 });
 
 test('resolveSlotDisplay_：PENDING 回空字串', function () {

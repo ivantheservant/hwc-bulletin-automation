@@ -1632,11 +1632,11 @@ function selfTestSeedSandboxWeeks_(config) {
  * S02：讀職事表（`SELFTEST_ROSTER_QUARTER_ID`，**只讀**）→ 斷言事奉格
  *   有值、尊稱套用正確。
  *
- *   ⚠️ 刻意**不呼叫** `buildBulletinModel_()`：那一支在
+ *   ⚠️ 刻意**不呼叫** `buildBulletinModel_()`：當年那一支在
  *   `PROGRAM_TEMPLATE_ID` 留空時會把推斷結果**寫回** `BulletinWeeks`
- *   （`persistInferredTemplateId_()`）——對一個非沙盒季度而言那是寫入，
- *   違反沙盒規則。改為直接用 `readRosterSnapshot_()` ＋ `buildDutyBox_()`，
- *   兩者都是唯讀。
+ *   ——對一個非沙盒季度而言那是寫入，違反沙盒規則（2026-10-27 起已經不寫回，
+ *   但這裏仍然只用唯讀的兩支，免得日後模型再加寫入時這一項靜靜違規）。改為直接用
+ *   `readRosterSnapshot_()` ＋ `buildDutyBox_()`，兩者都是唯讀。
  */
 function selfTestS02_(ctx) {
   var config = ctx.config;

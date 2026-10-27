@@ -902,7 +902,7 @@ test('重設（真入口 resetWeekFromWebApp_）：欄位改回預設值、覆�
   // v3：序樂、講題只在內容表輸入；這個環境沒有內容表可匯入，重設不動它們。
   assert.strictEqual(row.PRELUDE, '手填序樂');
   assert.strictEqual(row.SERMON_TITLE, '自己改的');
-  assert.strictEqual(row.PROGRAM_TEMPLATE_ID, 'TPL_NORMAL');
+  assert.strictEqual(row.PROGRAM_TEMPLATE_ID, '', '2026-10-27：重設＝程序範本恢復自動（留空跟每週標題）');
   assert.strictEqual(row.STATUS, 'SENT', '系統欄不改');
   assert.strictEqual(row.DOC_ID, 'DOC_KEEP', '系統欄不改');
   assert.strictEqual(String(row.ATT_ENG_WORSHIP), '12', '內容表接管的欄位沒有內容表可匯入時不動');

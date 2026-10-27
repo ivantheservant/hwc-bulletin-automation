@@ -45,7 +45,7 @@ function ownSheetFor(sb, sheetId, rows) {
 }
 
 function rosterSheetFor(sb, defKey, rows) {
-  const keys = Object.keys(sb.ROSTER_TABLE_DEFS_[defKey].columns);
+  const keys = Object.keys(sb.ROSTER_TABLE_DEFS_[defKey].columns).concat(Object.keys(sb.ROSTER_TABLE_DEFS_[defKey].optionalColumns || {}));
   return makeFakeSheet(keys, keys, rows || []);
 }
 
@@ -96,7 +96,6 @@ function makeEnv(options) {
     ServiceDates: rosterSheetFor(boot, 'SERVICE_DATES', SERVICE_DATES.map(function (iso, i) {
       return { ServiceDateID: 'SD' + (i + 1), QuarterID: QUARTER_ID, ServiceDate: iso, WeekIndex: i + 1, IsFirstSundayOfMonth: i === 0, ServiceType: '主日崇拜', SpecialID: '' };
     })),
-    SpecialSundays: rosterSheetFor(boot, 'SPECIAL_SUNDAYS', []),
     NameMapping: rosterSheetFor(boot, 'NAME_MAPPING', []),
     Posts: rosterSheetFor(boot, 'POSTS', [])
   };

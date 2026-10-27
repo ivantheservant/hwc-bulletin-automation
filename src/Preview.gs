@@ -346,7 +346,7 @@ function buildPreviewData_(model, options) {
   sections.push({
     title: '本週事奉',
     kind: 'PAIRS',
-    rows: (m.dutyBoxPage1 || []).map(function (row) { return [row.label, row.text]; })
+    rows: dutyRowsForPrint_(m.dutyBoxPage1, m.dutyPrintEmptyRows === true).map(function (row) { return [row.label, row.text]; })
   });
 
   // ---- 上週崇拜人數 ----
@@ -366,7 +366,7 @@ function buildPreviewData_(model, options) {
     title: (header.nextWeekHeading || '下週事奉')
       + '（' + (header.nextWeekDate || '') + '）',
     kind: 'PAIRS',
-    rows: (m.nextWeekDuty || []).map(function (row) { return [row.label, row.text]; })
+    rows: dutyRowsForPrint_(m.nextWeekDuty, m.dutyPrintEmptyRows === true).map(function (row) { return [row.label, row.text]; })
   });
 
   // ---- 獻花 ----

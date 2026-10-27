@@ -351,7 +351,7 @@ function ownSheetFor(sb, sheetId, rows) {
 }
 
 function rosterSheetFor(sb, defKey, rows) {
-  const keys = Object.keys(sb.ROSTER_TABLE_DEFS_[defKey].columns);
+  const keys = Object.keys(sb.ROSTER_TABLE_DEFS_[defKey].columns).concat(Object.keys(sb.ROSTER_TABLE_DEFS_[defKey].optionalColumns || {}));
   return makeFakeSheet(keys, keys, rows || []);
 }
 
@@ -430,7 +430,6 @@ function makeEnv(o) {
     ServiceDates: rosterSheetFor(boot, 'SERVICE_DATES', [
       { ServiceDateID: 'SD1', QuarterID: '2027T4', ServiceDate: isoDate, WeekIndex: 1, IsFirstSundayOfMonth: isoDate === '2027-11-07', ServiceType: '主日崇拜', SpecialID: '' }
     ]),
-    SpecialSundays: rosterSheetFor(boot, 'SPECIAL_SUNDAYS', []),
     NameMapping: rosterSheetFor(boot, 'NAME_MAPPING', [{ PersonID: 'P9001', NameTC: '陳大文', Active: true }]),
     Posts: rosterSheetFor(boot, 'POSTS', [
       { PostID: 'CHAIR', PostName_TC: '主席', SlotCount: 1, Frequency: 'WEEKLY', AutoGenerate: true, DisplayOrder: 10, Active: true, EmptyDisplay: 'PENDING' }

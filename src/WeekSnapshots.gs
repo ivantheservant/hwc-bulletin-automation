@@ -1101,8 +1101,12 @@ function restoreVersionLabel_(group) {
  * 用途：把 `BulletinWeeks` 一個空白週報行的預設值（建立本季空白週報時用）。
  *   純函式。「建立本季空白週報」與「重設這一週」共用這一支，預設值只有
  *   一個定義。
+ *
+ *   ⚠️ 2026-10-27：`PROGRAM_TEMPLATE_ID` 一律留空（＝自動，按每週標題推斷，見
+ *   resolveProgramTemplateId_()）。以前這裏寫入推斷結果，那一格有值之後就等於「人手揀過」，
+ *   職事表之後改每週標題，範本就不會跟。重設這一週亦因此恢復自動。
  * Args:
- *   input {{isoDate:string, quarterId:string, snapshot:Object, resolvedTemplateId:string,
+ *   input {{isoDate:string, quarterId:string, snapshot:Object,
  *     defaults:{prelude:string, pageTitle:string, attendanceHeading:string,
  *     nextWeekHeading:string, prayerBlockHeading:string}, rosterStatus:string}}
  * Returns:
@@ -1125,7 +1129,7 @@ function buildBlankWeekRow_(input) {
     WEEK_OF_MONTH: snapshot.weekOfMonth,
     SPECIAL_TYPE: special ? special.title : '',
     PAGE_TITLE: defaults.pageTitle,
-    PROGRAM_TEMPLATE_ID: input.resolvedTemplateId,
+    PROGRAM_TEMPLATE_ID: '',
     PRELUDE: defaults.prelude,
     ATTENDANCE_HEADING: defaults.attendanceHeading,
     ATTENDANCE_DATE: addDays_(targetDate, -7),
@@ -1260,10 +1264,9 @@ function resetWeekLocked_(isoDate, lastSavedAt) {
   var quarterId = String(state.weekRow.QUARTER_ID || '');
   var settings = readBlankWeekSettings_();
   var rosterSnapshot = readRosterSnapshot_(isoDate);
-  var resolved = resolveProgramTemplateId_({}, rosterSnapshot, settings.templateConfig);
   var blankRow = buildBlankWeekRow_({
     isoDate: isoDate, quarterId: quarterId, snapshot: rosterSnapshot,
-    resolvedTemplateId: resolved.templateId, defaults: settings.defaults,
+    defaults: settings.defaults,
     rosterStatus: String(state.weekRow.ROSTER_STATUS || '')
   });
   var plan = planWeekReset_(blankRow, state);

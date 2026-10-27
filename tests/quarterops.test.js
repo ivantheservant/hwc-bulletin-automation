@@ -150,7 +150,7 @@ function makeEnv(options) {
   //    而「事後比對有沒有變」擋不住「寫了又寫返原值」那一種。
   const rosterWrites = [];
   function rosterSheet(defKey, rows) {
-    const keys = Object.keys(boot.ROSTER_TABLE_DEFS_[defKey].columns);
+    const keys = Object.keys(boot.ROSTER_TABLE_DEFS_[defKey].columns).concat(Object.keys(boot.ROSTER_TABLE_DEFS_[defKey].optionalColumns || {}));
     const sheet = makeFakeSheet(keys, keys, rows || []);
     const realGetRange = sheet.getRange.bind(sheet);
     sheet.getRange = function () {
@@ -177,7 +177,6 @@ function makeEnv(options) {
         WeekIndex: i + 1, IsFirstSundayOfMonth: i === 0, ServiceType: '主日崇拜', SpecialID: ''
       };
     })),
-    SpecialSundays: rosterSheet('SPECIAL_SUNDAYS', []),
     NameMapping: rosterSheet('NAME_MAPPING', []),
     Posts: rosterSheet('POSTS', [])
   };

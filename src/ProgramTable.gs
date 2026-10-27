@@ -80,10 +80,11 @@ function isBaptismTemplateId_(templateId) {
  *   snapshot {Object} readRosterSnapshot_() 的回傳值（要用 `special` 推斷範本、
  *     用 `weekOfMonth` 求值 `WEEK_IN:`）。
  * Returns:
- *   {{templateId:string, inferred:boolean, rows:Object[], displayRows:Object[], editWarnings:Object[],
- *     recitation:string, recitationAuto:string}}
- *     `inferred` 為 true 代表 `BulletinWeeks.PROGRAM_TEMPLATE_ID` 原本留空、
- *     這次是推斷出來的（呼叫方可以據此決定要不要寫回工作表）。
+ *   {{templateId:string, inferred:boolean, templateAuto:string, rows:Object[], displayRows:Object[],
+ *     editWarnings:Object[], recitation:string, recitationAuto:string}}
+ *     `inferred` 為 true 代表 `BulletinWeeks.PROGRAM_TEMPLATE_ID` 留空、這次是按每週標題推斷的
+ *     （2026-10-27 起**不寫回**工作表，見 resolveProgramTemplateId_()）。
+ *     `templateAuto` 是**自動值**：假設沒有人手揀，按每週標題會用哪一個（填寫介面提示用）。
  *     `rows` 已經套用這一週的程序增刪（v3）；`displayRows` 給填寫介面（拿走的行仍在，標 `removed`）。
  * Raises:
  *   Error 如果範本內有認不出的 `CONDITION`／`CONTENT_SOURCE`，或
@@ -120,6 +121,8 @@ function buildProgramTable_(week, snapshot) {
   return {
     templateId: resolved.templateId,
     inferred: resolved.inferred,
+    // 2026-10-27：自動值——刻意把人手揀選當成空白再算一次（同誦讀 recitationAuto 的做法）。
+    templateAuto: resolveProgramTemplateId_({}, snapshot, templateConfig).templateId,
     rows: edited.rows,
     // 填寫介面用：拿走的行仍然在（`removed:true`），每一行帶 `key`／`addedId`。
     displayRows: edited.display,
@@ -156,10 +159,14 @@ function buildProgramTable_(week, snapshot) {
 /**
  * 用途：決定這一週用哪一個程序範本。
  *
- *   `BulletinWeeks.PROGRAM_TEMPLATE_ID` 有值就直接用（人手指定優先）；
- *   留空時按特別主日的標題／類型推斷：含浸禮關鍵詞 → 浸禮合堂範本，
- *   含堂慶關鍵詞 → 堂慶合堂範本，含合堂關鍵詞（v3）→ 三堂聯合崇拜範本，
- *   其餘（含沒有特別主日）→ Config 的 `TEMPLATE_DEFAULT`。
+ *   `BulletinWeeks.PROGRAM_TEMPLATE_ID` 有值＝幹事在填寫介面人手揀過，直接用；
+ *   **留空＝自動**，按這一週的標題（職事表 `ServiceDates.Title`，經快照 `special.title`）推斷：
+ *   含浸禮關鍵詞 → 浸禮合堂範本，含堂慶關鍵詞 → 堂慶合堂範本，含合堂關鍵詞（v3）→ 三堂聯合崇拜
+ *   範本，其餘（含標題空白）→ Config 的 `TEMPLATE_DEFAULT`。
+ *
+ *   ⚠️ 2026-10-27（Ivan 選 B）：自動推斷的結果**不寫回**工作表，每次都按當時的標題重新推斷——
+ *   幹事在職事表改了每週標題（包括改回空白），沒有人手揀過的那一週程序範本就跟住改。
+ *   想鎖定某一個範本就在填寫介面揀；揀回「（留空＝自動）」就恢復跟標題。
  * Args:
  *   week {Object} `BulletinWeeks` 該主日的資料列。
  *   snapshot {Object} 職事表快照（只用 `special.title` 與 `special.type`）。

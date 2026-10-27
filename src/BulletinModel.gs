@@ -37,16 +37,17 @@ function attendanceRowDefs_() {
  *   職事表快照、`BulletinWeeks`、家事報告、代禱、團契、財政、事奉框相關
  *   三張表、程序範本），再交給純函式層組裝。
  *
- *   副作用：如果 `BulletinWeeks.PROGRAM_TEMPLATE_ID` 原本留空、而這次
- *   推斷出了範本，會把推斷結果寫回工作表並記一筆 `AuditLog`
- *   （見 persistInferredTemplateId_()）。
+ *   2026-10-27（Ivan 選 B）：`BulletinWeeks.PROGRAM_TEMPLATE_ID` 留空＝程序範本跟每週標題自動推斷，
+ *   **不再把推斷結果寫回工作表**——寫回去之後那一格就有值，下次會被當成人手揀過，每週標題再改
+ *   （包括改回空白）範本就不會跟。見 resolveProgramTemplateId_()。
  * Args:
  *   isoDate {string} 主日日期，yyyy-MM-dd 格式。
  *   options {{weekOverlay:Object=, dutyOverrideRows:Object[]=, nextDutyOverrideRows:Object[]=,
  *     noWrite:boolean=}=} v3：只在「未儲存的草稿」與「某個版本的預覽」用（見 src/ModelOverlay.gs）。
  *     `weekOverlay`：疊在 `BulletinWeeks` 那一行上面的欄位值（只收填寫介面可編輯的欄位）；
  *     `dutyOverrideRows`／`nextDutyOverrideRows`：代替工作表上這一週／下一個主日的 `DutyOverride`；
- *     `noWrite`：不把推斷出來的程序範本寫回工作表（草稿與預覽一律不寫）。省略＝一般路徑。
+ *     `noWrite`：草稿與預覽用，保證不寫工作表（2026-10-27 起本函式本身已經不寫程序範本，這個旗標
+ *     保留給呼叫方表明意圖）。省略＝一般路徑。
  * Returns:
  *   {Object} 週報資料模型，形狀見 assembleBulletinModel_()。
  *     `ROSTER_SPREADSHEET_ID` 未設定時回 `{ ok:false, notConfigured:true, ... }`。
@@ -128,9 +129,6 @@ function buildBulletinModel_(isoDate, options) {
   };
 
   var program = buildProgramTable_(week, snapshot);
-  if (program.inferred && weekRows.length > 0 && Object.keys(week).length > 0 && opts.noWrite !== true) {
-    persistInferredTemplateId_(isoDate, program.templateId, warnings);
-  }
   (program.editWarnings || []).forEach(function (w) { warnings.push(w); });
 
   // ⚠️ 取值次序固定：**職事表快照 → 套用 DutyOverride → 套用 PersonDisplay
@@ -183,6 +181,7 @@ function buildBulletinModel_(isoDate, options) {
     nextSnapshot: nextSnapshot,
     week: week,
     templateId: program.templateId,
+    templateAuto: program.templateAuto,
     program: program.rows,
     programDisplay: program.displayRows || [],
     recitation: program.recitation,
@@ -211,7 +210,8 @@ function buildBulletinModel_(isoDate, options) {
       defaultNextWeekHeading: getConfig(CONFIG_KEYS.DEFAULT_NEXT_WEEK_HEADING, '下週主日崇拜聚會事奉肢體'),
       defaultPrayerBlockHeading: getConfig(CONFIG_KEYS.DEFAULT_PRAYER_BLOCK_HEADING, '代禱事項'),
       preludeDefault: getConfig(CONFIG_KEYS.PRELUDE_DEFAULT, ''),
-      cantoneseSubColumnLabel: getConfig(CONFIG_KEYS.CANTONESE_SUBCOLUMN_LABEL, '主堂')
+      cantoneseSubColumnLabel: getConfig(CONFIG_KEYS.CANTONESE_SUBCOLUMN_LABEL, '主堂'),
+      dutyPrintEmptyRows: normalizeBoolean_(getConfig(CONFIG_KEYS.DUTY_PRINT_EMPTY_ROWS, 'FALSE')) === true
     },
     // 正式路徑用 Apps Script 的 Utilities.formatDate()，才能完整支援 Config
     // 內任何 Java SimpleDateFormat 樣式；純函式層測試會改用內建的簡化版。
@@ -243,11 +243,18 @@ function emptyBulletinModel_(isoDate, overrides) {
     rosterIsOfficial: false,
     special: null,
     templateId: null,
+    // 2026-10-27：程序範本的**自動值**（假設沒有人手揀，按每週標題會用哪一個）。填寫介面的提示用。
+    templateAuto: '',
     header: {
       pageTitle: '', coverDate: '', attendanceHeading: '', attendanceDate: '',
       nextWeekHeading: '', nextWeekDate: ''
     },
     dutyBoxPage1: [],
+    // 2026-10-27：Config DUTY_PRINT_EMPTY_ROWS——沒有名字的崗位行印不印（預設 false＝不印）。
+    //    Word、草稿預覽頁、電郵內文一律經 dutyRowsForPrint_(model.dutyBoxPage1／nextWeekDuty, 這個值)
+    //    取要印的行；填寫介面與待填清單用全部行。⚠️ 存旗標而不是存「印出來的兩份清單」：手砌的
+    //    模型（測試、自測）沒有那兩份就會靜靜甚麼都不印；旗標缺了只是退回預設。
+    dutyPrintEmptyRows: false,
     program: [],
     programDisplay: [],
     // 第七輪新增：誦讀內容（Word 範本的 {{RECITATION}} 佔位符要用；
@@ -337,6 +344,7 @@ function assembleBulletinModel_(input) {
     rosterIsOfficial: Boolean(snapshot && snapshot.isOfficial),
     special: snapshot ? snapshot.special : null,
     templateId: input.templateId || null,
+    templateAuto: input.templateAuto || '',
     dutyBoxPage1: input.dutyBoxPage1 || [],
     program: input.program || [],
     programDisplay: input.programDisplay || input.program || [],
@@ -367,6 +375,9 @@ function assembleBulletinModel_(input) {
   };
 
   model.attendance = buildAttendanceTable_(week, config.cantoneseSubColumnLabel || '主堂');
+
+  // 印出來的事奉框：沒有名字的崗位行印不印由 Config 決定（預設不印），規則只在 dutyRowsForPrint_()。
+  model.dutyPrintEmptyRows = config.dutyPrintEmptyRows === true;
 
   // 浸禮合堂副框六欄。單人欄位的尊稱要用 `PersonDisplay`，那是 IO 層讀好
   // 之後透過 `input.baptismOptions` 傳進來的（純函式層不自己讀工作表）。
@@ -939,72 +950,3 @@ function formatDatePatternSimple_(date, pattern) {
   });
 }
 
-/**
- * 用途：把推斷出來的程序範本 ID 寫回 `BulletinWeeks`，並記一筆 `AuditLog`。
- *   只在該行原本留空時呼叫——已經有值代表人手指定過，一律不覆蓋。
- *
- *   寫入失敗（例如工作表被保護）不拋錯：範本已經推斷出來、模型照樣建得成，
- *   寫不回去只是下次要再推斷一次，不值得讓整個預覽失敗。改為記一筆警告。
- * Args:
- *   isoDate {string} 主日日期 yyyy-MM-dd。
- *   templateId {string} 推斷出來的範本 ID。
- *   warnings {Object[]} 累積警告用的陣列。
- * Returns:
- *   {boolean} 有沒有成功寫入。
- */
-function persistInferredTemplateId_(isoDate, templateId, warnings) {
-  try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var sheet = ensureSheet_(ss, 'BULLETIN_WEEKS');
-    var def = COLUMNS.BULLETIN_WEEKS;
-    var dateCol = def.keys.indexOf('SERVICE_DATE') + 1;
-    var templateCol = def.keys.indexOf('PROGRAM_TEMPLATE_ID') + 1;
-
-    var lastRow = sheet.getLastRow();
-    if (lastRow < 3) return false;
-
-    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate);
-    var y = Number(m[1]);
-    var mo = Number(m[2]);
-    var d = Number(m[3]);
-
-    var dates = sheet.getRange(3, dateCol, lastRow - 2, 1).getValues();
-    for (var i = 0; i < dates.length; i++) {
-      // ⚠️ 這裡讀的是**原始**儲存格值，不是 readSheet() 正規化過的結果，
-      // 所以日期欄可能是 Date 物件、也可能是 yyyy-MM-dd 文字（儲存格被
-      // 設成純文字格式時就是這樣）。只認 Date 會讓「找不到那一行」靜靜
-      // 發生、範本永遠寫不回去而沒有人知道，所以一律先正規化再比對。
-      // 能走到這一步代表 readSheet() 已經成功讀過同一張表，即每一格
-      // 不是 Date 就是合法的 yyyy-MM-dd（否則 readSheet() 早就拋錯了），
-      // 所以這裡的 catch 只會吃到空白格。
-      var cellDate = null;
-      try {
-        cellDate = normalizeDate_(dates[i][0]);
-      } catch (parseErr) {
-        cellDate = null;
-      }
-      if (!rosterDateMatchesYMD_(cellDate, y, mo, d)) continue;
-
-      var rowNo = i + 3;
-      sheet.getRange(rowNo, templateCol).setValue(templateId);
-      appendAuditLog_({
-        action: 'INFER_PROGRAM_TEMPLATE',
-        sheetName: SHEETS.BULLETIN_WEEKS,
-        rowKey: isoDate,
-        field: 'PROGRAM_TEMPLATE_ID',
-        oldValue: '',
-        newValue: templateId,
-        notes: '原本留空，依特別主日標題／類型自動推斷。'
-      });
-      return true;
-    }
-    return false;
-  } catch (err) {
-    warnings.push({
-      code: 'TEMPLATE_WRITEBACK_FAILED',
-      message: '推斷出程序範本「' + templateId + '」，但寫回週報試算表失敗：'
-        + (err && err.message ? err.message : String(err)) + '　模型本身不受影響。'
-    });
-    return false;
-  }
-}

@@ -132,7 +132,7 @@ function makeEnv(options) {
   ownSheets.PostDisplay = ownSheet('POST_DISPLAY', boot.seedPostDisplayRows_ ? boot.seedPostDisplayRows_() : []);
 
   function rosterSheet(defKey, rows) {
-    const keys = Object.keys(boot.ROSTER_TABLE_DEFS_[defKey].columns);
+    const keys = Object.keys(boot.ROSTER_TABLE_DEFS_[defKey].columns).concat(Object.keys(boot.ROSTER_TABLE_DEFS_[defKey].optionalColumns || {}));
     return makeFakeSheet(keys, keys, rows || []);
   }
   const rosterSheets = {
@@ -145,7 +145,6 @@ function makeEnv(options) {
         WeekIndex: i + 1, IsFirstSundayOfMonth: i === 0, ServiceType: '主日崇拜', SpecialID: ''
       };
     })),
-    SpecialSundays: rosterSheet('SPECIAL_SUNDAYS', []),
     NameMapping: rosterSheet('NAME_MAPPING', []),
     Posts: rosterSheet('POSTS', o.posts || [])
   };

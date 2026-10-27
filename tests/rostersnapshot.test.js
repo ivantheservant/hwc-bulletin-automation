@@ -247,27 +247,79 @@ test('PersonID 在 NameMapping 找不到 → 用 PersonNameSnapshot、有 warnin
 });
 
 // =====================================================================
-// 7. PersonNameSnapshot 是佔位符
+// 7. 「不是人」的顯示字（2026-10-27，職事表第八十二輪說明第 3.1 節）：一律當空白
 // =====================================================================
 
-['待確認', '—', '⚠ 未能安排'].forEach(function (placeholder) {
-  test('PersonNameSnapshot 是「' + placeholder + '」→ personId 為 null、有分類 warning', function () {
+['（待填）', '⚠ 未能安排', '—', '特殊主日', '待確認', '另行安排', '-', '－', 'N/A', 'n/a', ' 待確認 '].forEach(function (label) {
+  test('PersonNameSnapshot 是「' + label + '」（沒有 PersonID）→ 當空白：未排定、不記警告', function () {
     var tables = makeTables({
       serviceDates: [serviceDateRow()],
       quarters: [quarterRow()],
       versions: [versionRow()],
-      assignments: [assignmentRow({ PersonID: '', PersonNameSnapshot: placeholder })],
-      nameMapping: []
+      assignments: [assignmentRow({ PostID: 'CHAIR', PersonID: '', PersonNameSnapshot: label })],
+      nameMapping: [],
+      posts: [postRow({ PostID: 'CHAIR' })]
     });
     var snap = buildRosterSnapshot_(tables, '2027-10-03');
     assert.strictEqual(snap.assignments[0].personId, null);
-    assert.strictEqual(snap.assignments[0].personName, placeholder);
-    assert.ok(warningCodes(snap).indexOf('PERSON_PLACEHOLDER') !== -1);
+    assert.strictEqual(snap.assignments[0].personName, '', '不可以當成人名');
+    assert.strictEqual(snap.slotsByPost.CHAIR[0].state, 'PENDING');
+    assert.strictEqual(warningCodes(snap).filter(function (c) { return c !== 'NOT_OFFICIAL'; }).length, 0,
+      '實際警告：' + JSON.stringify(warningCodes(snap)));
   });
 });
 
+test('顯示字清單由呼叫方傳入（Config ROSTER_NOT_A_PERSON_TEXTS），沒有寫死；外部單位名稱加入清單就當空白', function () {
+  var tables = makeTables({
+    serviceDates: [serviceDateRow()],
+    quarters: [quarterRow()],
+    versions: [versionRow()],
+    assignments: [
+      assignmentRow({ PostID: 'CHAIR', SlotIndex: 1, PersonID: '', PersonNameSnapshot: '英語堂' }),
+      assignmentRow({ PostID: 'CHAIR', SlotIndex: 2, PersonID: '', PersonNameSnapshot: '待確認' })
+    ],
+    nameMapping: []
+  });
+  var custom = buildRosterSnapshot_(tables, '2027-10-03', { notAPersonTexts: ['英語堂'] });
+  assert.strictEqual(custom.assignments[0].personName, '');
+  assert.strictEqual(custom.assignments[1].personName, '待確認', '清單沒有的字照樣當名字（Config 說了算）');
+  var byDefault = buildRosterSnapshot_(tables, '2027-10-03');
+  assert.strictEqual(byDefault.assignments[0].personName, '英語堂', '預設清單沒有外部單位名稱');
+  assert.strictEqual(byDefault.assignments[1].personName, '');
+  assertArrayEqual(custom.notAPersonTexts, ['英語堂'], '快照帶出同一份清單給下游比對用');
+});
+
+test('有 PersonID → 一律用 NameMapping.NameTC（PersonNameSnapshot 是甚麼都不影響）', function () {
+  var tables = makeTables({
+    serviceDates: [serviceDateRow()],
+    quarters: [quarterRow()],
+    versions: [versionRow()],
+    assignments: [assignmentRow({ PersonID: 'P9001', PersonNameSnapshot: '舊名' })],
+    nameMapping: [nameMappingRow({ PersonID: 'P9001', NameTC: '陳大文' })]
+  });
+  var snap = buildRosterSnapshot_(tables, '2027-10-03');
+  assert.strictEqual(snap.assignments[0].personId, 'P9001');
+  assert.strictEqual(snap.assignments[0].personName, '陳大文');
+});
+
+test('沒有 PersonID、只有名字（外請講員、臨時幫手）→ 照顯示那個名字，已排定，不記警告', function () {
+  var tables = makeTables({
+    serviceDates: [serviceDateRow()],
+    quarters: [quarterRow()],
+    versions: [versionRow()],
+    assignments: [assignmentRow({ PostID: 'PREACHER', PersonID: '', PersonNameSnapshot: ' 黃外請牧師 ' })],
+    nameMapping: [],
+    posts: [postRow({ PostID: 'PREACHER', AutoGenerate: false })]
+  });
+  var snap = buildRosterSnapshot_(tables, '2027-10-03');
+  assert.strictEqual(snap.assignments[0].personId, null);
+  assert.strictEqual(snap.assignments[0].personName, '黃外請牧師');
+  assert.strictEqual(snap.slotsByPost.PREACHER[0].state, 'ASSIGNED');
+  assert.strictEqual(warningCodes(snap).filter(function (c) { return c !== 'NOT_OFFICIAL'; }).length, 0);
+});
+
 // =====================================================================
-// 8. SkipPostIDs 解析
+// 8. RuleFlags 解析（2026-10-27：「這一週不設」改看 RuleFlags）
 // =====================================================================
 
 test('parseRosterIdList_：空字串、單一值、逗號分隔、含空白、含全形逗號', function () {
@@ -280,17 +332,25 @@ test('parseRosterIdList_：空字串、單一值、逗號分隔、含空白、�
   assertArrayEqual(parseRosterIdList_('USHER，COUNT'), ['USHER', 'COUNT']);
 });
 
-test('special 物件的 skipPostIds／lockPostIds 真的有經過 parseRosterIdList_ 解析', function () {
+test('RuleFlags 逗號分隔 → 解析成陣列；有 HARD_COMMUNION_FIRST_SUNDAY 或 HARD_SPECIAL_SUNDAY_SKIP → NOT_APPLICABLE', function () {
   var tables = makeTables({
-    serviceDates: [serviceDateRow({ SpecialID: 'SP1' })],
+    serviceDates: [serviceDateRow()],
     quarters: [quarterRow()],
     versions: [versionRow()],
-    specialSundays: [specialSundayRow({ SkipPostIDs: 'USHER，COUNT', LockPostIDs: ' PIANO ' })]
+    assignments: [
+      assignmentRow({ PostID: 'COMMUNION', PersonID: '', PersonNameSnapshot: '—', RuleFlags: 'HARD_COMMUNION_FIRST_SUNDAY' }),
+      assignmentRow({ PostID: 'USHER', PersonID: '', PersonNameSnapshot: '特殊主日', RuleFlags: 'X_OTHER， HARD_SPECIAL_SUNDAY_SKIP' }),
+      assignmentRow({ PostID: 'PREACHER', PersonID: '', PersonNameSnapshot: '（待填）', RuleFlags: 'HARD_NO_AUTO_PREACHER' })
+    ],
+    posts: [postRow({ PostID: 'COMMUNION' }), postRow({ PostID: 'USHER' }), postRow({ PostID: 'PREACHER' })]
   });
   var snap = buildRosterSnapshot_(tables, '2027-10-03');
-  assert.ok(snap.special);
-  assertArrayEqual(snap.special.skipPostIds, ['USHER', 'COUNT']);
-  assertArrayEqual(snap.special.lockPostIds, ['PIANO']);
+  assertArrayEqual(snap.slotsByPost.USHER[0].ruleFlags, ['X_OTHER', 'HARD_SPECIAL_SUNDAY_SKIP']);
+  assert.strictEqual(snap.slotsByPost.COMMUNION[0].state, 'NOT_APPLICABLE', '首主日（聖餐週）也照 RuleFlags');
+  assert.strictEqual(snap.slotsByPost.USHER[0].state, 'NOT_APPLICABLE');
+  assert.strictEqual(snap.slotsByPost.PREACHER[0].state, 'PENDING', 'HARD_NO_AUTO_PREACHER 不是「不設」');
+  var custom = buildRosterSnapshot_(tables, '2027-10-03', { notApplicableRuleFlags: ['HARD_COMMUNION_FIRST_SUNDAY'] });
+  assert.strictEqual(custom.slotsByPost.USHER[0].state, 'PENDING', 'Config 沒有列 HARD_SPECIAL_SUNDAY_SKIP 就不算不設');
 });
 
 // =====================================================================
@@ -357,7 +417,6 @@ function makeRosterSheets() {
         IsFirstSundayOfMonth: true, ServiceType: '主日崇拜', SpecialID: '', AutoGenerate: true, Notes: ''
       }
     ]),
-    SpecialSundays: makeRosterSheetFromDef('SPECIAL_SUNDAYS', []),
     NameMapping: makeRosterSheetFromDef('NAME_MAPPING', [
       { PersonID: 'P9001', NameTC: '陳大文', Active: true }
     ]),
@@ -420,6 +479,49 @@ test('readRosterSnapshot_()：正常路徑（假 SpreadsheetApp），並且同�
   var snap2 = s.readRosterSnapshot_('2027-10-03');
   assert.strictEqual(snap2.found, true);
   assert.strictEqual(openByIdCallCount, 1, 'memoize 應該讓第二次呼叫不用重新開試算表');
+});
+
+test('2026-10-27 readRosterSnapshot_()（真正入口）：選讀欄 Title／RuleFlags 不存在 → 照讀，不拋錯、不記警告', function () {
+  var rosterSheets = makeRosterSheets();   // makeRosterSheetFromDef 只放必要欄
+  var FakeApp = {
+    getActiveSpreadsheet: function () { return makeFakeSpreadsheet({ Config: makeConfigSheet(fullConfigRows(FAKE_ROSTER_ID)) }); },
+    openById: function () { return makeFakeSpreadsheet(rosterSheets); }
+  };
+  var s = loadAllSrcFilesInOrder(Object.assign({}, GAS_STUBS, { SpreadsheetApp: FakeApp }));
+  var snap = s.readRosterSnapshot_('2027-10-03');
+  assert.strictEqual(snap.found, true);
+  assert.strictEqual(snap.special, null);
+  assert.strictEqual(snap.warnings.length, 0, JSON.stringify(snap.warnings));
+});
+
+test('2026-10-27 readRosterSnapshot_()（真正入口）：Title、RuleFlags 有欄 → 讀到；Config 的顯示字清單與 RuleFlags 代號生效', function () {
+  var rosterSheets = makeRosterSheets();
+  var sdKeys = Object.keys(sandbox.ROSTER_TABLE_DEFS_.SERVICE_DATES.columns).concat(['Title']);
+  rosterSheets.ServiceDates = makeFakeSheet(sdKeys, sdKeys, [{
+    ServiceDateID: 'SD-2027-10-03', QuarterID: '2027T4', ServiceDate: '2027-10-03', WeekIndex: 1,
+    IsFirstSundayOfMonth: true, ServiceType: '主日崇拜', SpecialID: '', Title: '浸禮主日'
+  }]);
+  var asKeys = Object.keys(sandbox.ROSTER_TABLE_DEFS_.ASSIGNMENTS.columns).concat(['RuleFlags']);
+  rosterSheets.RosterAssignments = makeFakeSheet(asKeys, asKeys, [
+    { QuarterID: '2027T4', VersionNo: 1, ServiceDate: '2027-10-03', PostID: 'CHAIR', SlotIndex: 1,
+      PersonID: '', PersonNameSnapshot: '另一個顯示字', AssignSource: 'AUTO', Locked: false, RuleFlags: '' },
+    { QuarterID: '2027T4', VersionNo: 1, ServiceDate: '2027-10-03', PostID: 'CHAIR', SlotIndex: 2,
+      PersonID: 'P9001', PersonNameSnapshot: '陳大文', AssignSource: 'AUTO', Locked: false, RuleFlags: 'MY_SKIP' }
+  ]);
+  var configRows = fullConfigRows(FAKE_ROSTER_ID).concat([
+    { KEY: 'ROSTER_NOT_A_PERSON_TEXTS', VALUE: '另一個顯示字', NOTE: '', EDITABLE: true },
+    { KEY: 'ROSTER_NOT_APPLICABLE_RULE_FLAGS', VALUE: 'MY_SKIP', NOTE: '', EDITABLE: true }
+  ]);
+  var FakeApp = {
+    getActiveSpreadsheet: function () { return makeFakeSpreadsheet({ Config: makeConfigSheet(configRows) }); },
+    openById: function () { return makeFakeSpreadsheet(rosterSheets); }
+  };
+  var s = loadAllSrcFilesInOrder(Object.assign({}, GAS_STUBS, { SpreadsheetApp: FakeApp }));
+  var snap = s.readRosterSnapshot_('2027-10-03');
+  assert.strictEqual(snap.special.title, '浸禮主日');
+  assert.strictEqual(snap.slotsByPost.CHAIR[0].personName, '', 'Config 列明的顯示字當空白');
+  assert.strictEqual(snap.slotsByPost.CHAIR[0].state, 'PENDING');
+  assert.strictEqual(snap.slotsByPost.CHAIR[1].state, 'NOT_APPLICABLE', 'Config 列明的 RuleFlags 代號＝不設');
 });
 
 // =====================================================================
@@ -543,93 +645,62 @@ test('Prompt2b-6：ServiceDate 無法解析 → 回 null 並記 warning，不拋
   assert.ok(warningCodes(snap).indexOf('SERVICE_DATE_NOT_FOUND') !== -1);
 });
 
-test('Prompt2b-7：SpecialSundays.Active 空白 → 該列視為 inactive（與職事表行為一致），不當成「找不到」', function () {
-  var tables = makeTables({
-    serviceDates: [serviceDateRow({ SpecialID: 'SP1' })],
-    quarters: [quarterRow()],
-    versions: [versionRow()],
-    specialSundays: [specialSundayRow({ Active: false })] // 空白經 rosterIsTrueValue_ 正規化後就是 false
-  });
-  var snap = buildRosterSnapshot_(tables, '2027-10-03');
-  assert.strictEqual(snap.special, null, 'inactive 的特別主日不生效');
-});
-
 // =====================================================================
-// Prompt3：特別主日按日期比對（事故四）
+// 2026-10-27：每週標題改讀 ServiceDates.Title（職事表第八十二輪說明第 5 節）；不再讀 SpecialSundays
 // =====================================================================
 
-test('Prompt3-1：SpecialID 空白但日期對得上 → 照樣找得到特別主日', function () {
+test('每週標題：ServiceDates.Title 有字而且不等於 ServiceType → special.title；source＝WEEK_TITLE', function () {
   var tables = makeTables({
-    // ⚠️ ServiceDates.SpecialID 是空的——實際資料就是這樣，職事表從來不用它。
-    serviceDates: [serviceDateRow({ SpecialID: '' })],
+    serviceDates: [serviceDateRow({ Title: '三堂聯合崇拜' })],
     quarters: [quarterRow()],
-    versions: [versionRow()],
-    specialSundays: [specialSundayRow({ SpecialID: 'SP1', ServiceDate: d('2027-10-03'), Title: '十月主日（浸禮）' })]
+    versions: [versionRow()]
   });
   var snap = buildRosterSnapshot_(tables, '2027-10-03');
-  assert.ok(snap.special, '應該按日期查到，不可以因為 SpecialID 空白就當成沒有特別主日');
-  assert.strictEqual(snap.special.title, '十月主日（浸禮）');
-  assert.strictEqual(snap.special.specialId, 'SP1');
+  assert.ok(snap.special);
+  assert.strictEqual(snap.special.title, '三堂聯合崇拜');
+  assert.strictEqual(snap.special.type, '');
+  assert.strictEqual(snap.special.source, 'WEEK_TITLE');
+  assert.strictEqual(snap.serviceDate.title, '三堂聯合崇拜');
 });
 
-test('Prompt3-2：日期對不上 → 沒有特別主日', function () {
-  var tables = makeTables({
-    serviceDates: [serviceDateRow({ ServiceDate: d('2027-10-10'), SpecialID: '' })],
-    quarters: [quarterRow()],
-    versions: [versionRow()],
-    specialSundays: [specialSundayRow({ ServiceDate: d('2027-10-03') })]
-  });
-  var snap = buildRosterSnapshot_(tables, '2027-10-10');
-  assert.strictEqual(snap.special, null);
-});
-
-test('Prompt3-3：special.title 取值照抄職事表——Title 有值用 Title，否則用 Type', function () {
-  function titleFor(overrides) {
+test('每週標題：空白、只有空白、或與 ServiceType 相同 → 普通主日（special 是 null）', function () {
+  ['', '   ', '主日崇拜', ' 主日崇拜 '].forEach(function (title) {
     var tables = makeTables({
-      serviceDates: [serviceDateRow({ SpecialID: '' })],
+      serviceDates: [serviceDateRow({ Title: title })],
       quarters: [quarterRow()],
-      versions: [versionRow()],
-      specialSundays: [specialSundayRow(overrides)]
+      versions: [versionRow()]
     });
-    var snap = buildRosterSnapshot_(tables, '2027-10-03');
-    return snap.special ? snap.special.title : null;
-  }
-  assert.strictEqual(titleFor({ Title: '十月主日（浸禮）', Type: 'BAPTISM' }), '十月主日（浸禮）');
-  assert.strictEqual(titleFor({ Title: '', Type: 'BAPTISM' }), 'BAPTISM', 'Title 空白時退回 Type');
-});
-
-test('Prompt3-4：SpecialID 有值但與按日期查到的不一致 → 記 SPECIAL_SUNDAY_ID_MISMATCH，仍以日期為準', function () {
-  var tables = makeTables({
-    serviceDates: [serviceDateRow({ SpecialID: 'SP_OLD' })],
-    quarters: [quarterRow()],
-    versions: [versionRow()],
-    specialSundays: [specialSundayRow({ SpecialID: 'SP_NEW', Title: '按日期查到的' })]
+    assert.strictEqual(buildRosterSnapshot_(tables, '2027-10-03').special, null, JSON.stringify(title));
   });
-  var snap = buildRosterSnapshot_(tables, '2027-10-03');
-  assert.strictEqual(snap.special.specialId, 'SP_NEW', '一律以日期為準');
-  assert.ok(warningCodes(snap).indexOf('SPECIAL_SUNDAY_ID_MISMATCH') !== -1);
 });
 
-test('Prompt3-5：SpecialID 與按日期查到的一致 → 沒有 mismatch 警告', function () {
+test('每週標題：舊試算表沒有 Title 一欄（undefined）→ 普通主日，不拋錯', function () {
+  var row = serviceDateRow();
+  delete row.Title;
+  var tables = makeTables({ serviceDates: [row], quarters: [quarterRow()], versions: [versionRow()] });
+  var snap = buildRosterSnapshot_(tables, '2027-10-03');
+  assert.strictEqual(snap.special, null);
+  assert.strictEqual(snap.serviceDate.title, '');
+});
+
+test('不再讀 SpecialSundays：tables 帶了 SpecialSundays 的資料也完全不影響 special', function () {
   var tables = makeTables({
     serviceDates: [serviceDateRow({ SpecialID: 'SP1' })],
     quarters: [quarterRow()],
     versions: [versionRow()],
-    specialSundays: [specialSundayRow({ SpecialID: 'SP1' })]
+    specialSundays: [specialSundayRow({ SpecialID: 'SP1', Title: '瀏覽器測試合堂', SkipPostIDs: 'CHAIR' })]
   });
   var snap = buildRosterSnapshot_(tables, '2027-10-03');
-  assert.ok(warningCodes(snap).indexOf('SPECIAL_SUNDAY_ID_MISMATCH') === -1);
+  assert.strictEqual(snap.special, null, '職事表已經不理 SpecialSundays，週報亦不理');
+  assert.ok(warningCodes(snap).indexOf('SPECIAL_SUNDAY_ID_MISMATCH') === -1, '亦不再比對 SpecialID');
 });
 
-test('Prompt3-6：日期索引只收同一季度的資料列', function () {
-  var tables = makeTables({
-    serviceDates: [serviceDateRow({ QuarterID: '2027T4', SpecialID: '' })],
-    quarters: [quarterRow({ QuarterID: '2027T4' })],
-    versions: [versionRow({ QuarterID: '2027T4' })],
-    specialSundays: [specialSundayRow({ QuarterID: '2027T3', Title: '別季的' })]
-  });
-  var snap = buildRosterSnapshot_(tables, '2027-10-03');
-  assert.strictEqual(snap.special, null, '別季的特別主日不應該被套用');
+test('白名單：SPECIAL_SUNDAYS 已拿走；Title、RuleFlags 是選讀欄（不在必要欄）', function () {
+  assert.strictEqual(sandbox.ROSTER_TABLE_DEFS_.SPECIAL_SUNDAYS, undefined);
+  assert.strictEqual(sandbox.ROSTER_TABLE_DEFS_.SERVICE_DATES.columns.Title, undefined);
+  assert.strictEqual(sandbox.ROSTER_TABLE_DEFS_.SERVICE_DATES.optionalColumns.Title, 'TEXT');
+  assert.strictEqual(sandbox.ROSTER_TABLE_DEFS_.ASSIGNMENTS.columns.RuleFlags, undefined);
+  assert.strictEqual(sandbox.ROSTER_TABLE_DEFS_.ASSIGNMENTS.optionalColumns.RuleFlags, 'TEXT');
 });
 
 // =====================================================================
@@ -664,32 +735,25 @@ test('Prompt3-state：FIRST_SUNDAY 崗位在聖餐週 → 不是 NOT_APPLICABLE'
   }), 'ASSIGNED');
 });
 
-test('Prompt3-state：NOT_APPLICABLE——在 skipPostIds 內而 externalOwner 為空', function () {
+test('Prompt3-state：NOT_APPLICABLE——RuleFlags 有 Config 列明的代號（就算有人名）', function () {
   assert.strictEqual(sandbox.resolveRosterSlotState_({
-    postId: 'USHER', personName: '甲', frequency: 'WEEKLY',
-    weekOfMonth: 1, communionWeeks: [1], skipPostIds: ['USHER'], externalOwner: ''
+    postId: 'USHER', personName: '甲', frequency: 'WEEKLY', weekOfMonth: 1, communionWeeks: [1],
+    ruleFlags: ['HARD_SPECIAL_SUNDAY_SKIP'], notApplicableRuleFlags: ['HARD_COMMUNION_FIRST_SUNDAY', 'HARD_SPECIAL_SUNDAY_SKIP']
   }), 'NOT_APPLICABLE');
 });
 
-test('Prompt3-state：EXTERNAL——在 skipPostIds 內而 externalOwner 有值', function () {
+test('Prompt3-state：RuleFlags 的代號不在 Config 清單 → 不算不設', function () {
   assert.strictEqual(sandbox.resolveRosterSlotState_({
-    postId: 'WORSHIP', personName: '', frequency: 'WEEKLY',
-    weekOfMonth: 1, communionWeeks: [1], skipPostIds: ['WORSHIP'], externalOwner: '英語堂敬拜隊'
-  }), 'EXTERNAL');
+    postId: 'PREACHER', personName: '', frequency: 'WEEKLY', weekOfMonth: 1, communionWeeks: [1],
+    ruleFlags: ['HARD_NO_AUTO_PREACHER'], notApplicableRuleFlags: ['HARD_COMMUNION_FIRST_SUNDAY', 'HARD_SPECIAL_SUNDAY_SKIP']
+  }), 'PENDING');
 });
 
-test('Prompt3-state 優先級：結構性不適用勝過 EXTERNAL', function () {
+test('Prompt3-state：沒有 RuleFlags 時，FIRST_SUNDAY 後備規則照舊（舊版本沒有 RuleFlags）', function () {
   assert.strictEqual(sandbox.resolveRosterSlotState_({
-    postId: 'COMMUNION', personName: '甲', frequency: 'FIRST_SUNDAY',
-    weekOfMonth: 2, communionWeeks: [1], skipPostIds: ['COMMUNION'], externalOwner: '英語堂'
-  }), 'NOT_APPLICABLE', '這一週根本不設這個崗位，就算有外判單位也不應該顯示');
-});
-
-test('Prompt3-state 優先級：EXTERNAL 勝過 ASSIGNED', function () {
-  assert.strictEqual(sandbox.resolveRosterSlotState_({
-    postId: 'WORSHIP', personName: '陳大文', frequency: 'WEEKLY',
-    weekOfMonth: 1, communionWeeks: [1], skipPostIds: ['WORSHIP'], externalOwner: '英語堂敬拜隊'
-  }), 'EXTERNAL', '外判崗位就算職事表留了人名，顯示的仍然是負責單位');
+    postId: 'COMMUNION', personName: '甲', frequency: 'FIRST_SUNDAY', weekOfMonth: 2, communionWeeks: [1],
+    ruleFlags: [], notApplicableRuleFlags: ['HARD_COMMUNION_FIRST_SUNDAY']
+  }), 'NOT_APPLICABLE');
 });
 
 test('Prompt3-state 優先級：ASSIGNED 勝過 PENDING（有人名就不算待填）', function () {
@@ -715,16 +779,16 @@ test('Prompt3-slots：完全沒有派工紀錄的崗位也會有一個 slot（�
   assert.strictEqual(slots.COMMUNION[0].state, 'NOT_APPLICABLE', '這一週根本不設這個崗位');
 });
 
-test('Prompt3-slots：EXTERNAL 的 slot 會帶上 externalOwner，其餘 slot 是空字串', function () {
+test('Prompt3-slots：slot 帶 ruleFlags（陣列副本）；沒有派工紀錄補的空白 slot 是空陣列', function () {
   var snapshot = {
-    isoDate: '2027-10-03', weekOfMonth: 1,
-    special: { skipPostIds: ['WORSHIP'], externalOwner: '英語堂敬拜隊' },
+    isoDate: '2027-10-03', weekOfMonth: 1, special: null,
     posts: [{ postId: 'WORSHIP', frequency: 'WEEKLY' }, { postId: 'CHAIR', frequency: 'WEEKLY' }],
-    assignments: [{ postId: 'CHAIR', slotIndex: 1, personId: 'P9001', personName: '陳大文', assignSource: '', locked: false }]
+    assignments: [{ postId: 'CHAIR', slotIndex: 1, personId: 'P9001', personName: '陳大文', assignSource: '', locked: false, ruleFlags: ['A'] }]
   };
-  var slots = sandbox.buildRosterSlotIndex_(snapshot, [1]);
-  assert.strictEqual(slots.WORSHIP[0].externalOwner, '英語堂敬拜隊');
-  assert.strictEqual(slots.CHAIR[0].externalOwner, '');
+  var slots = sandbox.buildRosterSlotIndex_(snapshot, [1], []);
+  assertArrayEqual(slots.CHAIR[0].ruleFlags, ['A']);
+  assertArrayEqual(slots.WORSHIP[0].ruleFlags, []);
+  assert.strictEqual(slots.WORSHIP[0].externalOwner, undefined, '外判單位已拿走');
 });
 
 test('Prompt3-slots：readRosterSnapshot_ 出來的快照有 slotsByPost，且 assignments 一併帶 state', function () {

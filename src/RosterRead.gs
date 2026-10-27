@@ -36,15 +36,23 @@
 // =====================================================================
 
 /**
- * 職事表七張工作表的白名單定義：
- *   label          人看的表名，用於錯誤訊息。
- *   configKeyName  對應哪一個 CONFIG_KEYS，錯誤訊息要講得出「改哪個設定」。
- *   columns        機器鍵 → 型別（'TEXT'／'INT'／'DATE'／'BOOLEAN'，見
- *                  rosterNormalizeByType_()）。**只列出週報真正需要的
- *                  欄位**——不在清單內的欄，即使工作表裡有，也完全不會
- *                  被讀取／正規化／驗證，工作表可以自由新增其他欄位而
- *                  不影響週報。NAME_MAPPING 刻意只列 3 欄，Email／Phone／
- *                  PersonalLinkToken 等敏感欄位一律不讀進記憶體（硬規則）。
+ * 職事表六張工作表的白名單定義：
+ *   label           人看的表名，用於錯誤訊息。
+ *   configKeyName   對應哪一個 CONFIG_KEYS，錯誤訊息要講得出「改哪個設定」。
+ *   columns         **必要**欄：機器鍵 → 型別（'TEXT'／'INT'／'DATE'／'BOOLEAN'，見
+ *                   rosterNormalizeByType_()）。第 2 行找不到就拋錯。**只列出週報
+ *                   真正需要的欄位**——不在清單內的欄，即使工作表裡有，也完全不會
+ *                   被讀取／正規化／驗證，工作表可以自由新增其他欄位而
+ *                   不影響週報。NAME_MAPPING 刻意只列 3 欄，Email／Phone／
+ *                   PersonalLinkToken 等敏感欄位一律不讀進記憶體（硬規則）。
+ *   optionalColumns **選讀**欄（2026-10-27，職事表第八十二輪說明）：職事表後來才加、舊試算表
+ *                   可能未有的欄。第 2 行找不到就當每一行都是空值（TEXT＝''），**不拋錯、
+ *                   不記警告**——例如 `ServiceDates.Title` 要等幹事第一次改每週標題，職事表
+ *                   才會加這一欄。
+ *
+ * ⚠️ 2026-10-27 起**不再讀 `SpecialSundays`**：職事表第七十五輪起特別主日拿走
+ *   （`SPECIAL_SUNDAYS_ENABLED` 預設 FALSE），那張表的內容不再影響職事表。每週標題改讀
+ *   `ServiceDates.Title`；「這一週不設」改看 `RosterAssignments.RuleFlags`。
  */
 var ROSTER_TABLE_DEFS_ = Object.freeze({
   ASSIGNMENTS: {
@@ -54,6 +62,10 @@ var ROSTER_TABLE_DEFS_ = Object.freeze({
       QuarterID: 'TEXT', VersionNo: 'INT', ServiceDate: 'DATE', PostID: 'TEXT',
       SlotIndex: 'INT', PersonID: 'TEXT', PersonNameSnapshot: 'TEXT',
       AssignSource: 'TEXT', Locked: 'BOOLEAN'
+    },
+    optionalColumns: {
+      // 逗號分隔的規則代號（例如 HARD_COMMUNION_FIRST_SUNDAY），用來分「空格」是哪一種。
+      RuleFlags: 'TEXT'
     }
   },
   VERSIONS: {
@@ -77,16 +89,10 @@ var ROSTER_TABLE_DEFS_ = Object.freeze({
     columns: {
       ServiceDateID: 'TEXT', QuarterID: 'TEXT', ServiceDate: 'DATE', WeekIndex: 'INT',
       IsFirstSundayOfMonth: 'BOOLEAN', ServiceType: 'TEXT', SpecialID: 'TEXT'
-    }
-  },
-  SPECIAL_SUNDAYS: {
-    label: 'SpecialSundays',
-    configKeyName: 'ROSTER_SHEET_SPECIAL_SUNDAYS',
-    columns: {
-      SpecialID: 'TEXT', QuarterID: 'TEXT', ServiceDate: 'DATE', Type: 'TEXT', Title: 'TEXT',
-      SkipPostIDs: 'TEXT', LockPostIDs: 'TEXT', ExternalOwner: 'TEXT',
-      // CommunionOverride 在職事表是保留但未串接的欄位，取值不明，一律當文字。
-      CommunionOverride: 'TEXT', TranslationRequired: 'BOOLEAN', Active: 'BOOLEAN'
+    },
+    optionalColumns: {
+      // 每週標題：幹事在職事表「類型」欄改，空白＝預設類型（ServiceType）。
+      Title: 'TEXT'
     }
   },
   NAME_MAPPING: {
@@ -108,9 +114,6 @@ var ROSTER_TABLE_DEFS_ = Object.freeze({
     }
   }
 });
-
-/** PersonNameSnapshot 的已知佔位符——代表「尚未排到實際人選」，不是真人姓名。 */
-var ROSTER_PERSON_PLACEHOLDER_SNAPSHOTS_ = ['—', '待確認', '⚠ 未能安排'];
 
 // =====================================================================
 // 真正入口
@@ -141,16 +144,32 @@ function readRosterSnapshot_(isoDate) {
     return emptyRosterSnapshot_(isoDate, { ok: false, notConfigured: true });
   }
 
-  // 聖餐週次由 Config 決定（不可以寫死）。純函式層自己讀不到 Config，
-  // 所以在這個真正入口讀好再傳進去。
-  var communionWeeks = getConfigIntList_(CONFIG_KEYS.COMMUNION_WEEKS, '1');
-
+  // 聖餐週次、「不是人」的顯示字、「這一週不設」的規則代號都由 Config 決定（不可以寫死）。
+  // 純函式層自己讀不到 Config，所以在這個真正入口讀好再傳進去。
   var io = fetchRosterTablesCached_(spreadsheetId, buildRosterSheetNames_());
-  var snapshot = buildRosterSnapshot_(io.tables, isoDate, { communionWeeks: communionWeeks });
+  var snapshot = buildRosterSnapshot_(io.tables, isoDate, readRosterSnapshotOptions_());
   if (io.warnings.length > 0) {
     snapshot.warnings = snapshot.warnings.concat(io.warnings);
   }
   return snapshot;
+}
+
+/**
+ * 用途：讀出 `buildRosterSnapshot_()` 要用的三項 Config。真正入口專用（會讀 Config）。
+ * Args: （無）
+ * Returns:
+ *   {{communionWeeks:number[], notAPersonTexts:string[], notApplicableRuleFlags:string[]}}
+ * Raises:
+ *   Error 如果 `COMMUNION_WEEKS` 格式不對（見 getConfigIntList_()）。
+ */
+function readRosterSnapshotOptions_() {
+  return {
+    communionWeeks: getConfigIntList_(CONFIG_KEYS.COMMUNION_WEEKS, '1'),
+    notAPersonTexts: getConfigTextList_(CONFIG_KEYS.ROSTER_NOT_A_PERSON_TEXTS, ROSTER_NOT_A_PERSON_TEXTS_DEFAULT),
+    notApplicableRuleFlags: getConfigTextList_(
+      CONFIG_KEYS.ROSTER_NOT_APPLICABLE_RULE_FLAGS, ROSTER_NOT_APPLICABLE_RULE_FLAGS_DEFAULT
+    )
+  };
 }
 
 /**
@@ -377,17 +396,18 @@ function emptyRosterSnapshot_(isoDate, overrides) {
     assignments: [],
     slotsByPost: {},
     posts: [],
+    notAPersonTexts: [],
     warnings: []
   };
   return Object.assign(base, overrides || {});
 }
 
 /**
- * 用途：從 Config 組出職事表七張工作表的實際名稱。
+ * 用途：從 Config 組出職事表六張工作表的實際名稱（2026-10-27 起不再讀 SpecialSundays）。
  * Args: （無）
  * Returns:
  *   {{ASSIGNMENTS:string, VERSIONS:string, QUARTERS:string, SERVICE_DATES:string,
- *     SPECIAL_SUNDAYS:string, NAME_MAPPING:string, POSTS:string}}
+ *     NAME_MAPPING:string, POSTS:string}}
  */
 function buildRosterSheetNames_() {
   return {
@@ -395,7 +415,6 @@ function buildRosterSheetNames_() {
     VERSIONS: getConfig(CONFIG_KEYS.ROSTER_SHEET_VERSIONS, 'RosterVersions'),
     QUARTERS: getConfig(CONFIG_KEYS.ROSTER_SHEET_QUARTERS, 'Quarters'),
     SERVICE_DATES: getConfig(CONFIG_KEYS.ROSTER_SHEET_SERVICE_DATES, 'ServiceDates'),
-    SPECIAL_SUNDAYS: getConfig(CONFIG_KEYS.ROSTER_SHEET_SPECIAL_SUNDAYS, 'SpecialSundays'),
     NAME_MAPPING: getConfig(CONFIG_KEYS.ROSTER_SHEET_NAME_MAPPING, 'NameMapping'),
     POSTS: getConfig(CONFIG_KEYS.ROSTER_SHEET_POSTS, 'Posts')
   };
@@ -426,18 +445,18 @@ function fetchRosterTablesCached_(spreadsheetId, sheetNames) {
 // =====================================================================
 
 /**
- * 用途：一次過把職事表七張工作表（白名單欄位）讀成純陣列物件並回傳，
+ * 用途：一次過把職事表六張工作表（白名單欄位）讀成純陣列物件並回傳，
  *   不做任何業務判斷（不比對日期、不篩選版本、不解析特別主日、不查
  *   姓名對照）。每張表只讀一次（`getRange` 等級的單次範圍讀取），不會
  *   針對個別崗位或個別主日重覆開表。
  * Args:
  *   spreadsheetId {string} 職事表試算表 ID。
- *   sheetNames {Object} buildRosterSheetNames_() 的回傳值，七個工作表的
+ *   sheetNames {Object} buildRosterSheetNames_() 的回傳值，六個工作表的
  *     實際名稱。
  * Returns:
  *   {{tables:{assignments:Object[], versions:Object[], quarters:Object[],
- *     serviceDates:Object[], specialSundays:Object[], nameMapping:Object[],
- *     posts:Object[]}, warnings:{code:string,message:string}[]}}
+ *     serviceDates:Object[], nameMapping:Object[], posts:Object[]},
+ *     warnings:{code:string,message:string}[]}}
  *     `tables` 的每個陣列元素是以機器鍵為 key 的物件，已依
  *     ROSTER_TABLE_DEFS_ 宣告的型別做**寬鬆**正規化；`warnings` 是讀取
  *     過程中遇到的、無法解析的整數／日期值（空白不算，只有「有值但解析
@@ -466,7 +485,6 @@ function fetchRosterTables_(spreadsheetId, sheetNames) {
     versions: readRosterTable_(ss, ROSTER_TABLE_DEFS_.VERSIONS, sheetNames.VERSIONS, warnings),
     quarters: readRosterTable_(ss, ROSTER_TABLE_DEFS_.QUARTERS, sheetNames.QUARTERS, warnings),
     serviceDates: readRosterTable_(ss, ROSTER_TABLE_DEFS_.SERVICE_DATES, sheetNames.SERVICE_DATES, warnings),
-    specialSundays: readRosterTable_(ss, ROSTER_TABLE_DEFS_.SPECIAL_SUNDAYS, sheetNames.SPECIAL_SUNDAYS, warnings),
     nameMapping: readRosterTable_(ss, ROSTER_TABLE_DEFS_.NAME_MAPPING, sheetNames.NAME_MAPPING, warnings),
     posts: readRosterTable_(ss, ROSTER_TABLE_DEFS_.POSTS, sheetNames.POSTS, warnings)
   };
@@ -478,21 +496,22 @@ function fetchRosterTables_(spreadsheetId, sheetNames) {
  * 用途：讀取職事表其中一張工作表的白名單欄位：第 2 行當機器鍵、第 3 行
  *   起是資料。用機器鍵對照欄位位置（不是照固定欄數讀），白名單以外的欄
  *   完全不會被碰——工作表多出其他欄位（不論是本來就有、還是對方日後
- *   加的）一律靜靜略過，不是錯誤。只有白名單內的機器鍵在第 2 行找不到，
- *   才視為結構性問題，直接拋錯。
+ *   加的）一律靜靜略過，不是錯誤。只有**必要**欄（`columns`）的機器鍵在第 2 行
+ *   找不到，才視為結構性問題，直接拋錯；**選讀**欄（`optionalColumns`）找不到
+ *   就當每一行都是空值。
  * Args:
  *   ss {Spreadsheet} 已經用 `openById()` 開啟的職事表試算表。
- *   tableDef {{label:string, configKeyName:string, columns:Object<string,string>}}
- *     ROSTER_TABLE_DEFS_ 其中一個表定義。
+ *   tableDef {{label:string, configKeyName:string, columns:Object<string,string>,
+ *     optionalColumns:(Object<string,string>|undefined)}} ROSTER_TABLE_DEFS_ 其中一個表定義。
  *   sheetName {string} 這張表在職事表試算表內的實際名稱（來自 Config）。
  *   warningsOut {{code:string,message:string}[]} 累積寬鬆解析警告用的
  *     陣列，這個函式會往裡面 push（透過 rosterNormalizeByType_()）。
  * Returns:
- *   {Object[]} 陣列，每個元素是以機器鍵為 key 的物件（只含白名單欄位）；
- *     整行皆空白的資料列會被略過。
+ *   {Object[]} 陣列，每個元素是以機器鍵為 key 的物件（必要欄＋選讀欄，選讀欄
+ *     在工作表找不到時是該型別的空值）；整行皆空白的資料列會被略過。
  * Raises:
  *   Error 如果工作表不存在，或第 2 行缺少 tableDef.columns 宣告的任何
- *     一個機器鍵。
+ *     一個機器鍵（選讀欄不算）。
  */
 function readRosterTable_(ss, tableDef, sheetName, warningsOut) {
   var sheet = ss.getSheetByName(sheetName);
@@ -532,6 +551,9 @@ function readRosterTable_(ss, tableDef, sheetName, warningsOut) {
 
   if (lastRow < 3) return [];
 
+  var optionalColumns = tableDef.optionalColumns || {};
+  var optionalKeys = Object.keys(optionalColumns);
+
   var values = sheet.getRange(3, 1, lastRow - 2, lastCol).getValues();
   var rows = [];
 
@@ -545,6 +567,12 @@ function readRosterTable_(ss, tableDef, sheetName, warningsOut) {
       var type = tableDef.columns[key];
       var context = { sheet: sheetName, key: key, row: r + 3 };
       row[key] = rosterNormalizeByType_(type, raw, context, warningsOut);
+    });
+    // 選讀欄：工作表沒有這一欄＝每一行都是空值（經同一個正規化，TEXT 得 ''），不拋錯、不記警告。
+    optionalKeys.forEach(function (key) {
+      var raw = (key in colIndexByKey) ? rawRow[colIndexByKey[key]] : '';
+      var context = { sheet: sheetName, key: key, row: r + 3 };
+      row[key] = rosterNormalizeByType_(optionalColumns[key], raw, context, warningsOut);
     });
     rows.push(row);
   });
@@ -682,23 +710,37 @@ function rosterToDateLenient_(value, context, warningsOut) {
 /**
  * 用途：把 fetchRosterTables_() 的 `tables` 原始資料，組成一個主日的
  *   事奉快照。全部業務判斷都在這裡：比對日期、算 weekOfMonth、篩選最新
- *   版本的派工紀錄、解析特別主日、解析姓名對照、逐個 slot 判斷狀態、
+ *   版本的派工紀錄、讀每週標題、解析姓名對照、逐個 slot 判斷狀態、
  *   產生警告。完全不碰 Apps Script 服務，方便在 Node 用假資料直接測試。
+ *
+ *   每週標題（2026-10-27，職事表第八十二輪說明第 5 節）：`ServiceDates.Title` 有字、而且
+ *   不等於 `ServiceType`，就是這一週的標題，放在 `snapshot.special.title`（沿用舊的位置，
+ *   下游——「特別主日：」一行、程序範本推斷、Word `{{SPECIAL_TYPE}}`、郵件標題——不用改）。
+ *   空白或等於 ServiceType ⇒ 普通主日（`special` 是 null）。**不再讀 SpecialSundays。**
  * Args:
  *   tables {Object} fetchRosterTables_() 回傳值的 `.tables` 部分。
  *   isoDate {string} 主日日期，yyyy-MM-dd 格式。
- *   options {{communionWeeks:(number[]|undefined)}=} 選填。`communionWeeks`
- *     是 Config `COMMUNION_WEEKS` 解析後的週次陣列，用來判斷
- *     `Frequency === 'FIRST_SUNDAY'` 的崗位這一週適不適用。沒有提供時
- *     退回 `[1]`——刻意與 Config 的預設值一致，只在測試等沒有 Config 的
- *     情境下使用；正式路徑一律由 readRosterSnapshot_() 讀 Config 傳進來。
+ *   options {{communionWeeks:(number[]|undefined), notAPersonTexts:(string[]|undefined),
+ *     notApplicableRuleFlags:(string[]|undefined)}=} 選填，正式路徑一律由
+ *     readRosterSnapshotOptions_() 讀 Config 傳進來；沒有提供時退回與 Config 預設值相同的值
+ *     （只在測試等沒有 Config 的情境下使用）：
+ *     - `communionWeeks`：Config `COMMUNION_WEEKS`，判斷 `Frequency === 'FIRST_SUNDAY'`
+ *       的崗位這一週適不適用（後備，見 resolveRosterSlotState_()）。預設 `[1]`。
+ *     - `notAPersonTexts`：Config `ROSTER_NOT_A_PERSON_TEXTS`，職事表的顯示字（「（待填）」
+ *       「—」「待確認」……），在 `PersonNameSnapshot` 見到一律當空白。
+ *     - `notApplicableRuleFlags`：Config `ROSTER_NOT_APPLICABLE_RULE_FLAGS`，`RuleFlags`
+ *       有其中一個代號＝這一週不設這個崗位。
  * Returns:
  *   {Object} 快照物件，形狀見 docs/職事表唯讀介面.md。
  * Raises:
  *   Error 如果 isoDate 不是合法的 yyyy-MM-dd 格式。
  */
 function buildRosterSnapshot_(tables, isoDate, options) {
-  var communionWeeks = (options && options.communionWeeks) || [1];
+  var opts = options || {};
+  var communionWeeks = opts.communionWeeks || [1];
+  var notAPersonTexts = opts.notAPersonTexts || parseConfigTextList_(ROSTER_NOT_A_PERSON_TEXTS_DEFAULT);
+  var notApplicableRuleFlags = opts.notApplicableRuleFlags
+    || parseConfigTextList_(ROSTER_NOT_APPLICABLE_RULE_FLAGS_DEFAULT);
   var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(isoDate || ''));
   if (!m) {
     throw new Error('buildRosterSnapshot_：isoDate 必須是 yyyy-MM-dd 格式，收到：' + JSON.stringify(isoDate));
@@ -712,6 +754,8 @@ function buildRosterSnapshot_(tables, isoDate, options) {
   var snapshot = emptyRosterSnapshot_(isoDate, {
     weekOfMonth: weekOfMonth,
     posts: buildActiveRosterPostsList_(tables.posts),
+    // 下游（例如 buildRosterDiff_() 比對舊覆寫記下的職事表值）要用同一份清單判斷「不是人」。
+    notAPersonTexts: notAPersonTexts.slice(),
     warnings: warnings
   });
 
@@ -734,8 +778,10 @@ function buildRosterSnapshot_(tables, isoDate, options) {
     weekIndex: serviceDateRow.WeekIndex,
     isFirstSundayOfMonth: serviceDateRow.IsFirstSundayOfMonth,
     serviceType: serviceDateRow.ServiceType,
-    specialId: serviceDateRow.SpecialID
+    specialId: serviceDateRow.SpecialID,
+    title: serviceDateRow.Title || ''
   };
+  snapshot.special = buildRosterWeekTitle_(serviceDateRow);
 
   if (Boolean(serviceDateRow.IsFirstSundayOfMonth) !== (weekOfMonth === 1)) {
     warnings.push({
@@ -787,82 +833,34 @@ function buildRosterSnapshot_(tables, isoDate, options) {
           && a.VersionNo === maxVersionNo
           && rosterDateMatchesYMD_(a.ServiceDate, targetYear, targetMonth, targetDay);
       })
-      .map(function (a) { return resolveRosterAssignmentPerson_(a, nameByPersonId, warnings); });
+      .map(function (a) { return resolveRosterAssignmentPerson_(a, nameByPersonId, warnings, notAPersonTexts); });
   }
 
-  // ⚠️ 特別主日一律按**日期**比對，不是按 ServiceDates.SpecialID。
-  // 見 buildSpecialSundayDateIndex_() 的說明與 docs/已知bug類型.md 事故四。
-  var specialIndex = buildSpecialSundayDateIndex_(tables.specialSundays, snapshot.quarterId);
-  var specialRow = specialIndex[isoDate] || null;
-
-  if (specialRow) {
-    snapshot.special = {
-      specialId: specialRow.SpecialID,
-      type: specialRow.Type,
-      // 照抄職事表 buildSpecialSundayTitleIndex_()：Title 有值就用 Title，否則用 Type。
-      title: specialRow.Title || specialRow.Type,
-      skipPostIds: parseRosterIdList_(specialRow.SkipPostIDs),
-      lockPostIds: parseRosterIdList_(specialRow.LockPostIDs),
-      externalOwner: specialRow.ExternalOwner,
-      communionOverride: specialRow.CommunionOverride,
-      translationRequired: Boolean(specialRow.TranslationRequired)
-    };
-  }
-
-  // ServiceDates.SpecialID 只作參考記錄。實際資料裡它經常是空的，所以
-  // 完全不用來查表；但如果它有值、而按日期查到的卻是另一列（或查不到），
-  // 代表職事表兩處資料不一致，值得記一筆讓人留意。
-  if (serviceDateRow.SpecialID && (!specialRow || specialRow.SpecialID !== serviceDateRow.SpecialID)) {
-    warnings.push({
-      code: 'SPECIAL_SUNDAY_ID_MISMATCH',
-      message: 'ServiceDates 記錄的 SpecialID「' + serviceDateRow.SpecialID + '」與按日期（' + isoDate
-        + '）查到的 SpecialSundays 一列（' + (specialRow ? specialRow.SpecialID : '查無') + '）不一致；'
-        + '已一律以日期為準，SpecialID 只作參考。'
-    });
-  }
-
-  snapshot.slotsByPost = buildRosterSlotIndex_(snapshot, communionWeeks);
+  snapshot.slotsByPost = buildRosterSlotIndex_(snapshot, communionWeeks, notApplicableRuleFlags);
 
   return snapshot;
 }
 
 /**
- * 用途：建立「日期字串 → SpecialSundays 資料列」的索引，只收 `Active` 為
- *   TRUE、而且屬於指定季度的資料列。
+ * 用途：由 `ServiceDates` 一行算出這一週的標題（職事表第八十二輪說明第 5 節）。純函式。
  *
- *   ⚠️ 為什麼用日期而不是 SpecialID：實測 2027-10-03 在職事表顯示為
- *   「主日崇拜（十月主日（浸禮））」，但 `ServiceDates.SpecialID` 那一欄
- *   在真實資料裡是空的——職事表自己**從來不用 SpecialID 做這件事**，
- *   它的 `buildSpecialSundayTitleIndex_()`（`src/RosterWriter.gs`）是按
- *   `toDateString(row[SERVICE_DATE])` 建索引的。我們照抄同一個做法，
- *   兩邊才不會出現「職事表顯示有特別主日、週報顯示沒有」的落差。
- *
- *   日期字串用 `formatIsoDate_()` 產生，即以**腳本時區**（appsscript.json
- *   的 `Pacific/Auckland`）解讀 Date 物件的年／月／日——與同檔案
- *   `rosterDateMatchesYMD_()` 的比對方式一致，也等同職事表用 SYS_TIMEZONE
- *   格式化的效果，而且不需要呼叫 Apps Script 服務，純函式層才能保持純淨。
+ *   `Title` 是幹事在職事表「類型」欄改的每週標題，空白＝預設類型（`ServiceType`）。職事表改回
+ *   預設時會清空 Title；這裏另外把「Title 等於 ServiceType」都當成普通主日，免得舊資料或人手
+ *   填了一模一樣的字被當成特別主日。
  * Args:
- *   specialSundayRows {Object[]} tables.specialSundays。
- *   quarterId {string} 只收這個季度的資料列；空字串回空索引。
+ *   serviceDateRow {Object} `tables.serviceDates` 其中一行（`Title` 是選讀欄，沒有這一欄時是 ''）。
  * Returns:
- *   {Object<string,Object>} yyyy-MM-dd → SpecialSundays 資料列。同一個
- *     日期有多列時保留**第一列**（與職事表的 `index[dateStr] = title`
- *     覆寫行為相反，但這裡刻意保留先出現的，避免後面的停用列蓋掉有效列；
- *     實務上同一季同一日不應該有兩列）。
+ *   {?{title:string, type:string, source:string}} 普通主日回 `null`。`type` 一律空字串（職事表已經
+ *     沒有特別主日類型）；`source` 固定是 `'WEEK_TITLE'`，診斷報告用。
+ * Raises:
+ *   （無）
  */
-function buildSpecialSundayDateIndex_(specialSundayRows, quarterId) {
-  var index = {};
-  if (!quarterId) return index;
-
-  (specialSundayRows || []).forEach(function (row) {
-    if (!row.Active) return;
-    if (row.QuarterID !== quarterId) return;
-    if (!(row.ServiceDate instanceof Date)) return;
-    var key = formatIsoDate_(row.ServiceDate);
-    if (!(key in index)) index[key] = row;
-  });
-
-  return index;
+function buildRosterWeekTitle_(serviceDateRow) {
+  var row = serviceDateRow || {};
+  var title = String(row.Title === null || row.Title === undefined ? '' : row.Title).trim();
+  var serviceType = String(row.ServiceType === null || row.ServiceType === undefined ? '' : row.ServiceType).trim();
+  if (!title || title === serviceType) return null;
+  return { title: title, type: '', source: 'WEEK_TITLE' };
 }
 
 // =====================================================================
@@ -870,15 +868,17 @@ function buildSpecialSundayDateIndex_(specialSundayRows, quarterId) {
 // =====================================================================
 
 /**
- * slot 的四種狀態。週報對每一種的處理完全不同，所以**不可以**一律顯示
+ * slot 的三種狀態。週報對每一種的處理完全不同，所以**不可以**一律顯示
  * 「（未排定）」——實測 2027-10-10 的聖餐襄禮與講員同樣顯示「（未排定）」，
  * 但前者那一週根本不設這個崗位（整行不應該出現），後者只是等人手填
  * （要顯示空白並列入待填清單）。見 docs/已知bug類型.md 事故五。
+ *
+ * ⚠️ 2026-10-27 拿走 `EXTERNAL`（外判單位）：那是 SpecialSundays.ExternalOwner 的功能，
+ * 職事表第七十五輪起特別主日拿走，週報亦不再讀那張表。
  */
 var ROSTER_SLOT_STATE_ = Object.freeze({
   ASSIGNED: 'ASSIGNED',
   NOT_APPLICABLE: 'NOT_APPLICABLE',
-  EXTERNAL: 'EXTERNAL',
   PENDING: 'PENDING'
 });
 
@@ -893,56 +893,56 @@ var ROSTER_SLOT_STATE_ = Object.freeze({
 var ROSTER_FREQUENCY_FIRST_SUNDAY_ = 'FIRST_SUNDAY';
 
 /**
- * 用途：判斷一個 slot 的狀態，四選一。
+ * 用途：判斷一個 slot 的狀態，三選一。
  *
  *   判斷次序（**不可以調換**）：
- *     1. `NOT_APPLICABLE`——結構性不適用
- *     2. `EXTERNAL`——外堂／外單位負責
- *     3. `ASSIGNED`——已排定人選
- *     4. `PENDING`——有這個 slot 但未排人
+ *     1. `NOT_APPLICABLE`——這一週不設這個崗位：
+ *        a. `RuleFlags` 有 Config `ROSTER_NOT_APPLICABLE_RULE_FLAGS` 其中一個代號
+ *           （預設 `HARD_COMMUNION_FIRST_SUNDAY`、`HARD_SPECIAL_SUNDAY_SKIP`；職事表第八十二輪
+ *           說明第 3 節）；或者
+ *        b. 後備：`Posts.Frequency` 是 `FIRST_SUNDAY` 而這一週不是聖餐週（舊版本沒有
+ *           RuleFlags、或者這個崗位這一週根本沒有那一格時用）。
+ *     2. `ASSIGNED`——已排定人選（名字已經去掉「不是人」的顯示字，見
+ *        resolveRosterAssignmentPerson_()）。
+ *     3. `PENDING`——有這個 slot 但未排人。合堂那一週幹事在職事表人手清空的格（沒有
+ *        PersonID、名字和 RuleFlags）就是這一種：不出錯、不記警告。
  *
- *   為什麼結構性不適用要排最先：這一週「根本不設這個崗位」是關於**版面
- *   結構**的判斷（那一行整行不出現），而其餘三種都是關於**那一格填什麼
+ *   為什麼「不設」要排最先：這一週「根本不設這個崗位」是關於**版面
+ *   結構**的判斷（那一行整行不出現），而其餘兩種都是關於**那一格填什麼
  *   內容**。結構先於內容——如果先判斷「有沒有人名」，一個沒有人名的
  *   聖餐襄禮就會被當成 PENDING 而列入待填清單，叫幹事去填一個那一週
  *   根本不存在的崗位。職事表的 `isStructuralNotApplicable_()` 也是同一個
  *   優先級，兩邊一致才不會出現「職事表當它不存在、週報當它待填」。
- *
- *   同理，`EXTERNAL` 要排在 `ASSIGNED` 之前：外判崗位就算職事表碰巧留了
- *   一個人名，週報要顯示的仍然是負責單位（例如「英語堂敬拜隊」）。
  * Args:
  *   ctx {{postId:string, personName:string, frequency:string,
- *        weekOfMonth:number, communionWeeks:number[],
- *        skipPostIds:string[], externalOwner:string}} 判斷所需的全部資料。
+ *        weekOfMonth:number, communionWeeks:number[], ruleFlags:(string[]|undefined),
+ *        notApplicableRuleFlags:(string[]|undefined)}} 判斷所需的全部資料。
  *     刻意用明確參數而不是直接吃 snapshot，讓這個判斷可以獨立測試。
  * Returns:
  *   {string} ROSTER_SLOT_STATE_ 的其中一個值。
  */
 function resolveRosterSlotState_(ctx) {
-  var skipPostIds = ctx.skipPostIds || [];
-  var inSkipList = skipPostIds.indexOf(ctx.postId) !== -1;
-  var hasExternalOwner = Boolean(ctx.externalOwner);
+  var ruleFlags = ctx.ruleFlags || [];
+  var naFlags = ctx.notApplicableRuleFlags || [];
 
-  // 1. 結構性不適用：這一週根本不設這個崗位。
+  // 1a. RuleFlags 講明這一週不設。
+  var flaggedNotApplicable = ruleFlags.some(function (flag) { return naFlags.indexOf(flag) !== -1; });
+
+  // 1b. 後備：只在首主日出現的崗位，而這一週不是聖餐週。
   var isFirstSundayOnlyPost = ctx.frequency === ROSTER_FREQUENCY_FIRST_SUNDAY_;
   var thisWeekIsCommunionWeek = (ctx.communionWeeks || []).indexOf(ctx.weekOfMonth) !== -1;
   var structurallyNotApplicable = isFirstSundayOnlyPost && !thisWeekIsCommunionWeek;
-  var skippedWithoutOwner = inSkipList && !hasExternalOwner;
-  if (structurallyNotApplicable || skippedWithoutOwner) {
+
+  if (flaggedNotApplicable || structurallyNotApplicable) {
     return ROSTER_SLOT_STATE_.NOT_APPLICABLE;
   }
 
-  // 2. 外判：崗位被特別主日跳過，但有指明負責單位。
-  if (inSkipList && hasExternalOwner) {
-    return ROSTER_SLOT_STATE_.EXTERNAL;
-  }
-
-  // 3. 已排定。
+  // 2. 已排定。
   if (ctx.personName) {
     return ROSTER_SLOT_STATE_.ASSIGNED;
   }
 
-  // 4. 有這個 slot 但未排人。
+  // 3. 有這個 slot 但未排人。
   return ROSTER_SLOT_STATE_.PENDING;
 }
 
@@ -952,18 +952,17 @@ function resolveRosterSlotState_(ctx) {
  *   條目——即使該崗位這一週完全沒有派工紀錄，也會補一個空白 slot，
  *   好讓下游分得清「這個崗位不適用」與「這個崗位等人手填」。
  * Args:
- *   snapshot {Object} 已經填好 posts／assignments／special／weekOfMonth 的快照。
+ *   snapshot {Object} 已經填好 posts／assignments／weekOfMonth 的快照。
  *   communionWeeks {number[]} Config COMMUNION_WEEKS 解析後的週次陣列。
+ *   notApplicableRuleFlags {string[]=} Config ROSTER_NOT_APPLICABLE_RULE_FLAGS 解析後的代號；
+ *     省略＝空陣列（只看後備規則）。
  * Returns:
  *   {Object<string, Object[]>} postId → slot 陣列（按 slotIndex 排序）。
  *     slot 形狀：`{ postId, slotIndex, personId, personName, assignSource,
- *     locked, state, externalOwner }`。`externalOwner` 只在 `state` 為
- *     `EXTERNAL` 時有值，其餘為空字串。
+ *     locked, ruleFlags, state }`。
  */
-function buildRosterSlotIndex_(snapshot, communionWeeks) {
-  var special = snapshot.special;
-  var skipPostIds = (special && special.skipPostIds) || [];
-  var externalOwner = (special && special.externalOwner) || '';
+function buildRosterSlotIndex_(snapshot, communionWeeks, notApplicableRuleFlags) {
+  var naFlags = notApplicableRuleFlags || [];
 
   var frequencyByPostId = {};
   (snapshot.posts || []).forEach(function (p) { frequencyByPostId[p.postId] = p.frequency; });
@@ -990,18 +989,19 @@ function buildRosterSlotIndex_(snapshot, communionWeeks) {
     // 完全沒有派工紀錄時補一個空白 slot：這個崗位在版面上仍然存在，
     // 只是未排人（或者結構上不適用），下面的 state 判斷會分辨得出來。
     if (rows.length === 0) {
-      rows = [{ postId: postId, slotIndex: 1, personId: null, personName: '', assignSource: '', locked: false }];
+      rows = [{ postId: postId, slotIndex: 1, personId: null, personName: '', assignSource: '', locked: false, ruleFlags: [] }];
     }
 
     slotsByPost[postId] = rows.map(function (a) {
+      var ruleFlags = a.ruleFlags || [];
       var state = resolveRosterSlotState_({
         postId: postId,
         personName: a.personName,
         frequency: frequencyByPostId[postId] || '',
         weekOfMonth: snapshot.weekOfMonth,
         communionWeeks: communionWeeks,
-        skipPostIds: skipPostIds,
-        externalOwner: externalOwner
+        ruleFlags: ruleFlags,
+        notApplicableRuleFlags: naFlags
       });
       return {
         postId: postId,
@@ -1010,8 +1010,8 @@ function buildRosterSlotIndex_(snapshot, communionWeeks) {
         personName: a.personName,
         assignSource: a.assignSource,
         locked: a.locked,
-        state: state,
-        externalOwner: state === ROSTER_SLOT_STATE_.EXTERNAL ? externalOwner : ''
+        ruleFlags: ruleFlags.slice(),
+        state: state
       };
     });
   });
@@ -1076,37 +1076,69 @@ function buildActiveRosterPostsList_(postsRows) {
 }
 
 /**
+ * 用途：判斷一段職事表的名字是不是「不是人」的顯示字（職事表第八十二輪說明第 3.1 節）。純函式。
+ * Args:
+ *   text {*} `PersonNameSnapshot`（或者覆寫時記下的職事表值）。
+ *   notAPersonTexts {string[]} Config `ROSTER_NOT_A_PERSON_TEXTS` 解析後的清單。
+ * Returns:
+ *   {boolean} 去頭尾空白之後與清單其中一項完全相同就回 true；空白回 false。
+ * Raises:
+ *   （無）
+ */
+function isRosterNotAPersonText_(text, notAPersonTexts) {
+  var t = String(text === null || text === undefined ? '' : text).trim();
+  if (!t) return false;
+  return (notAPersonTexts || []).indexOf(t) !== -1;
+}
+
+/**
+ * 用途：把職事表的名字去掉「不是人」的顯示字：是顯示字就回空字串，否則回去頭尾空白的名字。
+ *   純函式。
+ * Args:
+ *   text {*} 職事表的名字。
+ *   notAPersonTexts {string[]} 同 isRosterNotAPersonText_()。
+ * Returns:
+ *   {string}
+ * Raises:
+ *   （無）
+ */
+function rosterPersonTextOrBlank_(text, notAPersonTexts) {
+  if (isRosterNotAPersonText_(text, notAPersonTexts)) return '';
+  return String(text === null || text === undefined ? '' : text).trim();
+}
+
+/**
  * 用途：把一筆 RosterAssignments 原始資料，解析出 personId／personName，
  *   規則見 docs/職事表唯讀介面.md 的錯誤處理契約表。
+ *
+ *   名字的來源（職事表第八十二輪說明第 1、3.1、4 節）：
+ *     - 有 PersonID、NameMapping 找得到 → `NameMapping.NameTC`。
+ *     - 有 PersonID、NameMapping 找不到 → `PersonNameSnapshot`（去掉顯示字），記一筆警告。
+ *     - 沒有 PersonID → `PersonNameSnapshot`（外請講員、臨時幫手）；是「（待填）」「—」
+ *       「待確認」之類的顯示字就當空白（未排定），**不記警告**——那是職事表正常的顯示，
+ *       不是錯。
  * Args:
  *   a {Object} tables.assignments 其中一行。
  *   nameByPersonId {Object<string,Object>} PersonID → NameMapping 那一行。
  *   warnings {{code:string,message:string}[]} 累積警告用的陣列，這個函式
  *     可能會往裡面 push。
+ *   notAPersonTexts {string[]=} 「不是人」的顯示字；省略＝空陣列。
  * Returns:
  *   {{postId:string, slotIndex:number, personId:(string|null),
- *     personName:string, assignSource:string, locked:boolean}}
+ *     personName:string, assignSource:string, locked:boolean, ruleFlags:string[]}}
  */
-function resolveRosterAssignmentPerson_(a, nameByPersonId, warnings) {
-  var snapshot = a.PersonNameSnapshot || '';
-  var isPlaceholder = ROSTER_PERSON_PLACEHOLDER_SNAPSHOTS_.indexOf(snapshot.trim()) !== -1;
+function resolveRosterAssignmentPerson_(a, nameByPersonId, warnings, notAPersonTexts) {
+  var snapshotName = rosterPersonTextOrBlank_(a.PersonNameSnapshot, notAPersonTexts || []);
 
   var personId = null;
-  var personName = snapshot;
+  var personName = snapshotName;
 
-  if (isPlaceholder) {
-    warnings.push({
-      code: 'PERSON_PLACEHOLDER',
-      message: '崗位 ' + a.PostID + '（第 ' + a.SlotIndex + ' 位）目前是佔位符「' + snapshot + '」，尚未排定實際人選。'
-    });
-  } else if (a.PersonID) {
+  if (a.PersonID) {
+    personId = a.PersonID;
     var match = nameByPersonId[a.PersonID];
     if (match) {
-      personId = a.PersonID;
       personName = match.NameTC;
     } else {
-      personId = a.PersonID;
-      personName = snapshot;
       warnings.push({
         code: 'PERSON_NOT_FOUND_IN_NAME_MAPPING',
         message: 'PersonID「' + a.PersonID + '」（崗位 ' + a.PostID + '）在職事表 NameMapping 找不到對應姓名，已改用 PersonNameSnapshot。'
@@ -1120,12 +1152,13 @@ function resolveRosterAssignmentPerson_(a, nameByPersonId, warnings) {
     personId: personId,
     personName: personName,
     assignSource: a.AssignSource,
-    locked: Boolean(a.Locked)
+    locked: Boolean(a.Locked),
+    ruleFlags: parseRosterIdList_(a.RuleFlags)
   };
 }
 
 /**
- * 用途：把 SkipPostIDs／LockPostIDs 這類逗號分隔字串解析成陣列，支援
+ * 用途：把 `RosterAssignments.RuleFlags` 這類逗號分隔字串解析成陣列，支援
  *   半形逗號與全形逗號、容忍多餘空白，空字串回空陣列。
  * Args:
  *   raw {string} 原始字串。

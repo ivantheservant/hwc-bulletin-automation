@@ -81,7 +81,7 @@ function makeEnv(options) {
     weekRows: o.weekRows || [weekRowInput(D, o.week), weekRowInput(D_NEXT, o.nextWeek)],
     config: Object.assign({ PREVIEW_WEBAPP_URL: PREVIEW_URL }, o.config || {}),
     announcements: o.announcements,
-    specialSundays: o.specialSundays,
+    weekTitles: o.weekTitles,
     extraStubs: Object.assign({ HtmlService: FAKE_HTML_SERVICE }, o.extraStubs || {})
   }, o.fill || {}));
 }
@@ -349,19 +349,14 @@ test('範本推斷：「合堂」「聯合」→ TPL_COMBINED；浸禮、堂慶�
   assert.strictEqual(sb.resolveProgramTemplateId_({}, { special: { title: '宣教月主日' } }, custom).templateId, 'TPL_COMBINED');
 });
 
-test('初始化工作表的範本列：TPL_COMBINED 13 行，家事報告在最後；真正入口：特別主日「宣教月合堂」→ 用 TPL_COMBINED 並寫回', function () {
-  const env = makeEnv({
-    specialSundays: [{
-      SpecialID: 'SP9', QuarterID: QUARTER_ID, ServiceDate: D, Type: 'COMBINED', Title: '宣教月合堂',
-      SkipPostIDs: '', LockPostIDs: '', ExternalOwner: '', CommunionOverride: '', TranslationRequired: false, Active: true
-    }]
-  });
+test('初始化工作表的範本列：TPL_COMBINED 13 行，家事報告在最後；真正入口：每週標題「宣教月合堂」→ 用 TPL_COMBINED（留空＝自動，不寫回）', function () {
+  const env = makeEnv({ weekTitles: { [D]: '宣教月合堂' } });
   const seeds = env.sandbox.seedProgramTemplatesRows_().filter(function (r) { return r.TEMPLATE_ID === 'TPL_COMBINED'; });
   assert.strictEqual(seeds.length, 13);
   assert.strictEqual(seeds[seeds.length - 1].ITEM_NAME, '家事報告');
   const model = env.sandbox.buildBulletinModel_(D);
   assert.strictEqual(model.templateId, 'TPL_COMBINED');
-  assert.strictEqual(rowOf(env, D).PROGRAM_TEMPLATE_ID, 'TPL_COMBINED', '推斷結果寫回（與浸禮、堂慶同一做法）');
+  assert.strictEqual(String(rowOf(env, D).PROGRAM_TEMPLATE_ID || ''), '', '2026-10-27：自動推斷不寫回（寫回就等於人手揀過，標題再改範本就不跟）');
   assert.ok(model.program.length > 0);
   assert.ok(env.sandbox.loadWeekForWebApp_(D).options.programTemplateIds.indexOf('TPL_COMBINED') !== -1, '下拉有這一個範本');
 });

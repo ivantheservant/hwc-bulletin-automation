@@ -80,6 +80,11 @@ function findPersonDisplayRow_(personId, rows, targetDate) {
  *     3. 找不到 `PersonDisplay` 那一行 → 用原名，並記一筆
  *        `NO_PERSON_DISPLAY` 警告。⚠️ **不可以靜靜當成「這個人沒有尊稱」**
  *        ——尊稱缺失是要有人去補資料的問題，不是正常狀態。
+ *
+ *   沒有 PersonID 的名字（2026-10-27，職事表第八十二輪說明第 4 節：外請講員、這一季的臨時
+ *   幫手）：改用**名字**找 `PersonDisplay`（與人手覆寫同一條路，findPersonDisplayRowByName_()），
+ *   找到就照樣套尊稱／顯示覆寫；找不到就照印名字，**不記警告**——名單以外的名字本來就不在
+ *   `PersonDisplay`，是正常狀態（外請講員的名字通常已經連職稱一齊填）。
  * Args:
  *   personId {string} 職事表的 PersonID，可以是空字串（例如佔位符 slot）。
  *   nameSnapshot {string} 職事表的姓名快照，作為找不到覆寫時的底稿。
@@ -93,7 +98,9 @@ function findPersonDisplayRow_(personId, rows, targetDate) {
 function resolvePersonDisplay_(personId, nameSnapshot, options) {
   var opts = options || {};
   var baseName = String(nameSnapshot || '').trim();
-  var row = findPersonDisplayRow_(personId, opts.personDisplayRows, opts.targetDate || null);
+  var row = personId
+    ? findPersonDisplayRow_(personId, opts.personDisplayRows, opts.targetDate || null)
+    : findPersonDisplayRowByName_(baseName, opts.personDisplayRows, opts.targetDate || null);
 
   if (!row) {
     if (personId && opts.warnings) {
@@ -207,7 +214,6 @@ function resolveOverrideDisplay_(overrideName, options) {
  *   | state | 顯示 |
  *   |---|---|
  *   | `NOT_APPLICABLE` | 回 `null`——代表**整個崗位那一行不出現**，不是顯示「—」 |
- *   | `EXTERNAL` | 負責單位名稱（例如「英語堂敬拜隊」） |
  *   | `ASSIGNED` | 經 resolvePersonDisplay_() 算出來的姓名 |
  *   | `PENDING` | 空字串（版面上留白，同時會被 BulletinModel 列入待填清單） |
  *
@@ -230,8 +236,6 @@ function resolveSlotDisplay_(slot, options) {
   switch (slot.state) {
     case ROSTER_SLOT_STATE_.NOT_APPLICABLE:
       return null;
-    case ROSTER_SLOT_STATE_.EXTERNAL:
-      return String(slot.externalOwner || '').trim();
     case ROSTER_SLOT_STATE_.PENDING:
       return '';
     default:

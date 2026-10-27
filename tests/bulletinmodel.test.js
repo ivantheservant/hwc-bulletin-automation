@@ -352,7 +352,7 @@ function ownSheetFor(sheetId, rows) {
 }
 
 function rosterSheetFor(defKey, rows) {
-  var keys = Object.keys(sandbox.ROSTER_TABLE_DEFS_[defKey].columns);
+  var keys = Object.keys(sandbox.ROSTER_TABLE_DEFS_[defKey].columns).concat(Object.keys(sandbox.ROSTER_TABLE_DEFS_[defKey].optionalColumns || {}));
   return makeFakeSheet(keys, keys, rows || []);
 }
 
@@ -380,7 +380,9 @@ function makeEnvironment(options) {
     return {
       ServiceDateID: 'SD-' + iso, QuarterID: '2027T4', ServiceDate: iso,
       WeekIndex: idx + 1, IsFirstSundayOfMonth: iso.slice(-2) <= '07',
-      ServiceType: '主日崇拜', SpecialID: ''
+      ServiceType: '主日崇拜', SpecialID: '',
+      // 2026-10-27：每週標題（職事表「類型」欄），空白＝預設。
+      Title: (o.weekTitles || {})[iso] || ''
     };
   });
 
@@ -415,7 +417,6 @@ function makeEnvironment(options) {
     RosterVersions: rosterSheetFor('VERSIONS', [{ QuarterID: '2027T4', VersionNo: 2 }]),
     Quarters: rosterSheetFor('QUARTERS', [{ QuarterID: '2027T4', Stage: 'DRAFT' }]),
     ServiceDates: rosterSheetFor('SERVICE_DATES', serviceDates),
-    SpecialSundays: rosterSheetFor('SPECIAL_SUNDAYS', o.specialSundays || []),
     NameMapping: rosterSheetFor('NAME_MAPPING', [{ PersonID: 'P9001', NameTC: '陳大文', Active: true }]),
     Posts: rosterSheetFor('POSTS', [
       { PostID: 'CHAIR', PostName_TC: '主席', SlotCount: 1, Frequency: 'WEEKLY', AutoGenerate: true, DisplayOrder: 10, Active: true, EmptyDisplay: 'PENDING' },
@@ -531,13 +532,9 @@ test('真正入口：BulletinWeeks 沒有該行 → 記警告，其餘欄位當�
   assert.strictEqual(model.header.pageTitle, '崇拜程序', '留空時用 Config 預設值');
 });
 
-test('真正入口：特別主日按日期比對得到 → 範本推斷成 TPL_COMBINED_BAPTISM 並寫回 BulletinWeeks', function () {
+test('真正入口：每週標題（ServiceDates.Title）有「浸禮」→ 範本推斷成 TPL_COMBINED_BAPTISM；留空＝自動，不寫回 BulletinWeeks', function () {
   var env = makeEnvironment({
-    specialSundays: [{
-      SpecialID: 'SP1', QuarterID: '2027T4', ServiceDate: '2027-10-03',
-      Type: 'BAPTISM', Title: '十月主日（浸禮）', SkipPostIDs: '', LockPostIDs: '',
-      ExternalOwner: '', CommunionOverride: '', TranslationRequired: false, Active: true
-    }],
+    weekTitles: { '2027-10-03': '十月主日（浸禮）' },
     bulletinWeeks: [{
       SERVICE_DATE: '2027-10-03', QUARTER_ID: '2027T4', WEEK_OF_MONTH: 1,
       PROGRAM_TEMPLATE_ID: '', STATUS: 'DRAFT'
@@ -545,33 +542,37 @@ test('真正入口：特別主日按日期比對得到 → 範本推斷成 TPL_C
   });
 
   var model = env.sandbox.buildBulletinModel_('2027-10-03');
-  assert.ok(model.special, '應該按日期查到特別主日（SpecialID 在 ServiceDates 是空的）');
+  assert.ok(model.special, '每週標題有字就是特別主日');
   assert.strictEqual(model.special.title, '十月主日（浸禮）');
   assert.strictEqual(model.templateId, 'TPL_COMBINED_BAPTISM');
+  assert.strictEqual(model.templateAuto, 'TPL_COMBINED_BAPTISM', '自動值同一個');
 
-  assert.ok(
-    !model.warnings.some(function (w) { return w.code === 'TEMPLATE_WRITEBACK_FAILED'; }),
-    '寫回不應該失敗，實際警告：' + JSON.stringify(model.warnings.map(function (w) { return w.code; }))
-  );
-
-  // 寫回工作表：重新讀一次 BulletinWeeks，PROGRAM_TEMPLATE_ID 應該已經有值。
+  // 2026-10-27（Ivan 選 B）：不寫回——寫回之後那一格有值就會被當成人手揀過，標題再改範本就不跟。
   var weekRows = env.sandbox.readSheet('BulletinWeeks');
-  assert.strictEqual(weekRows[0].PROGRAM_TEMPLATE_ID, 'TPL_COMBINED_BAPTISM', '推斷結果要寫回工作表');
-
+  assert.strictEqual(weekRows[0].PROGRAM_TEMPLATE_ID, '', '留空＝自動，一格都不寫');
   var auditRows = env.sandbox.readSheet('AuditLog');
-  assert.ok(
-    auditRows.some(function (r) { return r.ACTION === 'INFER_PROGRAM_TEMPLATE'; }),
-    '寫回時要記一筆 AuditLog'
-  );
+  assert.ok(!auditRows.some(function (r) { return r.ACTION === 'INFER_PROGRAM_TEMPLATE'; }), '不寫就不記 AuditLog');
 });
 
-test('真正入口：BulletinWeeks 已指定範本 → 不覆蓋、不記 AuditLog', function () {
+test('真正入口：每週標題空白（或與 ServiceType 相同）→ 普通主日、預設範本；同一行之後標題改了，範本跟住改', function () {
+  var weekRow = { SERVICE_DATE: '2027-10-03', QUARTER_ID: '2027T4', WEEK_OF_MONTH: 1, PROGRAM_TEMPLATE_ID: '', STATUS: 'DRAFT' };
+  var blank = makeEnvironment({ bulletinWeeks: [weekRow] }).sandbox.buildBulletinModel_('2027-10-03');
+  assert.strictEqual(blank.special, null);
+  assert.strictEqual(blank.templateId, 'TPL_NORMAL');
+
+  var same = makeEnvironment({ weekTitles: { '2027-10-03': '主日崇拜' }, bulletinWeeks: [weekRow] })
+    .sandbox.buildBulletinModel_('2027-10-03');
+  assert.strictEqual(same.special, null, 'Title 等於 ServiceType＝普通主日');
+  assert.strictEqual(same.templateId, 'TPL_NORMAL');
+
+  var combined = makeEnvironment({ weekTitles: { '2027-10-03': '三堂聯合崇拜' }, bulletinWeeks: [weekRow] })
+    .sandbox.buildBulletinModel_('2027-10-03');
+  assert.strictEqual(combined.templateId, 'TPL_COMBINED', '合堂關鍵詞');
+});
+
+test('真正入口：BulletinWeeks 已人手揀範本 → 不跟每週標題、不記 AuditLog；自動值仍然照標題算', function () {
   var env = makeEnvironment({
-    specialSundays: [{
-      SpecialID: 'SP1', QuarterID: '2027T4', ServiceDate: '2027-10-03',
-      Type: 'BAPTISM', Title: '十月主日（浸禮）', SkipPostIDs: '', LockPostIDs: '',
-      ExternalOwner: '', CommunionOverride: '', TranslationRequired: false, Active: true
-    }],
+    weekTitles: { '2027-10-03': '十月主日（浸禮）' },
     bulletinWeeks: [{
       SERVICE_DATE: '2027-10-03', QUARTER_ID: '2027T4', WEEK_OF_MONTH: 1,
       PROGRAM_TEMPLATE_ID: 'TPL_NORMAL', STATUS: 'DRAFT'
@@ -580,6 +581,7 @@ test('真正入口：BulletinWeeks 已指定範本 → 不覆蓋、不記 AuditL
 
   var model = env.sandbox.buildBulletinModel_('2027-10-03');
   assert.strictEqual(model.templateId, 'TPL_NORMAL', '人手指定優先');
+  assert.strictEqual(model.templateAuto, 'TPL_COMBINED_BAPTISM');
   var auditRows = env.sandbox.readSheet('AuditLog');
   assert.ok(!auditRows.some(function (r) { return r.ACTION === 'INFER_PROGRAM_TEMPLATE'; }));
 });

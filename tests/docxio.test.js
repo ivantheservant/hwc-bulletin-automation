@@ -446,7 +446,7 @@ test('（跨層）範本 ID 未設定時 generateBulletinDocx_() 回 notConfigur
     return { KEY: k, VALUE: cfg[k], NOTE: '', EDITABLE: true };
   }));
 
-  const rosterKeys = function (defKey) { return Object.keys(boot.ROSTER_TABLE_DEFS_[defKey].columns); };
+  const rosterKeys = function (defKey) { return Object.keys(boot.ROSTER_TABLE_DEFS_[defKey].columns).concat(Object.keys(boot.ROSTER_TABLE_DEFS_[defKey].optionalColumns || {})); };
   const rosterSheets = {
     RosterAssignments: makeFakeSheet(rosterKeys('ASSIGNMENTS'), rosterKeys('ASSIGNMENTS'), []),
     RosterVersions: makeFakeSheet(rosterKeys('VERSIONS'), rosterKeys('VERSIONS'), [{ QuarterID: '2027T4', VersionNo: 1 }]),
@@ -455,7 +455,6 @@ test('（跨層）範本 ID 未設定時 generateBulletinDocx_() 回 notConfigur
       ServiceDateID: 'SD1', QuarterID: '2027T4', ServiceDate: '2027-11-07', WeekIndex: 1,
       IsFirstSundayOfMonth: true, ServiceType: '主日崇拜', SpecialID: ''
     }]),
-    SpecialSundays: makeFakeSheet(rosterKeys('SPECIAL_SUNDAYS'), rosterKeys('SPECIAL_SUNDAYS'), []),
     NameMapping: makeFakeSheet(rosterKeys('NAME_MAPPING'), rosterKeys('NAME_MAPPING'), []),
     Posts: makeFakeSheet(rosterKeys('POSTS'), rosterKeys('POSTS'), [])
   };

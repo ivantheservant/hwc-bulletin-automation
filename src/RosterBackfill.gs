@@ -116,16 +116,18 @@ function rosterStatusForDate_(isoDate, resolution) {
  *   補抓一格都不可以動——所以清單要寫得出來，不可以靠「除了那幾個以外
  *   全部都補」這種反向定義（日後加欄位就會靜靜補錯東西）。
  *
- *   ⚠️ **這不是「有值就代表讀過職事表」的清單。** 其中兩欄就算職事表
- *   完全沒有這一季都一定有值（`WEEK_OF_MONTH` 由日期算、
- *   `PROGRAM_TEMPLATE_ID` 退回 Config 預設值）。要證明「有沒有真的讀過
+ *   ⚠️ **這不是「有值就代表讀過職事表」的清單。** `WEEK_OF_MONTH` 就算職事表
+ *   完全沒有這一季都一定有值（由日期算）。要證明「有沒有真的讀過
  *   職事表」，用 `rosterOnlyWeekFieldKeys_()`。
+ *
+ *   ⚠️ 2026-10-27 拿走 `PROGRAM_TEMPLATE_ID`：留空＝自動跟每週標題（見
+ *   resolveProgramTemplateId_()），補抓去填它就等於替幹事「人手揀了」一個範本。
  * Args: （無）
  * Returns:
  *   {string[]}
  */
 function rosterDerivedWeekFieldKeys_() {
-  return ['WEEK_OF_MONTH', 'SPECIAL_TYPE', 'PROGRAM_TEMPLATE_ID'];
+  return ['WEEK_OF_MONTH', 'SPECIAL_TYPE'];
 }
 
 /**
@@ -134,12 +136,12 @@ function rosterDerivedWeekFieldKeys_() {
  *   ⚠️ 為什麼要跟 `rosterDerivedWeekFieldKeys_()` 分開，是查證過才知道的
  *   （2026-08-26，見 docs/待確認事項.md V-1）：
  *
- *   `rosterDerivedWeekFieldKeys_()` 那三欄是「補抓會去填的欄位」，不等於
+ *   `rosterDerivedWeekFieldKeys_()` 那幾欄是「補抓會去填的欄位」，不等於
  *   「有值就代表讀過職事表」。實際上：
  *     - `WEEK_OF_MONTH` 由**日期本身**算出來（`Math.floor((日-1)/7)+1`），
  *       職事表有沒有這一季都一定有值；
- *     - `PROGRAM_TEMPLATE_ID` 找不到特別主日時退回 Config `TEMPLATE_DEFAULT`，
- *       所以也一定有值。
+ *     - （2026-10-27 之前還有 `PROGRAM_TEMPLATE_ID`：找不到特別主日時退回 Config
+ *       `TEMPLATE_DEFAULT`，所以也一定有值。現在已經不由補抓填。）
  *
  *   把那兩欄當成「事奉資料」，會得出「職事表沒有這一季，卻有 26 格事奉
  *   資料」這種**假警報**——真相是 13 行 × 那兩欄。要證明「有沒有讀過
@@ -175,12 +177,11 @@ function calendarQuarterIdForIsoDate_(isoDate) {
  * 用途：由職事表快照算出某一個主日**應該**有的那幾格值。
  * Args:
  *   isoDate {string} 主日。
- *   templateConfig {Object} `resolveProgramTemplateId_()` 用的設定。
  * Returns:
  *   {{ok:boolean, values:Object, message:string}}
  *     `ok:false` 代表職事表仍然找不到這一個主日。
  */
-function rosterDerivedValuesForDate_(isoDate, templateConfig) {
+function rosterDerivedValuesForDate_(isoDate) {
   var snapshot;
   try {
     snapshot = readRosterSnapshot_(isoDate);
@@ -195,13 +196,11 @@ function rosterDerivedValuesForDate_(isoDate, templateConfig) {
     return { ok: false, values: {}, message: '職事表仍然找不到 ' + isoDate + ' 的資料。' };
   }
 
-  var resolved = resolveProgramTemplateId_({}, snapshot, templateConfig);
   return {
     ok: true,
     values: {
       WEEK_OF_MONTH: snapshot.weekOfMonth,
-      SPECIAL_TYPE: snapshot.special ? snapshot.special.title : '',
-      PROGRAM_TEMPLATE_ID: resolved.templateId
+      SPECIAL_TYPE: snapshot.special ? snapshot.special.title : ''
     },
     message: ''
   };
@@ -274,7 +273,6 @@ function backfillRosterForQuarter_(quarterId) {
   }
 
   var resolution = resolveQuarterServiceDates_(qid);
-  var templateConfig = readProgramTemplateConfig_();
   var fieldKeys = rosterDerivedWeekFieldKeys_();
 
   var statusBefore = countRosterStatuses_(targets.map(function (t) { return t.row; }));
@@ -292,7 +290,7 @@ function backfillRosterForQuarter_(quarterId) {
 
   targets.forEach(function (target) {
     var isoDate = formatIsoDate_(normalizeDate_(target.row.SERVICE_DATE) || new Date());
-    var derived = rosterDerivedValuesForDate_(isoDate, templateConfig);
+    var derived = rosterDerivedValuesForDate_(isoDate);
     var touched = false;
     var snapshotTaken = false;
 

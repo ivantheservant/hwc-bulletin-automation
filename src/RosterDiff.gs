@@ -67,6 +67,10 @@ function buildRosterDiff_(isoDate, snapshot, overrides, lastSnapshotVersion, opt
   var overrideIndex = buildDutyOverrideIndex_(overrides);
   var slotsByPost = (snapshot && snapshot.slotsByPost) || {};
   var rosterVersion = (snapshot && snapshot.versionNo !== undefined) ? snapshot.versionNo : null;
+  // 2026-10-27：「不是人」的顯示字（快照帶出來的同一份 Config 清單）。快照的名字已經去掉這些字，
+  //    但舊的覆寫可能記下了「待確認」之類做 ROSTER_VALUE_AT_OVERRIDE——比對時一樣當空白，
+  //    否則職事表沒有改過都會報成衝突。
+  var notAPersonTexts = (snapshot && snapshot.notAPersonTexts) || [];
   var snapshotVersion = (lastSnapshotVersion === undefined) ? null : lastSnapshotVersion;
 
   // 職事表版本比上一次比對時新，才有「自動跟隨」這回事；從來沒有比對過
@@ -97,7 +101,7 @@ function buildRosterDiff_(isoDate, snapshot, overrides, lastSnapshotVersion, opt
 
       var status;
       if (hasOverride) {
-        status = (rosterName !== rosterValueAtOverride)
+        status = (rosterName !== rosterPersonTextOrBlank_(rosterValueAtOverride, notAPersonTexts))
           ? ROSTER_DIFF_STATUS.CONFLICT
           : ROSTER_DIFF_STATUS.OVERRIDDEN;
       } else {

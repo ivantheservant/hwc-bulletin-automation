@@ -281,7 +281,7 @@ function ownSheetFor(sandboxRef, sheetId, rows) {
 }
 
 function rosterSheetFor(sandboxRef, defKey, rows) {
-  const keys = Object.keys(sandboxRef.ROSTER_TABLE_DEFS_[defKey].columns);
+  const keys = Object.keys(sandboxRef.ROSTER_TABLE_DEFS_[defKey].columns).concat(Object.keys(sandboxRef.ROSTER_TABLE_DEFS_[defKey].optionalColumns || {}));
   return makeFakeSheet(keys, keys, rows || []);
 }
 
@@ -317,7 +317,6 @@ function makeEnv(o) {
       ServiceDateID: 'SD1', QuarterID: '2027T4', ServiceDate: '2027-10-03', WeekIndex: 1,
       IsFirstSundayOfMonth: true, ServiceType: '主日崇拜', SpecialID: ''
     }]),
-    SpecialSundays: rosterSheetFor(freshSandbox, 'SPECIAL_SUNDAYS', []),
     NameMapping: rosterSheetFor(freshSandbox, 'NAME_MAPPING', o.nameMappingRows || []),
     Posts: rosterSheetFor(freshSandbox, 'POSTS', [])
   };

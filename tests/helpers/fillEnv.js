@@ -274,7 +274,7 @@ function makeFillEnv(options) {
   }
 
   function rosterSheet(defKey, rows) {
-    const keys = Object.keys(boot.ROSTER_TABLE_DEFS_[defKey].columns);
+    const keys = Object.keys(boot.ROSTER_TABLE_DEFS_[defKey].columns).concat(Object.keys(boot.ROSTER_TABLE_DEFS_[defKey].optionalColumns || {}));
     return makeFakeSheet(keys, keys, rows || []);
   }
 
@@ -290,10 +290,11 @@ function makeFillEnv(options) {
     ServiceDates: rosterSheet('SERVICE_DATES', SERVICE_DATES.map(function (iso, i) {
       return {
         ServiceDateID: 'SD' + (i + 1), QuarterID: QUARTER_ID, ServiceDate: iso, WeekIndex: i + 1,
-        IsFirstSundayOfMonth: i === 0, ServiceType: '主日崇拜', SpecialID: ''
+        IsFirstSundayOfMonth: i === 0, ServiceType: '主日崇拜', SpecialID: '',
+        // 2026-10-27：每週標題（職事表「類型」欄）。`o.weekTitles`：{ yyyy-MM-dd: 標題 }。
+        Title: (o.weekTitles || {})[iso] || ''
       };
     })),
-    SpecialSundays: rosterSheet('SPECIAL_SUNDAYS', o.specialSundays || []),
     NameMapping: rosterSheet('NAME_MAPPING', [{ PersonID: 'P9001', NameTC: '陳大文', Active: true }]),
     Posts: rosterSheet('POSTS', [
       { PostID: 'CHAIR', PostName_TC: '主席', SlotCount: 1, Frequency: 'WEEKLY', AutoGenerate: true, DisplayOrder: 10, Active: true, EmptyDisplay: 'PENDING' }

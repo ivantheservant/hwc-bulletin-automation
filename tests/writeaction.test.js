@@ -2035,7 +2035,7 @@ test('G17-5 分類：讀取類每一個都是 read、三個例外各有自己的
   assert.strictEqual(ui90.els.snapshotStatus.textContent, '版本記錄載入失敗：' + expectedReadTimeout('apiListWeekSnapshots', 90));
 });
 
-test('G17-7 G17 補充：apiRosterDiffReport、apiLoadWeek、apiQuarterMissingReport 會順手寫系統記錄（ROSTER_FOLLOW、推算的程序範本 ID），所以讀取類那一句講「沒有改動週報內容」，不講「沒有改動任何東西」', function () {
+test('G17-7 G17 補充：apiRosterDiffReport 會順手寫系統記錄（ROSTER_FOLLOW），所以讀取類那一句講「沒有改動週報內容」，不講「沒有改動任何東西」；2026-10-27 起載入不再寫回推算的程序範本 ID', function () {
   const ui = makeUi();
   ['apiRosterDiffReport', 'apiLoadWeek', 'apiQuarterMissingReport'].forEach(function (name) {
     assert.strictEqual(ui.ctx.serverCallKind(name), 'read', name);
@@ -2045,7 +2045,8 @@ test('G17-7 G17 補充：apiRosterDiffReport、apiLoadWeek、apiQuarterMissingRe
   });
   const gs = readSrc('src/RosterDiff.gs');
   assert.ok(gs.indexOf("action: 'ROSTER_FOLLOW'") !== -1, '前提：差異報告會寫 AuditLog');
-  assert.ok(readSrc('src/BulletinModel.gs').indexOf('function persistInferredTemplateId_(') !== -1, '前提：載入會寫回推算的範本 ID');
+  assert.strictEqual(readSrc('src/BulletinModel.gs').indexOf('persistInferredTemplateId_('), -1,
+    '程序範本留空＝自動跟每週標題：載入不再寫回推算結果（寫回就等於人手揀過）');
 });
 
 test('G17-6 讀取類遇到連線錯誤（HTTP 502）照舊即時顯示「呼叫伺服器失敗（…）」，不講「可能已經完成」、不排重新載入', function () {

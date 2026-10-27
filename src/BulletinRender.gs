@@ -290,8 +290,8 @@ function buildRenderContext_(model, options) {
   // 是純函式層，不可以碰 Apps Script 服務；真正入口
   // （generateBulletinDocx_()）會把 Config 的實際值傳進 opts。
   var dutyMax = opts.dutyPlaceholderMax === undefined ? 20 : Number(opts.dutyPlaceholderMax);
-  Object.assign(values, buildNumberedDutyValues_('DUTY_', m.dutyBoxPage1, dutyMax));
-  Object.assign(values, buildNumberedDutyValues_('NEXT_DUTY_', m.nextWeekDuty, dutyMax));
+  Object.assign(values, buildNumberedDutyValues_('DUTY_', dutyRowsForPrint_(m.dutyBoxPage1, m.dutyPrintEmptyRows === true), dutyMax));
+  Object.assign(values, buildNumberedDutyValues_('NEXT_DUTY_', dutyRowsForPrint_(m.nextWeekDuty, m.dutyPrintEmptyRows === true), dutyMax));
 
   return { values: values, lists: buildRenderLists_(m) };
 }
@@ -361,11 +361,12 @@ function buildRenderLists_(model) {
     return item;
   });
 
-  var duty = (m.dutyBoxPage1 || []).map(function (row) {
+  // 2026-10-27：沒有名字的崗位行印不印（Config DUTY_PRINT_EMPTY_ROWS），見 dutyRowsForPrint_()。
+  var duty = dutyRowsForPrint_(m.dutyBoxPage1, m.dutyPrintEmptyRows === true).map(function (row) {
     return { LABEL: renderValueText_(row.label), NAMES: renderValueText_(row.text) };
   });
 
-  var nextDuty = (m.nextWeekDuty || []).map(function (row) {
+  var nextDuty = dutyRowsForPrint_(m.nextWeekDuty, m.dutyPrintEmptyRows === true).map(function (row) {
     return { LABEL: renderValueText_(row.label), NAMES: renderValueText_(row.text) };
   });
 

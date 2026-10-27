@@ -531,10 +531,10 @@
    *   這一句只記入 ErrorLog）。
    *
    *   G17 補充：不講「沒有改動任何東西」，因為有幾個讀取類會順手寫系統記錄：
-   *   apiRosterDiffReport（checkRosterDiff_() 記 AuditLog ROSTER_FOLLOW、更新職事表快照版本）、
-   *   apiLoadWeek／apiQuarterMissingReport（程序範本 ID 留空時經 persistInferredTemplateId_()
-   *   寫回推算出來的 PROGRAM_TEMPLATE_ID）。這些都是可以重複做的系統記錄，重新載入是安全的，
-   *   但不是「一格都沒有寫」。
+   *   apiRosterDiffReport（checkRosterDiff_() 記 AuditLog ROSTER_FOLLOW、更新職事表快照版本）。
+   *   （2026-10-27 之前 apiLoadWeek／apiQuarterMissingReport 亦會寫回推算出來的程序範本 ID；
+   *   現在程序範本留空＝自動跟每週標題，不再寫回。）這些都是可以重複做的系統記錄，重新載入是
+   *   安全的，但不是「一格都沒有寫」。
    * Args:
    *   fnName {string} 伺服器函式名稱。
    *   seconds {number} 逾時秒數（serverCallTimeoutMs() 換算）。
@@ -918,6 +918,14 @@
     autoHint.textContent = readOnly.recitationAuto
       ? ('目前自動值：' + readOnly.recitationAuto)
       : '';
+
+    // 2026-10-27：程序範本留空＝自動跟每週標題（職事表「類型」欄）。自動值同樣由後端算好。
+    var templateHint = document.getElementById('programTemplateAutoHint');
+    if (templateHint) {
+      templateHint.textContent = readOnly.templateAuto
+        ? ('目前自動值：' + readOnly.templateAuto + '（跟每週標題）')
+        : '';
+    }
 
     // R-044：詩班項目名稱留空時，顯示範本現時會印的那一個。
     var choirInput = document.getElementById('choirLabelInput');
@@ -2867,7 +2875,8 @@
     // R-036：本季職事表狀態的黃色橫幅。
     renderRosterGapBanner(data.rosterGapBanner);
 
-    populateSelectOptions(document.getElementById('programTemplateSelect'), data.options.programTemplateIds);
+    populateSelectOptions(document.getElementById('programTemplateSelect'), data.options.programTemplateIds,
+      function (v) { return v || '（留空＝自動：跟每週標題）'; });
     populateSelectOptions(document.getElementById('recitationSelect'), data.options.recitationOptions,
       function (v) { return v || '（留空＝自動）'; });
     populatePrayerHeadingOptions(data.options.prayerBlockHeadingOptions);

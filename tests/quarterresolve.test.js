@@ -124,7 +124,7 @@ function makeQuarterEnv(options) {
   });
 
   function rosterSheet(defKey, rows) {
-    const keys = Object.keys(boot.ROSTER_TABLE_DEFS_[defKey].columns);
+    const keys = Object.keys(boot.ROSTER_TABLE_DEFS_[defKey].columns).concat(Object.keys(boot.ROSTER_TABLE_DEFS_[defKey].optionalColumns || {}));
     return makeFakeSheet(keys, keys, rows || []);
   }
 
@@ -133,7 +133,6 @@ function makeQuarterEnv(options) {
     RosterVersions: rosterSheet('VERSIONS', versionRows),
     Quarters: rosterSheet('QUARTERS', quarterRows),
     ServiceDates: rosterSheet('SERVICE_DATES', serviceDateRows),
-    SpecialSundays: rosterSheet('SPECIAL_SUNDAYS', []),
     NameMapping: rosterSheet('NAME_MAPPING', [{ PersonID: 'P9001', NameTC: '陳大文', Active: true }]),
     Posts: rosterSheet('POSTS', [
       { PostID: 'CHAIR', PostName_TC: '主席', SlotCount: 1, Frequency: 'WEEKLY', AutoGenerate: true, DisplayOrder: 10, Active: true, EmptyDisplay: 'PENDING' }

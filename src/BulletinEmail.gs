@@ -242,7 +242,8 @@ function buildBulletinEmailHtml_(model, options) {
     cell('th', '項目') + cell('th', '內容') + cell('th', '立坐')));
 
   // 4. 本週事奉（第 1 頁的樣子）
-  var dutyRowsHtml = (model.dutyBoxPage1 || []).map(function (r) {
+  // 2026-10-27：與 Word 印同一批行（Config DUTY_PRINT_EMPTY_ROWS，見 dutyRowsForPrint_()）。
+  var dutyRowsHtml = dutyRowsForPrint_(model.dutyBoxPage1, model.dutyPrintEmptyRows === true).map(function (r) {
     return '<tr>' + cell('td', r.label) + cell('td', r.text || '（待填）') + '</tr>';
   }).join('');
   section('本週事奉', table(dutyRowsHtml));
@@ -257,7 +258,7 @@ function buildBulletinEmailHtml_(model, options) {
     table(attRowsHtml, attHeadHtml));
 
   // 6. 下週事奉、本週／下週獻花
-  var nextDutyRowsHtml = (model.nextWeekDuty || []).map(function (r) {
+  var nextDutyRowsHtml = dutyRowsForPrint_(model.nextWeekDuty, model.dutyPrintEmptyRows === true).map(function (r) {
     return '<tr>' + cell('td', r.label) + cell('td', r.text || '（待填）') + '</tr>';
   }).join('');
   section((header.nextWeekHeading || '下週主日崇拜聚會事奉肢體') + '（' + (header.nextWeekDate || '') + '）',
@@ -350,13 +351,13 @@ function buildBulletinEmailPlainText_(model, options) {
   lines.push('');
 
   lines.push('【本週事奉】');
-  (model.dutyBoxPage1 || []).forEach(function (r) {
+  dutyRowsForPrint_(model.dutyBoxPage1, model.dutyPrintEmptyRows === true).forEach(function (r) {
     lines.push('　' + r.label + '：' + (r.text || '（待填）'));
   });
   lines.push('');
 
   lines.push('【下週事奉】');
-  (model.nextWeekDuty || []).forEach(function (r) {
+  dutyRowsForPrint_(model.nextWeekDuty, model.dutyPrintEmptyRows === true).forEach(function (r) {
     lines.push('　' + r.label + '：' + (r.text || '（待填）'));
   });
   lines.push('');
