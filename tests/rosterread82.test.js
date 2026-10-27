@@ -75,7 +75,9 @@ function makeEnv(o) {
     rosterAssignments: opts.assignments || combinedWeekAssignments(),
     weekTitles: opts.weekTitles,
     config: opts.config,
-    weekRows: opts.weekRows
+    weekRows: opts.weekRows,
+    ui: opts.ui,
+    extraStubs: opts.extraStubs
   });
 }
 
@@ -195,6 +197,35 @@ test('DUTY_PRINT_EMPTY_ROWS 預設 FALSE：Word、草稿預覽頁、電郵內文
   assert.ok(labels(loaded.readOnly.dutyBoxPage1).indexOf('司事') !== -1, '填寫介面一律顯示全部崗位');
 });
 
+test('真正入口：草稿預覽頁（buildPreviewPage_）與選單「預覽週報郵件內容」都不印沒有名字的司事行', function () {
+  const dialogs = [];
+  const env = makeEnv({
+    ui: {
+      prompt: function () { return { getSelectedButton: function () { return 'OK'; }, getResponseText: function () { return D; } }; },
+      showModalDialog: function (output, title) { dialogs.push({ html: output.__html, title: title }); }
+    },
+    extraStubs: {
+      HtmlService: {
+        createHtmlOutput: function (html) {
+          return { __html: String(html), setWidth: function () { return this; }, setHeight: function () { return this; },
+            setTitle: function () { return this; }, addMetaTag: function () { return this; } };
+        },
+        createTemplateFromFile: function () { return { evaluate: function () { return { setWidth: function () { return this; }, setHeight: function () { return this; } }; } }; }
+      }
+    }
+  });
+  const page = env.sandbox.buildPreviewPage_(D, {});
+  assert.strictEqual(page.ok, true);
+  const thisWeek = page.html.split('本週事奉')[1].split('上週')[0];
+  assert.strictEqual(thisWeek.indexOf('司事'), -1, '預覽頁本週事奉不印司事：' + thisWeek.slice(0, 400));
+  assert.ok(thisWeek.indexOf('主席') !== -1, '有名字的照印');
+
+  env.sandbox.menuPreviewBulletinEmail_();
+  assert.strictEqual(dialogs.length, 1, '應該彈出郵件預覽');
+  const mailThisWeek = dialogs[0].html.split('本週事奉')[1].split('上週')[0];
+  assert.strictEqual(mailThisWeek.indexOf('司事'), -1, '郵件本週事奉不印司事');
+});
+
 test('DUTY_PRINT_EMPTY_ROWS=TRUE：照印崗位名、名字留空', function () {
   const env = makeEnv({ config: { DUTY_PRINT_EMPTY_ROWS: 'TRUE' } });
   const model = env.sandbox.buildBulletinModel_(D);
@@ -257,7 +288,9 @@ test('系統寫入的範本清空、人手揀過的保留；AuditLog 逐格記�
     { SERVICE_DATE: '2027-11-07', QUARTER_ID: QUARTER_ID, WEEK_OF_MONTH: 1, STATUS: 'DRAFT', PROGRAM_TEMPLATE_ID: 'TPL_NORMAL' },
     { SERVICE_DATE: D, QUARTER_ID: QUARTER_ID, WEEK_OF_MONTH: 2, STATUS: 'DRAFT', PROGRAM_TEMPLATE_ID: 'TPL_COMBINED' },
     { SERVICE_DATE: D_NEXT, QUARTER_ID: QUARTER_ID, WEEK_OF_MONTH: 3, STATUS: 'DRAFT', PROGRAM_TEMPLATE_ID: 'TPL_ANNIVERSARY' },
-    { SERVICE_DATE: '2027-11-28', QUARTER_ID: QUARTER_ID, WEEK_OF_MONTH: 4, STATUS: 'DRAFT', PROGRAM_TEMPLATE_ID: '' }
+    { SERVICE_DATE: '2027-11-28', QUARTER_ID: QUARTER_ID, WEEK_OF_MONTH: 4, STATUS: 'DRAFT', PROGRAM_TEMPLATE_ID: 'TPL_ANNIVERSARY' },
+    // 已封存：不動
+    { SERVICE_DATE: '2027-12-05', QUARTER_ID: '2027T4', WEEK_OF_MONTH: 1, STATUS: 'SENT', PROGRAM_TEMPLATE_ID: 'TPL_COMBINED', ARCHIVED: true }
   ];
   const env = makeEnv({ weekRows: weekRows, weekTitles: { [D]: '浸禮主日' } });
   env.sandbox.writeSheet('AuditLog', [
@@ -266,6 +299,9 @@ test('系統寫入的範本清空、人手揀過的保留；AuditLog 逐格記�
     // 幹事在填寫介面揀了堂慶範本：保留
     { TIMESTAMP: new Date(), ACTOR: 'x', ACTION: 'WEBAPP_SAVE_WEEK', SHEET_NAME: 'BulletinWeeks', ROW_KEY: D_NEXT,
       FIELD: 'PROGRAM_TEMPLATE_ID', OLD_VALUE: 'TPL_NORMAL', NEW_VALUE: 'TPL_ANNIVERSARY', NOTES: '' },
+    // 已停用的季度填寫表人手揀過：保留
+    { TIMESTAMP: new Date(), ACTOR: 'x', ACTION: 'FILL_GRID_EDIT', SHEET_NAME: 'BulletinWeeks', ROW_KEY: '2027-11-28',
+      FIELD: 'PROGRAM_TEMPLATE_ID', OLD_VALUE: '', NEW_VALUE: 'TPL_ANNIVERSARY', NOTES: '' },
     // 揀過之後又被系統改（例如重設）：以最後一次為準 → 清空
     { TIMESTAMP: new Date(), ACTOR: 'x', ACTION: 'WEBAPP_SAVE_WEEK', SHEET_NAME: 'BulletinWeeks', ROW_KEY: '2027-11-07',
       FIELD: 'PROGRAM_TEMPLATE_ID', OLD_VALUE: '', NEW_VALUE: 'TPL_COMBINED', NOTES: '' },
@@ -276,7 +312,14 @@ test('系統寫入的範本清空、人手揀過的保留；AuditLog 逐格記�
   const summary = env.sandbox.initializeAllSheets();
   assert.strictEqual(summary.programTemplateAuto.ran, true);
   assert.strictEqual(summary.programTemplateAuto.cleared, 2);
-  assert.strictEqual(summary.programTemplateAuto.kept, 1);
+  assert.strictEqual(summary.programTemplateAuto.kept, 3, '填寫介面揀過、季度填寫表揀過、已封存');
+  assert.strictEqual(rowOf(env, '2027-11-28').PROGRAM_TEMPLATE_ID, 'TPL_ANNIVERSARY', '季度填寫表揀過的保留');
+  assert.strictEqual(rowOf(env, '2027-12-05').PROGRAM_TEMPLATE_ID, 'TPL_COMBINED', '已封存不動');
+  // 清空之後實際用的範本有變的主日逐一列出；2027-11-07 清空前後都是 TPL_NORMAL，不列。
+  const changed = summary.programTemplateAuto.changed.map(function (c) { return c.isoDate + ':' + c.from + '>' + c.to; });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(changed)), [D + ':TPL_COMBINED>TPL_COMBINED_BAPTISM']);
+  assert.ok(summary.programTemplateAuto.lines.some(function (l) { return l.indexOf(D + '：TPL_COMBINED → TPL_COMBINED_BAPTISM') !== -1; }),
+    JSON.stringify(summary.programTemplateAuto.lines));
   assert.strictEqual(String(rowOf(env, '2027-11-07').PROGRAM_TEMPLATE_ID || ''), '');
   assert.strictEqual(String(rowOf(env, D).PROGRAM_TEMPLATE_ID || ''), '');
   assert.strictEqual(rowOf(env, D_NEXT).PROGRAM_TEMPLATE_ID, 'TPL_ANNIVERSARY', '人手揀過的保留');

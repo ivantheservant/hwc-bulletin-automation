@@ -900,8 +900,10 @@ var ROSTER_FREQUENCY_FIRST_SUNDAY_ = 'FIRST_SUNDAY';
  *        a. `RuleFlags` 有 Config `ROSTER_NOT_APPLICABLE_RULE_FLAGS` 其中一個代號
  *           （預設 `HARD_COMMUNION_FIRST_SUNDAY`、`HARD_SPECIAL_SUNDAY_SKIP`；職事表第八十二輪
  *           說明第 3 節）；或者
- *        b. 後備：`Posts.Frequency` 是 `FIRST_SUNDAY` 而這一週不是聖餐週（舊版本沒有
- *           RuleFlags、或者這個崗位這一週根本沒有那一格時用）。
+ *        b. 後備：`Posts.Frequency` 是 `FIRST_SUNDAY` 而這一週不是聖餐週，**而且那一格沒有名字**
+ *           （舊版本沒有 RuleFlags、或者這個崗位這一週根本沒有那一格時用）。有名字就以職事表為準
+ *           （例如某一個第三主日另外有聖餐，職事表照樣排了人、沒有 RuleFlags）——職事表自己判斷
+ *           「不設」只看 RuleFlags（`isStructuralNotApplicable_()`），名字照顯示。
  *     2. `ASSIGNED`——已排定人選（名字已經去掉「不是人」的顯示字，見
  *        resolveRosterAssignmentPerson_()）。
  *     3. `PENDING`——有這個 slot 但未排人。合堂那一週幹事在職事表人手清空的格（沒有
@@ -928,10 +930,10 @@ function resolveRosterSlotState_(ctx) {
   // 1a. RuleFlags 講明這一週不設。
   var flaggedNotApplicable = ruleFlags.some(function (flag) { return naFlags.indexOf(flag) !== -1; });
 
-  // 1b. 後備：只在首主日出現的崗位，而這一週不是聖餐週。
+  // 1b. 後備：只在首主日出現的崗位，而這一週不是聖餐週，而且那一格沒有名字。
   var isFirstSundayOnlyPost = ctx.frequency === ROSTER_FREQUENCY_FIRST_SUNDAY_;
   var thisWeekIsCommunionWeek = (ctx.communionWeeks || []).indexOf(ctx.weekOfMonth) !== -1;
-  var structurallyNotApplicable = isFirstSundayOnlyPost && !thisWeekIsCommunionWeek;
+  var structurallyNotApplicable = isFirstSundayOnlyPost && !thisWeekIsCommunionWeek && !ctx.personName;
 
   if (flaggedNotApplicable || structurallyNotApplicable) {
     return ROSTER_SLOT_STATE_.NOT_APPLICABLE;

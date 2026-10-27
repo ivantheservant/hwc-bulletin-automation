@@ -555,8 +555,8 @@ function selfTestS19_(ctx) {
   // ⚠️ 「事奉格全空」逐格數出來，不是信 createBlankBulletinWeeks_() 回的數字。
   //
   //    ⚠️ 一定要用 rosterOnlyWeekFieldKeys_()，**不是** rosterDerivedWeekFieldKeys_()。
-  //    後者那三欄之中有兩欄（WEEK_OF_MONTH、PROGRAM_TEMPLATE_ID）就算職事表
-  //    完全沒有這一季都一定有值——一個由日期算出來，一個退回 Config 預設值。
+  //    後者的 WEEK_OF_MONTH 就算職事表完全沒有這一季都一定有值（由日期算出來；
+  //    2026-10-27 之前還有 PROGRAM_TEMPLATE_ID 退回 Config 預設值，現在留空＝自動）。
   //    2026-08-26 這一條就是這樣報「職事表沒有這一季，卻有 26 格事奉資料」，
   //    嚇到以為抓了別季的人名；查證之後真相是 13 行 × 那兩欄，一格都沒有
   //    跨季。見 docs/已知bug類型.md 事故四十一、docs/待確認事項.md V-1。
@@ -591,7 +591,7 @@ function selfTestS19_(ctx) {
       + '季度寫錯的 ' + wrongQuarter + ' 行、'
       + '對話框' + (messageMentions ? '有' : '沒有') + '提職事表',
     '季度 ' + config.quarterId + '；逐格檢查的欄位：' + dutyKeys.join('、')
-      + '（WEEK_OF_MONTH 與 PROGRAM_TEMPLATE_ID 刻意不計——它們不讀職事表都一定有值）；'
+      + '（WEEK_OF_MONTH 刻意不計——它不讀職事表都一定有值）；'
       + '對話框訊息：' + String(result.message || '（空）'));
 }
 
@@ -1607,7 +1607,8 @@ function selfTestSeedSandboxWeeks_(config) {
       QUARTER_ID: config.quarterId,
       WEEK_OF_MONTH: Math.floor((targetDate.getDate() - 1) / 7) + 1,
       PAGE_TITLE: getConfig(CONFIG_KEYS.DEFAULT_PAGE_TITLE, '崇拜程序'),
-      PROGRAM_TEMPLATE_ID: getConfig(CONFIG_KEYS.TEMPLATE_DEFAULT, 'TPL_NORMAL'),
+      // 2026-10-27：留空＝自動跟每週標題（沙盒季度職事表沒有，自動值就是 TEMPLATE_DEFAULT）。
+      PROGRAM_TEMPLATE_ID: '',
       PRELUDE: getConfig(CONFIG_KEYS.PRELUDE_DEFAULT, ''),
       ATTENDANCE_HEADING: getConfig(CONFIG_KEYS.DEFAULT_ATTENDANCE_HEADING, '上週主日崇拜人數'),
       ATTENDANCE_DATE: addDays_(targetDate, -7),

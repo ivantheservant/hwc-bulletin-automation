@@ -749,11 +749,19 @@ test('Prompt3-state：RuleFlags 的代號不在 Config 清單 → 不算不設',
   }), 'PENDING');
 });
 
-test('Prompt3-state：沒有 RuleFlags 時，FIRST_SUNDAY 後備規則照舊（舊版本沒有 RuleFlags）', function () {
+test('Prompt3-state：沒有 RuleFlags 時，FIRST_SUNDAY 後備規則只管沒有名字的格；有名字以職事表為準', function () {
   assert.strictEqual(sandbox.resolveRosterSlotState_({
-    postId: 'COMMUNION', personName: '甲', frequency: 'FIRST_SUNDAY', weekOfMonth: 2, communionWeeks: [1],
+    postId: 'COMMUNION', personName: '', frequency: 'FIRST_SUNDAY', weekOfMonth: 2, communionWeeks: [1],
     ruleFlags: [], notApplicableRuleFlags: ['HARD_COMMUNION_FIRST_SUNDAY']
-  }), 'NOT_APPLICABLE');
+  }), 'NOT_APPLICABLE', '沒有名字：照舊不設');
+  assert.strictEqual(sandbox.resolveRosterSlotState_({
+    postId: 'COMMUNION', personName: '甲', frequency: 'FIRST_SUNDAY', weekOfMonth: 3, communionWeeks: [1],
+    ruleFlags: [], notApplicableRuleFlags: ['HARD_COMMUNION_FIRST_SUNDAY']
+  }), 'ASSIGNED', '第三主日另外有聖餐、職事表照樣排了人而沒有 RuleFlags：照顯示（職事表只看 RuleFlags）');
+  assert.strictEqual(sandbox.resolveRosterSlotState_({
+    postId: 'COMMUNION', personName: '甲', frequency: 'FIRST_SUNDAY', weekOfMonth: 3, communionWeeks: [1],
+    ruleFlags: ['HARD_COMMUNION_FIRST_SUNDAY'], notApplicableRuleFlags: ['HARD_COMMUNION_FIRST_SUNDAY']
+  }), 'NOT_APPLICABLE', 'RuleFlags 講明不設就勝過名字');
 });
 
 test('Prompt3-state 優先級：ASSIGNED 勝過 PENDING（有人名就不算待填）', function () {

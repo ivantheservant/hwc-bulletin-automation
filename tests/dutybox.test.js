@@ -181,6 +181,20 @@ test('MG_CHAIR_ANNOUNCE 一人已排、另一人未排 → 不合併（不可以
   assert.strictEqual(rowFor(rows, '報告').isPending, true);
 });
 
+test('2026-10-27：MG_CHAIR_ANNOUNCE 同一位沒有 PersonID 的臨時幫手 → 照樣合併成「主席及報告」', function () {
+  var snapshot = makeSnapshot({
+    posts: { CHAIR: {}, ANNOUNCE: {} },
+    assignments: [
+      { postId: 'CHAIR', personId: null, personName: '臨時甲' },
+      { postId: 'ANNOUNCE', personId: null, personName: '臨時甲' }
+    ]
+  });
+  var rows = build(snapshot, 1);
+  var merged = rowFor(rows, '主席及報告');
+  assert.ok(merged, '應該合併：' + JSON.stringify(rows.map(function (r) { return r.label; })));
+  assert.strictEqual(merged.text, '臨時甲');
+});
+
 test('MG_CHAIR_ANNOUNCE 第 3 頁不設合併組 → 一定各自一行，就算同一人', function () {
   var snapshot = makeSnapshot({
     posts: { CHAIR: {}, ANNOUNCE: {} },

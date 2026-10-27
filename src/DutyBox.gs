@@ -309,14 +309,18 @@ function decideDutyBoxMerge_(groupId, groupPostRows, usableSlotsByPostId, mergeG
  * Args:
  *   slot {Object} 已經套過覆寫的 slot。
  * Returns:
- *   {string} 身分鍵；未排人（沒有 PersonID 也沒有覆寫姓名）回空字串。
+ *   {string} 身分鍵；未排人（沒有 PersonID、沒有職事表名字、亦沒有覆寫姓名）回空字串。
  */
 function dutySlotIdentityKey_(slot) {
   if (slot.hasOverride) {
     var name = String(slot.overrideName || '').trim();
     return name ? 'NAME:' + name : '';
   }
-  return slot.personId ? 'ID:' + slot.personId : '';
+  if (slot.personId) return 'ID:' + slot.personId;
+  // 2026-10-27：沒有 PersonID、只有名字（外請講員、臨時幫手）——用名字當身分（與覆寫同一個前綴），
+  //    同一位臨時幫手同時是主席與報告照樣合併。
+  var rosterName = String(slot.personName || '').trim();
+  return rosterName ? 'NAME:' + rosterName : '';
 }
 
 /**
