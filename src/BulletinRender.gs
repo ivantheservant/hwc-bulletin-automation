@@ -352,9 +352,17 @@ function buildRenderLists_(model) {
   var flagKey = programFullWidthFlagKey_();
 
   var program = (m.program || []).map(function (row) {
+    // 2026-10-28（四份樣本週報對照）：Word 範本的全寬列只有 {{PROGRAM_FW.CONTENT}} 一格，以前全寬列
+    //   （祈禱會、拍照）的內容是空白，印出來是一條空行；印刷版那一行印的是項目名稱。全寬列的 CONTENT
+    //   改為「項目名稱」（有內容就接「　內容」），與電郵內文的程序表同一個寫法（src/BulletinEmail.gs）。
+    var content = renderValueText_(row.content);
+    if (row.fullWidth) {
+      var itemName = renderValueText_(row.itemName);
+      content = [itemName, content].filter(function (s) { return String(s || '') !== ''; }).join('　');
+    }
     var item = {
       ITEM: renderValueText_(row.itemName),
-      CONTENT: renderValueText_(row.content),
+      CONTENT: content,
       POSTURE: renderValueText_(row.posture)
     };
     item[flagKey] = Boolean(row.fullWidth);

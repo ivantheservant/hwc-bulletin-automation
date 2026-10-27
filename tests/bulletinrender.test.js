@@ -201,7 +201,8 @@ test('2. PROGRAM 清單的 IS_FULL_WIDTH 旗標正確（祈禱會為 true）', f
   const lists = buildRenderLists_(sampleModel());
   const flag = programFullWidthFlagKey_();
   assertArrayEqual(lists.PROGRAM.map(function (r) { return r[flag]; }), [false, false, true]);
-  assert.strictEqual(lists.PROGRAM[2].CONTENT, '', '全寬列的內容欄');
+  // 2026-10-28：全寬列（範本只有 {{PROGRAM_FW.CONTENT}}）印項目名稱，與印刷版一樣。
+  assert.strictEqual(lists.PROGRAM[2].CONTENT, '祈禱會', '全寬列的內容欄印項目名稱');
 });
 
 test('2b. PROGRAM 清單保留原本的次序（交錯的次序不可以被打亂）', function () {
