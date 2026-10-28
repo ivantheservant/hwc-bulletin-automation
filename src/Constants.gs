@@ -823,8 +823,8 @@ var DEFAULTS = Object.freeze([
   { key: CONFIG_KEYS.PRELUDE_DEFAULT, value: '主在聖殿中 (生命聖詩 522)', note: '68 期樣本全部相同' },
   { key: CONFIG_KEYS.CANTONESE_SUBCOLUMN_LABEL, value: '主堂', note: '人數表粵語堂子欄標題' },
   { key: CONFIG_KEYS.DIAGNOSTICS_MAX_ROWS, value: '380', note: 'Diagnostics 工作表的資料行數上限，超過會被截斷' },
-  { key: CONFIG_KEYS.TEMPLATE_KEYWORDS_BAPTISM, value: '浸禮', note: '每週標題（職事表「類型」欄）含這些關鍵詞就用浸禮合堂範本（逗號分隔）；只在程序範本留空＝自動時用' },
-  { key: CONFIG_KEYS.TEMPLATE_KEYWORDS_ANNIVERSARY, value: '堂慶,週年', note: '每週標題（職事表「類型」欄）含這些關鍵詞就用堂慶合堂範本（逗號分隔）；只在程序範本留空＝自動時用' },
+  { key: CONFIG_KEYS.TEMPLATE_KEYWORDS_BAPTISM, value: '浸禮,Baptism,baptism', note: '每週標題（職事表「類型」欄）含這些關鍵詞就用浸禮合堂範本（逗號分隔；分大小寫，英文要大小寫各列一次）；只在程序範本留空＝自動時用' },
+  { key: CONFIG_KEYS.TEMPLATE_KEYWORDS_ANNIVERSARY, value: '堂慶,週年,Anniversary,anniversary', note: '每週標題（職事表「類型」欄）含這些關鍵詞就用堂慶合堂範本（逗號分隔；分大小寫，英文要大小寫各列一次）；只在程序範本留空＝自動時用' },
   { key: CONFIG_KEYS.TEMPLATE_DEFAULT, value: 'TPL_NORMAL', note: '推斷不到特別範本時使用的預設程序範本 ID' },
   {
     key: CONFIG_KEYS.RECITATION_MONTH_GROUPS,
@@ -993,7 +993,7 @@ var DEFAULTS = Object.freeze([
   // ---- v3（2026-10-26 Ivan 測試結果 A）----
   { key: CONFIG_KEYS.WEBAPP_SIMULATED_TODAY, value: '', note: '⚠️ 只供測試：填一個日期（yyyy-MM-dd），填寫介面就當今日是這一天——影響「發佈／寄出只限該週」、頂部「目前已發佈」那一行、打開時落在哪一週、自動建立季度、預覽連結（不帶日期那一條）顯示哪一週；不影響星期一自動寄送。正式使用前一定要清空（上線前檢查會是紅色）' },
   { key: CONFIG_KEYS.ROSTER_WEBAPP_URL, value: '', note: '職事表系統填寫介面的網址。填了之後，週報填寫介面「本週事奉」旁邊會出現「查看／修改職事表」按鈕；留空就不顯示' },
-  { key: CONFIG_KEYS.TEMPLATE_KEYWORDS_COMBINED, value: '合堂,聯合', note: '每週標題（職事表「類型」欄）含這些關鍵詞（而不是浸禮或堂慶）就用三堂聯合崇拜範本 TPL_COMBINED（逗號分隔）；只在程序範本留空＝自動時用' },
+  { key: CONFIG_KEYS.TEMPLATE_KEYWORDS_COMBINED, value: '合堂,聯合,Combined,combined', note: '每週標題（職事表「類型」欄）含這些關鍵詞（而不是浸禮或堂慶）就用三堂聯合崇拜範本 TPL_COMBINED（逗號分隔；分大小寫，英文要大小寫各列一次）；只在程序範本留空＝自動時用' },
   { key: CONFIG_KEYS.TEMPLATE_FILE_ID_COMBINED, value: '', note: '三堂聯合崇拜（TPL_COMBINED）Word 範本的雲端硬碟檔案 ID。留空就用堂慶三堂聯合崇拜那一個（TEMPLATE_FILE_ID_ANNIVERSARY）' },
   { key: CONFIG_KEYS.AUTO_CREATE_QUARTERS, value: 'TRUE', note: '職事表某一季已經生成版本（未正式發出亦算）、而且該季未完結時，自動建立該季的週報與內容表（每日一次，以及開啟填寫介面時）。設 FALSE 就停用，改用選單人手建立' },
   { key: CONFIG_KEYS.AUTO_CREATE_QUARTERS_LEAD_DAYS, value: '90', note: '自動建立只限第一個主日在今日起多少日之內的季度（預設 90 日；0＝不限）。職事表內遠期的測試季度因此不會被自動建立；要早一點建立就用選單人手建立' }

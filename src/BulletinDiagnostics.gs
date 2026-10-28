@@ -239,6 +239,8 @@ function menuPreviewBulletinModel_() {
       ui.alert('尚未設定職事表位置', '請先在 Config 工作表填入 ROSTER_SPREADSHEET_ID，再重試一次。', ui.ButtonSet.OK);
       return;
     }
+    // 2026-10-28：按這一週的 Word 範本核對事奉格（src/DutySlots.gs）。
+    var slotCheck = dutySlotCheckForModel_(model);
 
     ui.alert(
       '週報資料模型預覽',
@@ -251,14 +253,14 @@ function menuPreviewBulletinModel_() {
         '下週事奉行數：' + model.nextWeekDuty.length,
         '待填項目數：' + missingCountSummary_(model.missing).requiredCount
           + missingCountSummary_(model.missing).optionalSuffix,
-        '警告數：' + model.warnings.length,
+        '警告數：' + (model.warnings.length + slotCheck.warnings.length),
         '',
         '完整內容見 Diagnostics 工作表。'
       ].join('\n'),
       ui.ButtonSet.OK
     );
 
-    writeDiagnosticsReport_('週報資料模型預覽', buildBulletinModelReportLines_(model));
+    writeDiagnosticsReport_('週報資料模型預覽', buildBulletinModelReportLines_(model, slotCheck));
   } catch (err) {
     logMenuError_('menuPreviewBulletinModel_', err);
     ui.alert('預覽本週週報資料失敗', enrichAuthError_(err), ui.ButtonSet.OK);
@@ -283,11 +285,15 @@ function menuPreviewBulletinModel_() {
  *   「兩層各截一次、數字對不上」的情況。
  * Args:
  *   model {Object} buildBulletinModel_() 的回傳值。
+ *   slotCheck {Object=} 2026-10-28：`dutySlotCheckForModel_()` 的回傳值（Word 範本的事奉格）。
+ *     省略＝不核對（舊呼叫方）；有提供就在事奉行標「（範本沒有格，漏印）」，警告區段一併列出。
  * Returns:
  *   {string[]}
  */
-function buildBulletinModelReportLines_(model) {
+function buildBulletinModelReportLines_(model, slotCheck) {
   var lines = [];
+  var slots = slotCheck ? slotCheck.slots : null;
+  var slotWarnings = slotCheck ? (slotCheck.warnings || []) : [];
 
   lines.push('【基本資料】');
   lines.push('日期：' + model.isoDate + '　當月第 ' + model.weekOfMonth + ' 個主日');
@@ -303,14 +309,20 @@ function buildBulletinModelReportLines_(model) {
   lines.push('下週事奉標題：' + model.header.nextWeekHeading + '（' + model.header.nextWeekDate + '）');
   lines.push('本週獻花：' + (model.flowers.thisWeek || '（未填）')
     + '　下週獻花：' + (model.flowers.nextWeek || '（未填）'));
+  if (slotCheck) {
+    lines.push('Word 範本：' + slotCheck.templateLabel + '　'
+      + (slots ? buildDutySlotCountLine_(slots) : (slotCheck.error ? '事奉框格數：未能核對（見警告）' : '事奉框格數：範本未設定，不核對')));
+  }
 
   lines.push('');
   // 2026-10-27：沒有名字、按 Config DUTY_PRINT_EMPTY_ROWS 不印的行標「（不印）」。
   var printedPage1 = dutyRowsForPrint_(model.dutyBoxPage1, model.dutyPrintEmptyRows === true);
   lines.push('【事奉框（第 1 頁，' + model.dutyBoxPage1.length + ' 行，印 ' + printedPage1.length + ' 行）】');
   model.dutyBoxPage1.forEach(function (row) {
+    var at1 = printedPage1.indexOf(row);
     lines.push('　' + row.label + '：' + (row.text || '（待填）') + '　[' + row.states.join(',') + ']'
-      + (printedPage1.indexOf(row) === -1 ? '　（不印）' : ''));
+      + (at1 === -1 ? '　（不印）' : '')
+      + (isDutyRowWithoutSlot_(slots, 'page1', at1 + 1) ? '　（範本沒有格，漏印）' : ''));
   });
 
   lines.push('');
@@ -326,8 +338,10 @@ function buildBulletinModelReportLines_(model) {
   var printedPage3 = dutyRowsForPrint_(model.nextWeekDuty, model.dutyPrintEmptyRows === true);
   lines.push('【下週事奉（第 3 頁，' + model.nextWeekDuty.length + ' 行，印 ' + printedPage3.length + ' 行）】');
   model.nextWeekDuty.forEach(function (row) {
+    var at3 = printedPage3.indexOf(row);
     lines.push('　' + row.label + '：' + (row.text || '（待填）')
-      + (printedPage3.indexOf(row) === -1 ? '　（不印）' : ''));
+      + (at3 === -1 ? '　（不印）' : '')
+      + (isDutyRowWithoutSlot_(slots, 'page3', at3 + 1) ? '　（範本沒有格，漏印）' : ''));
   });
 
   lines.push('');
@@ -360,8 +374,9 @@ function buildBulletinModelReportLines_(model) {
   });
 
   lines.push('');
-  lines.push('【警告（' + model.warnings.length + ' 項）】');
-  model.warnings.forEach(function (w) {
+  var allWarnings = model.warnings.concat(slotWarnings);
+  lines.push('【警告（' + allWarnings.length + ' 項）】');
+  allWarnings.forEach(function (w) {
     lines.push('　[' + w.code + '] ' + w.message);
   });
 

@@ -338,7 +338,8 @@ console.log('\n三堂聯合崇拜範本 TPL_COMBINED');
 test('範本推斷：「合堂」「聯合」→ TPL_COMBINED；浸禮、堂慶仍然優先；Config 可以改關鍵詞', function () {
   const sb = makeEnv().sandbox;
   const cfg = plain(sb.readProgramTemplateConfig_());
-  assert.deepStrictEqual(cfg.combinedKeywords, ['合堂', '聯合']);
+  // 2026-10-28：預設值加了英文（Ivan 選「Config 加英文關鍵詞」），見 tests/dutyslots.test.js。
+  assert.deepStrictEqual(cfg.combinedKeywords, ['合堂', '聯合', 'Combined', 'combined']);
   const pick = function (title) { return sb.resolveProgramTemplateId_({}, { special: { title: title, type: '' } }, cfg).templateId; };
   assert.strictEqual(pick('宣教月合堂'), 'TPL_COMBINED');
   assert.strictEqual(pick('三堂聯合崇拜'), 'TPL_COMBINED');

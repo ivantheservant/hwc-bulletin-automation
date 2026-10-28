@@ -42,9 +42,9 @@ var PROGRAM_TEMPLATE_ID_COMBINED_ = 'TPL_COMBINED';
  */
 function readProgramTemplateConfig_() {
   return {
-    baptismKeywords: getConfigTextList_(CONFIG_KEYS.TEMPLATE_KEYWORDS_BAPTISM, '浸禮'),
-    anniversaryKeywords: getConfigTextList_(CONFIG_KEYS.TEMPLATE_KEYWORDS_ANNIVERSARY, '堂慶,週年'),
-    combinedKeywords: getConfigTextList_(CONFIG_KEYS.TEMPLATE_KEYWORDS_COMBINED, '合堂,聯合'),
+    baptismKeywords: getConfigTextList_(CONFIG_KEYS.TEMPLATE_KEYWORDS_BAPTISM, '浸禮,Baptism,baptism'),
+    anniversaryKeywords: getConfigTextList_(CONFIG_KEYS.TEMPLATE_KEYWORDS_ANNIVERSARY, '堂慶,週年,Anniversary,anniversary'),
+    combinedKeywords: getConfigTextList_(CONFIG_KEYS.TEMPLATE_KEYWORDS_COMBINED, '合堂,聯合,Combined,combined'),
     templateDefault: getConfig(CONFIG_KEYS.TEMPLATE_DEFAULT, 'TPL_NORMAL')
   };
 }

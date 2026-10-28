@@ -1819,7 +1819,8 @@ function loadWeekForWebApp_(isoDate) {
     // 前端不可以再自己 filter 一次 `optional`——那是第三份分類。
     // G14：另附面板顯示用、人數合併成一行的清單（見 missingSplitForWebApp_()）。
     missingSplit: missingSplitForWebApp_(model.missing),
-    warnings: model.warnings,
+    // 2026-10-28：事奉項目多過 Word 範本格數會漏印——載入時就按這一週的範本核對（src/DutySlots.gs）。
+    warnings: (model.warnings || []).concat(dutySlotCheckForModel_(model).warnings),
     options: webAppFieldOptions_(),
     // 第六輪：週報與職事表的比對結果。前端用 `conflictCount` 顯示頂部
     // 的「衝突 N 項」，用 `rows` 展開比對清單。

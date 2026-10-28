@@ -611,8 +611,11 @@ function generateBulletinDocx_(isoDate, options) {
   var fileName = buildOutputFileName_(isoDate);
   var renderStats = null;
   var renderWarnings = [];
+  var dutySlots = null;
 
   var rendered = renderDocxFromTemplate_(template.fileId, fileName, function (xml) {
+    // 2026-10-28：用正在渲染的這一份範本數事奉格（不經快取），漏印的項目列入警告（src/DutySlots.gs）。
+    dutySlots = templateDutySlotsFromXml_(prepareXmlForPlaceholders_(xml).xml);
     var result = renderDocumentXml_(xml, {
       values: context.values,
       lists: context.lists,
@@ -627,6 +630,9 @@ function generateBulletinDocx_(isoDate, options) {
     renderWarnings = result.warnings;
     return result.xml;
   });
+  if (dutySlots) {
+    renderWarnings = renderWarnings.concat(buildDutySlotWarnings_(dutySlots, model, template.label));
+  }
 
   // ---- 產出驗證：回頭實掃真正的產出，不是信上面那幾個數字 ----
   // ⚠️ 這一步刻意排在渲染之後、回傳之前，而且**不共用渲染的任何假設**
@@ -937,6 +943,8 @@ function inspectTemplatePlaceholders_() {
       var xml = prepareXmlForPlaceholders_(entries[index].blob.getDataAsString('UTF-8')).xml;
       entry.placeholders = findPlaceholders_(xml);
       entry.broken = findBrokenPlaceholders_(xml);
+      // 2026-10-28：事奉框／下週事奉的格數（多過這個數的事奉項目不會印出，見 src/DutySlots.gs）。
+      entry.dutySlots = templateDutySlotsFromXml_(xml);
 
       entry.usedValues = entry.placeholders
         .filter(function (p) { return p.type === 'SIMPLE'; })
@@ -1030,6 +1038,7 @@ function buildTemplateInspectionLines_(report) {
 
     lines.push('　用到的單值佔位符（' + t.usedValues.length + '）：' + (t.usedValues.join('　') || '（無）'));
     lines.push('　用到的清單（' + t.usedLists.length + '）：' + (t.usedLists.join('　') || '（無）'));
+    if (t.dutySlots) lines.push('　' + buildDutySlotCountLine_(t.dutySlots));
 
     lines.push('　⚠️ 範本用到、但系統不提供（' + t.unknownValues.length + '）：'
       + (t.unknownValues.join('　') || '（無）'));
