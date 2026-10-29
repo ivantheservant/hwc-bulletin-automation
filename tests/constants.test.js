@@ -178,7 +178,7 @@ test('BulletinWeeks：浸禮副框六欄的中文標題與機器鍵一一對應�
   assert.strictEqual(JSON.stringify(def.headers.slice(-10, -4)), JSON.stringify(expectedHeaders));
 });
 
-test('CONFIG_KEYS 剛好 136 個（與 DEFAULTS 一一對應）', function () {
+test('CONFIG_KEYS 剛好 141 個（與 DEFAULTS 一一對應）', function () {
   // 92 → 91：SEND_TARGET_OFFSET_DAYS 已廢棄（見 docs/已知bug類型.md 事故三十），
   // 已移出 CONFIG_KEYS／DEFAULTS，並加入 cleanupDeprecatedConfigKeys_() 的清單。
   // 2026-08-27 由 98 變 105：R-033 五個（PREVIEW_*）、R-032 兩個。
@@ -193,7 +193,9 @@ test('CONFIG_KEYS 剛好 136 個（與 DEFAULTS 一一對應）', function () {
   //    AUTO_CREATE_QUARTERS，128 → 133）；獨立審查之後 +1（AUTO_CREATE_QUARTERS_LEAD_DAYS，133 → 134）。
   // 2026-10-27（職事表第八十二輪說明）：−1（ROSTER_SHEET_SPECIAL_SUNDAYS，不再讀 SpecialSundays）
   //    +3（ROSTER_NOT_A_PERSON_TEXTS、ROSTER_NOT_APPLICABLE_RULE_FLAGS、DUTY_PRINT_EMPTY_ROWS），134 → 136。
-  assert.strictEqual(Object.keys(CONFIG_KEYS).length, 136);
+  // 2026-10-30（示範之後）：+5（WEEKLY_SEND_BULLETIN、FLOWER_THIS_WEEK_LABEL、FLOWER_NEXT_WEEK_LABEL、
+  //    FLOWER_LINE_SEPARATOR、CONTENT_AUTO_SYNC_MINUTES），136 → 141。
+  assert.strictEqual(Object.keys(CONFIG_KEYS).length, 141);
 });
 
 test('這一輪新增的 Config 鍵 FINANCE_PERIOD_LABEL_PATTERN 有定義、有預設值', function () {
@@ -226,8 +228,8 @@ test('CONFIG_KEYS 每一個值都有對應的 DEFAULTS 項目（不會有「有�
   });
 });
 
-test('DEFAULTS 剛好 136 筆（105 ＋ R-035 兩個 ＋ 階段 1 一個 ＋ 階段 2 兩個 ＋ 階段 3 十六個 ＋ D11 一個 ＋ 內容表 v2 一個 ＋ v3 六個 ＋ 2026-10-27 淨加兩個）', function () {
-  assert.strictEqual(DEFAULTS.length, 136);
+test('DEFAULTS 剛好 141 筆（105 ＋ R-035 兩個 ＋ 階段 1 一個 ＋ 階段 2 兩個 ＋ 階段 3 十六個 ＋ D11 一個 ＋ 內容表 v2 一個 ＋ v3 六個 ＋ 2026-10-27 淨加兩個 ＋ 2026-10-30 五個）', function () {
+  assert.strictEqual(DEFAULTS.length, 141);
 });
 
 test('內容表那 10 個 Config 鍵齊備，而且 ID 類 seed 成空字串', function () {

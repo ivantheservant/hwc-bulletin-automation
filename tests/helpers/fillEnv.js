@@ -399,6 +399,10 @@ function makeFillEnv(options) {
         onEdit: function () { return builder; },
         timeBased: function () { return builder; },
         everyHours: function () { return builder; },
+        everyMinutes: function () { return builder; },
+        everyDays: function () { return builder; },
+        atHour: function () { return builder; },
+        onWeekDay: function () { return builder; },
         create: function () { triggers.installed.push(built); return built; }
       };
       return builder;

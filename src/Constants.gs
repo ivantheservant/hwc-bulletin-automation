@@ -771,7 +771,16 @@ var CONFIG_KEYS = Object.freeze({
   // 職事表有新季度（已生成版本）時自動建立該季週報與內容表。
   AUTO_CREATE_QUARTERS: 'AUTO_CREATE_QUARTERS',
   // 自動建立只限第一個主日在今日起 N 日之內的季度（職事表內遠期的測試季度不會被建立）。
-  AUTO_CREATE_QUARTERS_LEAD_DAYS: 'AUTO_CREATE_QUARTERS_LEAD_DAYS'
+  AUTO_CREATE_QUARTERS_LEAD_DAYS: 'AUTO_CREATE_QUARTERS_LEAD_DAYS',
+  // ---- 2026-10-30（示範之後，Ivan 的決定）----
+  // 星期一自動流程要不要寄週報正文（連 Word 附件）。預設 FALSE：星期一只寄草稿預覽連結＋內容表連結。
+  WEEKLY_SEND_BULLETIN: 'WEEKLY_SEND_BULLETIN',
+  // 獻花那一行（{{FLOWER_LINE}}）：沒有名字的那一半不印，兩邊都沒有就整行不印。
+  FLOWER_THIS_WEEK_LABEL: 'FLOWER_THIS_WEEK_LABEL',
+  FLOWER_NEXT_WEEK_LABEL: 'FLOWER_NEXT_WEEK_LABEL',
+  FLOWER_LINE_SEPARATOR: 'FLOWER_LINE_SEPARATOR',
+  // 內容表有改動時，每隔多少分鐘自動匯入週報（今日及之後的主日）。0＝不自動。
+  CONTENT_AUTO_SYNC_MINUTES: 'CONTENT_AUTO_SYNC_MINUTES'
 });
 
 // =====================================================================
@@ -996,7 +1005,14 @@ var DEFAULTS = Object.freeze([
   { key: CONFIG_KEYS.TEMPLATE_KEYWORDS_COMBINED, value: '合堂,聯合,Combined,combined', note: '每週標題（職事表「類型」欄）含這些關鍵詞（而不是浸禮或堂慶）就用三堂聯合崇拜範本 TPL_COMBINED（逗號分隔；分大小寫，英文要大小寫各列一次）；只在程序範本留空＝自動時用' },
   { key: CONFIG_KEYS.TEMPLATE_FILE_ID_COMBINED, value: '', note: '三堂聯合崇拜（TPL_COMBINED）Word 範本的雲端硬碟檔案 ID。留空就用堂慶三堂聯合崇拜那一個（TEMPLATE_FILE_ID_ANNIVERSARY）' },
   { key: CONFIG_KEYS.AUTO_CREATE_QUARTERS, value: 'TRUE', note: '職事表某一季已經生成版本（未正式發出亦算）、而且該季未完結時，自動建立該季的週報與內容表（每日一次，以及開啟填寫介面時）。設 FALSE 就停用，改用選單人手建立' },
-  { key: CONFIG_KEYS.AUTO_CREATE_QUARTERS_LEAD_DAYS, value: '90', note: '自動建立只限第一個主日在今日起多少日之內的季度（預設 90 日；0＝不限）。職事表內遠期的測試季度因此不會被自動建立；要早一點建立就用選單人手建立' }
+  { key: CONFIG_KEYS.AUTO_CREATE_QUARTERS_LEAD_DAYS, value: '90', note: '自動建立只限第一個主日在今日起多少日之內的季度（預設 90 日；0＝不限）。職事表內遠期的測試季度因此不會被自動建立；要早一點建立就用選單人手建立' },
+
+  // ---- 2026-10-30（示範之後，Ivan 的決定）----
+  { key: CONFIG_KEYS.WEEKLY_SEND_BULLETIN, value: 'FALSE', note: '星期一自動流程要不要另外寄週報正文（連 Word 附件，收件人按 SEND_GROUPS）。FALSE（預設）＝星期一只寄草稿預覽連結與內容表連結（PREVIEW_SEND_GROUPS），定稿由幹事在填寫介面按「發佈」寄出通知；TRUE＝回復舊做法，兩封都寄' },
+  { key: CONFIG_KEYS.FLOWER_THIS_WEEK_LABEL, value: '本週主日獻花：', note: 'Word 範本 {{FLOWER_LINE}} 那一行「本週」部分的字眼。本週沒有獻花就連字眼一起不印' },
+  { key: CONFIG_KEYS.FLOWER_NEXT_WEEK_LABEL, value: '下週主日獻花：', note: 'Word 範本 {{FLOWER_LINE}} 那一行「下週」部分的字眼。下週沒有獻花就連字眼一起不印；兩週都沒有就整行不印' },
+  { key: CONFIG_KEYS.FLOWER_LINE_SEPARATOR, value: '  ', note: '{{FLOWER_LINE}} 本週與下週兩部分之間的分隔（預設兩個空格）' },
+  { key: CONFIG_KEYS.CONTENT_AUTO_SYNC_MINUTES, value: '30', note: '內容表有改動時，系統每隔多少分鐘自動匯入週報（只限今日及之後、未封存的主日），預覽連結因此不用等幹事登入也會更新。只可以填 0、5、10、15、30 或 60；0＝不自動。改了之後要在選單重新「安裝自動寄送觸發器」才生效' }
 ]);
 
 // =====================================================================

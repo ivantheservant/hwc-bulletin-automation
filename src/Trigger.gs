@@ -167,6 +167,16 @@ function weeklyBulletinSendTrigger_() {
       });
     }
 
+    // 2026-10-30（Ivan）：星期一只寄草稿預覽連結＋內容表連結；週報正文（連 Word 附件）預設不再自動寄，
+    //    定稿由幹事按「發佈」寄出通知。Config WEEKLY_SEND_BULLETIN=TRUE 回復舊做法。
+    if (normalizeBoolean_(getConfig(CONFIG_KEYS.WEEKLY_SEND_BULLETIN, 'FALSE')) !== true) {
+      appendAuditLog_({
+        action: 'WEEKLY_SEND_BULLETIN_SKIPPED', sheetName: SHEETS.SEND_LOG, rowKey: targetIso,
+        notes: '星期一自動流程：只寄草稿預覽連結與內容表連結；Config ' + CONFIG_KEYS.WEEKLY_SEND_BULLETIN
+          + ' 不是 TRUE，所以不寄週報正文。今日 ' + todayIso + '。'
+      });
+      return;
+    }
     sendBulletinForDate_(targetIso, {});
   } catch (err) {
     appendErrorLog_({
@@ -252,7 +262,9 @@ function removeAllSendTriggers_() {
   triggers.forEach(function (t) {
     // v3：每日自動建立季度的觸發器與自動寄送一齊安裝、一齊移除。
     var handler = t.getHandlerFunction();
-    if (handler === 'weeklyBulletinSendTrigger_' || handler === 'dailyQuarterAutoCreateTrigger_') {
+    // 2026-10-30：內容表自動同步（每 N 分鐘）亦一齊安裝、一齊移除。
+    if (handler === 'weeklyBulletinSendTrigger_' || handler === 'dailyQuarterAutoCreateTrigger_'
+      || handler === 'contentAutoSyncTrigger_') {
       ScriptApp.deleteTrigger(t);
       removed++;
     }
@@ -315,7 +327,19 @@ function installWeeklySendTrigger_() {
     .atHour(dailyHour)
     .create();
 
-  return { weekday: weekdayName, hour: hour, minute: minute, removedCount: removedCount, dailyHour: dailyHour };
+  // 2026-10-30：內容表有改動就每 N 分鐘自動匯入（src/ContentAutoSync.gs）。0＝不安裝；不是允許的值也不安裝，
+  //    並在結果講明（不可以靜靜當作關掉）。
+  var sync = parseContentAutoSyncMinutes_(getConfig(CONFIG_KEYS.CONTENT_AUTO_SYNC_MINUTES, '30'));
+  if (sync.minutes > 0) {
+    var syncBuilder = ScriptApp.newTrigger('contentAutoSyncTrigger_').timeBased();
+    if (sync.minutes === 60) syncBuilder.everyHours(1); else syncBuilder.everyMinutes(sync.minutes);
+    syncBuilder.create();
+  }
+
+  return {
+    weekday: weekdayName, hour: hour, minute: minute, removedCount: removedCount, dailyHour: dailyHour,
+    syncMinutes: sync.minutes, syncValid: sync.valid
+  };
 }
 
 /**
@@ -334,6 +358,11 @@ function menuInstallSendTrigger_() {
       [
         '已安裝：每週' + weekdayLabel + '　約 ' + result.hour + ':' + pad2Trigger_(result.minute) + ' 執行一次。',
         '另外每日約 ' + result.dailyHour + ':00 檢查一次職事表有沒有新季度（有就自動建立該季週報與內容表）。',
+        result.syncMinutes > 0
+          ? '內容表有改動時，每 ' + result.syncMinutes + ' 分鐘自動匯入今日及之後的主日（預覽連結會跟住更新）。'
+          : (result.syncValid
+            ? '內容表自動同步：Config ' + CONFIG_KEYS.CONTENT_AUTO_SYNC_MINUTES + ' 是 0，沒有安裝。'
+            : '⚠️ Config ' + CONFIG_KEYS.CONTENT_AUTO_SYNC_MINUTES + ' 不是 0、5、10、15、30 或 60，內容表自動同步沒有安裝。'),
         (result.removedCount > 0 ? '（先移除了 ' + result.removedCount + ' 個舊的同名觸發器，避免重複寄送。）' : ''),
         '',
         '⚠️ Apps Script 的時間觸發器只保證在指定小時內執行，不保證準確在',

@@ -328,7 +328,7 @@ function makeLegacyEnv(options) {
     }
   });
   // v3：安裝自動寄送時一併安裝「每日自動建立新季度」，所以正常的專案有兩個。
-  (o.triggers || ['weeklyBulletinSendTrigger_', 'dailyQuarterAutoCreateTrigger_', 'onFillGridEdit_', 'fillReconcileTrigger_', 'onSpeakerFormSubmit_'])
+  (o.triggers || ['weeklyBulletinSendTrigger_', 'dailyQuarterAutoCreateTrigger_', 'contentAutoSyncTrigger_', 'onFillGridEdit_', 'fillReconcileTrigger_', 'onSpeakerFormSubmit_'])
     .forEach(function (h) { env.triggers.installed.push(fakeTrigger(h)); });
   env.store = store;
   env.form = form;
@@ -375,16 +375,17 @@ test('R4-1 三處同一份觸發器清單：留着兩個舊觸發器 → 自我�
 
   const before = self();
   assert.deepStrictEqual(JSON.parse(JSON.stringify(before.map(function (i) { return i.label + i.status; }))), [
-    '觸發器：自動寄送' + S.GREEN, '觸發器：每日自動建立新季度' + S.GREEN, '觸發器：Config 人手改動稽核' + S.GREEN,
+    '觸發器：自動寄送' + S.GREEN, '觸發器：每日自動建立新季度' + S.GREEN, '觸發器：內容表自動同步' + S.GREEN,
+    '觸發器：Config 人手改動稽核' + S.GREEN,
     '觸發器：季度填寫表對帳（已停用）' + S.YELLOW, '觸發器：講員表格提交（已停用）' + S.YELLOW
   ]);
-  assert.ok(before[3].message.indexOf('季度工具 ▸ 停用舊功能（季度填寫表、講員表格）') !== -1, before[2].message);
+  assert.ok(before[4].message.indexOf('季度工具 ▸ 停用舊功能（季度填寫表、講員表格）') !== -1, before[2].message);
   assert.strictEqual(goLive('上線前：星期一觸發器').status, S.GREEN);
   const other = goLive('上線前：其他觸發器');
   assert.strictEqual(other.status, S.YELLOW);
   assert.ok(other.message.indexOf('季度填寫表對帳（已停用）') !== -1 && other.message.indexOf('講員表格提交（已停用）') !== -1, other.message);
   const dialog = statusDialog();
-  assert.strictEqual(dialog.title, '查看觸發器狀態（共 5 個）');
+  assert.strictEqual(dialog.title, '查看觸發器狀態（共 6 個）');
   assert.ok(dialog.message.indexOf('季度填寫表對帳（已停用）（fillReconcileTrigger_）：預期 0 個，實際 1 個。') !== -1, dialog.message);
   assert.ok(dialog.message.indexOf('Config 人手改動稽核（onFillGridEdit_）：預期 1 個，實際 1 個。') !== -1, dialog.message);
   assertWrittenChinese(assert, '觸發器狀態', [dialog.message, other.message]);
@@ -393,11 +394,11 @@ test('R4-1 三處同一份觸發器清單：留着兩個舊觸發器 → 自我�
   assert.ok(self().every(function (i) { return i.status === S.GREEN; }), JSON.stringify(self()));
   assert.strictEqual(goLive('上線前：其他觸發器').status, S.GREEN);
   assert.ok(statusDialog().message.indexOf('實際 1 個') !== -1);
-  assert.strictEqual(statusDialog().title, '查看觸發器狀態（共 3 個）');
+  assert.strictEqual(statusDialog().title, '查看觸發器狀態（共 4 個）');
 });
 
 test('R4-2 清單以外的觸發器、讀不到清單：兩個檢測與對話框都講出來（讀不到不等於 0 個）', function () {
-  const env = makeLegacyEnv({ triggers: ['weeklyBulletinSendTrigger_', 'dailyQuarterAutoCreateTrigger_', 'onFillGridEdit_', 'someoneElsesHandler'] });
+  const env = makeLegacyEnv({ triggers: ['weeklyBulletinSendTrigger_', 'dailyQuarterAutoCreateTrigger_', 'contentAutoSyncTrigger_', 'onFillGridEdit_', 'someoneElsesHandler'] });
   const S = env.sandbox.SELF_CHECK_STATUS_;
   const unknown = env.sandbox.runSelfCheck_().items.filter(function (i) { return i.label === '觸發器：不在預期清單內'; })[0];
   assert.strictEqual(unknown.status, S.YELLOW);
@@ -407,7 +408,7 @@ test('R4-2 清單以外的觸發器、讀不到清單：兩個檢測與對話框
   const broken = makeLegacyEnv({});
   broken.sandbox.ScriptApp.getProjectTriggers = function () { throw new Error('未授權'); };
   const items = broken.sandbox.runSelfCheck_().items.filter(function (i) { return i.label.indexOf('觸發器：') === 0; });
-  assert.ok(items.length === 5 && items.every(function (i) { return i.status === S.YELLOW && i.message.indexOf('讀不到') !== -1; }), JSON.stringify(items));
+  assert.ok(items.length === 6 && items.every(function (i) { return i.status === S.YELLOW && i.message.indexOf('讀不到') !== -1; }), JSON.stringify(items));
   assert.strictEqual(broken.sandbox.buildGoLiveChecklist_().filter(function (i) { return i.label === '上線前：星期一觸發器'; })[0].status, S.YELLOW);
 
   const before = retireSnapshot(broken);
@@ -432,7 +433,7 @@ test('R4-3 停用舊功能（選單，答「是」）：只拆兩個舊觸發器
   ].forEach(function (piece) { assert.ok(preview.message.indexOf(piece) !== -1, '預覽缺少：' + piece + '\n' + preview.message); });
   assertWrittenChinese(assert, '停用舊功能預覽', [preview.message]);
 
-  assert.deepStrictEqual(handlersOf(env), ['dailyQuarterAutoCreateTrigger_', 'onFillGridEdit_', 'weeklyBulletinSendTrigger_']);
+  assert.deepStrictEqual(handlersOf(env), ['contentAutoSyncTrigger_', 'dailyQuarterAutoCreateTrigger_', 'onFillGridEdit_', 'weeklyBulletinSendTrigger_']);
   const g = grid(env);
   assert.strictEqual(JSON.stringify(g.__data), gridBefore, 'Fill_ 內容一格都不改');
   assert.ok(g.getRange(1, 1).getNote().indexOf('季度填寫表已停用（2026-10）') === 0, g.getRange(1, 1).getNote());
@@ -481,7 +482,7 @@ test('R4-6 其中一步失敗（表格開不到）→ 其餘步驟照做、Error
   env.sandbox.menuRetireLegacyFeatures_();
   const preview = env.store.alerts[0].message;
   assert.ok(preview.indexOf('現時查不到表格狀態') !== -1, preview);
-  assert.deepStrictEqual(handlersOf(env), ['dailyQuarterAutoCreateTrigger_', 'onFillGridEdit_', 'weeklyBulletinSendTrigger_'], '其餘步驟照做');
+  assert.deepStrictEqual(handlersOf(env), ['contentAutoSyncTrigger_', 'dailyQuarterAutoCreateTrigger_', 'onFillGridEdit_', 'weeklyBulletinSendTrigger_'], '其餘步驟照做');
   assert.strictEqual(grid(env).isSheetHidden(), true);
   const errors = env.sandbox.readSheet('ErrorLog').filter(function (r) { return r.ERROR_CODE === 'RETIRE_LEGACY_STEP_FAILED'; });
   assert.strictEqual(errors.length, 1);

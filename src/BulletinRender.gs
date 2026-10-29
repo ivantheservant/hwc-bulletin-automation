@@ -108,6 +108,36 @@ function buildNumberedDutyValues_(prefix, rows, max) {
   return out;
 }
 
+/**
+ * `{{FLOWER_LINE}}` 沒有另外設定時的字眼（與 Config `FLOWER_THIS_WEEK_LABEL`／`FLOWER_NEXT_WEEK_LABEL`／
+ * `FLOWER_LINE_SEPARATOR` 的預設值相同；純函式層不讀 Config，真正入口會把 Config 的值傳進 opts）。
+ */
+var FLOWER_LINE_DEFAULTS_ = Object.freeze({ thisWeekLabel: '本週主日獻花：', nextWeekLabel: '下週主日獻花：', separator: '  ' });
+
+/**
+ * 用途：2026-10-30：組出獻花那一行（`{{FLOWER_LINE}}`）。沒有名字的那一半連字眼一起不印；
+ *   兩邊都沒有就回空字串（範本用 `{{#IFP:FLOWER_LINE}}` 整行不印）。純函式。
+ *   以前範本寫死「本週主日獻花：{{FLOWER_THIS_WEEK}}  下週主日獻花：{{FLOWER_NEXT_WEEK}}」，下週沒有
+ *   獻花仍然印「下週主日獻花：」。
+ * Args:
+ *   flowers {{thisWeek:string, nextWeek:string}} `model.flowers`。
+ *   labels {{thisWeekLabel:string=, nextWeekLabel:string=, separator:string=}=} Config 的字眼；省略用預設。
+ * Returns:
+ *   {string}
+ * Raises:
+ *   （無）
+ */
+function buildFlowerLine_(flowers, labels) {
+  var f = flowers || {};
+  var l = Object.assign({}, FLOWER_LINE_DEFAULTS_, labels || {});
+  var parts = [];
+  var thisWeek = renderValueText_(f.thisWeek).trim();
+  var nextWeek = renderValueText_(f.nextWeek).trim();
+  if (thisWeek) parts.push(String(l.thisWeekLabel) + thisWeek);
+  if (nextWeek) parts.push(String(l.nextWeekLabel) + nextWeek);
+  return parts.join(String(l.separator));
+}
+
 /** `{{FINANCE_TITLE}}` 沒有另外設定 `financeTitlePattern` 時的預設樣式。 */
 var FINANCE_TITLE_PATTERN_DEFAULT_ = '聖道堂綜合收支財務報告-{{YEAR}}年 {{MONTH}}月份';
 
@@ -247,6 +277,8 @@ function buildRenderContext_(model, options) {
   values.NEXT_WEEK_DATE = renderValueText_(header.nextWeekDate);
   values.FLOWER_THIS_WEEK = renderValueText_(flowers.thisWeek);
   values.FLOWER_NEXT_WEEK = renderValueText_(flowers.nextWeek);
+  // 2026-10-30：一整行（沒有名字的那一半不印；兩邊都沒有就整行不印，範本用 {{#IFP:FLOWER_LINE}}）。
+  values.FLOWER_LINE = buildFlowerLine_(flowers, opts.flowerLine);
 
   // ---- 其他 ----
   values.PRAYER_BLOCK_HEADING = renderValueText_(prayerBlock.heading);
@@ -604,6 +636,11 @@ function generateBulletinDocx_(isoDate, options) {
     callFormat: getConfig(CONFIG_KEYS.CALL_TO_WORSHIP_FORMAT, '{{CALL_TEXT}}（{{CALL_REF}}）'),
     generatedAt: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm'),
     dutyPlaceholderMax: normalizeInt_(getConfig(CONFIG_KEYS.DUTY_PLACEHOLDER_MAX, '20')),
+    flowerLine: {
+      thisWeekLabel: getConfig(CONFIG_KEYS.FLOWER_THIS_WEEK_LABEL, FLOWER_LINE_DEFAULTS_.thisWeekLabel),
+      nextWeekLabel: getConfig(CONFIG_KEYS.FLOWER_NEXT_WEEK_LABEL, FLOWER_LINE_DEFAULTS_.nextWeekLabel),
+      separator: getConfig(CONFIG_KEYS.FLOWER_LINE_SEPARATOR, FLOWER_LINE_DEFAULTS_.separator)
+    },
     financeTitlePattern: getConfig(CONFIG_KEYS.FINANCE_TITLE_PATTERN, FINANCE_TITLE_PATTERN_DEFAULT_),
     financePeriodLabelPattern: getConfig(CONFIG_KEYS.FINANCE_PERIOD_LABEL_PATTERN, FINANCE_PERIOD_LABEL_PATTERN_DEFAULT_)
   });

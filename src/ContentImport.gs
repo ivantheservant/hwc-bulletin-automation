@@ -379,13 +379,9 @@ function buildContentImportTargets_(contentData, serviceDates) {
       });
 
       // 同一個主日內按「次序」排先後；次序相同就按內容表上的行號。
+      // 2026-10-30（Ivan）：次序留空排在有次序的後面（以前 Number('') 當 0，排在最前）。
       Object.keys(byDate).forEach(function (iso) {
-        byDate[iso].sort(function (a, b) {
-          var sa = Number(a.SEQ_NO);
-          var sb = Number(b.SEQ_NO);
-          if (Number.isFinite(sa) && Number.isFinite(sb) && sa !== sb) return sa - sb;
-          return a.__rowNo - b.__rowNo;
-        });
+        byDate[iso].sort(compareContentRowsBySeq_);
       });
     }
 
@@ -526,6 +522,32 @@ function normalizeContentCompareValue_(value) {
     return formatIsoDate_(value);
   }
   return String(value).trim();
+}
+
+/**
+ * 用途：內容表清單分頁同一個主日內的先後：有填「次序」的按數字由細到大；次序留空（或不是數字）的
+ *   排在有次序的後面；其餘按內容表上的行號。純函式（給 `Array.prototype.sort` 用）。
+ *   2026-10-30（Ivan）：以前留空被 `Number('')` 當成 0，排在最前。
+ * Args:
+ *   a {Object}　b {Object} 帶 `SEQ_NO`、`__rowNo` 的行。
+ * Returns:
+ *   {number}
+ * Raises:
+ *   （無）
+ */
+function compareContentRowsBySeq_(a, b) {
+  function seqOf(row) {
+    var raw = row ? row.SEQ_NO : '';
+    if (raw === null || raw === undefined || String(raw).trim() === '') return null;
+    var n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  }
+  var sa = seqOf(a);
+  var sb = seqOf(b);
+  if (sa !== null && sb !== null && sa !== sb) return sa - sb;
+  if (sa !== null && sb === null) return -1;
+  if (sa === null && sb !== null) return 1;
+  return Number(a.__rowNo || 0) - Number(b.__rowNo || 0);
 }
 
 /**
@@ -953,8 +975,8 @@ function readContentSheetTabs_(spreadsheet) {
  *   選單與 Web App 兩個入口都經過這裡（不可以各寫一套）。
  * Args:
  *   quarterId {string} 季度 ID。
- *   options {{isoDate:string=, tabNames:string[]=}=} 有 `isoDate` 就只匯入那一個
- *     主日，省略代表整季；有 `tabNames` 就只匯入那幾張分頁（講員表格答案只匯入
+ *   options {{isoDate:string=, isoDates:string[]=, tabNames:string[]=}=} 有 `isoDate` 就只匯入那一個
+ *     主日；有 `isoDates` 就只匯入其中屬於這一季的幾個（2026-10-30，自動同步用）；兩樣都省略代表整季；有 `tabNames` 就只匯入那幾張分頁（講員表格答案只匯入
  *     「崇拜程序」，與主日篩選同一個做法），省略代表全部分頁。
  * Returns:
  *   {{ok:boolean, quarterId:string, scope:string, plan:(Object|undefined),
@@ -1006,8 +1028,19 @@ function previewContentImport_(quarterId, options) {
         + '　請先按選單「建立本季空白週報」。'
     };
   }
-  var scope = opts.isoDate ? 'ONE_WEEK' : 'QUARTER';
+  // 2026-10-30：`isoDates`＝只匯入其中幾個主日（內容表自動同步：今日及之後的主日，見 src/ContentAutoSync.gs）。
+  var someDates = Array.isArray(opts.isoDates) ? opts.isoDates.map(function (d) { return String(d || '').trim(); }) : null;
+  var scope = opts.isoDate ? 'ONE_WEEK' : (someDates ? 'SOME_WEEKS' : 'QUARTER');
   var serviceDates = allServiceDates;
+  if (!opts.isoDate && someDates) {
+    serviceDates = allServiceDates.filter(function (d) { return someDates.indexOf(d) !== -1; });
+    if (serviceDates.length === 0) {
+      return {
+        ok: false, quarterId: qid, scope: scope, reason: 'NO_DATES_IN_SCOPE',
+        message: '指定的主日都不屬於季度「' + qid + '」，沒有東西要匯入。'
+      };
+    }
+  }
 
   if (opts.isoDate) {
     if (allServiceDates.indexOf(opts.isoDate) === -1) {

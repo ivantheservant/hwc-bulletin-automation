@@ -95,11 +95,22 @@ test('weeklyTriggerTargetSunday_：今日或之後第一個主日；寄過就標
   assert.strictEqual(sb.weeklyTriggerTargetSunday_({ todayIso: '亂寫' }).ok, false);
 });
 
-test('真入口 weeklyBulletinSendTrigger_：這一期未寄 → 寄草稿預覽信與週報（這一期）', function () {
-  const env = makeEnv('2027-10-04', { config: { DRY_RUN: 'FALSE' } });
+test('真入口 weeklyBulletinSendTrigger_：這一期未寄 → 寄草稿預覽信與週報（這一期；Config WEEKLY_SEND_BULLETIN=TRUE）', function () {
+  // 2026-10-30：星期一預設只寄草稿預覽連結（tests/postdemo1030.test.js）；這裏測回復舊做法的開關。
+  const env = makeEnv('2027-10-04', { config: { DRY_RUN: 'FALSE', WEEKLY_SEND_BULLETIN: 'TRUE' } });
   const calls = stubMondaySteps(env.sandbox);
   env.sandbox.weeklyBulletinSendTrigger_();
   assert.deepStrictEqual(calls, ['preview:2027-10-10', 'bulletin:2027-10-10']);
+});
+
+test('真入口 weeklyBulletinSendTrigger_（2026-10-30 預設）：只寄草稿預覽連結（連內容表連結），不寄週報正文；AuditLog 講明', function () {
+  const env = makeEnv('2027-10-04', { config: { DRY_RUN: 'FALSE' } });
+  const calls = stubMondaySteps(env.sandbox);
+  env.sandbox.weeklyBulletinSendTrigger_();
+  assert.deepStrictEqual(calls, ['preview:2027-10-10']);
+  const audit = env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'WEEKLY_SEND_BULLETIN_SKIPPED'; });
+  assert.strictEqual(audit.length, 1);
+  assert.ok(audit[0].NOTES.indexOf('WEEKLY_SEND_BULLETIN') !== -1, audit[0].NOTES);
 });
 
 test('真入口 weeklyBulletinSendTrigger_：這一期已經真的寄過（同一日第二次跑，或者上星期人手真的試寄了）→ 甚麼都不寄、不提早寄再下一期；AuditLog 講明', function () {
@@ -115,7 +126,7 @@ test('真入口 weeklyBulletinSendTrigger_：這一期已經真的寄過（同�
 
 test('真入口 weeklyBulletinSendTrigger_：試寄（DRY_RUN）的紀錄不算寄過——照寄這一期', function () {
   const dry = Object.assign(sentRow('2027-10-10'), { DRY_RUN: true, STATUS: 'DRY_RUN' });
-  const env = makeEnv('2027-10-04', { sendLog: [dry] });
+  const env = makeEnv('2027-10-04', { sendLog: [dry], config: { WEEKLY_SEND_BULLETIN: 'TRUE' } });
   const calls = stubMondaySteps(env.sandbox);
   env.sandbox.weeklyBulletinSendTrigger_();
   assert.deepStrictEqual(calls, ['preview:2027-10-10', 'bulletin:2027-10-10']);

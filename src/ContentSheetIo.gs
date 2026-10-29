@@ -96,6 +96,26 @@ function createContentSpreadsheet_(fileName, folderId, domain) {
 }
 
 /**
+ * 用途：2026-10-30：內容表檔案的最後修改時間（毫秒）。唯讀。內容表自動同步（src/ContentAutoSync.gs）用來判斷
+ *   「上一次同步之後有沒有人改過」。放在這個檔案是因為 DriveApp 只准出現在這裏等幾個檔案。
+ * Args:
+ *   fileId {string} 內容表的檔案 ID。
+ * Returns:
+ *   {?number} 讀不到回 `null`（呼叫方當作「有改過」，照樣同步）。
+ * Raises:
+ *   （無）
+ */
+function readContentSheetLastUpdatedMillis_(fileId) {
+  if (!fileId) return null;
+  try {
+    var updated = DriveApp.getFileById(String(fileId)).getLastUpdated();
+    return (updated instanceof Date && !isNaN(updated.getTime())) ? updated.getTime() : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
  * 用途：按檔案 ID 開啟一個已經存在嘅內容表。
  * Args:
  *   fileId {string} 檔案 ID。
