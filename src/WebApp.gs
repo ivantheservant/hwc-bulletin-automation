@@ -1770,8 +1770,8 @@ function loadWeekForWebApp_(isoDate) {
       prayers: arrangedForUi('prayers', pickWebAppListItems_(readSheet(SHEETS.PRAYERS), isoDate, ['TEXT'])),
       fellowships: arrangedForUi('fellowships', pickWebAppListItems_(readSheet(SHEETS.FELLOWSHIPS), isoDate,
         ['FELLOWSHIP_NAME', 'MEETING_DATE', 'MEETING_TIME', 'CONTENT'])),
-      finance: pickWebAppListItems_(readSheet(SHEETS.FINANCE), isoDate,
-        ['ROW_LABEL', 'COL_SPECIAL_OVERSEAS', 'COL_HARDSHIP'])
+      // 2026-10-30：財政報告兩款，全部欄都顯示（唯讀）。鍵由 webAppListDefs_() 決定（與 Script.html LIST_DEFS.finance 相同）。
+      finance: pickWebAppListItems_(readSheet(SHEETS.FINANCE), isoDate, webAppListDefs_().finance.fieldKeys)
     },
     lastSavedAt: canonicalSaveToken_(weekRow.LAST_SAVED_AT),
     readOnly: {

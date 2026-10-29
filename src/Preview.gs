@@ -227,7 +227,8 @@ function renderPreviewHtml_(data) {
  * 用途：把一個區塊排成 HTML。**純函式。**
  * Args:
  *   section {{title:string, kind:string, columns:string[]=, rows:Array=,
- *     items:Array=}} 區塊定義。`kind` 是 `TABLE`／`LIST`／`PAIRS`。
+ *     items:Array=, notes:string[]=}} 區塊定義。`kind` 是 `TABLE`／`LIST`／`PAIRS`；`notes` 是表下的文字
+ *     （只限 `TABLE`，例如財政報告的附註）。
  * Returns:
  *   {string}
  */
@@ -276,6 +277,8 @@ function renderPreviewSection_(section) {
     out.push('</tr>');
   });
   out.push('</table>');
+  // 2026-10-30：表下的文字（財政報告的附註、銀行結餘）。
+  (s.notes || []).forEach(function (note) { out.push('<p>' + previewCell_(note) + '</p>'); });
   return out.join('');
 }
 
@@ -403,14 +406,28 @@ function buildPreviewData_(model, options) {
   });
 
   // ---- 財政報告 ----
-  sections.push({
-    title: '財政報告',
-    kind: 'TABLE',
-    columns: ['項目', '欄一', '欄二', '欄三', '欄四'],
-    rows: (m.finance || []).map(function (r) {
-      return [r.rowLabel, r.specialOverseas, r.hardship, r.col3, r.col4];
-    })
-  });
+  // 2026-10-30：兩款報告各自一張表（標題、表頭與 Word 用同一份，src/FinanceReports.gs）；附註、結餘印在表下。
+  var reports = m.financeReports || {};
+  var labels = reports.columnLabels || { main: [], special: [] };
+  var financeSections = [];
+  if (reports.main) {
+    financeSections.push({
+      title: '財政報告：' + reports.main.title, kind: 'TABLE',
+      columns: ['項目'].concat(labels.main || []),
+      rows: reports.main.rows.map(function (r) { return [r.label, r.col1, r.col2, r.col3, r.col4]; }),
+      notes: [reports.main.note, reports.main.balance].filter(function (t) { return String(t || '') !== ''; })
+    });
+  }
+  if (reports.special) {
+    financeSections.push({
+      title: '財政報告：' + reports.special.title, kind: 'TABLE',
+      columns: ['項目'].concat(labels.special || []),
+      rows: reports.special.rows.map(function (r) { return [r.label, r.col1, r.col2]; }),
+      notes: [reports.special.note, reports.special.balance].filter(function (t) { return String(t || '') !== ''; })
+    });
+  }
+  if (financeSections.length === 0) financeSections.push({ title: '財政報告', kind: 'TABLE', columns: [], rows: [] });
+  financeSections.forEach(function (fs) { sections.push(fs); });
 
   return {
     pageTitle: (header.pageTitle || '崇拜程序') + '　草稿預覽',

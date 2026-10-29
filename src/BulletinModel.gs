@@ -211,7 +211,14 @@ function buildBulletinModel_(isoDate, options) {
       defaultPrayerBlockHeading: getConfig(CONFIG_KEYS.DEFAULT_PRAYER_BLOCK_HEADING, '代禱事項'),
       preludeDefault: getConfig(CONFIG_KEYS.PRELUDE_DEFAULT, ''),
       cantoneseSubColumnLabel: getConfig(CONFIG_KEYS.CANTONESE_SUBCOLUMN_LABEL, '主堂'),
-      dutyPrintEmptyRows: normalizeBoolean_(getConfig(CONFIG_KEYS.DUTY_PRINT_EMPTY_ROWS, 'FALSE')) === true
+      dutyPrintEmptyRows: normalizeBoolean_(getConfig(CONFIG_KEYS.DUTY_PRINT_EMPTY_ROWS, 'FALSE')) === true,
+      // 2026-10-30：財政報告（src/FinanceReports.gs）。
+      financeTitlePattern: getConfig(CONFIG_KEYS.FINANCE_TITLE_PATTERN, FINANCE_TITLE_PATTERN_DEFAULT_),
+      financePeriodLabelPattern: getConfig(CONFIG_KEYS.FINANCE_PERIOD_LABEL_PATTERN, FINANCE_PERIOD_LABEL_PATTERN_DEFAULT_),
+      financeSpecialTitlePattern: getConfig(CONFIG_KEYS.FINANCE_SPECIAL_TITLE_PATTERN, FINANCE_SPECIAL_TITLE_PATTERN_DEFAULT_),
+      financeSpecialKeywords: getConfig(CONFIG_KEYS.FINANCE_SPECIAL_KEYWORDS, FINANCE_SPECIAL_KEYWORDS_DEFAULT_),
+      financeMainColumnLabels: getConfig(CONFIG_KEYS.FINANCE_MAIN_COLUMN_LABELS, FINANCE_MAIN_COLUMN_LABELS_DEFAULT_),
+      financeSpecialColumnLabels: getConfig(CONFIG_KEYS.FINANCE_SPECIAL_COLUMN_LABELS, FINANCE_SPECIAL_COLUMN_LABELS_DEFAULT_)
     },
     // 正式路徑用 Apps Script 的 Utilities.formatDate()，才能完整支援 Config
     // 內任何 Java SimpleDateFormat 樣式；純函式層測試會改用內建的簡化版。
@@ -286,6 +293,8 @@ function emptyBulletinModel_(isoDate, overrides) {
     announcements: [],
     prayerBlock: { heading: '', items: [] },
     finance: [],
+    // 2026-10-30：兩款財政報告（src/FinanceReports.gs）。沒有那一款就是 null。
+    financeReports: { main: null, special: null, periodLabel: '', columnLabels: { main: ['', '', '', ''], special: ['', ''] } },
     fellowships: [],
     missing: [],
     warnings: []
@@ -437,9 +446,35 @@ function assembleBulletinModel_(input) {
         // {{FINANCE.COL4}}。COL5 目前沒有對應的渲染欄位，見
         // docs/待確認事項.md 的說明，這裡不帶出來。
         col3: String(r.COL3 || ''),
-        col4: String(r.COL4 || '')
+        col4: String(r.COL4 || ''),
+        // 2026-10-30：報告標題、附註、銀行結餘（內容表「財政報告」，每個報告填在其中一行）。
+        title: String(r.REPORT_TITLE || ''),
+        note: String(r.REPORT_NOTE || ''),
+        balance: String(r.REPORT_BALANCE || '')
       };
     });
+
+  // 2026-10-30（Ivan：財政報告全部修正）：分成「綜合收支」「特殊海外奉獻及慈惠基金」兩個報告（src/FinanceReports.gs）。
+  //    Word、草稿預覽頁、電郵、診斷都讀這一份，標題與表頭不另外再算。
+  var financeSplit = buildFinanceReports_(model.finance, {
+    isoDate: input.isoDate,
+    mainTitlePattern: config.financeTitlePattern,
+    specialTitlePattern: config.financeSpecialTitlePattern,
+    specialKeywords: config.financeSpecialKeywords
+  });
+  var financePeriodLabel = buildFinancePeriodLabel_(
+    config.financePeriodLabelPattern === undefined ? FINANCE_PERIOD_LABEL_PATTERN_DEFAULT_ : config.financePeriodLabelPattern,
+    input.isoDate);
+  model.financeReports = {
+    main: financeSplit.main,
+    special: financeSplit.special,
+    periodLabel: financePeriodLabel,
+    columnLabels: financeColumnLabels_({
+      mainLabels: config.financeMainColumnLabels, specialLabels: config.financeSpecialColumnLabels,
+      periodLabel: financePeriodLabel
+    })
+  };
+  financeSplit.warnings.forEach(function (w) { warnings.push(w); });
 
   model.fellowships = arrangedRows('fellowships', input.fellowshipRows)
     .map(function (r) {

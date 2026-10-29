@@ -360,8 +360,18 @@ function buildBulletinModelReportLines_(model, slotCheck) {
   model.fellowships.forEach(function (f) {
     lines.push('　團契：' + f.fellowshipName + '　' + f.meetingDate + ' ' + f.meetingTime + '　' + f.content);
   });
-  model.finance.forEach(function (f) {
-    lines.push('　財政：' + f.rowLabel + '　特殊海外奉獻=' + f.specialOverseas + '　慈惠=' + f.hardship);
+  // 2026-10-30：兩款財政報告分開列（標題、表頭與 Word 同一份）。
+  var reports = model.financeReports || {};
+  var financeLabels = reports.columnLabels || { main: [], special: [] };
+  [{ r: reports.main, labels: financeLabels.main || [], cols: ['col1', 'col2', 'col3', 'col4'] },
+    { r: reports.special, labels: financeLabels.special || [], cols: ['col1', 'col2'] }].forEach(function (x) {
+    if (!x.r) return;
+    lines.push('　財政：' + x.r.title + (x.r.titleFromPattern ? '（預設標題）' : ''));
+    x.r.rows.forEach(function (row) {
+      lines.push('　　' + row.label + x.cols.map(function (c, i) { return '　' + (x.labels[i] || '') + '=' + row[c]; }).join(''));
+    });
+    if (x.r.note) lines.push('　　附註：' + x.r.note.replace(/\n/g, '／'));
+    if (x.r.balance) lines.push('　　銀行結餘：' + x.r.balance.replace(/\n/g, '／'));
   });
 
   lines.push('');

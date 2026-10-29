@@ -986,7 +986,7 @@ test('20b. 五張舊表嘅欄位定義完全冇改（結構層面）', function 
   assert.strictEqual(cols.ANNOUNCEMENTS.keys.length, 4);
   assert.strictEqual(cols.PRAYERS.keys.length, 4);
   assert.strictEqual(cols.FELLOWSHIPS.keys.length, 7);
-  assert.strictEqual(cols.FINANCE.keys.length, 9);
+  assert.strictEqual(cols.FINANCE.keys.length, 12, 'Finance 2026-10-30 最後加報告標題、附註、銀行結餘');
   assert.strictEqual(cols.BULLETIN_WEEKS.keys.length, 57, 'BulletinWeeks 欄數（浸禮六欄 ＋ R-036 的 ROSTER_STATUS ＋ R-035 ＋ v3 兩欄）');
 });
 

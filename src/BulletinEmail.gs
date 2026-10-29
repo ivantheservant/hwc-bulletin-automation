@@ -282,11 +282,22 @@ function buildBulletinEmailHtml_(model, options) {
       return '<li>' + esc(f.fellowshipName) + '　' + esc(f.meetingDate) + ' ' + esc(f.meetingTime) + '　' + esc(f.content) + '</li>';
     }).join('') + '</ul>');
   }
-  if (model.finance && model.finance.length > 0) {
-    section('財政報告', '<ul>' + model.finance.map(function (f) {
-      return '<li>' + esc(f.rowLabel) + '　特殊海外奉獻：' + esc(f.specialOverseas) + '　慈惠：' + esc(f.hardship) + '</li>';
-    }).join('') + '</ul>');
-  }
+  // 2026-10-30：兩款財政報告各自一段（標題、表頭與 Word 同一份，src/FinanceReports.gs）。
+  var reports = model.financeReports || {};
+  var financeLabels = reports.columnLabels || { main: [], special: [] };
+  [{ r: reports.main, labels: financeLabels.main || [], cols: ['col1', 'col2', 'col3', 'col4'] },
+    { r: reports.special, labels: financeLabels.special || [], cols: ['col1', 'col2'] }].forEach(function (x) {
+    if (!x.r) return;
+    var body = '<ul>' + x.r.rows.map(function (row) {
+      return '<li>' + esc(row.label) + x.cols.map(function (c, i) {
+        return '　' + esc(x.labels[i] || '') + '：' + esc(row[c]);
+      }).join('') + '</li>';
+    }).join('') + '</ul>';
+    [x.r.note, x.r.balance].forEach(function (t) {
+      if (String(t || '') !== '') body += '<p>' + esc(t).replace(/\n/g, '<br>') + '</p>';
+    });
+    section('財政報告：' + x.r.title, body);
+  });
 
   // 8. 尚未填寫的欄位
   if (includeMissing && model.missing && model.missing.length > 0) {

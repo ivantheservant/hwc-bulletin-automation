@@ -238,19 +238,21 @@ var COLUMNS = Object.freeze({
   },
 
   FINANCE: {
-    headers: ['主日日期', '次序', '項目', '特殊海外奉獻', '慈惠', '欄三', '欄四', '欄五', '有效'],
+    // 2026-10-30：最後加「報告標題」「附註」「銀行結餘」（內容表「財政報告」匯入；加在最尾，舊資料位置不變）。
+    headers: ['主日日期', '次序', '項目', '特殊海外奉獻', '慈惠', '欄三', '欄四', '欄五', '有效', '報告標題', '附註', '銀行結餘'],
     // ⚠️ prompt9 §1.6 新增 COL3／COL4／COL5：範本用到 FINANCE 清單的
     // LABEL、COL1、COL2、COL3、COL4 五個渲染欄位，其中 COL1／COL2 對應
     // 既有的 COL_SPECIAL_OVERSEAS／COL_HARDSHIP（沿用舊機器鍵，舊資料
     // 不受影響），COL3／COL4 對應這裡新增的 COL3／COL4。COL5 是保留欄，
     // 目前沒有對應的渲染佔位符——見 docs/待確認事項.md 的說明。
-    keys: ['SERVICE_DATE', 'SEQ_NO', 'ROW_LABEL', 'COL_SPECIAL_OVERSEAS', 'COL_HARDSHIP', 'COL3', 'COL4', 'COL5', 'ACTIVE'],
-    types: ['DATE', 'INT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'BOOLEAN'],
+    keys: ['SERVICE_DATE', 'SEQ_NO', 'ROW_LABEL', 'COL_SPECIAL_OVERSEAS', 'COL_HARDSHIP', 'COL3', 'COL4', 'COL5', 'ACTIVE',
+      'REPORT_TITLE', 'REPORT_NOTE', 'REPORT_BALANCE'],
+    types: ['DATE', 'INT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'TEXT', 'BOOLEAN', 'TEXT', 'TEXT', 'TEXT'],
     // 第一輪自測修正：金額欄設計上是**文字**，樣本值如 '42,150'、'1,234.50'。
     // 沒有這道防線，Google Sheets 會把 '42,150' 自動轉成數字 42150，
     // 於是每次匯入都覺得「值不同」而重寫一次，永遠不會冪等，週報也會
     // 印出沒有千分位的金額。見 docs/已知bug類型.md 事故二十八。
-    textFormatColumns: ['COL_SPECIAL_OVERSEAS', 'COL_HARDSHIP', 'COL3', 'COL4', 'COL5']
+    textFormatColumns: ['COL_SPECIAL_OVERSEAS', 'COL_HARDSHIP', 'COL3', 'COL4', 'COL5', 'REPORT_TITLE', 'REPORT_NOTE', 'REPORT_BALANCE']
   },
 
   PERSON_DISPLAY: {
@@ -780,7 +782,12 @@ var CONFIG_KEYS = Object.freeze({
   FLOWER_NEXT_WEEK_LABEL: 'FLOWER_NEXT_WEEK_LABEL',
   FLOWER_LINE_SEPARATOR: 'FLOWER_LINE_SEPARATOR',
   // 內容表有改動時，每隔多少分鐘自動匯入週報（今日及之後的主日）。0＝不自動。
-  CONTENT_AUTO_SYNC_MINUTES: 'CONTENT_AUTO_SYNC_MINUTES'
+  CONTENT_AUTO_SYNC_MINUTES: 'CONTENT_AUTO_SYNC_MINUTES',
+  // 財政報告兩款（src/FinanceReports.gs）：特殊海外奉獻及慈惠基金的預設標題、認出款式的關鍵詞、兩款的表頭。
+  FINANCE_SPECIAL_TITLE_PATTERN: 'FINANCE_SPECIAL_TITLE_PATTERN',
+  FINANCE_SPECIAL_KEYWORDS: 'FINANCE_SPECIAL_KEYWORDS',
+  FINANCE_MAIN_COLUMN_LABELS: 'FINANCE_MAIN_COLUMN_LABELS',
+  FINANCE_SPECIAL_COLUMN_LABELS: 'FINANCE_SPECIAL_COLUMN_LABELS'
 });
 
 // =====================================================================
@@ -1012,7 +1019,11 @@ var DEFAULTS = Object.freeze([
   { key: CONFIG_KEYS.FLOWER_THIS_WEEK_LABEL, value: '本週主日獻花：', note: 'Word 範本 {{FLOWER_LINE}} 那一行「本週」部分的字眼。本週沒有獻花就連字眼一起不印' },
   { key: CONFIG_KEYS.FLOWER_NEXT_WEEK_LABEL, value: '下週主日獻花：', note: 'Word 範本 {{FLOWER_LINE}} 那一行「下週」部分的字眼。下週沒有獻花就連字眼一起不印；兩週都沒有就整行不印' },
   { key: CONFIG_KEYS.FLOWER_LINE_SEPARATOR, value: '  ', note: '{{FLOWER_LINE}} 本週與下週兩部分之間的分隔（預設兩個空格）' },
-  { key: CONFIG_KEYS.CONTENT_AUTO_SYNC_MINUTES, value: '30', note: '內容表有改動時，系統每隔多少分鐘自動匯入週報（只限今日及之後、未封存的主日），預覽連結因此不用等幹事登入也會更新。只可以填 0、5、10、15、30 或 60；0＝不自動。改了之後要在選單重新「安裝自動寄送觸發器」才生效' }
+  { key: CONFIG_KEYS.CONTENT_AUTO_SYNC_MINUTES, value: '30', note: '內容表有改動時，系統每隔多少分鐘自動匯入週報（只限今日及之後、未封存的主日），預覽連結因此不用等幹事登入也會更新。只可以填 0、1、5、10、15、30 或 60；0＝不自動。改了之後要在選單重新「安裝自動寄送觸發器」才生效' },
+  { key: CONFIG_KEYS.FINANCE_SPECIAL_TITLE_PATTERN, value: '特殊海外奉獻及慈惠基金{{YEAR}}年{{MONTH}}月份財政報告', note: '內容表「財政報告」的特殊海外奉獻及慈惠基金報告沒有填「報告標題」時用的標題；{{YEAR}}／{{MONTH}} 換成該主日上一個月（與 FINANCE_TITLE_PATTERN 相同）' },
+  { key: CONFIG_KEYS.FINANCE_SPECIAL_KEYWORDS, value: '特殊海外,慈惠', note: '「報告標題」含這些詞（逗號分隔）就當作特殊海外奉獻及慈惠基金的款式（兩個數字欄）；其餘有標題的當作綜合收支（四個數字欄）。沒有標題就看有沒有填欄三、欄四' },
+  { key: CONFIG_KEYS.FINANCE_MAIN_COLUMN_LABELS, value: '{{PERIOD}}實際數字,截至本月實際數字,截至本月預算,全年預算', note: '綜合收支財政表四個數字欄的表頭（逗號分隔，四項）；{{PERIOD}} 換成期別標籤（FINANCE_PERIOD_LABEL_PATTERN，例如「5月份」）。Word 範本用 {{FINANCE_MAIN_HEAD1}} 至 {{FINANCE_MAIN_HEAD4}}' },
+  { key: CONFIG_KEYS.FINANCE_SPECIAL_COLUMN_LABELS, value: '特殊海外奉獻,慈惠', note: '特殊海外奉獻及慈惠基金財政表兩個數字欄的表頭（逗號分隔，兩項）。Word 範本用 {{FINANCE_SPECIAL_HEAD1}}、{{FINANCE_SPECIAL_HEAD2}}' }
 ]);
 
 // =====================================================================

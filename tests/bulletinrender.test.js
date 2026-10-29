@@ -90,6 +90,11 @@ const REQUIRED_VALUE_KEYS = [
   'FINANCE_TITLE', 'FINANCE_NOTE', 'FINANCE_BALANCE',
   // 財政表首欄期別標籤（原本在範本內硬寫「11月份」）
   'FINANCE_PERIOD_LABEL',
+  // 2026-10-30：兩款財政報告各自一組（src/FinanceReports.gs）
+  'FINANCE_MAIN_TITLE', 'FINANCE_MAIN_NOTE', 'FINANCE_MAIN_BALANCE',
+  'FINANCE_MAIN_HEAD1', 'FINANCE_MAIN_HEAD2', 'FINANCE_MAIN_HEAD3', 'FINANCE_MAIN_HEAD4',
+  'FINANCE_SPECIAL_TITLE', 'FINANCE_SPECIAL_NOTE', 'FINANCE_SPECIAL_BALANCE',
+  'FINANCE_SPECIAL_HEAD1', 'FINANCE_SPECIAL_HEAD2',
   // 浸禮合堂副框六欄
   'BAPTISM_OFFICIANT', 'MEMBERSHIP_OFFICIANT', 'CHILD_DEDICATION_OFFICIANT',
   'BAPTISM_MEMBERS', 'MEMBERSHIP_MEMBERS', 'CHILD_DEDICATION_CHILDREN'
@@ -115,7 +120,8 @@ function sampleModel(overrides) {
       ATT_ENG_WORSHIP: '120', ATT_CANE_WORSHIP: '85', ATT_CANN_WORSHIP: '--', ATT_MAN_WORSHIP: '40',
       ATT_ENG_PRAYER: '15', ATT_CANE_PRAYER: '20', ATT_CANN_PRAYER: '--', ATT_MAN_PRAYER: '8',
       ATT_ENG_CHILD: '30', ATT_CANE_CHILD: '12', ATT_CANN_CHILD: '--', ATT_MAN_CHILD: '5',
-      FINANCE_NOTE: '結餘已扣除下月預算', FINANCE_BALANCE: '$12,345.67'
+      // 2026-10-30：週報這兩格已經不用（改由內容表「財政報告」每個報告自己的附註、銀行結餘）。
+      FINANCE_NOTE: '週報舊欄（不再用）', FINANCE_BALANCE: '週報舊欄（不再用）'
     },
     program: [
       { itemName: '序樂', content: '安靜', posture: '眾 立', fullWidth: false },
@@ -129,6 +135,16 @@ function sampleModel(overrides) {
     prayerBlock: { heading: '代禱事項', items: [{ seqNo: 10, text: '為宣教士禱告' }] },
     fellowships: [{ fellowshipName: '彼得團', meetingDate: '7/11 星期日', meetingTime: '4:30pm', content: '講道分享' }],
     finance: [{ rowLabel: '奉獻', specialOverseas: '100', hardship: '200', col3: '300', col4: '400' }],
+    financeReports: {
+      main: {
+        kind: 'MAIN', title: '聖道堂綜合收支財務報告-2027年 10月份', titleFromPattern: true,
+        rows: [{ label: '奉獻', col1: '100', col2: '200', col3: '300', col4: '400' }],
+        note: '結餘已扣除下月預算', balance: '$12,345.67'
+      },
+      special: null,
+      periodLabel: '10月份',
+      columnLabels: { main: ['10月份實際數字', '截至本月實際數字', '截至本月預算', '全年預算'], special: ['特殊海外奉獻', '慈惠'] }
+    },
     missing: [],
     warnings: []
   }, overrides || {});
@@ -171,6 +187,15 @@ test('1c. buildRenderContext_()：值取自資料模型的正確位置', functio
   assert.strictEqual(context.values.FINANCE_BALANCE, '$12,345.67');
   assert.strictEqual(context.values.FINANCE_TITLE, '聖道堂綜合收支財務報告-2027年 10月份',
     '主日是 2027-11-07，財務報告照慣例滯後一個月，應該印上一個月（10 月）');
+  assert.strictEqual(context.values.FINANCE_MAIN_TITLE, '聖道堂綜合收支財務報告-2027年 10月份');
+  assert.strictEqual(context.values.FINANCE_MAIN_HEAD1, '10月份實際數字');
+  assert.strictEqual(context.values.FINANCE_SPECIAL_TITLE, '', '沒有那一款就是空字串（範本用 {{#IF:}} 整段不印）');
+  assert.strictEqual(context.values.FINANCE_SPECIAL_HEAD2, '慈惠');
+  // 沒有任何財政報告：舊範本的標題照樣式（與 2026-10-30 之前相同）。
+  const none = buildRenderContext_(sampleModel({ financeReports: undefined }), {});
+  assert.strictEqual(none.values.FINANCE_TITLE, '聖道堂綜合收支財務報告-2027年 10月份');
+  assert.strictEqual(none.values.FINANCE_MAIN_TITLE, '');
+  assert.strictEqual(none.values.FINANCE_NOTE, '', '不再讀 BulletinWeeks.FINANCE_NOTE');
 });
 
 test('1d. buildRenderContext_()：全部值都是字串（範本替換只接受字串）', function () {
@@ -221,10 +246,12 @@ test('2d. interleavedListsConfig_()：PROGRAM 走交錯展開，旗標欄位名�
   assert.strictEqual(Object.keys(config).length, 1, '目前只有程序表需要交錯展開');
 });
 
-test('2e. buildRenderLists_()：七個清單全部提供，欄位名稱符合 §5.2', function () {
+test('2e. buildRenderLists_()：九個清單全部提供（2026-10-30 加 FINANCE_MAIN、FINANCE_SPECIAL），欄位名稱符合 §5.2', function () {
   const lists = buildRenderLists_(sampleModel());
   assertArrayEqual(Object.keys(lists).sort(),
-    ['ANNOUNCEMENT', 'DUTY', 'FELLOWSHIP', 'FINANCE', 'NEXT_DUTY', 'PRAYER', 'PROGRAM']);
+    ['ANNOUNCEMENT', 'DUTY', 'FELLOWSHIP', 'FINANCE', 'FINANCE_MAIN', 'FINANCE_SPECIAL', 'NEXT_DUTY', 'PRAYER', 'PROGRAM']);
+  assertArrayEqual(Object.keys(lists.FINANCE_MAIN[0]).sort(), ['COL1', 'COL2', 'COL3', 'COL4', 'LABEL']);
+  assertArrayEqual(lists.FINANCE_SPECIAL, []);
   assertArrayEqual(Object.keys(lists.DUTY[0]).sort(), ['LABEL', 'NAMES']);
   assertArrayEqual(Object.keys(lists.ANNOUNCEMENT[0]).sort(), ['NO', 'TEXT']);
   assertArrayEqual(Object.keys(lists.FELLOWSHIP[0]).sort(), ['CONTENT', 'DATE', 'NAME', 'TIME']);
@@ -306,10 +333,14 @@ test('supportedValuePlaceholderNames_()：跟 buildRenderContext_() 的鍵完全
   assert.ok(contextKeys > 0);
 });
 
-test('supportedListPlaceholders_()：七個清單，欄位名稱與 buildRenderLists_() 一致', function () {
+test('supportedListPlaceholders_()：九個清單，欄位名稱與 buildRenderLists_() 一致', function () {
   const supported = supportedListPlaceholders_();
-  const lists = buildRenderLists_(sampleModel());
-  assert.strictEqual(supported.length, 7);
+  const lists = buildRenderLists_(sampleModel({
+    financeReports: Object.assign({}, sampleModel().financeReports, {
+      special: { kind: 'SPECIAL', title: '特', rows: [{ label: '上月結存', col1: '1', col2: '2', col3: '', col4: '' }], note: '', balance: '' }
+    })
+  }));
+  assert.strictEqual(supported.length, 9);
   supported.forEach(function (entry) {
     assert.ok(lists[entry.list], '清單 ' + entry.list + ' 應該存在於 buildRenderLists_() 的輸出');
     if (lists[entry.list].length === 0) return;

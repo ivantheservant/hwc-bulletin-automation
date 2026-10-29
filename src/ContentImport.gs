@@ -79,10 +79,12 @@ function contentImportTargets_() {
       tabName: '財政報告', kind: 'LIST', targetSheet: SHEETS.FINANCE,
       // ⚠️ COL1／COL2 對應既有的 COL_SPECIAL_OVERSEAS／COL_HARDSHIP
       // （沿用舊機器鍵，舊資料不受影響），COL3／COL4 才是同名的。
+      // 2026-10-30：報告標題、附註、銀行結餘亦匯入（以前「報告標題」沒有匯入，bug class 2）。
       fieldMap: {
         ROW_LABEL: 'ROW_LABEL',
         COL1: 'COL_SPECIAL_OVERSEAS', COL2: 'COL_HARDSHIP',
-        COL3: 'COL3', COL4: 'COL4'
+        COL3: 'COL3', COL4: 'COL4',
+        TITLE_OVERRIDE: 'REPORT_TITLE', FINANCE_NOTE: 'REPORT_NOTE', FINANCE_BALANCE: 'REPORT_BALANCE'
       },
       repeatUntil: false
     },

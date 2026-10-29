@@ -81,8 +81,9 @@ test('1a. Finance 五個金額欄全部登記在 textFormatColumns（第一輪�
   const env = makeFillEnv({});
   const def = env.sandbox.COLUMNS.FINANCE;
   assert.ok(def.textFormatColumns, 'Finance 之前完全沒有這一項，所以 42,150 變了 42150');
+  // 2026-10-30：報告標題、附註、銀行結餘亦是純文字（「$604,101」之類）。
   deepEq(def.textFormatColumns.slice().sort(),
-    ['COL3', 'COL4', 'COL5', 'COL_HARDSHIP', 'COL_SPECIAL_OVERSEAS'].sort());
+    ['COL3', 'COL4', 'COL5', 'COL_HARDSHIP', 'COL_SPECIAL_OVERSEAS', 'REPORT_TITLE', 'REPORT_NOTE', 'REPORT_BALANCE'].sort());
 });
 
 test('1b. BulletinWeeks 十二個 ATT_* 欄全部登記', function () {
@@ -191,7 +192,7 @@ test('2g. 同一格寫兩次，第二次讀回來與第一次一模一樣（冪�
 test('2h. applyTextFormatToRange_ 回報設過多少欄；沒有 textFormatColumns 的表回 0', function () {
   const env = makeFillEnv({});
   assert.strictEqual(
-    env.sandbox.applyTextFormatToRange_(env.sheets.Finance, env.sandbox.COLUMNS.FINANCE, 3, 5), 5);
+    env.sandbox.applyTextFormatToRange_(env.sheets.Finance, env.sandbox.COLUMNS.FINANCE, 3, 5), 8);
   assert.strictEqual(
     env.sandbox.applyTextFormatToRange_(env.sheets.Announcements, env.sandbox.COLUMNS.ANNOUNCEMENTS, 3, 5), 0);
   assert.strictEqual(

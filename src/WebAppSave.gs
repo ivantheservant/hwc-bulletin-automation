@@ -47,7 +47,7 @@
  *   announcements: [{ seqNo:(number|null), TEXT:string }, ...],
  *   prayers:       [{ seqNo:(number|null), TEXT:string }, ...],
  *   fellowships:   [{ seqNo:(number|null), FELLOWSHIP_NAME, MEETING_DATE, MEETING_TIME, CONTENT }, ...],
- *   finance:       [{ seqNo:(number|null), ROW_LABEL, COL_SPECIAL_OVERSEAS, COL_HARDSHIP }, ...],
+ *   finance:       （唯讀，前端不送；內容表「財政報告」為來源）,
  *   payloadVersion: 2,                 // D9：見 SAVE_PAYLOAD_VERSION_；帶事奉格而版本不對＝舊版前端，整次拒絕
  *   dutyEdits:     [{ postId:string, slotIndex:number, name:string, baseName:string,
  *                     keepOverride:(true|undefined), followRoster:(true|undefined) }, ...],   // 第六輪；D9 只送改過的格
@@ -160,7 +160,11 @@ function webAppListDefs_() {
     announcements: { sheetName: SHEETS.ANNOUNCEMENTS, fieldKeys: ['TEXT'] },
     prayers: { sheetName: SHEETS.PRAYERS, fieldKeys: ['TEXT'] },
     fellowships: { sheetName: SHEETS.FELLOWSHIPS, fieldKeys: ['FELLOWSHIP_NAME', 'MEETING_DATE', 'MEETING_TIME', 'CONTENT'] },
-    finance: { sheetName: SHEETS.FINANCE, fieldKeys: ['ROW_LABEL', 'COL_SPECIAL_OVERSEAS', 'COL_HARDSHIP'] }
+    // 2026-10-30：財政報告兩款，連報告標題、欄三、欄四、附註、銀行結餘（唯讀，內容表為來源）。
+    finance: {
+      sheetName: SHEETS.FINANCE,
+      fieldKeys: ['REPORT_TITLE', 'ROW_LABEL', 'COL_SPECIAL_OVERSEAS', 'COL_HARDSHIP', 'COL3', 'COL4', 'REPORT_NOTE', 'REPORT_BALANCE']
+    }
   };
 }
 

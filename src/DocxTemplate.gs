@@ -1447,6 +1447,7 @@ function applyOptionalLabelledCellRows_(xml, values, rowGroups) {
  *   4. `applyConditionalRows_` / `applyConditionalParagraphs_`　條件去留。
  *      排在展開之後，才能對「展開出來的列／段」也生效。
  *   4b. `applyOptionalLabelledCellRows_`　選填副框（標籤與佔位符同格）。
+ *   4c. `removeRowlessTables_`　一行都沒有的表格整張拿走（條件列刪走表頭、清單又是空的時候）。
  *      **一定要排在單值替換之前**：留空的那一格要連標籤一併清走，如果
  *      先做單值替換，佔位符已經變成空字串，就分不出「這一格本來有沒有
  *      值」，紙上會剩下孤零零的標籤。
@@ -1472,6 +1473,48 @@ function applyOptionalLabelledCellRows_(xml, values, rowGroups) {
  * Raises:
  *   Error 當 `missingValueMode` 是 `'ERROR'` 而且有佔位符找不到值。
  */
+/**
+ * 用途：拿走「一行都沒有」的表格。純函式。
+ *
+ *   條件列（`{{#IF:}}`）刪走表頭、清單（`{{#EACH:}}`）又是空的時候，表格就變成一個沒有 `<w:tr>` 的
+ *   `<w:tbl>`——那是不合法的 OOXML，Word 會判定檔案損毀（同事故十六）。2026-10-30 財政報告兩款各自一張表，
+ *   沒有那一款就靠這一步整張表拿走。
+ *
+ *   表格在表格儲存格內、而且拿走之後那一格一個段落都沒有 ⇒ 補一個空段落（儲存格最少要有一個段落）。
+ *   有任何一行的表格一律不碰。
+ * Args:
+ *   xml {string}
+ * Returns:
+ *   {{xml:string, removed:number}}
+ */
+function removeRowlessTables_(xml) {
+  var source = String(xml || '');
+  var tblRanges = findElementRanges_(source, 'w:tbl');
+  if (tblRanges.length === 0) return { xml: source, removed: 0 };
+  var trRanges = findElementRanges_(source, 'w:tr');
+  var tcRanges = findElementRanges_(source, 'w:tc');
+  var pRanges = findElementRanges_(source, 'w:p');
+  var rowless = tblRanges.filter(function (t) {
+    return !trRanges.some(function (r) { return r.start >= t.start && r.end <= t.end; });
+  });
+  // 只處理最外層的（一張沒有行的表格不可能包住另一張表格，但保險起見去掉被包住的）。
+  rowless = rowless.filter(function (t) {
+    return !rowless.some(function (o) { return o !== t && o.start <= t.start && o.end >= t.end; });
+  });
+  var edits = rowless.map(function (t) {
+    var owner = innermostRangeContaining_(tcRanges, t.start);
+    var text = '';
+    if (owner) {
+      var othersInCell = pRanges.some(function (p) {
+        return p.start >= owner.start && p.end <= owner.end && !(p.start >= t.start && p.end <= t.end);
+      });
+      if (!othersInCell) text = '<w:p/>';
+    }
+    return { start: t.start, end: t.end, text: text };
+  });
+  return { xml: applyRangeEdits_(source, edits), removed: edits.length };
+}
+
 /**
  * 用途：範本原稿有兩個字用咗錯誤嘅 Unicode 異體字（來源見
  *   docs/待確認事項.md 呢一輪嘅記錄），視覺上睇唔出分別，但複製、搜尋、
@@ -1578,6 +1621,10 @@ function renderDocumentXml_(xml, context) {
   var optionalCells = applyOptionalLabelledCellRows_(working, values, ctx.optionalCellRows || []);
   working = optionalCells.xml;
 
+  // ---- 4c. 一行都沒有的表格整張拿走（不合法的 OOXML，見 removeRowlessTables_()）----
+  var rowless = removeRowlessTables_(working);
+  working = rowless.xml;
+
   // ---- 5. 單值替換（最後）----
   var simple = replaceSimplePlaceholders_(working, values, ctx.missingValueMode || 'BLANK');
   working = simple.xml;
@@ -1602,7 +1649,7 @@ function renderDocumentXml_(xml, context) {
       removedRows: condRows.removed + optionalCells.removedRows,
       removedParagraphs: condParagraphs.removed,
       clearedCells: optionalCells.clearedCells,
-      removedTables: optionalCells.removedTables,
+      removedTables: optionalCells.removedTables + rowless.removed,
       // 第二道防線實際壓平了幾多段。>0 代表範本有佔位符被切開成**格式
       // 不同**的多個 run（`mergeRunsInParagraphs_()` 救不到那一種）。
       collapsedParagraphs: prepared.collapsedParagraphs,

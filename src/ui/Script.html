@@ -89,12 +89,20 @@
         { key: 'CONTENT', type: 'text', placeholder: '週會內容' }
       ]
     },
+    // 2026-10-30：財政報告兩款（綜合收支四個數字欄、特殊海外奉獻及慈惠基金兩個）：顯示全部欄與一行欄名。
+    //    欄名與內容表「財政報告」相同。鍵要與 WebApp.gs 的 pickWebAppListItems_() 那一份相同。
     finance: {
       containerId: 'financeList',
+      showHeader: true,
       fields: [
+        { key: 'REPORT_TITLE', type: 'text', placeholder: '報告標題' },
         { key: 'ROW_LABEL', type: 'text', placeholder: '項目' },
-        { key: 'COL_SPECIAL_OVERSEAS', type: 'text', placeholder: '特殊海外奉獻' },
-        { key: 'COL_HARDSHIP', type: 'text', placeholder: '慈惠' }
+        { key: 'COL_SPECIAL_OVERSEAS', type: 'text', placeholder: '欄一' },
+        { key: 'COL_HARDSHIP', type: 'text', placeholder: '欄二' },
+        { key: 'COL3', type: 'text', placeholder: '欄三' },
+        { key: 'COL4', type: 'text', placeholder: '欄四' },
+        { key: 'REPORT_NOTE', type: 'text', placeholder: '附註' },
+        { key: 'REPORT_BALANCE', type: 'text', placeholder: '銀行結餘' }
       ]
     }
   };
@@ -2650,6 +2658,17 @@
     var container = document.getElementById(def.containerId);
     container.innerHTML = '';
     var items = state.lists[type] || [];
+    if (def.showHeader && items.length > 0) {
+      var head = el('div', 'repeatable-row readonly-row list-header-row');
+      var headFields = el('div', 'repeatable-row-fields');
+      def.fields.forEach(function (f) {
+        var cell = el('div', 'readonly-value');
+        cell.textContent = f.placeholder;
+        headFields.appendChild(cell);
+      });
+      head.appendChild(headFields);
+      container.appendChild(head);
+    }
     items.forEach(function (item, idx) {
       container.appendChild(isArrangeable(type)
         ? buildArrangeableRow(type, def, item, idx, items.length)

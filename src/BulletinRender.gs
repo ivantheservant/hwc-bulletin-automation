@@ -294,9 +294,31 @@ function buildRenderContext_(model, options) {
   var financeTitlePattern = opts.financeTitlePattern === undefined
     ? FINANCE_TITLE_PATTERN_DEFAULT_
     : opts.financeTitlePattern;
-  values.FINANCE_TITLE = buildFinanceTitle_(financeTitlePattern, m.isoDate);
-  values.FINANCE_NOTE = renderValueText_(week.FINANCE_NOTE);
-  values.FINANCE_BALANCE = renderValueText_(week.FINANCE_BALANCE);
+  // 2026-10-30（Ivan：財政報告全部修正）：兩款報告各自一組佔位符（src/FinanceReports.gs，資料模型已經分好）。
+  //    `FINANCE_MAIN_TITLE`／`FINANCE_SPECIAL_TITLE` 只在那一款有資料時才有字，範本用 {{#IF:}}／{{#IFP:}}
+  //    令沒有資料的那一款整段不印（表格沒有任何一行就整個拿走，見 removeRowlessTables_()）。
+  var financeReports = m.financeReports || {};
+  var mainReport = financeReports.main || null;
+  var specialReport = financeReports.special || null;
+  var financeLabels = financeReports.columnLabels || { main: [], special: [] };
+  values.FINANCE_MAIN_TITLE = renderValueText_(mainReport ? mainReport.title : '');
+  values.FINANCE_MAIN_NOTE = renderValueText_(mainReport ? mainReport.note : '');
+  values.FINANCE_MAIN_BALANCE = renderValueText_(mainReport ? mainReport.balance : '');
+  values.FINANCE_SPECIAL_TITLE = renderValueText_(specialReport ? specialReport.title : '');
+  values.FINANCE_SPECIAL_NOTE = renderValueText_(specialReport ? specialReport.note : '');
+  values.FINANCE_SPECIAL_BALANCE = renderValueText_(specialReport ? specialReport.balance : '');
+  [0, 1, 2, 3].forEach(function (i) {
+    values['FINANCE_MAIN_HEAD' + (i + 1)] = renderValueText_((financeLabels.main || [])[i]);
+  });
+  [0, 1].forEach(function (i) {
+    values['FINANCE_SPECIAL_HEAD' + (i + 1)] = renderValueText_((financeLabels.special || [])[i]);
+  });
+  // 舊範本（2026-10-30 之前）只有一個財政表：標題用這一期的報告標題（綜合收支優先），沒有報告就照樣式；
+  //    附註、結餘用綜合收支那一份（以前讀 BulletinWeeks.FINANCE_NOTE／FINANCE_BALANCE，介面與內容表都填不到）。
+  values.FINANCE_TITLE = mainReport ? renderValueText_(mainReport.title)
+    : (specialReport ? renderValueText_(specialReport.title) : buildFinanceTitle_(financeTitlePattern, m.isoDate));
+  values.FINANCE_NOTE = renderValueText_(mainReport ? mainReport.note : (specialReport ? specialReport.note : ''));
+  values.FINANCE_BALANCE = renderValueText_(mainReport ? mainReport.balance : '');
 
   // 財政表首欄的期別標籤。**與 FINANCE_TITLE 共用同一個月份來源**
   // （applyFinanceMonthPattern_ → financeReportPreviousMonth_），兩者
@@ -437,6 +459,18 @@ function buildRenderLists_(model) {
     };
   });
 
+  var reports = m.financeReports || {};
+  function reportRows(report, withFour) {
+    return ((report && report.rows) || []).map(function (row) {
+      var out = { LABEL: renderValueText_(row.label), COL1: renderValueText_(row.col1), COL2: renderValueText_(row.col2) };
+      if (withFour) {
+        out.COL3 = renderValueText_(row.col3);
+        out.COL4 = renderValueText_(row.col4);
+      }
+      return out;
+    });
+  }
+
   return {
     PROGRAM: program,
     DUTY: duty,
@@ -444,7 +478,10 @@ function buildRenderLists_(model) {
     ANNOUNCEMENT: announcement,
     PRAYER: prayer,
     FELLOWSHIP: fellowship,
-    FINANCE: finance
+    FINANCE: finance,
+    // 2026-10-30：兩款財政報告各自一張表。
+    FINANCE_MAIN: reportRows(reports.main, true),
+    FINANCE_SPECIAL: reportRows(reports.special, false)
   };
 }
 
@@ -479,7 +516,9 @@ function supportedListPlaceholders_() {
     ANNOUNCEMENT: ['NO', 'TEXT'],
     PRAYER: ['NO', 'TEXT'],
     FELLOWSHIP: ['NAME', 'DATE', 'TIME', 'CONTENT'],
-    FINANCE: ['LABEL', 'COL1', 'COL2', 'COL3', 'COL4']
+    FINANCE: ['LABEL', 'COL1', 'COL2', 'COL3', 'COL4'],
+    FINANCE_MAIN: ['LABEL', 'COL1', 'COL2', 'COL3', 'COL4'],
+    FINANCE_SPECIAL: ['LABEL', 'COL1', 'COL2']
   };
   // 旗標欄位不是給範本用的（它只決定選哪一個列範本），所以不列出來。
   void flagKey;
