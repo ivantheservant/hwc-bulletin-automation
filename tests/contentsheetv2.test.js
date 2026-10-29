@@ -71,6 +71,8 @@ function baseOptions(extra) {
   (o.omitTabs || []).forEach(function (name) { delete content[name]; });
   return Object.assign({
     contentLayout: 'v1',
+    // 2026-10-30（內容表 v4）：v1 → v2 → v3 之後再轉成 v4，v3 的「崇拜程序」改名保留；這裏驗的是 v3 那一張。
+    keepOriginalTabRefs: true,
     weekRows: [
       { SERVICE_DATE: D1, QUARTER_ID: QUARTER_ID, PRELUDE: '序樂甲', CALL_REF: '詩篇 100:1', CALL_TEXT: '經文甲', HYMN_PRAISE: '詩歌甲', SCRIPTURE_REF: '約翰福音 3:16', SERMON_TITLE: '講題甲' },
       { SERVICE_DATE: D2, QUARTER_ID: QUARTER_ID, PRELUDE: '序樂乙', CALL_REF: '詩篇 23:1', CALL_TEXT: '經文乙', SERMON_TITLE: '講題乙', BAPTISM_OFFICIANT: '張牧師', BAPTISM_MEMBERS: '陳大文 李小明' },
@@ -113,7 +115,7 @@ function contentSnapshot(env) {
   }));
 }
 
-function v2Keys(env) { return plain(env.sandbox.contentSheetWorshipTabDef_().keys); }
+function v2Keys(env) { return plain(env.sandbox.contentSheetWorshipTabDefV3_().keys); }
 
 function run(env) {
   const resp = env.sandbox.apiRunContentSheetBuild(QUARTER_ID);
@@ -503,19 +505,21 @@ test('（審查 C5）序樂留空：填寫介面的程序預覽（真入口 apiP
   assert.ok(String(row.content).indexOf('預設序樂') !== -1, JSON.stringify(row));
 });
 
-test('（審查 D1，v3）選單「季度工具 ▸ 還原到某個備份」（真入口 menuRestoreQuarter_）：以內容表為來源的欄（序樂、宣召等）不還原、不寫 FieldOverride，之後整季匯入照用內容表；介面欄（獻花）照常還原', function () {
+test('（審查 D1，v4）選單「季度工具 ▸ 還原到某個備份」（真入口 menuRestoreQuarter_）：以內容表為來源的欄（證道講題等三欄）不還原、不寫 FieldOverride，之後整季匯入照用內容表；介面欄（獻花，v4 起連序樂）照常還原', function () {
   const env = makeV1Env();
   run(env);
   const sb = env.sandbox;
   assert.strictEqual(sb.apiRunQuarterContentImport(QUARTER_ID).data.ok, true);
   sb.writeBulletinWeekField_(D1, 'FLOWER_THIS_WEEK', '備份時的獻花');
+  sb.writeBulletinWeekField_(D1, 'PRELUDE', '備份時的序樂');
   sb.createFillBackup_(QUARTER_ID, 'MANUAL');
-  const tab = env.contentTabs['崇拜程序'];
+  const tab = env.contentSpreadsheet.getSheetByName('崇拜程序');
   const keys = tab.__data[1];
   const r = tab.__data.findIndex(function (row, i) { return i >= 2 && row[0] === D1; });
-  tab.__data[r][keys.indexOf('PRELUDE')] = '之後的序樂';
+  tab.__data[r][keys.indexOf('SERMON_TITLE')] = '之後的講題';
   assert.strictEqual(sb.apiRunQuarterContentImport(QUARTER_ID).data.ok, true);
   sb.writeBulletinWeekField_(D1, 'FLOWER_THIS_WEEK', '之後的獻花');
+  sb.writeBulletinWeekField_(D1, 'PRELUDE', '之後的序樂');
 
   const answers = [QUARTER_ID, '1'];
   const realGetUi = sb.SpreadsheetApp.getUi;
@@ -531,20 +535,20 @@ test('（審查 D1，v3）選單「季度工具 ▸ 還原到某個備份」（�
   try { sb.menuRestoreQuarter_(); } finally { sb.SpreadsheetApp.getUi = realGetUi; }
 
   assert.strictEqual(weekOf(env, D1).FLOWER_THIS_WEEK, '備份時的獻花', '介面欄照常還原');
-  assert.strictEqual(weekOf(env, D1).PRELUDE, '之後的序樂', 'v3：內容表的欄不還原');
+  assert.strictEqual(weekOf(env, D1).PRELUDE, '備份時的序樂', 'v4：序樂改在介面填，照常還原');
+  assert.strictEqual(weekOf(env, D1).SERMON_TITLE, '之後的講題', '內容表的欄不還原');
   assert.strictEqual(sb.readSheet('FieldOverride').filter(function (o) { return o.ACTIVE === true; }).length, 0,
-    'v3：不寫 FieldOverride');
+    '不寫 FieldOverride');
   assert.strictEqual(sb.apiRunQuarterContentImport(QUARTER_ID).data.ok, true);
-  assert.strictEqual(weekOf(env, D1).PRELUDE, '之後的序樂', '匯入照用內容表');
+  assert.strictEqual(weekOf(env, D1).SERMON_TITLE, '之後的講題', '匯入照用內容表');
+  assert.strictEqual(weekOf(env, D1).PRELUDE, '備份時的序樂', 'v4：匯入不碰序樂');
 });
-test('序樂空白時週報印 Config PRELUDE_DEFAULT（決定 11）；工作表那一格仍然是空白', function () {
+test('序樂空白時週報印 Config PRELUDE_DEFAULT（決定 11）；工作表那一格仍然是空白（v4：序樂在填寫介面填，匯入不碰）', function () {
   const env = makeV1Env({ config: { PRELUDE_DEFAULT: '預設序樂' } });
   run(env);
-  const tab = env.contentTabs['崇拜程序'];
-  const col = v2Keys(env).indexOf('PRELUDE');
-  tab.__data[2][col] = '';
+  env.sandbox.writeBulletinWeekField_(D1, 'PRELUDE', '');
   env.sandbox.apiRunQuarterContentImport(QUARTER_ID);
-  assert.strictEqual(weekOf(env, D1).PRELUDE, '', '序樂跟隨內容表（空白）');
+  assert.strictEqual(weekOf(env, D1).PRELUDE, '', '工作表那一格仍然是空白');
   assert.strictEqual(env.sandbox.buildBulletinModel_(D1).weekFields.PRELUDE, '預設序樂');
   assert.strictEqual(env.sandbox.applyPreludeDefault_({ PRELUDE: '自己的' }, '預設序樂').PRELUDE, '自己的');
   assert.strictEqual(env.sandbox.applyPreludeDefault_({}, '預設序樂').PRELUDE, undefined, '沒有那一行就不憑空造');
@@ -590,13 +594,13 @@ function barText(bar) {
   return bar.children.map(function (c) { return c.textContent; }).join('');
 }
 
-test('T7-1 v3 甲區塊（worship）狀態列講明九欄只可以在內容表「崇拜程序」填；內容表比系統舊時有「更新本季內容表…」；其他區塊照舊', function () {
+test('T7-1 v4 甲區塊（worship）狀態列講明三欄在內容表「崇拜程序」填、序樂等在這裏填；內容表比系統舊時有「更新本季內容表…」；其他區塊照舊', function () {
   const t = loadBarRegion();
   const over = t.makeEl('div');
   over.attrs['data-content-sheet-bar'] = 'worship';
   t.render(over, { exists: true, fileUrl: 'https://example.invalid/x', lastImportedAt: '2027-10-01 10:00' });
   const text = barText(over);
-  ['只可以在內容表「崇拜程序」填', '程序增刪在這裏改', '最後匯入：2027-10-01 10:00', '重新匯入（只限這一個主日）'].forEach(function (piece) {
+  ['讀經經文、證道講題、回應詩歌在內容表「崇拜程序」填', '序樂、宣召、詩歌頌讚、詩班', '程序增刪在這裏填', '最後匯入：2027-10-01 10:00', '重新匯入（只限這一個主日）'].forEach(function (piece) {
     assert.ok(text.indexOf(piece) !== -1, '缺少：' + piece + '\n' + text);
   });
   const none = t.makeEl('div');
@@ -631,19 +635,26 @@ test('T7-2 Index.html：甲區塊頂有 worship 狀態列；舊的「宣召由�
   comments.forEach(function (c) { assert.strictEqual(c.indexOf('<?'), -1, '註解內不可以有樣板標籤：' + c); });
 });
 
-test('T7-3 真入口 apiLoadWeek：宣召、讀經經文、證道講題、回應詩歌的待填說明講明「請在內容表「崇拜程序」填寫。」；v3 宣召在唯讀清單', function () {
+test('T7-3 真入口 apiLoadWeek：讀經經文、證道講題、回應詩歌的待填說明講明「請在內容表「崇拜程序」填寫。」；v4 宣召改在介面填（不在唯讀清單、說明不提內容表）', function () {
   const env = contentEnv.makeEnv({ weekRows: [{ SERVICE_DATE: D1, QUARTER_ID: QUARTER_ID }] });
   const resp = env.sandbox.apiLoadWeek(D1);
   assert.strictEqual(resp.ok, true, JSON.stringify(resp.error));
   const all = Array.from(resp.data.missingSplit.required).concat(Array.from(resp.data.missingSplit.optional));
   const byField = {};
   all.forEach(function (m) { byField[m.field] = m.reason; });
-  assert.strictEqual(byField.CALL_TEXT, '宣召經文與出處兩者皆未填。請在內容表「崇拜程序」填寫。');
+  assert.strictEqual(byField.CALL_TEXT, '宣召經文與出處兩者皆未填。', 'v4：宣召在介面填');
   ['SCRIPTURE_REF', 'SERMON_TITLE', 'RESPONSE_HYMN'].forEach(function (k) {
     assert.strictEqual(byField[k], '請在內容表「崇拜程序」填寫。', k);
   });
   assert.strictEqual(byField.FLOWER_THIS_WEEK, '通常空白，有就填。', '不是內容表的欄照舊');
-  assert.ok(Array.from(resp.data.readOnly.readOnlyFields.week).indexOf('CALL_REF') !== -1, 'v3：宣召只可以在內容表輸入');
+  const ro = Array.from(resp.data.readOnly.readOnlyFields.week);
+  assert.strictEqual(ro.indexOf('CALL_REF'), -1, 'v4：宣召在介面填');
+  ['SCRIPTURE_REF', 'SERMON_TITLE', 'RESPONSE_HYMN'].forEach(function (k) { assert.ok(ro.indexOf(k) !== -1, k); });
+  const weekKeys = Array.from(env.sandbox.COLUMNS.BULLETIN_WEEKS.keys);
+  ['PRELUDE', 'CALL_REF', 'CALL_TEXT', 'HYMN_PRAISE', 'CHOIR_TITLE', 'CHOIR_LABEL'].forEach(function (k) {
+    assert.ok(weekKeys.indexOf(k) !== -1, '測試本身：' + k + ' 要是 BulletinWeeks 的欄');
+    assert.strictEqual(ro.indexOf(k), -1, k);
+  });
   assertWrittenChinese(assert, '待填說明', [byField.CALL_TEXT, byField.SERMON_TITLE]);
 });
 
@@ -664,17 +675,19 @@ test('T7-4 真入口 apiQuarterMissingReport（本季待填清單）：那幾行
 
 console.log('\n_說明、邀請信、A1 註解');
 
-test('C8-1 移轉之後（真入口）_說明：一個主日一行、誰填哪幾欄、講員可以自己填、四條規則（不插入／刪除／移動欄）、已停用的舊分頁', function () {
+test('C8-1 移轉之後（真入口）_說明：一個主日一行、誰填哪幾欄（v4 三欄）、講員可以自己填、自動同步間隔、四條規則、排列、已停用的舊分頁', function () {
   const env = makeV1Env();
   run(env);
   const text = env.contentTabs['_說明'].__data.map(function (r) { return r[0]; }).join('\n');
   ['【「崇拜程序」：一個主日一行】', '每個主日已經預先開好一行，請直接修改那一行，不要另加一行',
     '講員：填「讀經經文」與「證道講題」', '多數講員已經有權限，可以自己開這個檔案填', '交給幹事代填',
-    '領詩：填「序樂」「詩歌頌讚」「回應詩歌」', '幹事：填「宣召出處」「宣召經文」',
-    '詩班負責人：填「詩班曲名」與「詩班項目名稱」', '浸禮合堂副框（浸禮主禮、受浸肢體等）不在這裏填',
-    '序樂留空＝週報印預設序樂', '【「讀經經文」不是讀經的人】', '【改了之後】', '【四條規則，請務必遵守】',
-    '4. 請勿插入、刪除或移動欄', '熱烈歡迎來賓', '【已停用的舊分頁】', '「宣召（已停用）」「浸禮合堂（已停用）」已經隱藏',
-    '崇拜程序：講員、領詩、幹事'
+    '領詩：填「回應詩歌」', '序樂、宣召、詩歌頌讚、詩班曲名與詩班項目名稱不在這裏填',
+    '浸禮合堂副框（浸禮主禮、受浸肢體等）不在這裏填',
+    '【「讀經經文」不是讀經的人】', '【「崇拜人數」：一個崇拜日期一行】', '【改了之後】',
+    '系統大約每 30 分鐘檢查一次', '【四條規則，請務必遵守】', '「有效」留空＝TRUE',
+    '4. 請勿插入、刪除或移動欄', '【家事報告、代禱事項、財政報告：次序與排列】', '系統每日清晨會按主日日期、次序自動排好',
+    '熱烈歡迎來賓', '【已停用的舊分頁】', '「宣召（已停用）」「浸禮合堂（已停用）」已經隱藏',
+    '「崇拜程序（舊版 v3，已停用）」是重新整理之前的分頁', '崇拜程序：講員、領詩、幹事'
   ].forEach(function (piece) { assert.ok(text.indexOf(piece) !== -1, '_說明缺少：' + piece); });
   assert.strictEqual(text.indexOf('宣召：'), -1, '負責人清單不可以再有「宣召」分頁');
   assertWrittenChinese(assert, '_說明', text.split('\n'));
@@ -702,7 +715,7 @@ test('C8-3 邀請信講明講員可以直接在「崇拜程序」填讀經經文
 
 test('C8-4 「崇拜程序」A1 註解：負責人、截止日期、一個主日一行、不是讀經的人', function () {
   const sb = contentEnv.makeEnv({}).sandbox;
-  const def = sb.contentSheetWorshipTabDef_();
+  const def = sb.contentSheetWorshipTabDefV3_();
   const note = sb.buildContentSheetTabNote_(def, sb.parseContentSheetOwners_(sb.defaultConfigValueFor_('CONTENT_SHEET_OWNERS')), '星期三前');
   ['負責：講員、領詩、幹事', '星期三前', '每個主日已經預先開好一行', '不是讀經的人', '序樂留空時週報印預設序樂'].forEach(function (piece) {
     assert.ok(note.indexOf(piece) !== -1, '缺少：' + piece + '\n' + note);
@@ -843,20 +856,21 @@ test('R2-F8a 已登記但開不到的內容表 → 🟡「開不到」，建議�
 
 console.log('\n2026-10-23 部署後重測發現');
 
-test('R3-1 v3 填寫介面「重新匯入（只限這一個主日）」（真入口 apiPreviewContentImport／apiRunContentImport）：內容表改了序樂 → 預覽算一項更新、確認之後週報跟隨內容表；之後再預覽講「一致」', function () {
-  // v3：序樂只可以在內容表輸入，沒有「沒有蓋過」與「解除覆寫」兩種情況（舊覆寫在移轉時停用）。
+test('R3-1 填寫介面「重新匯入（只限這一個主日）」（真入口 apiPreviewContentImport／apiRunContentImport）：內容表改了證道講題 → 預覽算一項更新、確認之後週報跟隨內容表；之後再預覽講「一致」', function () {
+  // 內容表的三欄只可以在內容表輸入，沒有「沒有蓋過」與「解除覆寫」兩種情況（舊覆寫在移轉時停用）。
   const env = makeV1Env();
   run(env);
   const sb = env.sandbox;
   assert.strictEqual(sb.apiRunQuarterContentImport(QUARTER_ID).data.ok, true);
-  const tab = env.contentTabs['崇拜程序'];
-  tab.__data[worshipRowIndex(env, D1)][tab.__data[1].indexOf('PRELUDE')] = '內容表新序樂';
+  const tab = env.contentSpreadsheet.getSheetByName('崇拜程序');
+  const rowIdx = tab.__data.findIndex(function (row, i) { return i >= 2 && row[0] === D1; });
+  tab.__data[rowIdx][tab.__data[1].indexOf('SERMON_TITLE')] = '內容表新講題';
   const p1 = plain(sb.apiPreviewContentImport(D1).data.summary);
   assert.strictEqual(p1.updated, 1, JSON.stringify(p1));
   assert.strictEqual(p1.conflicts + p1.releases, 0, JSON.stringify(p1));
   const done = sb.apiRunContentImport(D1);
   assert.strictEqual(done.ok, true, JSON.stringify(done));
-  assert.strictEqual(weekOf(env, D1).PRELUDE, '內容表新序樂');
+  assert.strictEqual(weekOf(env, D1).SERMON_TITLE, '內容表新講題');
   const p2 = plain(sb.apiPreviewContentImport(D1).data.summary);
   assert.strictEqual(p2.noChangeMessage, '內容表與週報現況一致，沒有任何改動。');
 });

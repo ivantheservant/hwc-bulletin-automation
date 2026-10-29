@@ -14,6 +14,7 @@ const { makeFakeSheet, makeFakeSpreadsheet } = require('./fakeSpreadsheet');
 const { makeContentFaults, makeContentTab: makeStrictContentTab, makeContentSpreadsheet } = require('./contentTabFake');
 const { legacyContentTabDefsV1 } = require('../fixtures/legacyContentSheetV1');
 const { legacyContentTabDefsV2 } = require('../fixtures/legacyContentSheetV2');
+const { legacyContentTabDefsV3 } = require('../fixtures/legacyContentSheetV3');
 
 const FAKE_ROSTER_ID = 'FAKE_ROSTER_ID_FOR_IMPORT_TESTS';
 const FAKE_FOLDER_ID = 'FAKE_CONTENT_FOLDER';
@@ -39,7 +40,8 @@ function makeContentTab(keys, headers, rows, opts) {
  *   空跑變綠（bug class 39、40）。
  * options.contentLayout：'current'（預設，由 src 的 contentSheetTabDefs_() 造）、'v1'
  *   （由 tests/fixtures/legacyContentSheetV1.js 凍結的舊版定義造，移轉測試用）或 'v2'
- *   （「崇拜程序」用 tests/fixtures/legacyContentSheetV2.js 凍結的 v2 定義，v3 移轉測試用）。
+ *   （「崇拜程序」用 tests/fixtures/legacyContentSheetV2.js 凍結的 v2 定義，v3 移轉測試用）或 'v3'
+ *   （tests/fixtures/legacyContentSheetV3.js 凍結的 v3 定義，v4 整理測試用）。
  * options.omitTabs：這幾張分頁不建立（模擬舊內容表未有那一張）。
  * options.extraTabs：另外加的分頁 `[{tabName, keys, headers, rows}]`（例如已改名的舊分頁）。
  * options.maxColumns：每張分頁的欄數（數字，或者「分頁名稱 → 欄數」）；預設 26，與真的新分頁一樣。
@@ -99,7 +101,8 @@ function makeEnv(options) {
 
   // ---- 內容表 ----
   const layoutDefs = o.contentLayout === 'v1' ? legacyContentTabDefsV1()
-    : (o.contentLayout === 'v2' ? legacyContentTabDefsV2(boot.contentSheetTabDefs_()) : boot.contentSheetTabDefs_());
+    : (o.contentLayout === 'v2' ? legacyContentTabDefsV2(boot.contentSheetTabDefs_())
+      : (o.contentLayout === 'v3' ? legacyContentTabDefsV3(boot.contentSheetTabDefs_()) : boot.contentSheetTabDefs_()));
   const knownNames = layoutDefs.map(function (d) { return d.tabName; })
     .concat((o.extraTabs || []).map(function (t) { return t.tabName; }));
   Object.keys(o.content || {}).forEach(function (name) {
@@ -133,9 +136,11 @@ function makeEnv(options) {
   });
   const realInsert = contentSpreadsheet.insertSheet;
   // 插入的新分頁亦放進 contentTabs（用插入時的名字），測試讀得到。
+  // 2026-10-30（內容表 v4）：`keepOriginalTabRefs:true`＝原有的分頁物件保留在 contentTabs（即使之後改了名、
+  //    同名建了新分頁）。v2／v3 移轉的測試要看的是移轉之後、轉成 v4 之前的「崇拜程序」（v4 把它改名保留）。
   contentSpreadsheet.insertSheet = function (name) {
     const s = realInsert(name);
-    contentTabs[name] = s;
+    if (!(o.keepOriginalTabRefs === true && contentTabs[name])) contentTabs[name] = s;
     return s;
   };
 

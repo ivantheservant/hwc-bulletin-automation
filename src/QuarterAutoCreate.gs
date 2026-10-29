@@ -313,7 +313,8 @@ function autoCreateQuartersForWebApp_() {
 }
 
 /**
- * 用途：每日觸發器的入口（時間觸發器固定簽章，沒有參數）。全部失敗都寫 ErrorLog。
+ * 用途：每日觸發器的入口（時間觸發器固定簽章，沒有參數）：自動建立新季度，之後排好內容表的清單分頁。
+ *   全部失敗都寫 ErrorLog。
  * Args: （無）
  * Returns:
  *   {void}
@@ -324,6 +325,17 @@ function dailyQuarterAutoCreateTrigger_() {
   } catch (err) {
     appendErrorLog_({
       source: ERROR_LOG_SOURCE.TRIGGER, functionName: 'dailyQuarterAutoCreateTrigger_',
+      errorCode: (err && err.code) || 'ERROR',
+      message: (err && err.message) ? err.message : String(err), detail: buildErrorDetail_(err)
+    });
+  }
+  // 2026-10-30（內容表 v4）：同一個每日觸發器順便把「家事報告」「代禱事項」「財政報告」按日期排好
+  //    （src/ContentSheetV4.gs）。自己包 try/catch：建立季度失敗不影響排序，排序失敗亦不影響建立季度。
+  try {
+    runNightlyContentSort_({ source: 'TRIGGER' });
+  } catch (err) {
+    appendErrorLog_({
+      source: ERROR_LOG_SOURCE.TRIGGER, functionName: 'runNightlyContentSort_',
       errorCode: (err && err.code) || 'ERROR',
       message: (err && err.message) ? err.message : String(err), detail: buildErrorDetail_(err)
     });

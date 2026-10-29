@@ -251,12 +251,9 @@ test('⚠️ 新分頁首次建立 → 每個主日一行，由 BulletinWeeks �
     ]
   });
 
-  const refused = env.sandbox.buildOrRefreshContentSheet_(QUARTER_ID);
-  assert.strictEqual(refused.ok, false, '舊內容表（未有崇拜程序）要人手入口才移轉');
-  assert.strictEqual(refused.reason, 'NEEDS_MIGRATION');
-  assert.strictEqual(env.contentTabs['崇拜程序'], undefined, '拒絕時一張分頁都不建');
-
-  const result = env.sandbox.buildOrRefreshContentSheet_(QUARTER_ID, { migrate: true });
+  // 內容表 v4（2026-10-30）：未有「崇拜程序」就直接建（一個主日一行，三欄由週報帶入）——不用搬任何值，
+  //    所以不用人手確認；序樂、宣召、詩班留在週報（改在介面填）。
+  const result = env.sandbox.buildOrRefreshContentSheet_(QUARTER_ID);
   assert.strictEqual(result.ok, true, JSON.stringify(result));
 
   const filled = tabRows(env, '崇拜程序');
@@ -264,10 +261,12 @@ test('⚠️ 新分頁首次建立 → 每個主日一行，由 BulletinWeeks �
   const d1 = tabRowOf(env, '崇拜程序', D1);
   assert.strictEqual(d1.SERMON_TITLE, '要有愛');
   assert.strictEqual(d1.RESPONSE_HYMN, '活出愛');
-  assert.strictEqual(d1.CHOIR_TITLE, '愛中有主');
   assert.strictEqual(d1.SCRIPTURE_REF, '約翰福音 3:16');
-  assert.strictEqual(d1.PRELUDE, '序樂一');
-  assert.strictEqual(d1.CALL_REF, '詩篇 100');
+  assert.strictEqual(d1.CHOIR_TITLE, undefined, '詩班曲名不在內容表');
+  assert.strictEqual(d1.PRELUDE, undefined, '序樂不在內容表');
+  const week = rows(env, 'BULLETIN_WEEKS').filter(function (r) { return env.sandbox.formatIsoDate_(r.SERVICE_DATE) === D1; })[0];
+  assert.strictEqual(week.PRELUDE, '序樂一', '週報的序樂不動');
+  assert.strictEqual(week.CALL_REF, '詩篇 100');
   assert.strictEqual(tabRowOf(env, '崇拜程序', D2).SERMON_TITLE, '');
 });
 
@@ -309,11 +308,12 @@ test('回填會寫 AuditLog，而且講得出寫了幾多行', function () {
     weekRows: [{ SERVICE_DATE: D1, QUARTER_ID: QUARTER_ID, SERMON_TITLE: '要有愛' }]
   });
   env.sandbox.buildOrRefreshContentSheet_(QUARTER_ID, { migrate: true });
+  // 內容表 v4：「崇拜程序」由 v4 整理建立，AuditLog 一行講明行數。
   const audit = rows(env, 'AUDIT_LOG').filter(function (r) {
-    return r.ACTION === 'CONTENT_SHEET_MIGRATE_V2' && r.FIELD === '崇拜程序';
+    return r.ACTION === 'CONTENT_SHEET_MIGRATE_V4' && r.FIELD === '完成';
   });
   assert.strictEqual(audit.length, 1);
-  assert.ok(String(audit[0].NEW_VALUE).indexOf('行 +' + SERVICE_DATES.length) !== -1, audit[0].NEW_VALUE);
+  assert.ok(String(audit[0].NEW_VALUE).indexOf('崇拜程序 ' + SERVICE_DATES.length + ' 行') !== -1, audit[0].NEW_VALUE);
 });
 
 test('預覽講的行數與格數，跟實際寫的一樣', function () {
@@ -327,12 +327,13 @@ test('預覽講的行數與格數，跟實際寫的一樣', function () {
   });
   const preview = env.sandbox.previewContentSheetBuild_(QUARTER_ID);
   assert.strictEqual(preview.ok, true, JSON.stringify(preview));
-  assert.strictEqual(preview.summary.needsMigration, true);
+  // 內容表 v4：未有「崇拜程序」只是預先開好行，不用人手確認。
+  assert.strictEqual(preview.summary.needsMigration, false);
 
   const result = env.sandbox.buildOrRefreshContentSheet_(QUARTER_ID, { migrate: true });
-  assert.strictEqual(JSON.stringify(preview.summary.migration), JSON.stringify(result.migration.counts),
-    '預覽 ' + JSON.stringify(preview.summary.migration) + '、實際 ' + JSON.stringify(result.migration.counts));
-  assert.strictEqual(tabRows(env, '崇拜程序').length, result.migration.counts.appendedRows);
+  assert.strictEqual(JSON.stringify(preview.summary.v4), JSON.stringify(result.v4.counts),
+    '預覽 ' + JSON.stringify(preview.summary.v4) + '、實際 ' + JSON.stringify(result.v4.counts));
+  assert.strictEqual(tabRows(env, '崇拜程序').length, result.v4.counts.worshipRows);
 });
 
 // =====================================================================
@@ -611,18 +612,22 @@ test('⚠️ D-8：合併組要顯示得出原始崗位（兩行不可以一模�
 });
 
 test('⚠️ D-4：「有效」留空要逐行列出，不可以靜靜當成 TRUE', function () {
+  // 內容表 v4（2026-10-30）：「崇拜程序」沒有「有效」欄，改用「代禱事項」驗同一件事。
   const env = makeEnv({
     content: {
+      代禱事項: [
+        { SERVICE_DATE: D1, SEQ_NO: '10', TEXT: '有填 ACTIVE', ACTIVE: 'TRUE' },
+        { SERVICE_DATE: D2, SEQ_NO: '10', TEXT: '冇填 ACTIVE' }
+      ],
       崇拜程序: [
-        { SERVICE_DATE: D1, SERMON_TITLE: '有填 ACTIVE', ACTIVE: 'TRUE' },
-        { SERVICE_DATE: D2, SERMON_TITLE: '冇填 ACTIVE' }
+        { SERVICE_DATE: D1, SERMON_TITLE: '崇拜程序冇「有效」欄，唔算留空' }
       ]
     }
   });
   const preview = env.sandbox.previewContentImport_(QUARTER_ID, {});
   const blanks = preview.plan.blankActiveRows || [];
   assert.strictEqual(blanks.length, 1, '實際：' + JSON.stringify(blanks));
-  assert.strictEqual(blanks[0].tabName, '崇拜程序');
+  assert.strictEqual(blanks[0].tabName, '代禱事項');
 
   const lines = env.sandbox.buildContentImportDialogLines_(preview, { dryRun: true, applied: false });
   const text = lines.join('\n');
@@ -816,14 +821,18 @@ test('v3：浸禮六欄不在內容表——內容表「崇拜程序」帶了浸
     '浸禮六欄以填寫介面為準，匯入不可以動');
 });
 
-test('v3：「崇拜程序」沒有浸禮六欄；最後五欄是序樂、宣召出處、宣召經文、詩歌頌讚、詩班項目名稱', function () {
+test('v4：「崇拜程序」沒有浸禮六欄；只有主日日期、讀經經文、證道講題、回應詩歌、備註（凍結的 v3 定義最後五欄仍然是序樂等）', function () {
   const env = makeEnv({});
   const tab = env.sandbox.contentSheetTabDefs_()
     .filter(function (d) { return d.tabName === '崇拜程序'; })[0];
   Array.prototype.slice.call(env.sandbox.baptismBoxFieldKeys_()).forEach(function (k) {
     assert.strictEqual(tab.keys.indexOf(k), -1, k + ' 不可以在內容表');
   });
-  assert.strictEqual(JSON.stringify(Array.prototype.slice.call(tab.keys, tab.keys.length - 5)),
+  // 2026-10-30（內容表 v4）。
+  assert.strictEqual(JSON.stringify(Array.prototype.slice.call(tab.keys)),
+    JSON.stringify(['SERVICE_DATE', 'SCRIPTURE_REF', 'SERMON_TITLE', 'RESPONSE_HYMN', 'NOTES']));
+  const v3 = Array.prototype.slice.call(env.sandbox.contentSheetWorshipKeysV3_());
+  assert.strictEqual(JSON.stringify(v3.slice(v3.length - 5)),
     JSON.stringify(['PRELUDE', 'CALL_REF', 'CALL_TEXT', 'HYMN_PRAISE', 'CHOIR_LABEL']));
 });
 

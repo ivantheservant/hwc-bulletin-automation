@@ -47,8 +47,8 @@ function expectedProjectTriggers_() {
     },
     {
       // v3（2026-10-26）：每日自動建立季度（與自動寄送一齊安裝、一齊移除）。
-      handler: 'dailyQuarterAutoCreateTrigger_', label: '每日自動建立新季度', expected: 1, retired: false,
-      missingHint: '職事表有新季度時不會每日自動建立（開啟填寫介面時仍然會檢查）。請按選單「安裝自動寄送觸發器」。',
+      handler: 'dailyQuarterAutoCreateTrigger_', label: '每日自動建立新季度及排好內容表', expected: 1, retired: false,
+      missingHint: '職事表有新季度時不會每日自動建立（開啟填寫介面時仍然會檢查），內容表的家事報告、代禱事項、財政報告亦不會每日按日期排好。請按選單「安裝自動寄送觸發器」。',
       duplicateHint: '每一個都會各自跑一次（多跑不會重複建立，但浪費時間）。'
         + '請按選單「移除自動寄送觸發器」再按一次「安裝自動寄送觸發器」。'
     },

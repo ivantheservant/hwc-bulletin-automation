@@ -111,20 +111,27 @@ function makeRichSheet(name) {
     showSheet: function () { hidden = false; return sheet; },
     isSheetHidden: function () { return hidden; },
     __protections: protections,
-    getProtections: function () { return protections.slice(); },
+    // v4（2026-10-30）：getProtections() 回 Protection 物件（與真的一樣），記錄在 __protections。
+    getProtections: function () { return protections.map(function (record) { return record.handle; }); },
     protect: function () {
-      const record = { description: '', warningOnly: false };
+      const record = { description: '', warningOnly: false, unprotected: [], domainEdit: true };
       protections.push(record);
       const p = {
         setDescription: function (d) { record.description = d; return p; },
+        getDescription: function () { return record.description; },
         setWarningOnly: function (b) { record.warningOnly = b === true; return p; },
         isWarningOnly: function () { return record.warningOnly; },
         getEditors: function () { return []; },
         removeEditors: function () { return p; },
         addEditors: function () { return p; },
+        addEditor: function () { return p; },
+        canDomainEdit: function () { return record.domainEdit; },
+        setDomainEdit: function (b) { record.domainEdit = b === true; return p; },
+        setUnprotectedRanges: function (ranges) { record.unprotected = (ranges || []).slice(); return p; },
         canEdit: function () { return true; },
         remove: function () { const i = protections.indexOf(record); if (i !== -1) protections.splice(i, 1); }
       };
+      record.handle = p;
       return p;
     },
     getRange: function (r, c, numRows, numCols) {
@@ -135,6 +142,26 @@ function makeRichSheet(name) {
           + ' 欄，分頁只有 ' + maxColumns + ' 欄）。');
       }
       const range = {
+        // v4：按一欄排序（每晚排序用排名欄）。
+        sort: function (spec) {
+          const col = typeof spec === 'number' ? spec : spec.column;
+          const idx = [];
+          for (let i = 0; i < numRows; i++) idx.push(i);
+          const keyOf = function (i) { const src = data[r - 1 + i]; return src ? src[col - 1] : ''; };
+          idx.sort(function (a, b) {
+            const ka = keyOf(a); const kb = keyOf(b);
+            if (ka === kb) return a - b;
+            if (ka === '' || ka === undefined) return 1;
+            if (kb === '' || kb === undefined) return -1;
+            return ka < kb ? -1 : 1;
+          });
+          const rows = idx.map(function (i) { return (data[r - 1 + i] || []).slice(); });
+          rows.forEach(function (rowArr, i) {
+            ensureCell(r + i, c + numCols - 1);
+            for (let j = 0; j < numCols; j++) data[r - 1 + i][c - 1 + j] = rowArr[c - 1 + j] === undefined ? '' : rowArr[c - 1 + j];
+          });
+          return range;
+        },
         getValues: function () {
           const out = [];
           for (let i = 0; i < numRows; i++) {
@@ -495,7 +522,8 @@ test('2. 建立：每張表第 1、2 行正確，資料由第 3 行開始', func
     assertArrayEqual(row(sheet, 2, def.keys.length), def.keys, def.tabName + ' 第 2 行');
     assert.strictEqual(sheet.getFrozenRows(), 2, def.tabName + ' 應該凍結頭兩行');
     // 內容表 v2：「崇拜程序」每個主日預先開好一行（由週報帶入現有的值），其餘冇樣本就冇資料。
-    const expectedLastRow = def.tabName === '崇拜程序' ? 2 + SERVICE_DATES.length : 2;
+    // 內容表 v4（2026-10-30）：「崇拜人數」亦一個日期一行預先開好（崇拜日期＝每個主日減七天）。
+    const expectedLastRow = def.oneRowPerDate === true ? 2 + SERVICE_DATES.length : 2;
     assert.strictEqual(sheet.getLastRow(), expectedLastRow, def.tabName + ' 第 3 行起的資料行數');
   });
 });
@@ -518,13 +546,16 @@ test('M11（內容表 v2）新建：「崇拜程序」每個主日一行、值�
   SERVICE_DATES.forEach(function (iso, i) {
     const r = 3 + i;
     assert.strictEqual(cell(sheet, r, 1), iso, '第 ' + r + ' 行的主日');
-    assert.strictEqual(cell(sheet, r, def.keys.indexOf('PRELUDE') + 1), '預設序樂', '序樂由週報帶入');
     assert.strictEqual(cell(sheet, r, def.keys.indexOf('NOTES') + 1), '', '新建內容表不寫「系統移轉建立」');
-    assert.strictEqual(cell(sheet, r, def.keys.indexOf('CALL_REF') + 1), '', '冇宣召樣本');
   });
+  // 內容表 v4（2026-10-30）：序樂、宣召不在內容表（改在填寫介面填）。
+  assert.strictEqual(def.keys.indexOf('PRELUDE'), -1);
+  assert.strictEqual(def.keys.indexOf('CALL_REF'), -1);
   assert.strictEqual(cell(sheet, 3, def.keys.indexOf('SERMON_TITLE') + 1), '第一週講題');
+  assert.ok(sheet.__protections.some(function (p) { return p.description.indexOf('日期欄與標題鎖住') !== -1 && p.warningOnly === false; }),
+    '日期欄鎖住、不可以插入行');
   const text = env.sandbox.buildContentSheetResultLines_(result).join('\n');
-  assert.ok(text.indexOf('「崇拜程序」已預先開好 ' + SERVICE_DATES.length + ' 行（每個主日一行）') !== -1, text);
+  assert.ok(text.indexOf('「崇拜程序」已一個主日一行預先開好（' + SERVICE_DATES.length + ' 行）') !== -1, text);
 });
 
 // =====================================================================
@@ -551,7 +582,8 @@ test('4. 冪等：第二次跑之後，人手輸入嘅資料一格都冇變', fu
   env.sandbox.buildOrRefreshContentSheet_(QUARTER_ID);
 
   const sheet = env.contentSpreadsheet().getSheetByName('家事報告');
-  sheet.getRange(3, 1, 1, 5).setValues([['2027-11-14', 10, '堂委親手打嘅報告', '', 'TRUE']]);
+  // 內容表 v4：主日日期、連續到、有效、次序、內容。
+  sheet.getRange(3, 1, 1, 5).setValues([['2027-11-14', '', 'TRUE', 10, '堂委親手打嘅報告']]);
   const before = JSON.stringify(row(sheet, 3, 5));
 
   env.sandbox.buildOrRefreshContentSheet_(QUARTER_ID);
@@ -566,7 +598,7 @@ test('5. 季度多咗一個主日 → 下拉選單跟住更新，舊資料唔郁
 
   // 內容表 v2：「宣召」分頁已併入「崇拜程序」，改用「家事報告」驗同一件事。
   const sheet = env.contentSpreadsheet().getSheetByName('家事報告');
-  sheet.getRange(3, 1, 1, 5).setValues([['2027-11-07', 10, '測試報告', '', 'TRUE']]);
+  sheet.getRange(3, 1, 1, 5).setValues([['2027-11-07', '', 'TRUE', 10, '測試報告']]);
 
   // 職事表加多一個主日。
   const roster = env.sandbox.SpreadsheetApp.openById(FAKE_ROSTER_ID).getSheetByName('ServiceDates');
@@ -580,7 +612,7 @@ test('5. 季度多咗一個主日 → 下拉選單跟住更新，舊資料唔郁
   assert.ok(validation, '主日日期欄應該有下拉');
   assert.ok(validation.__values.indexOf('2027-12-12') !== -1,
     '新增嘅主日要出現喺下拉：' + JSON.stringify(validation.__values));
-  assertArrayEqual(row(sheet, 3, 5), ['2027-11-07', 10, '測試報告', '', 'TRUE'], '舊資料唔可以郁');
+  assertArrayEqual(row(sheet, 3, 5), ['2027-11-07', '', 'TRUE', 10, '測試報告'], '舊資料唔可以郁');
   // 新增嘅主日喺「崇拜程序」亦預先開好一行（其他主日嘅行一格都唔郁）。
   const worship = env.contentSpreadsheet().getSheetByName('崇拜程序');
   assert.strictEqual(worship.getLastRow(), 2 + SERVICE_DATES.length + 1);
@@ -640,17 +672,17 @@ test('8. 下拉選單拒絕清單以外嘅日期（setAllowInvalid(false)）', f
 
   assert.strictEqual(sheet.__validations['3,1'].__allowInvalid, false,
     '主日日期手打錯一個字就成行匯入唔到，所以要硬擋');
-  // 「連續到」一樣要下拉。
-  assert.ok(sheet.__validations['3,4'], '「連續到」欄一樣要有下拉');
-  assert.strictEqual(sheet.__validations['3,4'].__allowInvalid, false);
+  // 「連續到」一樣要下拉（內容表 v4：第 B 欄）。
+  assert.ok(sheet.__validations['3,2'], '「連續到」欄一樣要有下拉');
+  assert.strictEqual(sheet.__validations['3,2'].__allowInvalid, false);
 });
 
 test('8b. 「有效」欄有 TRUE／FALSE 下拉', function () {
   const env = makeEnv({});
   env.sandbox.buildOrRefreshContentSheet_(QUARTER_ID);
-  // 內容表 v2：改用「崇拜程序」（「有效」係第 6 欄）。
-  const sheet = env.contentSpreadsheet().getSheetByName('崇拜程序');
-  const validation = sheet.__validations['3,6'];
+  // 內容表 v4：「崇拜程序」冇「有效」；改用「家事報告」（「有效」係第 C 欄）。
+  const sheet = env.contentSpreadsheet().getSheetByName('家事報告');
+  const validation = sheet.__validations['3,3'];
   assert.ok(validation);
   assertArrayEqual(validation.__values, ['TRUE', 'FALSE']);
 });
@@ -692,9 +724,10 @@ test('11. 樣本嘅「連續到」指向該季第四個主日', function () {
 
   const sheet = env.contentSpreadsheet().getSheetByName('家事報告');
   assert.strictEqual(sheet.getLastRow(), 5, '三行樣本，由第 3 行開始');
-  assert.strictEqual(cell(sheet, 5, 4), SERVICE_DATES[3], '第三行示範連登四週');
-  assert.strictEqual(cell(sheet, 3, 4), '', '頭兩行冇「連續到」');
-  assert.strictEqual(cell(sheet, 3, 5), true, '樣本嘅「有效」要係 TRUE');
+  // 內容表 v4：「連續到」第 B 欄、「有效」第 C 欄。
+  assert.strictEqual(cell(sheet, 5, 2), SERVICE_DATES[3], '第三行示範連登四週');
+  assert.strictEqual(cell(sheet, 3, 2), '', '頭兩行冇「連續到」');
+  assert.strictEqual(cell(sheet, 3, 3), true, '樣本嘅「有效」要係 TRUE');
 });
 
 test('11b. 樣本：崇拜人數填喺第一個主日減七天、財政都有；內容表 v2 起冇宣召樣本', function () {
@@ -702,14 +735,11 @@ test('11b. 樣本：崇拜人數填喺第一個主日減七天、財政都有；
   env.sandbox.buildOrRefreshContentSheet_(QUARTER_ID);
   const ss = env.contentSpreadsheet();
 
+  // 內容表 v4：崇拜人數一個崇拜日期一行預先開好（第一行＝第一個主日減七天），唔再寫樣本數字。
   assert.strictEqual(cell(ss.getSheetByName('崇拜人數'), 3, 1), '2027-10-31');
-  assert.strictEqual(cell(ss.getSheetByName('崇拜人數'), 3, 2), '57');
+  assert.strictEqual(cell(ss.getSheetByName('崇拜人數'), 3, 2), '');
   assert.strictEqual(ss.getSheetByName('宣召'), null, '內容表 v2：冇「宣召」分頁');
-  const worship = ss.getSheetByName('崇拜程序');
-  const callCol = env.sandbox.contentSheetWorshipTabDef_().keys.indexOf('CALL_REF') + 1;
-  for (let r = 3; r <= worship.getLastRow(); r++) {
-    assert.strictEqual(cell(worship, r, callCol), '', '決定 12：唔再預填宣召樣本（第 ' + r + ' 行）');
-  }
+  assert.strictEqual(env.sandbox.contentSheetWorshipTabDef_().keys.indexOf('CALL_REF'), -1, '內容表 v4：宣召改在介面填');
   assert.strictEqual(ss.getSheetByName('財政報告').getLastRow(), 4, '兩行財政樣本');
   assert.strictEqual(ss.getSheetByName('代禱事項').getLastRow(), 4, '兩行代禱樣本');
 });

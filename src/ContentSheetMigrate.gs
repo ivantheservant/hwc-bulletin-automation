@@ -78,7 +78,7 @@ var CONTENT_SHEET_RETIRED_TAB_PROTECTION_ = '週報系統：已停用的舊分�
  *   Error 讀取失敗時原樣拋出。
  */
 function readContentSheetV2Inputs_(spreadsheet) {
-  var worshipDef = contentSheetWorshipTabDef_();
+  var worshipDef = contentSheetWorshipTabDefV3_();
   var n = worshipDef.keys.length;
   var v2Keys = contentSheetWorshipKeysV2_();
   var worshipSheet = spreadsheet.getSheetByName(worshipDef.tabName);
@@ -191,7 +191,7 @@ function migrationText_(value) {
  *   （無）
  */
 function planContentSheetV2Migration_(input) {
-  var def = contentSheetWorshipTabDef_();
+  var def = contentSheetWorshipTabDefV3_();
   var keys = def.keys;
   var valueKeys = keys.filter(function (k) { return k !== 'SERVICE_DATE' && k !== 'ACTIVE' && k !== 'NOTES'; });
   var plan = {
@@ -440,11 +440,11 @@ function contentColumnLetter_(col) {
  *   （無）
  */
 function buildContentSheetStrayCellsMessage_(strayCells) {
-  var def = contentSheetWorshipTabDef_();
+  var def = contentSheetWorshipTabDefV3_();
   var firstNew = legacyWorshipTabDefV1_().keys.length + 1;
   var lines = strayCells.slice(0, 10).map(function (c) {
     return '　' + contentColumnLetter_(c.col) + c.rowNo + '（' + c.isoDate + '，新欄「'
-      + contentTabColumnLabel_(def.tabName, c.key) + '」的位置）：「' + c.existing + '」';
+      + contentTabColumnLabel_(def.tabName, c.key, def) + '」的位置）：「' + c.existing + '」';
   });
   if (strayCells.length > 10) lines.push('　（另有 ' + (strayCells.length - 10) + ' 格未列出）');
   return '內容表「崇拜程序」第 ' + contentColumnLetter_(firstNew) + ' 至 ' + contentColumnLetter_(def.keys.length)
@@ -483,7 +483,10 @@ function uniqueRetiredContentTabName_(spreadsheet, baseName) {
  *   Error 讀取失敗時原樣拋出。
  */
 function listRetiredContentTabNames_(spreadsheet) {
-  var bases = legacyMergedTabDefs_().map(function (def) { return def.tabName + CONTENT_SHEET_RETIRED_TAB_SUFFIX_; });
+  var bases = legacyMergedTabDefs_().map(function (def) { return def.tabName + CONTENT_SHEET_RETIRED_TAB_SUFFIX_; })
+    // v4（2026-10-30）：重新整理之前改了名保留的分頁。
+    .concat([CONTENT_SHEET_V4_WORSHIP_RETIRED_BASE_, CONTENT_SHEET_V4_WORSHIP_RESHAPE_BASE_,
+      CONTENT_SHEET_V4_ATTENDANCE_RESHAPE_BASE_]);
   return spreadsheet.getSheets().map(function (sheet) { return String(sheet.getName()); }).filter(function (name) {
     return bases.some(function (b) { return name.indexOf(b) === 0; });
   });
@@ -648,7 +651,7 @@ function buildContentSheetMigrationLines_(plan, options) {
   }
   if (plan.counts.newColumns > 0) {
     lines.push('　「崇拜程序」' + will + '在最後加 ' + plan.counts.newColumns + ' 欄（'
-      + plan.newColumns.map(function (k) { return contentTabColumnLabel_('崇拜程序', k); }).join('、') + '）。');
+      + plan.newColumns.map(function (k) { return contentTabColumnLabel_('崇拜程序', k, contentSheetWorshipTabDefV3_()); }).join('、') + '）。');
   }
   if (mergingLegacy) {
     lines.push('　由舊「宣召」搬入 ' + plan.counts.callDates + ' 個主日。');
@@ -666,7 +669,7 @@ function buildContentSheetMigrationLines_(plan, options) {
   if (plan.counts.conflicts > 0) {
     lines.push('　⚠️ ' + plan.counts.conflicts + ' 格兩邊不同，保留「崇拜程序」的值：');
     plan.conflicts.slice(0, 10).forEach(function (c) {
-      lines.push('　　' + c.isoDate + '「' + contentTabColumnLabel_('崇拜程序', c.key) + '」：崇拜程序「' + c.existing
+      lines.push('　　' + c.isoDate + '「' + contentTabColumnLabel_('崇拜程序', c.key, contentSheetWorshipTabDefV3_()) + '」：崇拜程序「' + c.existing
         + '」，' + (c.source === 'CALL' ? '舊宣召' : (c.source === 'BAPTISM' ? '舊浸禮合堂' : '週報')) + '「' + (c.candidate || '（空白）') + '」');
     });
     if (plan.conflicts.length > 10) lines.push('　　（另有 ' + (plan.conflicts.length - 10) + ' 格未列出）');

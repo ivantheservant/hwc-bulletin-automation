@@ -375,7 +375,7 @@ test('R4-1 三處同一份觸發器清單：留着兩個舊觸發器 → 自我�
 
   const before = self();
   assert.deepStrictEqual(JSON.parse(JSON.stringify(before.map(function (i) { return i.label + i.status; }))), [
-    '觸發器：自動寄送' + S.GREEN, '觸發器：每日自動建立新季度' + S.GREEN, '觸發器：內容表自動同步' + S.GREEN,
+    '觸發器：自動寄送' + S.GREEN, '觸發器：每日自動建立新季度及排好內容表' + S.GREEN, '觸發器：內容表自動同步' + S.GREEN,
     '觸發器：Config 人手改動稽核' + S.GREEN,
     '觸發器：季度填寫表對帳（已停用）' + S.YELLOW, '觸發器：講員表格提交（已停用）' + S.YELLOW
   ]);

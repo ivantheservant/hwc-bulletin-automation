@@ -259,7 +259,9 @@ test('planWeekSnapshotRestore_：內容表的欄位（人數、序樂、宣召�
     week: { ATT_ENG_WORSHIP: '99', CALL_REF: '舊', STATUS: 'SENT', DOC_ID: 'OLD', PRELUDE: '舊序樂', PAGE_TITLE: '舊標題', FLOWER_THIS_WEEK: '舊獻花' },
     dutyOverrides: [], fieldOverrides: []
   }, { weekRow: { ATT_ENG_WORSHIP: '1', CALL_REF: '新', STATUS: 'DRAFT', DOC_ID: 'NEW', PRELUDE: '新序樂', PAGE_TITLE: '新標題', FLOWER_THIS_WEEK: '新獻花' }, dutyRowsAll: [], fieldRowsAll: [] });
-  assert.deepStrictEqual(plain(plan.fieldChanges.map(function (c) { return c.field; })), ['PAGE_TITLE', 'FLOWER_THIS_WEEK']);
+  // 2026-10-30（內容表 v4）：序樂、宣召改回在介面填，所以亦還原；人數仍然以內容表為準。
+  assert.deepStrictEqual(plain(plan.fieldChanges.map(function (c) { return c.field; })).sort(),
+    ['CALL_REF', 'FLOWER_THIS_WEEK', 'PAGE_TITLE', 'PRELUDE']);
 });
 
 // =====================================================================
@@ -838,21 +840,23 @@ test('還原：版本與現在一樣 → 什麼都不寫（不存安全版本、
 });
 
 test('還原不動內容表接管的欄位與四張清單', function () {
-  // v3：序樂、講題等亦由內容表接管，與人數一樣不還原。
-  const env = makeEnv({ week: { PAGE_TITLE: 'P0', PRELUDE: '舊序樂', ATT_ENG_WORSHIP: '10', ATT_CANE_WORSHIP: '舊人數' } });
+  // v3：講題等由內容表接管，與人數一樣不還原。2026-10-30（內容表 v4）：序樂改回在介面填，所以照樣還原。
+  const env = makeEnv({ week: { PAGE_TITLE: 'P0', PRELUDE: '舊序樂', SERMON_TITLE: '舊講題', ATT_ENG_WORSHIP: '10', ATT_CANE_WORSHIP: '舊人數' } });
   env.sandbox.createWeekSnapshot_(D, 'WEBAPP_SAVE');
   const snap = versionsOf(env, D)[0];
   // 之後內容表匯入改了內容表接管的欄位，幹事也改了大標題
   env.sandbox.writeBulletinWeekField_(D, 'ATT_ENG_WORSHIP', '99');
   env.sandbox.writeBulletinWeekField_(D, 'ATT_CANE_WORSHIP', '新人數');
   env.sandbox.writeBulletinWeekField_(D, 'PRELUDE', '新序樂');
+  env.sandbox.writeBulletinWeekField_(D, 'SERMON_TITLE', '新講題');
   save(env, D, { PAGE_TITLE: 'P9' });
   env.sandbox.restoreWeekSnapshotFromWebApp_({ isoDate: D, snapshotId: snap.snapshotId });
   const row = rowOf(env, D);
   assert.strictEqual(row.PAGE_TITLE, 'P0', '可編輯欄位還原');
   assert.strictEqual(String(row.ATT_ENG_WORSHIP), '99', '以內容表為準，不還原');
   assert.strictEqual(row.ATT_CANE_WORSHIP, '新人數');
-  assert.strictEqual(row.PRELUDE, '新序樂', 'v3：序樂以內容表為準，不還原');
+  assert.strictEqual(row.PRELUDE, '舊序樂', '內容表 v4：序樂在介面填，照樣還原');
+  assert.strictEqual(row.SERMON_TITLE, '新講題', '講題以內容表為準，不還原');
 });
 
 test('apiRestoreWeekSnapshot：工作表結構落後時拒絕，不寫任何一格', function () {
@@ -899,8 +903,9 @@ test('重設（真入口 resetWeekFromWebApp_）：欄位改回預設值、覆�
   const row = rowOf(env, D);
   assert.strictEqual(row.PAGE_TITLE, '預設標題', '大標題改回 Config 預設');
   assert.strictEqual(row.FLOWER_THIS_WEEK, '');
-  // v3：序樂、講題只在內容表輸入；這個環境沒有內容表可匯入，重設不動它們。
-  assert.strictEqual(row.PRELUDE, '手填序樂');
+  // 講題只在內容表輸入；這個環境沒有內容表可匯入，重設不動它。
+  // 2026-10-30（內容表 v4）：序樂改回在介面填，重設改回預設序樂。
+  assert.strictEqual(row.PRELUDE, '預設序樂');
   assert.strictEqual(row.SERMON_TITLE, '自己改的');
   assert.strictEqual(row.PROGRAM_TEMPLATE_ID, '', '2026-10-27：重設＝程序範本恢復自動（留空跟每週標題）');
   assert.strictEqual(row.STATUS, 'SENT', '系統欄不改');
@@ -922,7 +927,7 @@ test('重設（真入口 resetWeekFromWebApp_）：欄位改回預設值、覆�
 
   const audit = env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'WEEK_RESET'; });
   assert.ok(audit.some(function (r) { return r.FIELD === 'PAGE_TITLE' && r.OLD_VALUE === '手填標題'; }));
-  assert.ok(!audit.some(function (r) { return r.FIELD === 'PRELUDE'; }), 'v3：序樂不由重設改');
+  assert.ok(audit.some(function (r) { return r.FIELD === 'PRELUDE' && r.OLD_VALUE === '手填序樂'; }), '內容表 v4：序樂由重設改回預設');
   assert.ok(audit.some(function (r) { return r.SHEET_NAME === 'DutyOverride'; }));
   assert.ok(audit.some(function (r) { return r.SHEET_NAME === 'FieldOverride'; }));
   assert.ok(result.message.text.indexOf('還沒有內容表') !== -1, result.message.text);
@@ -1012,12 +1017,12 @@ test('重設（本季已有內容表）：由內容表重新匯入這一週，�
   assert.strictEqual(result.message.type, 'success', JSON.stringify(result));
   assert.ok(result.importMessage.indexOf('已由內容表重新匯入') !== -1, result.importMessage);
   const row = contentWeekOf(env, '2027-10-03');
-  // 內容表 v2：序樂亦由內容表「崇拜程序」帶回——內容表那一格空白，週報那一格就是空白；
-  //    印出來的是預設序樂（applyPreludeDefault_，決定 11）。
-  assert.strictEqual(row.PRELUDE, '');
+  // 2026-10-30（內容表 v4）：序樂、宣召改回在介面填，重設改回預設（序樂＝Config 預設序樂，宣召＝空白），
+  //    內容表不再帶回。
+  assert.strictEqual(row.PRELUDE, '預設序樂');
   assert.strictEqual(env.sandbox.buildBulletinModel_('2027-10-03').weekFields.PRELUDE, '預設序樂');
   assert.strictEqual(row.SERMON_TITLE, '內容表講題', '覆寫停用之後，內容表的值回來了');
-  assert.strictEqual(row.CALL_REF, '內容表出處', '內容表接管的欄位也由內容表帶回來');
+  assert.strictEqual(row.CALL_REF, '', '宣召由重設清空');
   assert.strictEqual(contentWeekOf(env, '2027-10-10').SERMON_TITLE, '另一週不可以動', '只重設這一週');
   assert.deepStrictEqual(reasonsOf(env, '2027-10-03'), ['BEFORE_RESET'], '匯入不另外存版本');
   assert.ok(env.sandbox.readSheet('FieldOverride').every(function (r) { return r.ACTIVE === false; }));

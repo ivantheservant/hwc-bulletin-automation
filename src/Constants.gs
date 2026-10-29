@@ -1235,8 +1235,9 @@ var CONTENT_SHEET_READONLY_FIELDS = Object.freeze({
     'ATT_ENG_CHILD', 'ATT_CANE_CHILD', 'ATT_CANN_CHILD', 'ATT_MAN_CHILD',
     // 人數統計日期跟著十二個人數欄一起由內容表決定。
     'ATTENDANCE_DATE',
-    'SCRIPTURE_REF', 'SERMON_TITLE', 'RESPONSE_HYMN', 'CHOIR_TITLE',
-    'PRELUDE', 'CALL_REF', 'CALL_TEXT', 'HYMN_PRAISE', 'CHOIR_LABEL'
+    // 2026-10-30（內容表 v4，Ivan）：「崇拜程序」只留這三欄；序樂、宣召出處、宣召經文、詩歌頌讚、詩班曲名、
+    //    詩班項目名稱搬回填寫介面填（不在這裏＝介面可以改）。由 contentSheetWorshipTabDef_() 的值欄決定，次序相同。
+    'SCRIPTURE_REF', 'SERMON_TITLE', 'RESPONSE_HYMN'
   ]),
   // `webAppListDefs_()` 的 key。
   LISTS: Object.freeze(['announcements', 'prayers', 'fellowships', 'finance'])

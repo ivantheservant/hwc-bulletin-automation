@@ -199,7 +199,7 @@ test('內容表修改時間沒有變 → 不開檔、不寫；改了之後下一
   const second = plain(env.sandbox.runContentAutoSync_({ source: 'TEST' }));
   assert.strictEqual(second.quarters[0].status, 'UNCHANGED');
 
-  env.contentTabs['家事報告'].getRange(4, 3).setValue('改了內容');
+  env.contentTabs['家事報告'].getRange(4, 5).setValue('改了內容');
   env.setMtime(2000);
   const third = plain(env.sandbox.runContentAutoSync_({ source: 'TEST' }));
   assert.strictEqual(third.quarters[0].status, 'IMPORTED', JSON.stringify(third));

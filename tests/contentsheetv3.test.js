@@ -52,6 +52,8 @@ function makeV2Env(extra) {
   const o = Object.assign({}, extra || {});
   return contentEnv.makeEnv(Object.assign({
     contentLayout: 'v2',
+    // 2026-10-30（內容表 v4）：v2 → v3 之後再轉成 v4，v3 的「崇拜程序」改名保留；這裏驗的是 v3 那一張。
+    keepOriginalTabRefs: true,
     weekRows: [
       { SERVICE_DATE: D1, QUARTER_ID: QUARTER_ID, SERMON_TITLE: '講題甲', CHOIR_LABEL: '詩班獻詩' },
       { SERVICE_DATE: D2, QUARTER_ID: QUARTER_ID, SERMON_TITLE: '介面的講題' },
@@ -121,7 +123,7 @@ console.log('\n內容表 v2 → v3');
 test('V3-0 前提：凍結的 v2 定義與 src 的 contentSheetWorshipKeysV2_() 一字不差；v3 第 2 行是十二欄、沒有浸禮六欄', function () {
   const sb = makeV2Env().sandbox;
   assert.deepStrictEqual(plain(sb.contentSheetWorshipKeysV2_()), plain(LEGACY_V2_WORSHIP_TAB_DEF.keys));
-  const v3 = plain(sb.contentSheetWorshipTabDef_().keys);
+  const v3 = plain(sb.contentSheetWorshipTabDefV3_().keys);
   assert.strictEqual(v3.length, 12);
   assert.strictEqual(v3[11], 'CHOIR_LABEL');
   sb.baptismBoxFieldKeys_().forEach(function (k) { assert.strictEqual(v3.indexOf(k), -1, k); });
@@ -140,7 +142,7 @@ test('V3-1 真入口 apiRunContentSheetBuild：浸禮六欄搬入週報（覆寫
 
   // 第 2 步：刪欄，第 2 行＝v3
   const tab = env.contentTabs['崇拜程序'];
-  const v3 = plain(env.sandbox.contentSheetWorshipTabDef_().keys);
+  const v3 = plain(env.sandbox.contentSheetWorshipTabDefV3_().keys);
   assert.deepStrictEqual(plain(tab.__data[1].slice(0, v3.length)), v3, '第 2 行＝v3');
   assert.strictEqual(tab.getMaxColumns() >= v3.length, true);
   env.sandbox.baptismBoxFieldKeys_().forEach(function (k) {
@@ -275,6 +277,7 @@ test('V3-9 刪走浸禮六欄之前整張備份：季度以外、同一主日的
   const BACKUP = '崇拜程序（浸禮六欄，已停用）';
   const env = contentEnv.makeEnv({
     contentLayout: 'v2',
+    keepOriginalTabRefs: true,
     weekRows: [D1, D2, D3, D4].map(function (iso) { return { SERVICE_DATE: iso, QUARTER_ID: QUARTER_ID }; }),
     content: {
       崇拜程序: [

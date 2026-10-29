@@ -74,8 +74,10 @@ function contentSheetTabDefs_() {
       //    ⚠️ `原文備份` 是系統寫入時的內容快照，用來判斷「有沒有被人手
       //    改過」——不是靠時間戳（人手改一個字不會動時間戳，而重新整理
       //    會）。請不要改這一欄。
-      headers: ['主日日期', '次序', '內容', '連續到', '有效', '來源', '原文備份'],
-      keys: ['SERVICE_DATE', 'SEQ_NO', 'TEXT', 'REPEAT_UNTIL', 'ACTIVE', 'SOURCE', 'SOURCE_SNAPSHOT'],
+      // 2026-10-30（Ivan）：「連續到」搬到 B 欄、「有效」搬到 C 欄（v4）。舊次序見
+      //    contentSheetListKeysV3_()；「更新本季內容表」用搬欄的方法改，資料、格式跟住欄走。
+      headers: ['主日日期', '連續到', '有效', '次序', '內容', '來源', '原文備份'],
+      keys: ['SERVICE_DATE', 'REPEAT_UNTIL', 'ACTIVE', 'SEQ_NO', 'TEXT', 'SOURCE', 'SOURCE_SNAPSHOT'],
       // ⚠️ REPEAT_UNTIL 一樣要下拉選主日：連登到邊一個主日為止。
       dateColumns: ['SERVICE_DATE', 'REPEAT_UNTIL'],
       attendanceDates: false,
@@ -85,7 +87,10 @@ function contentSheetTabDefs_() {
       plainTextColumns: ['SOURCE', 'SOURCE_SNAPSHOT'],
       wrapColumns: [{ key: 'TEXT', width: 600 }],
       activeKey: 'ACTIVE',
-      note: '一個主日可以有多行，用「次序」排先後（10、20、30 這樣跳號，方便日後在中間插入）。'
+      // 2026-10-30：每日清晨（每日觸發器）系統按主日日期、次序自動排一次（src/ContentSheetV4.gs）。
+      nightlySort: true,
+      note: '一個主日可以有多行，用「次序」排先後（10、20、30 這樣跳號，方便日後在中間插入）；次序留空的排在有次序的後面，'
+        + '幹事亦可以在填寫介面拖動，改這一個主日的次序。「有效」留空當作 TRUE。系統每日清晨按主日日期、次序自動排列一次。'
         + '「來源」與「原文備份」兩欄由系統維護：夏令時間轉換提示會自動加一行（來源＝SYSTEM_DST）。'
         + '你改動那一行的內容、或者把「有效」設成 FALSE 之後，系統就不會再覆寫它。請不要改「原文備份」。'
         + '「連續到」：需要連續刊登多個星期的報告只需輸入一次——在「主日日期」填第一次出現的主日，'
@@ -93,14 +98,15 @@ function contentSheetTabDefs_() {
     },
     {
       tabName: '代禱事項',
-      headers: ['主日日期', '次序', '內容', '連續到', '有效'],
-      keys: ['SERVICE_DATE', 'SEQ_NO', 'TEXT', 'REPEAT_UNTIL', 'ACTIVE'],
+      headers: ['主日日期', '連續到', '有效', '次序', '內容'],
+      keys: ['SERVICE_DATE', 'REPEAT_UNTIL', 'ACTIVE', 'SEQ_NO', 'TEXT'],
       dateColumns: ['SERVICE_DATE', 'REPEAT_UNTIL'],
       attendanceDates: false,
       plainTextColumns: [],
       wrapColumns: [{ key: 'TEXT', width: 600 }],
       activeKey: 'ACTIVE',
-      note: '欄位與「家事報告」完全相同，「連續到」的用法亦相同。'
+      nightlySort: true,
+      note: '欄位與「家事報告」相同，「連續到」與「次序」的用法亦相同。系統每日清晨按主日日期、次序自動排列一次。'
     },
     {
       tabName: '團契聚會',
@@ -119,17 +125,23 @@ function contentSheetTabDefs_() {
     },
     {
       tabName: '財政報告',
-      headers: ['主日日期', '次序', '報告標題', '項目', '欄一', '欄二', '欄三', '欄四', '有效'],
-      keys: ['SERVICE_DATE', 'SEQ_NO', 'TITLE_OVERRIDE', 'ROW_LABEL', 'COL1', 'COL2', 'COL3', 'COL4', 'ACTIVE'],
+      // 2026-10-30（Ivan）：最後加「附註」「銀行結餘」兩欄（v4；新欄只加在最後，匯入按位置讀）。
+      //    兩欄與「報告標題」都是一期一個值：同一個主日只填其中一行（通常第一行）。
+      headers: ['主日日期', '次序', '報告標題', '項目', '欄一', '欄二', '欄三', '欄四', '有效', '附註', '銀行結餘'],
+      keys: ['SERVICE_DATE', 'SEQ_NO', 'TITLE_OVERRIDE', 'ROW_LABEL', 'COL1', 'COL2', 'COL3', 'COL4', 'ACTIVE',
+        'FINANCE_NOTE', 'FINANCE_BALANCE'],
       dateColumns: ['SERVICE_DATE'],
       attendanceDates: false,
       // 五個數字欄全部純文字：實際內容有 `$6.42`、`$3,491.40`、`--`。
-      plainTextColumns: ['COL1', 'COL2', 'COL3', 'COL4'],
+      plainTextColumns: ['COL1', 'COL2', 'COL3', 'COL4', 'TITLE_OVERRIDE', 'FINANCE_NOTE', 'FINANCE_BALANCE'],
+      nightlySort: true,
       wrapColumns: [{ key: 'ROW_LABEL', width: 220 }],
       activeKey: 'ACTIVE',
       note: '「報告標題」可以留空——留空時系統會採用預設的「綜合收支財務報告」標題。'
         + '實際週報有兩種財政表輪流出現：綜合收支（四個數字欄全部填寫）與特殊海外奉獻及慈惠基金'
         + '（只填「欄一」「欄二」，其餘留空）。數字欄全部為純文字，可以直接輸入 $6.42、--。'
+        + '「報告標題」「附註」「銀行結餘」是一期一個，同一個主日只要填其中一行（通常是第一行）。'
+        + '系統每日清晨按主日日期、次序自動排列一次。'
     },
     {
       tabName: '崇拜人數',
@@ -150,6 +162,8 @@ function contentSheetTabDefs_() {
         'ACTIVE'
       ],
       dateColumns: ['SERVICE_DATE'],
+      // 2026-10-30（Ivan）：一個崇拜日期一行，由系統預先開好；日期欄鎖住、不可以插入行（v4，src/ContentSheetV4.gs）。
+      oneRowPerDate: true,
       // ⚠️ 崇拜人數填嘅係**崇拜當日**，唔係週報日期。週報自己會搵「該主日
       // 減七天」嗰一行。所以下拉要額外加該季第一個主日之前七天嗰個日期，
       // 否則該季第一期嘅人數無處可填。
@@ -162,7 +176,8 @@ function contentSheetTabDefs_() {
       wrapColumns: [],
       activeKey: 'ACTIVE',
       note: '⚠️ 「崇拜日期」是崇拜當日，並非週報那一個主日——週報會自動對應到「崇拜日期加七天」那一期。'
-        + '因此下拉選單額外包含該季第一個主日之前的那個主日。十二格全部為純文字，可以輸入「--」、「前:5 / 後:120」。'
+        + '每個崇拜日期已經預先開好一行（日期欄鎖住，不可以插入行），請直接填那一行。'
+        + '十二格全部為純文字，可以輸入「--」、「前:5 / 後:120」。'
     }
   ];
 }
@@ -190,7 +205,7 @@ function contentSheetTabDefs_() {
  * Raises:
  *   （無）
  */
-function contentSheetWorshipTabDef_() {
+function contentSheetWorshipTabDefV3_() {
   var v1 = legacyWorshipTabDefV1_();
   var addedKeys = ['PRELUDE', 'CALL_REF', 'CALL_TEXT', 'HYMN_PRAISE', 'CHOIR_LABEL'];
   var weekKeys = COLUMNS.BULLETIN_WEEKS.keys;
@@ -215,6 +230,70 @@ function contentSheetWorshipTabDef_() {
       + '這一張的各欄只可以在這裏填，填寫介面只會顯示；改好之後請在填寫介面按「重新匯入」。'
       + '浸禮合堂副框（浸禮主禮、受浸肢體等）改在填寫介面填，不在這裏。'
   };
+}
+
+/**
+ * 用途：2026-10-30（Ivan，示範之後）：「崇拜程序」分頁定義 v4——只留讀經經文、證道講題、回應詩歌，加備註；
+ *   拿走「有效」（一個主日一行，由系統預先開好，日期欄鎖住、不可以插入行）。序樂、宣召出處、宣召經文、
+ *   詩歌頌讚、詩班曲名、詩班項目名稱六欄搬回填寫介面填。
+ *
+ *   舊版（v3，十二欄）由「更新本季內容表」轉成 v4：六欄的值先搬入週報，舊分頁改名「崇拜程序（舊版 v3，已停用）」
+ *   保留不刪，再建一張新的 v4 分頁（src/ContentSheetV4.gs）。v1、v2 先經原有的移轉變成 v3（用凍結的
+ *   `contentSheetWorshipTabDefV3_()`），再轉成 v4。
+ * Args: （無）
+ * Returns:
+ *   {Object} 形狀同 `contentSheetTabDefs_()` 其中一項，另有 `oneRowPerDate:true`。
+ * Raises:
+ *   （無）
+ */
+function contentSheetWorshipTabDef_() {
+  var keys = ['SERVICE_DATE', 'SCRIPTURE_REF', 'SERMON_TITLE', 'RESPONSE_HYMN', 'NOTES'];
+  var v1 = legacyWorshipTabDefV1_();
+  return {
+    tabName: '崇拜程序',
+    headers: keys.map(function (k) { return v1.headers[v1.keys.indexOf(k)]; }),
+    keys: keys,
+    dateColumns: ['SERVICE_DATE'],
+    attendanceDates: false,
+    // v4 的分頁一律由系統新建，四欄都可以先設純文字（「3:16」不會被轉成時間）。
+    plainTextColumns: ['SCRIPTURE_REF', 'SERMON_TITLE', 'RESPONSE_HYMN', 'NOTES'],
+    wrapColumns: [{ key: 'SERMON_TITLE', width: 260 }, { key: 'NOTES', width: 260 }],
+    activeKey: '',
+    frozenColumns: 1,
+    oneRowPerDate: true,
+    note: '一個主日一行，每個主日已經預先開好一行（日期欄鎖住，不可以插入行），請直接修改那一行。'
+      + '「讀經經文」是經文出處（例如「約翰福音 3:16」），不是讀經的人——讀經那位肢體由職事表決定。'
+      + '序樂、宣召、詩歌頌讚、詩班等改在週報系統的填寫介面填。'
+      + '「備註」只供這裏留言，不會印在週報。'
+      + '改好之後，系統定時自動更新之後的週報（間隔見「_說明」）；幹事打開填寫介面亦會即時更新。'
+  };
+}
+
+/**
+ * 用途：v3「崇拜程序」的十二個機器鍵（凍結）。v4 轉換時用來認出「這一份仍然是 v3」。
+ * Args: （無）
+ * Returns:
+ *   {string[]}
+ * Raises:
+ *   （無）
+ */
+function contentSheetWorshipKeysV3_() {
+  return contentSheetWorshipTabDefV3_().keys.slice();
+}
+
+/**
+ * 用途：v3「家事報告」「代禱事項」的欄位次序（凍結）。v4 把「連續到」「有效」搬到 B、C 欄；轉換時用來認出舊次序。
+ * Args:
+ *   tabName {string} 「家事報告」或「代禱事項」。
+ * Returns:
+ *   {?string[]} 其他分頁回 `null`。
+ * Raises:
+ *   （無）
+ */
+function contentSheetListKeysV3_(tabName) {
+  if (tabName === '家事報告') return ['SERVICE_DATE', 'SEQ_NO', 'TEXT', 'REPEAT_UNTIL', 'ACTIVE', 'SOURCE', 'SOURCE_SNAPSHOT'];
+  if (tabName === '代禱事項') return ['SERVICE_DATE', 'SEQ_NO', 'TEXT', 'REPEAT_UNTIL', 'ACTIVE'];
+  return null;
 }
 
 /**
@@ -362,7 +441,9 @@ function buildContentSheetTabNote_(tabDef, owners, deadlineNote) {
  *   全部書面語（tests/contentimport.test.js 25 有檢查）。
  * Args:
  *   input {{quarterId:string, serviceDates:string[], owners:Object<string,string>,
- *          deadlineNote:string, adminContact:string, seededSample:boolean, retiredTabs:string[]=}}
+ *          deadlineNote:string, adminContact:string, seededSample:boolean, retiredTabs:string[]=,
+ *          autoSyncMinutes:number=}}
+ *     `autoSyncMinutes` 是內容表自動同步的間隔（分鐘，0 或沒有＝沒有自動同步）；
  *     `adminContact` 是幹事聯絡方法（由 Config 讀，不可以寫死）；`seededSample` 為 true 時多印一段
  *     講明首個主日那幾行是樣本；`retiredTabs` 是內容表內已停用的舊分頁名稱（沒有就不印那一段）。
  * Returns:
@@ -389,14 +470,14 @@ function buildContentSheetInstructionLines_(input) {
   lines.push('　' + (input.deadlineNote || '（未設定）'));
   lines.push('');
 
+  // v4（2026-10-30）：「崇拜程序」只留三欄；序樂、宣召、詩歌頌讚、詩班改在填寫介面填。
   lines.push('【「崇拜程序」：一個主日一行】');
-  lines.push('　每個主日已經預先開好一行，請直接修改那一行，不要另加一行。');
+  lines.push('　每個主日已經預先開好一行，請直接修改那一行，不要另加一行（日期欄已經鎖住，亦不可以插入行）。');
   lines.push('　講員：填「讀經經文」與「證道講題」。多數講員已經有權限，可以自己開這個檔案填；');
   lines.push('　　沒有權限的，請把讀經經文與講題交給幹事代填。');
-  lines.push('　領詩：填「序樂」「詩歌頌讚」「回應詩歌」。詩班負責人：填「詩班曲名」與「詩班項目名稱」。');
-  lines.push('　幹事：填「宣召出處」「宣召經文」。');
-  lines.push('　留空的意思：序樂留空＝週報印預設序樂；詩班曲名留空＝週報那一行整行不印；');
-  lines.push('　　詩班項目名稱留空＝用範本預設（例如「詩班獻唱」）。');
+  lines.push('　領詩：填「回應詩歌」。');
+  lines.push('　序樂、宣召、詩歌頌讚、詩班曲名與詩班項目名稱不在這裏填：由幹事在週報系統的填寫介面填，');
+  lines.push('　　領詩與詩班負責人請把資料交給幹事。');
   lines.push('　「誦讀」不在這裏填：由幹事在填寫介面處理（留空＝按月份自動選）。');
   lines.push('　浸禮合堂副框（浸禮主禮、受浸肢體等）不在這裏填：由幹事在填寫介面填。');
   lines.push('');
@@ -406,19 +487,35 @@ function buildContentSheetInstructionLines_(input) {
   lines.push('　在週報的事奉框顯示為「讀經」，不在這裏填。');
   lines.push('');
 
+  lines.push('【「崇拜人數」：一個崇拜日期一行】');
+  lines.push('　每個崇拜日期（主日之前一個星期）已經預先開好一行，請直接填那一行的人數；日期欄鎖住，不可以插入行。');
+  lines.push('');
+
   // v3（2026-10-26）：「崇拜程序」各欄只可以在這裏填，填寫介面只顯示。
+  // 2026-10-30：內容表改了之後由系統定時自動匯入（Config CONTENT_AUTO_SYNC_MINUTES）。
   lines.push('【改了之後】');
-  lines.push('　「崇拜程序」各欄只可以在這裏改，週報填寫介面只會顯示。這裏改好之後，');
-  lines.push('　幹事在填寫介面按「重新匯入」，週報才會更新。');
+  lines.push('　這個檔案的內容只可以在這裏改，週報填寫介面只會顯示。');
+  var syncMinutes = Number(input.autoSyncMinutes) || 0;
+  if (syncMinutes > 0) {
+    lines.push('　改好之後，系統大約每 ' + syncMinutes + ' 分鐘檢查一次，有改動就自動更新之後的週報；');
+    lines.push('　幹事打開填寫介面時亦會即時更新。');
+  } else {
+    lines.push('　改好之後，幹事打開填寫介面時會自動更新；亦可以在填寫介面按「重新匯入」。');
+  }
   lines.push('');
 
   lines.push('【四條規則，請務必遵守】');
   lines.push('　1. 請勿刪除任何一行。不需要的一行，請將「有效」改為 FALSE，');
-  lines.push('　   不要整行刪去——刪去之後，系統無法對照之前匯入過的內容。');
+  lines.push('　   不要整行刪去——刪去之後，系統無法對照之前匯入過的內容。「有效」留空＝TRUE。');
   lines.push('　2. 請勿修改第 1、2 行。第 1 行是中文標題，第 2 行是系統使用的機器鍵；');
   lines.push('　   任何一格被改動，整份內容表都會無法匯入。資料請由第 3 行開始填寫。');
   lines.push('　3. 日期只可以用下拉選單選擇。手動輸入的日期系統無法辨識，會被拒絕。');
   lines.push('　4. 請勿插入、刪除或移動欄。系統按欄位位置讀，欄的位置一變，整份內容表都會無法匯入。');
+  lines.push('');
+
+  lines.push('【家事報告、代禱事項、財政報告：次序與排列】');
+  lines.push('　新的一項加在最底的空行就可以，不用插入行。系統每日清晨會按主日日期、次序自動排好。');
+  lines.push('　「次序」可以留空：留空的排在有次序的後面；幹事可以在填寫介面拖動，改這一個主日的次序。');
   lines.push('');
 
   // ⚠️ R-047：「熱烈歡迎來賓」那一句**三個 Word 範本本身已經硬寫住**，
@@ -431,10 +528,22 @@ function buildContentSheetInstructionLines_(input) {
   lines.push('');
 
   var retired = input.retiredTabs || [];
+  // v4（2026-10-30）：重新整理之前的舊分頁（「崇拜程序（舊版 v3，已停用）」等）另外一句。
+  var v4Bases = [CONTENT_SHEET_V4_WORSHIP_RETIRED_BASE_, CONTENT_SHEET_V4_WORSHIP_RESHAPE_BASE_,
+    CONTENT_SHEET_V4_ATTENDANCE_RESHAPE_BASE_];
+  var isV4Retired = function (name) { return v4Bases.some(function (b) { return name.indexOf(b) === 0; }); };
+  var mergedRetired = retired.filter(function (name) { return !isV4Retired(name); });
+  var v4Retired = retired.filter(isV4Retired);
   if (retired.length > 0) {
     lines.push('【已停用的舊分頁】');
-    lines.push('　' + retired.map(function (name) { return '「' + name + '」'; }).join('')
-      + '已經隱藏，資料已經搬走（宣召搬入「崇拜程序」，浸禮合堂搬入週報填寫介面），請不要再填。分頁保留只作記錄，沒有刪除。');
+    if (mergedRetired.length > 0) {
+      lines.push('　' + mergedRetired.map(function (name) { return '「' + name + '」'; }).join('')
+        + '已經隱藏，資料已經搬走（宣召搬入「崇拜程序」，浸禮合堂搬入週報填寫介面），請不要再填。分頁保留只作記錄，沒有刪除。');
+    }
+    if (v4Retired.length > 0) {
+      lines.push('　' + v4Retired.map(function (name) { return '「' + name + '」'; }).join('')
+        + '是重新整理之前的分頁，已經隱藏，請不要再填（序樂、宣召、詩歌頌讚、詩班的值已經搬入週報）。分頁保留只作記錄，沒有刪除。');
+    }
     lines.push('');
   }
 
@@ -685,6 +794,7 @@ function buildContentSheetInviteHtml_(input) {
 
   parts.push('<p style="color:#8c231c;font-weight:bold;margin-top:1.2em;">'
     + '⚠️ 務請注意：請勿刪除任何一行（不需要的一行請將「有效」改為 FALSE）；'
+    + '「崇拜程序」「崇拜人數」每個日期已經預先開好一行，請直接填那一行，不可以插入行；'
     + '請勿修改首兩行（第 1 行中文標題、第 2 行機器鍵）；請勿插入、刪除或移動欄。'
     + '日期請用下拉選單選擇，手動輸入的系統無法辨識。</p>');
 

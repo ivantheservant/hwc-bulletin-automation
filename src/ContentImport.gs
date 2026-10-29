@@ -183,7 +183,8 @@ function parseContentTabRows_(values, keys) {
     //    `__activeBlank`，由差異報告逐行列出，交返畀幹事決定。
     var active = String(obj.ACTIVE || '').trim().toUpperCase();
     obj.__active = active !== 'FALSE';
-    obj.__activeBlank = active === '';
+    // 內容表 v4：「崇拜程序」沒有「有效」欄（一個主日一行，由系統預先開好），不算「留空」。
+    obj.__activeBlank = keys.indexOf('ACTIVE') !== -1 && active === '';
     out.push(obj);
   });
   return out;
@@ -331,6 +332,27 @@ function buildContentImportTargets_(contentData, serviceDates) {
     var activeRows = rows.filter(function (r) { return r.__active; });
     var byDate = {};
 
+    // 2026-10-30（Ivan）：一個日期一行的分頁，同一個日期有兩行生效中就那一日不匯入（週報保留原有的內容），
+    //    逐日講出來——以前靜靜用最後一行（bug class 2）。內容表 v4 起這兩張分頁鎖住、不可以插入行，
+    //    這裏是第二道防線（本系統的帳戶仍然可以插行）。
+    var rowNosByDate = {};
+    function noteRow(iso, row) {
+      if (!rowNosByDate[iso]) rowNosByDate[iso] = [];
+      rowNosByDate[iso].push(row.__rowNo);
+    }
+    function dropDuplicateDates(label) {
+      Object.keys(rowNosByDate).forEach(function (iso) {
+        if (rowNosByDate[iso].length < 2) return;
+        delete byDate[iso];
+        // v4（2026-10-30）：這兩張分頁一個日期一行、日期欄鎖住，多出來的行通常是有權限的帳戶插入的。
+        //    不可以叫人刪行（四條規則第 1 條），由「建立本季內容表」重新整理（以最後一行為準，其餘保留在舊分頁）。
+        warnings.push(def.tabName + '：' + label + ' ' + iso + ' 有 ' + rowNosByDate[iso].length + ' 行（第 '
+          + rowNosByDate[iso].join('、') + ' 行），不知道用哪一行，這一次那一個主日不匯入，週報保留原有的內容。'
+          + '這張分頁應該一個日期一行：請在週報系統試算表按選單「' + APP_NAME + ' ▸ 內容表 ▸ 建立本季內容表」，'
+          + '先看會做甚麼再確定，系統會整理成一個日期一行（以最後一行為準，其餘的行保留在改了名的舊分頁）。');
+      });
+    }
+
     if (def.kind === 'WEEK_ATTENDANCE') {
       activeRows.forEach(function (row) {
         if (typeIssues.skipRowNos[row.__rowNo]) return;
@@ -340,8 +362,10 @@ function buildContentImportTargets_(contentData, serviceDates) {
             + (row.SERVICE_DATE || '（空白）') + ' 加七天之後不是本季的主日，本行略過。');
           return;
         }
+        noteRow(iso, row);
         byDate[iso] = [row];
       });
+      dropDuplicateDates('崇拜日期加七天之後是主日');
     } else if (def.kind === 'WEEK') {
       activeRows.forEach(function (row) {
         if (typeIssues.skipRowNos[row.__rowNo]) return;
@@ -360,6 +384,13 @@ function buildContentImportTargets_(contentData, serviceDates) {
         if ((serviceDates || []).indexOf(iso) === -1) return;
         byDate[iso] = [lastByDate[iso]];
       });
+      activeRows.forEach(function (row) {
+        if (typeIssues.skipRowNos[row.__rowNo]) return;
+        var iso = String(row.SERVICE_DATE || '').trim();
+        if ((serviceDates || []).indexOf(iso) === -1) return;
+        noteRow(iso, row);
+      });
+      dropDuplicateDates('主日');
     } else {
       var expandedResult = def.repeatUntil
         ? expandRepeatUntilRows_(activeRows, serviceDates)
@@ -462,16 +493,19 @@ function classifyContentTypeIssues_(def, rows) {
 
 /**
  * 用途：內容表某張分頁某一欄的中文標題（第 1 行），由 `contentSheetTabDefs_()` 衍生。純函式。
+ *   移轉訊息講的是舊版分頁的欄（例如 v3「崇拜程序」的「宣召出處」），現行定義已經沒有那一欄，
+ *   所以可以傳 `tabDef` 指定用哪一版的定義。
  * Args:
  *   tabName {string} 分頁名稱。
  *   key {string} 機器鍵。
+ *   tabDef {Object=} 指定的分頁定義（有 `keys`、`headers`）；不傳就用現行 `contentSheetTabDefs_()`。
  * Returns:
  *   {string} 找不到就回機器鍵本身。
  * Raises:
  *   （無）
  */
-function contentTabColumnLabel_(tabName, key) {
-  var tabDef = contentSheetTabDefs_().filter(function (d) { return d.tabName === tabName; })[0];
+function contentTabColumnLabel_(tabName, key, tabDef) {
+  if (!tabDef) tabDef = contentSheetTabDefs_().filter(function (d) { return d.tabName === tabName; })[0];
   if (!tabDef) return key;
   var index = tabDef.keys.indexOf(key);
   return index === -1 ? key : (tabDef.headers[index] || key);
@@ -526,8 +560,11 @@ function normalizeContentCompareValue_(value) {
 
 /**
  * 用途：內容表清單分頁同一個主日內的先後：有填「次序」的按數字由細到大；次序留空（或不是數字）的
- *   排在有次序的後面；其餘按內容表上的行號。純函式（給 `Array.prototype.sort` 用）。
+ *   排在有次序的後面；次序相同就按那一行的「主日日期」（「連續到」帶過來的舊一行排前），最後按內容表上的行號。
+ *   純函式（給 `Array.prototype.sort` 用）。
  *   2026-10-30（Ivan）：以前留空被 `Number('')` 當成 0，排在最前。
+ *   ⚠️ 「主日日期」這一層是為了每日排序（`sortContentListTab_()`）：排序按日期、次序、行號搬行，排完之後
+ *   行號變了，但同一期週報的先後不可以因此改變。加了這一層，排序前後算出來的先後一樣。
  * Args:
  *   a {Object}　b {Object} 帶 `SEQ_NO`、`__rowNo` 的行。
  * Returns:
@@ -547,6 +584,19 @@ function compareContentRowsBySeq_(a, b) {
   if (sa !== null && sb !== null && sa !== sb) return sa - sb;
   if (sa !== null && sb === null) return -1;
   if (sa === null && sb !== null) return 1;
+  function dateOf(row) {
+    if (!row || (row.__typeIssues || []).indexOf('SERVICE_DATE') !== -1) return '';
+    var v = row.SERVICE_DATE;
+    if (Object.prototype.toString.call(v) === '[object Date]') return formatIsoDate_(v);
+    return String(v === null || v === undefined ? '' : v).trim();
+  }
+  var da = dateOf(a);
+  var db = dateOf(b);
+  if (da !== db) {
+    if (da === '') return 1;
+    if (db === '') return -1;
+    return da < db ? -1 : 1;
+  }
   return Number(a.__rowNo || 0) - Number(b.__rowNo || 0);
 }
 
@@ -882,17 +932,34 @@ function checkContentSheetSchema_(spreadsheet) {
   }).map(function (def) { return def.tabName; });
   var worshipTabName = contentSheetWorshipTabDef_().tabName;
   var v2Keys = contentSheetWorshipKeysV2_();
+  var v3Keys = contentSheetWorshipKeysV3_();
+  // v4（2026-10-30）：v3 的「崇拜程序」改了名而新分頁未建好（中途停止）→ 未更新。
+  var worshipLayout = detectWorshipTabLayoutV4_(spreadsheet).layout;
+  if (worshipLayout === 'V4_PENDING') {
+    outdated.push({ tabDef: contentSheetWorshipTabDef_(), verdict: { status: 'OUTDATED', v4Pending: true } });
+  }
   contentSheetTabDefs_().forEach(function (tabDef) {
     var sheet = spreadsheet.getSheetByName(tabDef.tabName);
     if (!sheet) return;
+    if (tabDef.tabName === worshipTabName && worshipLayout === 'V4_PENDING') return;
     var verdict = compareContentTabHeaderKeys_(tabDef.keys, readContentTabHeaderKeys_(sheet, tabDef.keys.length));
     // v3：v2 的「崇拜程序」（第 12 欄是浸禮主禮）不是「被人改過」，是未更新——當作 OUTDATED，
     //    講明要拿走浸禮六欄並加「詩班項目名稱」。
     if (verdict.status === 'HEADER_CHANGED' && tabDef.tabName === worshipTabName) {
-      var longHeader = readContentTabHeaderKeys_(sheet, v2Keys.length);
+      var longHeader = readContentTabHeaderKeys_(sheet, Math.max(v2Keys.length, v3Keys.length));
       if (v2Keys.every(function (k, i) { return longHeader[i] === k; })) {
         verdict = { status: 'OUTDATED', missing: 1, column: 12, expected: 'CHOIR_LABEL', actual: '', v2: true };
+      } else if (v3Keys.every(function (k, i) { return longHeader[i] === k; })
+        || legacyWorshipTabDefV1_().keys.every(function (k, i) { return longHeader[i] === k; })) {
+        // v4：v3（十二欄）或 v1（七欄）的「崇拜程序」→ 未更新成 v4。
+        verdict = { status: 'OUTDATED', v3: true };
       }
+    }
+    // v4：「家事報告」「代禱事項」仍然是舊的欄位次序（連續到、有效未搬）→ 未更新。
+    var listV3 = contentSheetListKeysV3_(tabDef.tabName);
+    if (verdict.status === 'HEADER_CHANGED' && listV3) {
+      var listHeader = readContentTabHeaderKeys_(sheet, listV3.length);
+      if (listV3.every(function (k, i) { return listHeader[i] === k; })) verdict = { status: 'OUTDATED', listV3: true };
     }
     tabs.push({ tabName: tabDef.tabName, status: verdict.status });
     if (verdict.status === 'OUTDATED') outdated.push({ tabDef: tabDef, verdict: verdict });
@@ -912,6 +979,9 @@ function checkContentSheetSchema_(spreadsheet) {
   if (outdated.length > 0 || pendingLegacy.length > 0) {
     var reasons = outdated.map(function (o) {
       if (o.verdict.v2) return '「' + o.tabDef.tabName + '」仍然有浸禮六欄，未加「詩班項目名稱」';
+      if (o.verdict.v3) return '「' + o.tabDef.tabName + '」仍然是舊版（序樂、宣召、詩歌頌讚、詩班仍然在內容表）';
+      if (o.verdict.v4Pending) return '「' + o.tabDef.tabName + '」上一次更新未做完';
+      if (o.verdict.listV3) return '「' + o.tabDef.tabName + '」的「連續到」「有效」未搬到 B、C 欄';
       return '「' + o.tabDef.tabName + '」少了 ' + o.verdict.missing + ' 欄';
     }).concat(pendingLegacy.map(function (name) {
       return '仍然有舊的「' + name + '」分頁（內容要搬入「崇拜程序」）';

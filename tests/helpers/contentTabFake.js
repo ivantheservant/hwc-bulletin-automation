@@ -165,6 +165,40 @@ function makeContentTab(keys, headers, rows, opts) {
       maxColumns -= n;
       return sheet;
     },
+    // v4（2026-10-30）：整欄搬移（與真的 Sheets 一樣：資料、格式、註解、驗證跟住欄走）。
+    //    destinationIndex 以搬移之前的欄號計（真的 moveColumns 亦是這樣）。
+    moveColumns: function (columnSpec, destinationIndex) {
+      faults.tick('moveColumns');
+      const start = columnSpec.__c;
+      const n = columnSpec.__numCols;
+      if (!columnSpec.__wholeColumns) throw new Error('假替身：moveColumns() 要傳整欄的範圍（例如 getRange(\'D:D\')）。');
+      const cols = [];
+      for (let i = 1; i <= maxColumns; i++) cols.push(i);
+      const moving = cols.splice(start - 1, n);
+      let insertAt = destinationIndex - 1;
+      if (destinationIndex > start) insertAt -= n;
+      cols.splice(insertAt, 0, ...moving);
+      // cols[newIndex] = 舊欄號
+      const newOfOld = {};
+      cols.forEach(function (oldCol, i) { newOfOld[oldCol] = i + 1; });
+      data.forEach(function (row, ri) {
+        const copy = row.slice();
+        const out = [];
+        cols.forEach(function (oldCol, i) { out[i] = copy[oldCol - 1] === undefined ? '' : copy[oldCol - 1]; });
+        while (out.length && (out[out.length - 1] === '' || out[out.length - 1] === undefined) && out.length > copy.length) out.pop();
+        data[ri] = out;
+      });
+      [numberFormats, notes, validations].forEach(function (map) {
+        const moved = {};
+        Object.keys(map).forEach(function (k) {
+          const parts = k.split(':');
+          moved[parts[0] + ':' + newOfOld[Number(parts[1])]] = map[k];
+        });
+        Object.keys(map).forEach(function (k) { delete map[k]; });
+        Object.assign(map, moved);
+      });
+      return sheet;
+    },
     getFrozenRows: function () { return frozenRows; },
     setFrozenRows: function (n) { frozenRows = n; return sheet; },
     getFrozenColumns: function () { return frozenColumns; },
@@ -176,16 +210,30 @@ function makeContentTab(keys, headers, rows, opts) {
     // 真正的 getProtections() 回 Protection 物件（有 getDescription 等），不是記錄本身（與 fillEnv.js 一樣）。
     getProtections: function () { return protections.map(function (record) { return record.handle; }); },
     protect: function () {
-      const record = { description: '', warningOnly: false, removed: false };
+      const record = { description: '', warningOnly: false, removed: false, unprotected: [], editors: ['tester@x.com', 'someone@x.com'], domainEdit: true };
       protections.push(record);
       const p = {
         setDescription: function (d) { record.description = d; return p; },
         getDescription: function () { return record.description; },
         setWarningOnly: function (b) { record.warningOnly = b === true; return p; },
         isWarningOnly: function () { return record.warningOnly; },
-        getEditors: function () { return []; },
-        removeEditors: function () { return p; },
+        getEditors: function () { return record.editors.map(function (e) { return { getEmail: function () { return e; } }; }); },
+        // 真的 Sheets：自己（執行的帳戶）拿不走。
+        removeEditors: function (list) {
+          const out = (list || []).map(function (u) { return typeof u === 'string' ? u : u.getEmail(); });
+          record.editors = record.editors.filter(function (e) { return e === 'tester@x.com' || out.indexOf(e) === -1; });
+          return p;
+        },
         addEditors: function () { return p; },
+        addEditor: function (u) {
+          const e = typeof u === 'string' ? u : u.getEmail();
+          if (record.editors.indexOf(e) === -1) record.editors.push(e);
+          return p;
+        },
+        canDomainEdit: function () { return record.domainEdit; },
+        setDomainEdit: function (b) { record.domainEdit = b === true; return p; },
+        setUnprotectedRanges: function (ranges) { record.unprotected = (ranges || []).slice(); return p; },
+        getUnprotectedRanges: function () { return record.unprotected.slice(); },
         canEdit: function () { return true; },
         remove: function () {
           const i = protections.indexOf(record);
@@ -196,10 +244,63 @@ function makeContentTab(keys, headers, rows, opts) {
       return p;
     },
     getRange: function (r, c, numRows, numCols) {
+      // v4：整欄的 A1 寫法（'D:D'、'B:C'），moveColumns() 用。
+      let wholeColumns = false;
+      if (typeof r === 'string') {
+        const m = /^([A-Z]+):([A-Z]+)$/.exec(r);
+        if (!m) throw new Error('假替身：getRange(\'' + r + '\') 只支援整欄的寫法（例如 D:D）。');
+        const colOf = function (letters) { let n = 0; for (let i = 0; i < letters.length; i++) n = n * 26 + (letters.charCodeAt(i) - 64); return n; };
+        c = colOf(m[1]);
+        numCols = colOf(m[2]) - c + 1;
+        r = 1;
+        numRows = Math.max(data.length, 1);
+        wholeColumns = true;
+      }
       numRows = numRows || 1;
       numCols = numCols || 1;
       checkBounds(r, c, numRows, numCols);
       const range = {
+        __r: r, __c: c, __numRows: numRows, __numCols: numCols, __wholeColumns: wholeColumns,
+        getRow: function () { return r; },
+        getColumn: function () { return c; },
+        getNumRows: function () { return numRows; },
+        getNumColumns: function () { return numCols; },
+        // v4：按一欄排序（真的 range.sort({column, ascending})；格式、註解、驗證跟住行走）。
+        sort: function (spec) {
+          faults.tick('sort');
+          const col = typeof spec === 'number' ? spec : spec.column;
+          const asc = typeof spec === 'number' ? true : spec.ascending !== false;
+          const idx = [];
+          for (let i = 0; i < numRows; i++) idx.push(i);
+          const keyOf = function (i) { const src = data[r - 1 + i]; return src ? src[col - 1] : ''; };
+          idx.sort(function (a, b) {
+            const ka = keyOf(a); const kb = keyOf(b);
+            const ea = ka === '' || ka === undefined; const eb = kb === '' || kb === undefined;
+            if (ea !== eb) return ea ? 1 : -1;
+            if (ka < kb) return asc ? -1 : 1;
+            if (ka > kb) return asc ? 1 : -1;
+            return a - b;
+          });
+          const oldRows = idx.map(function (i) { return (data[r - 1 + i] || []).slice(); });
+          oldRows.forEach(function (rowArr, i) {
+            while (data.length <= r - 1 + i) data.push([]);
+            const target = data[r - 1 + i];
+            for (let j = 0; j < numCols; j++) target[c - 1 + j] = rowArr[c - 1 + j] === undefined ? '' : rowArr[c - 1 + j];
+          });
+          [numberFormats, notes, validations].forEach(function (map) {
+            const moved = {};
+            Object.keys(map).forEach(function (k) {
+              const parts = k.split(':');
+              const rr = Number(parts[0]); const cc = Number(parts[1]);
+              if (rr < r || rr >= r + numRows || cc < c || cc >= c + numCols) { moved[k] = map[k]; return; }
+              const newPos = idx.indexOf(rr - r);
+              moved[(r + newPos) + ':' + cc] = map[k];
+            });
+            Object.keys(map).forEach(function (k) { delete map[k]; });
+            Object.assign(map, moved);
+          });
+          return range;
+        },
         getValues: function () {
           const out = [];
           for (let i = 0; i < numRows; i++) {

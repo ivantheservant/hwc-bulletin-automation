@@ -788,8 +788,8 @@ function assertContentSheetFieldsNotSubmitted_(payload) {
 
   var names = offending.map(function (key) { return contentSheetReadOnlyLabel_(key); });
   var err = new Error(
-    '家事報告、代禱事項、本週團契聚會、月度財政報告、上週崇拜人數，以及崇拜程序的序樂、宣召、詩歌、'
-    + '讀經經文、證道講題與詩班，這些內容只可以在內容表輸入，填寫介面不可以儲存它們。'
+    '家事報告、代禱事項、本週團契聚會、月度財政報告、上週崇拜人數，以及崇拜程序的讀經經文、證道講題與回應詩歌，'
+    + '這些內容只可以在內容表輸入，填寫介面不可以儲存它們。'
     + '整次儲存已經取消，一格都沒有寫入。'
     + '請到內容表修改，然後按「重新匯入」。'
     + '（收到的唯讀欄位共 ' + offending.length + ' 項：' + names.join('、') + '）'

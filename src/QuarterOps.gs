@@ -263,9 +263,11 @@ function previewContentSheetBuild_(quarterId) {
 
   // 內容表 v2：用與「建立／刷新」同一個讀取函式與同一個 planner 算移轉計畫（bug class 120），
   //    預覽講的數字就是確定之後真正寫的數字。
-  var migration;
-  // v3：浸禮六欄搬入週報、刪欄、停用舊覆寫（與建立／刷新共用 planContentSheetV3Upgrade_()）。
-  var upgrade;
+  // v4（2026-10-30）：與建立／刷新同一個判斷——v1／v2／v3 先經 v2／v3 移轉，再轉 v4；v4 直接按 v4 整理。
+  var migration = null;
+  var upgrade = null;
+  var v4 = null;
+  var legacyLayout = false;
   if (existing) {
     var spreadsheet = openContentSpreadsheet_(existing.FILE_ID);
     if (!spreadsheet) {
@@ -274,10 +276,21 @@ function previewContentSheetBuild_(quarterId) {
         message: contentSheetFileMissingMessage_(qid, existing.FILE_ID)
       };
     }
-    var inputs = readContentSheetV2Inputs_(spreadsheet);
-    upgrade = planContentSheetV3Upgrade_(Object.assign({}, inputs, { serviceDates: serviceDates }));
-    migration = planContentSheetV2Migration_(Object.assign({}, inputs,
-      { serviceDates: serviceDates, created: false }));
+    var detected = detectWorshipTabLayoutV4_(spreadsheet);
+    legacyLayout = detected.layout === 'LEGACY';
+    if (detected.layout === 'LEGACY' || detected.layout === 'V3') {
+      var inputs = readContentSheetV2Inputs_(spreadsheet);
+      upgrade = planContentSheetV3Upgrade_(Object.assign({}, inputs, { serviceDates: serviceDates }));
+      migration = planContentSheetV2Migration_(Object.assign({}, inputs,
+        { serviceDates: serviceDates, created: false }));
+      if (detected.layout === 'V3') dropV3AppendsBeforeV4_(migration);
+      if (!migration.ok) {
+        return { ok: false, quarterId: qid, title: title, reason: migration.reason, lines: [], message: migration.message };
+      }
+    }
+    if (!legacyLayout) {
+      v4 = planContentSheetV4_(Object.assign(readContentSheetV4Inputs_(spreadsheet), { serviceDates: serviceDates }));
+    }
   } else {
     var newInputs = {
       serviceDates: serviceDates, worship: { exists: false, layout: '', headerKeys: [], rows: [], v2Rows: [] }, legacy: [],
@@ -285,34 +298,38 @@ function previewContentSheetBuild_(quarterId) {
       fieldOverrides: readRowsWithRowNo_(SHEETS.FIELD_OVERRIDE).filter(function (r) { return r.ACTIVE === true; })
     };
     upgrade = planContentSheetV3Upgrade_(newInputs);
-    migration = planContentSheetV2Migration_(Object.assign({}, newInputs, { created: true }));
+    v4 = planContentSheetV4_({
+      serviceDates: serviceDates, created: true, worship: { layout: 'NONE' },
+      attendance: { exists: false, headerOk: false, rows: [], tabName: '崇拜人數' }, lists: [],
+      weeks: newInputs.weeks
+    });
   }
-  if (!migration.ok) {
-    return { ok: false, quarterId: qid, title: title, reason: migration.reason, lines: [], message: migration.message };
+
+  var upgradeLines = buildContentSheetV3UpgradeLines_(upgrade, { applied: false });
+  var migrationLines = buildContentSheetMigrationLines_(migration, { applied: false, created: false });
+  var v4Lines = buildContentSheetV4Lines_(v4, { applied: false });
+  if (legacyLayout) {
+    v4Lines = ['【內容表新版面（2026-10-30）】',
+      '・移轉成 v3 之後，「崇拜程序」會只留讀經經文、證道講題、回應詩歌與備註，一個主日一行；序樂、宣召、詩歌頌讚、'
+        + '詩班的值先搬入週報；舊分頁改名保留，不刪。「崇拜人數」一個崇拜日期一行；「家事報告」「代禱事項」搬欄。'];
   }
+  var needsMigration = Boolean(existing) && ((migration && migration.needsMigration)
+    || contentSheetV3PlanHasWrites_(upgrade) || legacyLayout || Boolean(v4 && v4.needsMigration));
 
   if (existing) {
     lines.push('');
     lines.push('這一季已經有內容表，所以是「刷新」，不是重建。');
-    lines.push('會刷新：欄位、日期下拉選單、版面。');
-    var upgradeLines = buildContentSheetV3UpgradeLines_(upgrade, { applied: false });
-    if (upgradeLines.length > 0) {
+    lines.push('會刷新：欄位、日期下拉選單、版面；家事報告、代禱事項、財政報告按主日日期、次序排好。');
+    [upgradeLines, migrationLines, v4Lines].forEach(function (block) {
+      if (block.length === 0) return;
       lines.push('');
-      upgradeLines.forEach(function (l) { lines.push(l); });
-    }
-    if (migration.needsMigration) {
-      lines.push('');
-      buildContentSheetMigrationLines_(migration, { applied: false, created: false }).forEach(function (l) { lines.push(l); });
-      lines.push(upgradeLines.length > 0
-        ? '⚠️ 除了上面列出的各項（刪走浸禮六欄之前會整張備份），同工已經填落去的資料一格都不會改。'
-        : '⚠️ 除了上面列出的空白格與新增行，同工已經填落去的資料一格都不會改。');
-    } else if (upgradeLines.length > 0) {
-      buildContentSheetMigrationLines_(migration, { applied: false, created: false }).forEach(function (l) { lines.push(l); });
-      lines.push('⚠️ 除了上面列出的各項，同工已經填落去的資料一格都不會改。');
-    } else {
+      block.forEach(function (l) { lines.push(l); });
+    });
+    if (upgradeLines.length === 0 && migrationLines.length === 0 && v4Lines.length === 0) {
       lines.push('已經是新版，沒有需要移轉。');
-      buildContentSheetMigrationLines_(migration, { applied: false, created: false }).forEach(function (l) { lines.push(l); });
       lines.push('⚠️ 同工已經填落去的資料一格都不會改。');
+    } else {
+      lines.push('⚠️ 除了上面列出的各項（要整理的分頁一律改名保留），同工已經填落去的資料一格都不會改。');
     }
     lines.push('現有連結：' + String(existing.FILE_URL || '（沒有記錄）'));
   } else {
@@ -321,7 +338,7 @@ function previewContentSheetBuild_(quarterId) {
     lines.push('建立之後會把連結記入 ContentSheets，並自動設定分享權限'
       + (config.domain ? ('（' + config.domain + ' 網域內可編輯）')
         : ('（⚠️ 未設定 ' + CONFIG_KEYS.CONTENT_SHEET_DOMAIN + '，要人手分享）')));
-    buildContentSheetMigrationLines_(migration, { applied: false, created: true }).forEach(function (l) { lines.push(l); });
+    v4Lines.forEach(function (l) { lines.push(l); });
   }
 
   return {
@@ -330,8 +347,9 @@ function previewContentSheetBuild_(quarterId) {
       exists: Boolean(existing), willCreate: !existing,
       serviceDateCount: serviceDates.length,
       fileUrl: existing ? String(existing.FILE_URL || '') : '',
-      needsMigration: Boolean(existing) && (migration.needsMigration || contentSheetV3PlanHasWrites_(upgrade)),
-      migration: contentSheetPlanHasWrites_(migration) ? migration.counts : null
+      needsMigration: needsMigration,
+      migration: contentSheetPlanHasWrites_(migration) ? migration.counts : null,
+      v4: contentSheetV4PlanHasWrites_(v4) ? v4.counts : null
     }
   };
 }
@@ -376,7 +394,9 @@ function runContentSheetBuild_(quarterId) {
       sharingApplied: result.sharingApplied === true,
       sharingError: String(result.sharingError || ''),
       // 內容表 v2：移轉（或預先開好的行）寫了幾多，與預覽 summary.migration 同一個形狀，可以直接對數。
-      migration: contentSheetPlanHasWrites_(result.migration) ? result.migration.counts : null
+      migration: contentSheetPlanHasWrites_(result.migration) ? result.migration.counts : null,
+      // v4（2026-10-30）：與預覽 summary.v4 同一個形狀。
+      v4: contentSheetV4PlanHasWrites_(result.v4) ? result.v4.counts : null
     }
   };
 }

@@ -252,10 +252,10 @@ test('1e. 每一個唯讀欄位都有給人看的名稱（訊息不可以只講�
 
 // 內容表 v2：宣召兩欄併入「崇拜程序」之後改為第三種模式（可覆寫），唯讀週欄位由十五個變十三個
 // （十二個人數欄＋人數統計日期）。這裏釘死剛好十三個——多了或少了都要有人想過為甚麼。
-test('2a. 二十二個唯讀週欄位（v3：人數十三欄＋崇拜程序九欄），逐個單獨送，全部被拒且一筆 AuditLog 都沒有', function () {
+test('2a. 十六個唯讀週欄位（內容表 v4：人數十三欄＋崇拜程序三欄），逐個單獨送，全部被拒且一筆 AuditLog 都沒有', function () {
   const env0 = makeEnv({});
   const keys = env0.sandbox.CONTENT_SHEET_READONLY_FIELDS.WEEK;
-  assert.strictEqual(keys.length, 22, '應該有二十二個：' + keys.length);
+  assert.strictEqual(keys.length, 16, '應該有十六個：' + keys.length);
 
   const bad = [];
   keys.forEach(function (key) {
@@ -373,16 +373,17 @@ test('4c. 拒絕訊息是書面語繁體中文', function () {
   assertWrittenChinese(assert, '唯讀欄位拒絕訊息', r.message);
 });
 
-test('4d. v3：宣召兩欄、序樂、詩歌頌讚改為只可以在內容表輸入——經真入口送就整次拒絕，一格都沒有寫，FieldOverride 一行都沒有', function () {
+test('4d. 內容表 v4（2026-10-30）：宣召兩欄、序樂、詩歌頌讚、詩班兩欄改回在介面填——經真入口送就照寫，逐格 AuditLog，FieldOverride 一行都沒有', function () {
   const env = makeEnv({});
-  const week = { CALL_REF: '詩篇 100:1-2', CALL_TEXT: '普天下當向耶和華歡呼！', PRELUDE: '介面序樂', HYMN_PRAISE: '介面詩歌' };
+  const week = {
+    CALL_REF: '詩篇 100:1-2', CALL_TEXT: '普天下當向耶和華歡呼！', PRELUDE: '介面序樂', HYMN_PRAISE: '介面詩歌',
+    CHOIR_TITLE: '介面詩班曲', CHOIR_LABEL: '詩班獻唱'
+  };
   const r = attemptSave(env, basicPayload({ week: week }));
-  assert.strictEqual(r.rejected, true);
-  assert.strictEqual(r.code, 'CONTENT_SHEET_READONLY');
-  assert.strictEqual(r.auditWritten, 0);
-  ['宣召出處', '宣召經文', '序樂', '詩歌頌讚'].forEach(function (label) {
-    assert.ok(r.message.indexOf(label) !== -1, label + '：' + r.message);
-  });
+  assert.strictEqual(r.rejected, false, r.message);
+  const saved = env.sandbox.readSheet('BulletinWeeks')[0];
+  Object.keys(week).forEach(function (k) { assert.strictEqual(saved[k], week[k], k); });
+  assert.ok(r.auditWritten >= 6, '逐格 AuditLog：' + r.auditWritten);
   assert.strictEqual(env.sandbox.readSheet('FieldOverride').length, 0);
 });
 

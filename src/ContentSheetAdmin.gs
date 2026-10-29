@@ -272,20 +272,35 @@ function buildOrRefreshContentSheetLocked_(quarterId, options) {
   //    呼叫方沒有說可以（自動流程）就回 NEEDS_MIGRATION，一格都不寫。
   // v3：另外算 v3 更新計畫（浸禮六欄搬入週報、v2 刪走浸禮六欄、停用舊覆寫，見 src/ContentSheetMigrateV3.gs）。
   //    v2 內容表交給 v2 planner 的是「刪走浸禮六欄之後」的樣子，所以兩份計畫可以一齊預覽。
+  // v4（2026-10-30）：「崇拜程序」只留三欄、一個日期一行（見 src/ContentSheetV4.gs）。v1、v2、v3 的「崇拜程序」
+  //    先經原有的 v2／v3 移轉（用凍結的 v3 定義）變成 v3，再轉成 v4；已經是 v4 的不再經 v2／v3 移轉。
   var migrationPlan = null;
   var upgradePlan = null;
+  var v4Detect = spreadsheet ? detectWorshipTabLayoutV4_(spreadsheet) : { layout: 'NONE' };
+  var runLegacy = Boolean(spreadsheet) && (v4Detect.layout === 'LEGACY' || v4Detect.layout === 'V3');
+  var v4PrePlan = null;
   if (spreadsheet) {
-    var existingInputs = readContentSheetV2Inputs_(spreadsheet);
-    upgradePlan = planContentSheetV3Upgrade_(Object.assign({}, existingInputs, { serviceDates: serviceDates }));
-    migrationPlan = planContentSheetV2Migration_(Object.assign({}, existingInputs,
-      { serviceDates: serviceDates, created: false }));
-    if (!migrationPlan.ok) {
-      return { ok: false, created: false, quarterId: qid, reason: migrationPlan.reason, message: migrationPlan.message };
+    if (runLegacy) {
+      var existingInputs = readContentSheetV2Inputs_(spreadsheet);
+      upgradePlan = planContentSheetV3Upgrade_(Object.assign({}, existingInputs, { serviceDates: serviceDates }));
+      migrationPlan = planContentSheetV2Migration_(Object.assign({}, existingInputs,
+        { serviceDates: serviceDates, created: false }));
+      if (v4Detect.layout === 'V3') dropV3AppendsBeforeV4_(migrationPlan);
+      if (!migrationPlan.ok) {
+        return { ok: false, created: false, quarterId: qid, reason: migrationPlan.reason, message: migrationPlan.message };
+      }
     }
-    if ((migrationPlan.needsMigration || contentSheetV3PlanHasWrites_(upgradePlan)) && buildOptions.migrate !== true) {
+    // v1、v2 要先移轉才知道 v4 的行；v3、v4 現在就算得到（預覽看到的就是之後寫的）。
+    if (v4Detect.layout !== 'LEGACY') {
+      v4PrePlan = planContentSheetV4_(Object.assign(readContentSheetV4Inputs_(spreadsheet), { serviceDates: serviceDates }));
+    }
+    var needsMigration = (runLegacy && (migrationPlan.needsMigration || contentSheetV3PlanHasWrites_(upgradePlan)))
+      || v4Detect.layout === 'LEGACY' || Boolean(v4PrePlan && v4PrePlan.needsMigration);
+    if (needsMigration && buildOptions.migrate !== true) {
       return {
         ok: false, created: false, quarterId: qid, reason: 'NEEDS_MIGRATION',
-        message: '季度「' + qid + '」的內容表是舊版，要先更新成新版（「崇拜程序」各欄只在內容表填、浸禮副框改在填寫介面填）。'
+        message: '季度「' + qid + '」的內容表是舊版，要先更新成新版（「崇拜程序」只留讀經經文、證道講題、回應詩歌，'
+          + '一個主日一行；序樂、宣召、詩歌頌讚、詩班改在填寫介面填）。'
           + '自動流程不會替你更新，這次一格都沒有寫。請在填寫介面打開這一季任何一個主日，'
           + '按內容表狀態列的「更新本季內容表…」，先看會做甚麼再確定。'
       };
@@ -302,24 +317,25 @@ function buildOrRefreshContentSheetLocked_(quarterId, options) {
     sharingApplied = createdFile.sharingApplied;
     sharingError = createdFile.sharingError;
     created = true;
-    // 新建的內容表亦經同一個 planner：沒有舊分頁、崇拜程序是空的 → 每個主日預先開好一行，由週報帶入現有的值。
+    // v3：新建時 v3 計畫只會有「停用舊覆寫」（以前在介面改過的值已經在週報）。
+    // v4：「崇拜程序」「崇拜人數」一個日期一行，由 v4 整理預先開好（不再經 v2 planner）。
     var createdInputs = readContentSheetV2Inputs_(spreadsheet);
-    // v3：新建時 v3 計畫只會有「停用舊覆寫」（以前在介面改過的值已經在週報，預先開好的行由週報帶入）。
     upgradePlan = planContentSheetV3Upgrade_(Object.assign({}, createdInputs, { serviceDates: serviceDates }));
-    migrationPlan = planContentSheetV2Migration_(Object.assign({}, createdInputs,
-      { serviceDates: serviceDates, created: true }));
   }
 
   // ---- v3：浸禮六欄搬入週報、刪欄、停用舊覆寫（崇拜程序第 2 行之前）----
   var upgradeResult = null;
   if (contentSheetV3PlanHasWrites_(upgradePlan)) {
-    var upgradeWorshipSheet = spreadsheet.getSheetByName(contentSheetWorshipTabDef_().tabName);
-    upgradeResult = applyContentSheetV3Upgrade_(spreadsheet, upgradeWorshipSheet, upgradePlan, qid);
-    // 刪欄、寫格之後按真正的樣子重新算一次（v2 的模擬與真正做完之後讀到的應該一樣，重算是保險）。
-    migrationPlan = planContentSheetV2Migration_(Object.assign(readContentSheetV2Inputs_(spreadsheet),
-      { serviceDates: serviceDates, created: created }));
-    if (!migrationPlan.ok) {
-      return { ok: false, created: created, quarterId: qid, reason: migrationPlan.reason, message: migrationPlan.message };
+    var upgradeWorshipSheet = spreadsheet.getSheetByName(contentSheetWorshipTabDefV3_().tabName);
+    upgradeResult = applyContentSheetV3Upgrade_(spreadsheet, runLegacy ? upgradeWorshipSheet : null, upgradePlan, qid);
+    if (runLegacy) {
+      // 刪欄、寫格之後按真正的樣子重新算一次（v2 的模擬與真正做完之後讀到的應該一樣，重算是保險）。
+      migrationPlan = planContentSheetV2Migration_(Object.assign(readContentSheetV2Inputs_(spreadsheet),
+        { serviceDates: serviceDates, created: false }));
+      if (v4Detect.layout === 'V3') dropV3AppendsBeforeV4_(migrationPlan);
+      if (!migrationPlan.ok) {
+        return { ok: false, created: created, quarterId: qid, reason: migrationPlan.reason, message: migrationPlan.message };
+      }
     }
   }
 
@@ -327,41 +343,63 @@ function buildOrRefreshContentSheetLocked_(quarterId, options) {
   var dateOptions = serviceDates.slice();
   var attendanceDateOptions = contentSheetAttendanceDateOptions_(serviceDates);
   var tabsCreated = [];
+  var layoutOptions = {
+    dateOptions: dateOptions,
+    attendanceDateOptions: attendanceDateOptions,
+    owners: config.owners,
+    deadlineNote: config.deadlineNote
+  };
 
   var instructionsTab = ensureContentTab_(spreadsheet, CONTENT_SHEET_INSTRUCTIONS_TAB_);
   if (instructionsTab.created) tabsCreated.push(CONTENT_SHEET_INSTRUCTIONS_TAB_);
 
+  // ⚠️⚠️ 內容表 v2：舊的「崇拜程序」先移轉（補欄、回填、新增行、舊分頁改名），之後才套 v3 版面——
+  //    applyContentTabLayout_() 寫第 1、2 行是提交點，一定要排最後（見 src/ContentSheetMigrate.gs）。
+  var worshipTabName = contentSheetWorshipTabDef_().tabName;
+  if (runLegacy) {
+    var legacyWorship = ensureContentTab_(spreadsheet, worshipTabName).sheet;
+    if (contentSheetPlanHasWrites_(migrationPlan)) {
+      applyContentSheetV2Migration_(spreadsheet, legacyWorship, migrationPlan, qid);
+    }
+    applyContentTabLayout_(legacyWorship, contentSheetWorshipTabDefV3_(), layoutOptions);
+  }
+
+  // ---- v4：崇拜程序只留三欄、一個日期一行；崇拜人數一個日期一行；家事報告、代禱事項搬欄 ----
+  //    v1／v2 這時已經是 v3，按真正的樣子重新算（預覽講的是 v3 → v4 的概要）。
+  var v4Plan = planContentSheetV4_(Object.assign(readContentSheetV4Inputs_(spreadsheet), {
+    serviceDates: serviceDates, created: created
+  }));
+  var v4Result = contentSheetV4PlanHasWrites_(v4Plan)
+    ? applyContentSheetV4_(spreadsheet, v4Plan, qid, layoutOptions) : null;
+
   var sampleRows = (created && config.seedSample) ? buildContentSheetSampleRows_(serviceDates) : {};
   var seededSample = false;
-  var worshipTabName = contentSheetWorshipTabDef_().tabName;
 
   contentSheetTabDefs_().forEach(function (tabDef) {
     var ensured = ensureContentTab_(spreadsheet, tabDef.tabName);
     if (ensured.created) tabsCreated.push(tabDef.tabName);
 
-    // ⚠️⚠️ 內容表 v2：「崇拜程序」先移轉（補欄、回填、新增行、舊分頁改名），之後才套版面——
-    //    applyContentTabLayout_() 寫第 1、2 行是提交點，一定要排最後（見 src/ContentSheetMigrate.gs）。
-    //    這一步取代了以前 R-043 的 backfillContentTabFromWeeks_()：新分頁、舊分頁、新建內容表全部
-    //    由同一個 planner 決定寫甚麼。
-    if (tabDef.tabName === worshipTabName && contentSheetPlanHasWrites_(migrationPlan)) {
-      applyContentSheetV2Migration_(spreadsheet, ensured.sheet, migrationPlan, qid);
-    }
-
-    applyContentTabLayout_(ensured.sheet, tabDef, {
-      dateOptions: dateOptions,
-      attendanceDateOptions: attendanceDateOptions,
-      owners: config.owners,
-      deadlineNote: config.deadlineNote
-    });
+    applyContentTabLayout_(ensured.sheet, tabDef, layoutOptions);
 
     // 樣本**淨係喺新建立嗰陣**寫，而且只寫落一張全新嘅分頁——刷新現有
     // 內容表時一行都唔會加，否則每次刷新都會多幾行重複樣本。
+    // v4：一個日期一行的分頁（崇拜程序、崇拜人數）已經預先開好，不寫樣本。
     var rows = sampleRows[tabDef.tabName];
-    if (created && rows && rows.length > 0 && ensured.sheet.getLastRow() < CONTENT_SHEET_FIRST_DATA_ROW_) {
+    if (created && tabDef.oneRowPerDate !== true && rows && rows.length > 0
+      && ensured.sheet.getLastRow() < CONTENT_SHEET_FIRST_DATA_ROW_) {
       writeContentRows_(ensured.sheet, tabDef.keys, rows, CONTENT_SHEET_FIRST_DATA_ROW_);
       seededSample = true;
     }
+
+    // v4：一個日期一行的分頁每次都重新鎖一次（行數可能變了）。
+    if (tabDef.oneRowPerDate === true) {
+      var dataRows = Math.max(0, ensured.sheet.getLastRow() - CONTENT_SHEET_FIRST_DATA_ROW_ + 1);
+      ensureContentTabDateLock_(ensured.sheet, tabDef.keys.length, dataRows);
+    }
   });
+
+  // v4：家事報告、代禱事項、財政報告按主日日期、次序排好（每日清晨亦排一次）。
+  var sortedTabs = sortContentListTabs_(spreadsheet);
 
   applyContentInstructionsTab_(instructionsTab.sheet, buildContentSheetInstructionLines_({
     quarterId: qid,
@@ -371,7 +409,9 @@ function buildOrRefreshContentSheetLocked_(quarterId, options) {
     adminContact: config.adminContact,
     seededSample: seededSample,
     // 內容表 v2：已停用（已改名）的舊分頁，_說明 講明不要再填。
-    retiredTabs: listRetiredContentTabNames_(spreadsheet)
+    retiredTabs: listRetiredContentTabNames_(spreadsheet),
+    // 2026-10-30：自動同步的間隔（Config 不是允許的值就當沒有，與觸發器安裝一致）。
+    autoSyncMinutes: parseContentAutoSyncMinutes_(getConfig(CONFIG_KEYS.CONTENT_AUTO_SYNC_MINUTES, '30')).minutes
   }));
 
   // ---- R-030：夏令時間轉換提示 ----
@@ -406,7 +446,11 @@ function buildOrRefreshContentSheetLocked_(quarterId, options) {
     migration: migrationPlan,
     // v3：浸禮六欄搬入週報、刪欄、停用舊覆寫的計畫與結果（沒有就是 null）。
     upgrade: upgradePlan,
-    upgradeResult: upgradeResult
+    upgradeResult: upgradeResult,
+    // v4（2026-10-30）：新版面的計畫與結果；排好的分頁。
+    v4: v4Plan,
+    v4Result: v4Result,
+    sortedTabs: sortedTabs
   };
 }
 
@@ -897,7 +941,7 @@ function buildContentSheetResultLines_(result) {
         + '，因此沒有自動設定分享權限——請人手將檔案分享給教會網域內的同工（可編輯）。');
     }
   } else {
-    lines.push(contentSheetV3PlanHasWrites_(result.upgrade)
+    lines.push((contentSheetV3PlanHasWrites_(result.upgrade) || contentSheetV4PlanHasWrites_(result.v4))
       ? '已更新，未重建——既有的內容表不會重做；除了下面列出的各項，人手輸入的資料一格都沒有改動。'
       : '已更新，未重建——既有的內容表不會重做，人手輸入的資料一格都沒有改動。');
     lines.push('已刷新：欄位、下拉選單（本季 ' + result.serviceDateCount + ' 個主日）、版面。');
@@ -919,6 +963,16 @@ function buildContentSheetResultLines_(result) {
   if (migrationLines.length > 0) {
     lines.push('');
     migrationLines.forEach(function (line) { lines.push(line); });
+  }
+
+  // v4（2026-10-30）：新版面整理與排序。
+  var v4Lines = buildContentSheetV4Lines_(result.v4, { applied: true });
+  if (v4Lines.length > 0) {
+    lines.push('');
+    v4Lines.forEach(function (line) { lines.push(line); });
+  }
+  if ((result.sortedTabs || []).length > 0) {
+    lines.push('已按主日日期、次序排好：' + result.sortedTabs.join('、') + '。');
   }
 
   lines.push('');

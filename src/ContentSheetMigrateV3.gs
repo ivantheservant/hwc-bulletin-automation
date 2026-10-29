@@ -54,7 +54,7 @@ var CONTENT_SHEET_V3_BAPTISM_BACKUP_PROTECTION_ = '週報系統：刪走浸禮�
  *   （無）
  */
 function contentSheetWorshipValueKeys_() {
-  return contentSheetWorshipTabDef_().keys.filter(function (k) {
+  return contentSheetWorshipTabDefV3_().keys.filter(function (k) {
     return k !== 'SERVICE_DATE' && k !== 'ACTIVE' && k !== 'NOTES';
   });
 }
@@ -171,7 +171,7 @@ function planContentSheetV3Upgrade_(input) {
   var isV2 = worship.layout === 'V2';
   var baptismKeys = baptismBoxFieldKeys_();
   var worshipValueKeys = contentSheetWorshipValueKeys_();
-  var v3Keys = contentSheetWorshipTabDef_().keys;
+  var v3Keys = contentSheetWorshipTabDefV3_().keys;
   var plan = {
     isV2: isV2, deleteBaptismColumns: isV2,
     baptismWrites: [], baptismNoWeekRow: [], overrideCellWrites: [], overrideConflicts: [], overrideDeactivations: [],
