@@ -460,23 +460,37 @@ function contentSheetV4PlanHasWrites_(plan) {
  *   colCount {number} 分頁定義的欄數。
  *   dataRows {number} 資料行數。
  * Returns:
- *   {void}
+ *   {{ok:boolean, message:string}} 鎖不到回 `ok:false`（寫 ErrorLog `CONTENT_SHEET_LOCK_FAILED`），不拋出。
  * Raises:
- *   Error 設定失敗時原樣拋出。
+ *   （無）
  */
 function ensureContentTabDateLock_(sheet, colCount, dataRows) {
-  (sheet.getProtections(SpreadsheetApp.ProtectionType.SHEET) || []).forEach(function (p) {
-    if (String(p.getDescription() || '') === CONTENT_SHEET_V4_LOCK_DESCRIPTION_) p.remove();
-  });
-  var protection = sheet.protect().setDescription(CONTENT_SHEET_V4_LOCK_DESCRIPTION_);
-  if (colCount > 1 && dataRows > 0) {
-    protection.setUnprotectedRanges([sheet.getRange(CONTENT_SHEET_FIRST_DATA_ROW_, 2, dataRows, colCount - 1)]);
+  // ⚠️ 鎖不到不可以令整次「更新本季內容表」失敗（改名、建分頁已經做了；Shared Drive 的權限可能不准拿走編輯者）：
+  //    分頁照樣是一個日期一行，只是同工仍然插得到行——匯入時重複的日期照樣會擋（不匯入並警告）。
+  try {
+    (sheet.getProtections(SpreadsheetApp.ProtectionType.SHEET) || []).forEach(function (p) {
+      if (String(p.getDescription() || '') === CONTENT_SHEET_V4_LOCK_DESCRIPTION_) p.remove();
+    });
+    var protection = sheet.protect().setDescription(CONTENT_SHEET_V4_LOCK_DESCRIPTION_);
+    if (colCount > 1 && dataRows > 0) {
+      protection.setUnprotectedRanges([sheet.getRange(CONTENT_SHEET_FIRST_DATA_ROW_, 2, dataRows, colCount - 1)]);
+    }
+    // Apps Script 說明的做法：先把自己加為編輯者，再拿走其餘的人（自己拿不走）。
+    var me = Session.getEffectiveUser();
+    protection.addEditor(me);
+    protection.removeEditors(protection.getEditors());
+    if (protection.canDomainEdit()) protection.setDomainEdit(false);
+    return { ok: true, message: '' };
+  } catch (err) {
+    var message = (err && err.message) ? err.message : String(err);
+    appendErrorLog_({
+      source: ERROR_LOG_SOURCE.SERVER, functionName: 'ensureContentTabDateLock_',
+      errorCode: 'CONTENT_SHEET_LOCK_FAILED',
+      message: '內容表「' + String(sheet.getName()) + '」的日期欄鎖不到：' + message,
+      detail: buildErrorDetail_(err, { argsSummary: 'sheet=' + String(sheet.getName()) })
+    });
+    return { ok: false, message: message };
   }
-  // Apps Script 說明的做法：先把自己加為編輯者，再拿走其餘的人（自己拿不走）。
-  var me = Session.getEffectiveUser();
-  protection.addEditor(me);
-  protection.removeEditors(protection.getEditors());
-  if (protection.canDomainEdit()) protection.setDomainEdit(false);
 }
 
 /**

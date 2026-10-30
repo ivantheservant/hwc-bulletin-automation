@@ -302,6 +302,27 @@ test('V4-8 已經是新版之後有人把舊分頁取消隱藏 → 再按「更�
   assert.strictEqual(snapshot(env), once);
 });
 
+test('V4-14 日期欄鎖不到（例如 Shared Drive 不准拿走編輯者）→ 整次照樣完成，結果講明、ErrorLog CONTENT_SHEET_LOCK_FAILED', function () {
+  const env = makeV3Env();
+  const realInsert = env.contentSpreadsheet.insertSheet;
+  env.contentSpreadsheet.insertSheet = function (name) {
+    const sheet = realInsert.apply(env.contentSpreadsheet, arguments);
+    const realProtect = sheet.protect;
+    sheet.protect = function () {
+      const p = realProtect.apply(sheet, arguments);
+      p.removeEditors = function () { throw new Error('注入：不准改編輯者'); };
+      return p;
+    };
+    return sheet;
+  };
+  const data = run(env);
+  const text = data.lines.join('\n');
+  assert.ok(text.indexOf('「崇拜程序」的日期欄鎖不到') !== -1 && text.indexOf('「崇拜人數」的日期欄鎖不到') !== -1, text);
+  assert.deepStrictEqual(tabRows(env, '崇拜程序').map(function (r) { return r.SERVICE_DATE; }), contentEnv.SERVICE_DATES);
+  const errs = env.sandbox.readSheet('ErrorLog').filter(function (e) { return e.ERROR_CODE === 'CONTENT_SHEET_LOCK_FAILED'; });
+  assert.ok(errs.length >= 2, JSON.stringify(plain(errs)));
+});
+
 console.log('\n一個日期一行（匯入）');
 
 test('V4-9 「崇拜程序」同一個主日兩行（有權限的帳戶插入）→ 那一日不匯入並警告（講明怎樣整理），其餘主日照常；按「建立本季內容表」整理成一個日期一行', function () {

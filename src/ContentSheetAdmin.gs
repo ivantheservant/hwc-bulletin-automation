@@ -350,6 +350,7 @@ function buildOrRefreshContentSheetLocked_(quarterId, options) {
     deadlineNote: config.deadlineNote
   };
 
+  var lockFailures = [];
   var instructionsTab = ensureContentTab_(spreadsheet, CONTENT_SHEET_INSTRUCTIONS_TAB_);
   if (instructionsTab.created) tabsCreated.push(CONTENT_SHEET_INSTRUCTIONS_TAB_);
 
@@ -394,7 +395,8 @@ function buildOrRefreshContentSheetLocked_(quarterId, options) {
     // v4：一個日期一行的分頁每次都重新鎖一次（行數可能變了）。
     if (tabDef.oneRowPerDate === true) {
       var dataRows = Math.max(0, ensured.sheet.getLastRow() - CONTENT_SHEET_FIRST_DATA_ROW_ + 1);
-      ensureContentTabDateLock_(ensured.sheet, tabDef.keys.length, dataRows);
+      var lock = ensureContentTabDateLock_(ensured.sheet, tabDef.keys.length, dataRows);
+      if (!lock.ok) lockFailures.push({ tabName: tabDef.tabName, message: lock.message });
     }
   });
 
@@ -450,7 +452,9 @@ function buildOrRefreshContentSheetLocked_(quarterId, options) {
     // v4（2026-10-30）：新版面的計畫與結果；排好的分頁。
     v4: v4Plan,
     v4Result: v4Result,
-    sortedTabs: sortedTabs
+    sortedTabs: sortedTabs,
+    // 日期欄鎖不到的分頁（不令整次失敗，見 ensureContentTabDateLock_()）。
+    lockFailures: lockFailures
   };
 }
 
@@ -976,6 +980,10 @@ function buildContentSheetResultLines_(result) {
   }
 
   lines.push('');
+  (result.lockFailures || []).forEach(function (f) {
+    lines.push('⚠️ 「' + f.tabName + '」的日期欄鎖不到（' + f.message + '）：分頁照樣一個日期一行，但同工仍然可以插入行；'
+      + '匯入時同一個日期有兩行照樣不匯入並警告。請 IT 檢查這份試算表的分頁保護權限。');
+  });
   lines.push('連結：' + result.fileUrl);
   return lines;
 }
