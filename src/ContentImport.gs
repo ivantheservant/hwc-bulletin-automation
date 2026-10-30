@@ -937,13 +937,14 @@ function checkContentSheetSchema_(spreadsheet) {
   var v3Keys = contentSheetWorshipKeysV3_();
   // v4（2026-10-30）：v3 的「崇拜程序」改了名而新分頁未建好（中途停止）→ 未更新。
   var worshipLayout = detectWorshipTabLayoutV4_(spreadsheet).layout;
-  if (worshipLayout === 'V4_PENDING') {
+  var worshipPending = worshipLayout === 'V4_PENDING' || worshipLayout === 'RESHAPE_PENDING';
+  if (worshipPending) {
     outdated.push({ tabDef: contentSheetWorshipTabDef_(), verdict: { status: 'OUTDATED', v4Pending: true } });
   }
   contentSheetTabDefs_().forEach(function (tabDef) {
     var sheet = spreadsheet.getSheetByName(tabDef.tabName);
     if (!sheet) return;
-    if (tabDef.tabName === worshipTabName && worshipLayout === 'V4_PENDING') return;
+    if (tabDef.tabName === worshipTabName && worshipPending) return;
     var verdict = compareContentTabHeaderKeys_(tabDef.keys, readContentTabHeaderKeys_(sheet, tabDef.keys.length));
     // v3：v2 的「崇拜程序」（第 12 欄是浸禮主禮）不是「被人改過」，是未更新——當作 OUTDATED，
     //    講明要拿走浸禮六欄並加「詩班項目名稱」。

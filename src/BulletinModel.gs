@@ -481,16 +481,21 @@ function assembleBulletinModel_(input) {
 
   // 2026-10-30（Ivan：財政報告全部修正）：分成「綜合收支」「特殊海外奉獻及慈惠基金」兩個報告（src/FinanceReports.gs）。
   //    Word、草稿預覽頁、電郵、診斷都讀這一份，標題與表頭不另外再算。
+  // ⚠️ 特別崇拜印的是上一個主日的財政行，標題月份與期間亦要跟那一個主日（listDate），不可以跟崇拜日期
+  //    （獨立審查 2026-10-30 第 7 項：2 月 5 日的特別崇拜印 1 月 31 日的十二月份報告，卻寫成一月份）。
+  var financeIso = listDate instanceof Date ? formatIsoDate_(listDate) : input.isoDate;
   var financeSplit = buildFinanceReports_(model.finance, {
-    isoDate: input.isoDate,
+    isoDate: financeIso,
     mainTitlePattern: config.financeTitlePattern,
     specialTitlePattern: config.financeSpecialTitlePattern,
     specialKeywords: config.financeSpecialKeywords
   });
   var financePeriodLabel = buildFinancePeriodLabel_(
     config.financePeriodLabelPattern === undefined ? FINANCE_PERIOD_LABEL_PATTERN_DEFAULT_ : config.financePeriodLabelPattern,
-    input.isoDate);
+    financeIso);
   model.financeReports = {
+    // 標題月份、期間用的日期（特別崇拜＝上一個主日）。Word 舊範本的 {{FINANCE_TITLE}}／{{FINANCE_PERIOD_LABEL}} 亦用這一個。
+    isoDate: financeIso,
     main: financeSplit.main,
     special: financeSplit.special,
     periodLabel: financePeriodLabel,
@@ -1018,14 +1023,17 @@ function formatDatePatternSimple_(date, pattern) {
  * Args:
  *   week {Object} 特別崇拜那一行。
  *   sourceWeek {Object} 上一個主日那一行（沒有就是空物件）。
+ *   options {{inheritArrangement:boolean}=} `inheritArrangement:false`＝清單次序不疊（填寫介面可以改的值一律用
+ *     這一行自己的；疊了的話儲存時與工作表上的空白對不上，每次都報衝突——獨立審查 2026-10-30 第 5 項）。預設疊。
  * Returns:
  *   {Object}
  */
-function applySpecialServiceSourceWeek_(week, sourceWeek) {
+function applySpecialServiceSourceWeek_(week, sourceWeek, options) {
   var out = Object.assign({}, week);
   attendanceValueKeys_().concat(['ATTENDANCE_DATE']).forEach(function (key) {
     out[key] = sourceWeek[key] === undefined ? '' : sourceWeek[key];
   });
-  if (String(out.LIST_ARRANGEMENT || '').trim() === '') out.LIST_ARRANGEMENT = sourceWeek.LIST_ARRANGEMENT || '';
+  var inherit = !(options && options.inheritArrangement === false);
+  if (inherit && String(out.LIST_ARRANGEMENT || '').trim() === '') out.LIST_ARRANGEMENT = sourceWeek.LIST_ARRANGEMENT || '';
   return out;
 }

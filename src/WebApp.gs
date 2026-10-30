@@ -1780,9 +1780,16 @@ function loadWeekForWebApp_(isoDate) {
   // 2026-10-30：特別崇拜（非主日）：清單與上週崇拜人數跟上一個主日（只顯示），讀經經文等三欄在這裏填。
   var specialService = isSpecialServiceRow_(weekRow);
   var listIso = contentSourceIsoForWeek_(weekRow, isoDate);
+  var sourceRow = specialService ? (findBulletinWeekRow_(weekRows, listIso) || {}) : null;
+  // ⚠️ 可以改的值（`week`）一律用這一行自己的；只有唯讀的上週崇拜人數跟上一個主日。清單次序這一行沒有安排時，
+  //    顯示跟上一個主日，但 `week.LIST_ARRANGEMENT` 仍然是這一行自己的空白——儲存的樂觀鎖比對的是工作表上的值
+  //    （獨立審查 2026-10-30 第 5 項：以前送上一個主日的次序，儲存每次都報「已經被改過」）。
   var displayRow = specialService
-    ? applySpecialServiceSourceWeek_(weekRow, findBulletinWeekRow_(weekRows, listIso) || {})
+    ? applySpecialServiceSourceWeek_(weekRow, sourceRow, { inheritArrangement: false })
     : weekRow;
+  var arrangementSource = specialService
+    ? applySpecialServiceSourceWeek_(weekRow, sourceRow).LIST_ARRANGEMENT
+    : weekRow.LIST_ARRANGEMENT;
 
   var week = {};
   webAppWeekFieldKeys_().forEach(function (key) {
@@ -1796,7 +1803,7 @@ function loadWeekForWebApp_(isoDate) {
 
   // v3（第 13 項）：丁戊己按這一週的安排排列；拿走了的仍然送去介面（`hidden:true`，畫刪除線），
   //    每一則帶 `arrangeKey`。次序與鍵由 arrangeListItems_() 算，與資料模型同一支。
-  var arrangement = parseListArrangement_(displayRow.LIST_ARRANGEMENT);
+  var arrangement = parseListArrangement_(arrangementSource);
   function arrangedForUi(type, items) {
     return arrangeListItems_(type, items, arrangement.lists[type]).map(function (a) {
       return Object.assign({}, a.item, { arrangeKey: a.key, hidden: a.hidden === true, sourceIndex: a.sourceIndex });

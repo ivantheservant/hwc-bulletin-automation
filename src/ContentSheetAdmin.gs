@@ -293,6 +293,11 @@ function buildOrRefreshContentSheetLocked_(quarterId, options) {
     // v1、v2 要先移轉才知道 v4 的行；v3、v4 現在就算得到（預覽看到的就是之後寫的）。
     if (v4Detect.layout !== 'LEGACY') {
       v4PrePlan = planContentSheetV4_(Object.assign(readContentSheetV4Inputs_(spreadsheet), { serviceDates: serviceDates }));
+      // 認不出欄位位置的分頁：整次不做（寫了會把資料放錯欄），自動流程亦一樣。
+      var preBlocker = contentSheetV4BlockerMessage_(v4PrePlan);
+      if (preBlocker) {
+        return { ok: false, created: false, quarterId: qid, reason: 'CONTENT_SHEET_HEADER_CHANGED', message: preBlocker };
+      }
     }
     var needsMigration = (runLegacy && (migrationPlan.needsMigration || contentSheetV3PlanHasWrites_(upgradePlan)))
       || v4Detect.layout === 'LEGACY' || Boolean(v4PrePlan && v4PrePlan.needsMigration);
@@ -370,6 +375,10 @@ function buildOrRefreshContentSheetLocked_(quarterId, options) {
   var v4Plan = planContentSheetV4_(Object.assign(readContentSheetV4Inputs_(spreadsheet), {
     serviceDates: serviceDates, created: created
   }));
+  var v4Blocker = contentSheetV4BlockerMessage_(v4Plan);
+  if (v4Blocker) {
+    return { ok: false, created: created, quarterId: qid, reason: 'CONTENT_SHEET_HEADER_CHANGED', message: v4Blocker };
+  }
   var v4Result = contentSheetV4PlanHasWrites_(v4Plan)
     ? applyContentSheetV4_(spreadsheet, v4Plan, qid, layoutOptions) : null;
 

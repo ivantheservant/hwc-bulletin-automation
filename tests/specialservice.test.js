@@ -235,5 +235,53 @@ test('S-9 previousSundayBeforeIso_／nextSundayAfterIso_：星期五、星期日
   assert.strictEqual(sb.previousSundayBeforeIso_('bad'), '');
 });
 
+console.log('\n獨立審查 2026-10-30 的修正');
+
+test('S-10 清單次序：特別崇拜自己沒有安排時顯示跟上一個主日，但可以改的值是自己的空白——改次序儲存不會報「已經被改過」', function () {
+  const env = makeEnv();
+  const sb = env.sandbox;
+  const src = sb.apiLoadWeek(SOURCE).data;
+  const key = plain(src.lists.announcements)[0].arrangeKey;
+  const hideJson = JSON.stringify({ v: 1, announcements: [{ k: key, h: true }] });
+  const s1 = sb.apiSaveWeek({
+    isoDate: SOURCE, lastSavedAt: src.lastSavedAt, payloadVersion: 2,
+    week: { LIST_ARRANGEMENT: hideJson }, baseWeek: { LIST_ARRANGEMENT: '' },
+    announcements: [], prayers: [], fellowships: [], finance: []
+  });
+  assert.strictEqual(s1.ok, true, JSON.stringify(s1.error));
+  create(env, FRI, '受苦節崇拜');
+  const load = sb.apiLoadWeek(FRI).data;
+  assert.strictEqual(load.week.LIST_ARRANGEMENT, '', '可以改的值是這一行自己的');
+  assert.strictEqual(plain(load.lists.announcements)[0].hidden, true, '顯示跟上一個主日（拿走了）');
+  const showJson = JSON.stringify({ v: 1, announcements: [{ k: key, h: false }] });
+  const saved = sb.apiSaveWeek({
+    isoDate: FRI, lastSavedAt: load.lastSavedAt, payloadVersion: 2,
+    week: { LIST_ARRANGEMENT: showJson }, baseWeek: plain(load.week),
+    announcements: [], prayers: [], fellowships: [], finance: []
+  });
+  assert.strictEqual(saved.ok, true, JSON.stringify(saved.error));
+  const again = sb.apiLoadWeek(FRI).data;
+  assert.strictEqual(again.week.LIST_ARRANGEMENT, showJson);
+  assert.strictEqual(plain(again.lists.announcements)[0].hidden, false, '這一行自己的安排優先');
+  assert.strictEqual(sb.apiLoadWeek(SOURCE).data.week.LIST_ARRANGEMENT, hideJson, '上一個主日不變');
+});
+
+test('S-11 財政報告：特別崇拜印上一個主日的財政行，標題月份與期間跟那一個主日（不是崇拜日期）', function () {
+  const env = makeEnv({ extraWeekRows: [{ SERVICE_DATE: '2027-12-05', QUARTER_ID: Q, WEEK_OF_MONTH: 1, STATUS: 'DRAFT' }] });
+  const sb = env.sandbox;
+  sb.writeSheet('Finance', [{
+    SERVICE_DATE: new Date(2027, 10, 28), SEQ_NO: 10, ROW_LABEL: '總收入', COL_SPECIAL_OVERSEAS: '100', COL_HARDSHIP: '200',
+    COL3: '300', COL4: '400', COL5: '', ACTIVE: true, REPORT_TITLE: '', REPORT_NOTE: '', REPORT_BALANCE: ''
+  }]);
+  create(env, '2027-12-03', '感恩崇拜');
+  const sunday = sb.buildBulletinModel_('2027-11-28');
+  const special = sb.buildBulletinModel_('2027-12-03');
+  assert.strictEqual(sunday.financeReports.main.title, '聖道堂綜合收支財務報告-2027年 10月份', '對照');
+  assert.strictEqual(special.financeReports.main.title, sunday.financeReports.main.title);
+  assert.strictEqual(special.financeReports.periodLabel, sunday.financeReports.periodLabel);
+  assert.strictEqual(special.financeReports.periodLabel, '10月份');
+  assert.deepStrictEqual(plain(special.financeReports.columnLabels), plain(sunday.financeReports.columnLabels));
+});
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail === 0 ? 0 : 1);

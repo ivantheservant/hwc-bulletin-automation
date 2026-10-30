@@ -24,7 +24,10 @@
  *
  *   崇拜程序 v3 → v4：先寫週報（六欄），再改名舊分頁，最後建新分頁。改名之後失敗：重跑時「崇拜程序」不存在
  *   或者是未寫完的新分頁，而改了名的 v3 舊分頁仍然在，就由那一張再建一次（`V4_PENDING`）。週報那一步只寫
- *   不同的格，重跑結果一樣。
+ *   不同的格，重跑結果一樣。重新整理（一個主日一行對不上）改名之後失敗亦一樣：新分頁空白而改了名的
+ *   「…（整理前，已停用）」在，就由最新那一張再建一次（`RESHAPE_PENDING`；「崇拜人數」同理）。
+ *
+ *   新分頁一律先寫資料行，最後才寫第 1、2 行；資料行寫好而第 1、2 行未寫的分頁當作現行版面，套版面時補回。
  *
  *   預覽與執行用同一個 planner（bug class 120）。
  *
@@ -101,26 +104,78 @@ function uniqueContentTabName_(spreadsheet, base) {
 }
 
 /**
+ * 用途：名稱以 `base` 開頭的分頁之中最新的一張（`uniqueContentTabName_()` 加的數字最大的一張）。唯讀。
+ * Args:
+ *   spreadsheet {Spreadsheet}　base {string}
+ * Returns:
+ *   {?Sheet} 沒有就是 `null`。
+ * Raises:
+ *   Error 讀取失敗時原樣拋出。
+ */
+function newestRetiredContentTab_(spreadsheet, base) {
+  var best = null;
+  var bestNo = 0;
+  spreadsheet.getSheets().forEach(function (sheet) {
+    var name = String(sheet.getName());
+    if (name.indexOf(base) !== 0) return;
+    var rest = name.slice(base.length);
+    var no = rest === '' ? 1 : (/^\d+$/.test(rest) ? Number(rest) : 0);
+    if (no > 0 && no >= bestNo) { best = sheet; bestNo = no; }
+  });
+  return best;
+}
+
+/**
+ * 用途：第 1、2 行是空的分頁，下面有沒有資料（獨立審查 2026-10-30 第 6 項：以前當成新分頁，`clearContent()`
+ *   就把資料清走）。唯讀。
+ * Args:
+ *   sheet {Sheet}　colCount {number} 分頁定義的欄數。
+ * Returns:
+ *   {{hasData:boolean, beyond:boolean}} `beyond`：定義的欄數以外（右邊）亦有字——欄的位置不明。
+ * Raises:
+ *   Error 讀取失敗時原樣拋出。
+ */
+function blankHeaderDataState_(sheet, colCount) {
+  var width = Math.max(Number(colCount) || 0, Number(sheet.getLastColumn()) || 0);
+  var rows = readContentTabDataValues_(sheet, width);
+  var state = { hasData: false, beyond: false };
+  rows.forEach(function (row) {
+    row.forEach(function (v, i) {
+      if (migrationText_(v) === '' && !(v instanceof Date)) return;
+      if (i < colCount) state.hasData = true; else state.beyond = true;
+    });
+  });
+  return state;
+}
+
+/**
  * 用途：認出「崇拜程序」現在是哪一版。唯讀。
  * Args:
  *   spreadsheet {Spreadsheet} 內容表。
  * Returns:
  *   {{layout:string, sheet:?Sheet, retiredSheet:?Sheet}}
  *     `layout`：`'NONE'`（沒有這張分頁，亦沒有改了名的 v3）／`'V4'`／`'V3'`／`'V4_PENDING'`（改了名的 v3 在，
- *     新分頁未有或者未寫好）／`'LEGACY'`（v1、v2 或者認不出，交給原有的移轉判斷）。
- *     `retiredSheet` 是改了名的 v3 舊分頁（最後一張），沒有就是 `null`。
+ *     新分頁未有或者未寫好）／`'RESHAPE_PENDING'`（重新整理改了名的舊分頁在，新分頁未有或者未寫好）／
+ *     `'LEGACY'`（v1、v2 或者認不出，交給原有的移轉判斷）／`'UNREADABLE'`（第 1、2 行
+ *     空白而五欄以外亦有資料，欄的位置不明，整次不做）。
+ *     `retiredSheet` 是改了名的 v3 舊分頁（最新一張），沒有就是 `null`；`reshapeSheet` 是重新整理改了名的
+ *     舊分頁（最新一張）。
  * Raises:
  *   Error 讀取失敗時原樣拋出。
  */
 function detectWorshipTabLayoutV4_(spreadsheet) {
   var def = contentSheetWorshipTabDef_();
   var v3Keys = contentSheetWorshipKeysV3_();
-  var retired = spreadsheet.getSheets().filter(function (s) {
-    return String(s.getName()).indexOf(CONTENT_SHEET_V4_WORSHIP_RETIRED_BASE_) === 0;
-  });
-  var retiredSheet = retired.length > 0 ? retired[retired.length - 1] : null;
+  var retiredSheet = newestRetiredContentTab_(spreadsheet, CONTENT_SHEET_V4_WORSHIP_RETIRED_BASE_);
+  var reshapeSheet = newestRetiredContentTab_(spreadsheet, CONTENT_SHEET_V4_WORSHIP_RESHAPE_BASE_);
+  // 新分頁未有或者一行都未寫：重新整理改了名的舊分頁在＝v4 早已完成、這一次是重新整理中途失敗（優先）；
+  //    只有 v3 舊分頁在＝v3 轉 v4 中途失敗。
+  function pending(s) {
+    var layout = reshapeSheet ? 'RESHAPE_PENDING' : (retiredSheet ? 'V4_PENDING' : 'NONE');
+    return { layout: layout, sheet: s, retiredSheet: retiredSheet, reshapeSheet: reshapeSheet };
+  }
   var sheet = spreadsheet.getSheetByName(def.tabName);
-  if (!sheet) return { layout: retiredSheet ? 'V4_PENDING' : 'NONE', sheet: null, retiredSheet: retiredSheet };
+  if (!sheet) return pending(null);
 
   var header = readContentTabHeaderKeys_(sheet, v3Keys.length);
   var isV3 = v3Keys.every(function (k, i) { return header[i] === k; });
@@ -129,7 +184,14 @@ function detectWorshipTabLayoutV4_(spreadsheet) {
     && header.slice(def.keys.length).every(function (v) { return v === ''; });
   if (isV4) return { layout: 'V4', sheet: sheet, retiredSheet: retiredSheet };
   var blank = header.every(function (v) { return v === ''; });
-  if (blank) return { layout: retiredSheet ? 'V4_PENDING' : 'NONE', sheet: sheet, retiredSheet: retiredSheet };
+  if (blank) {
+    // 第 1、2 行空白而下面有資料：只在五欄之內的就當作 v4 的位置（系統寫 v4 分頁是先寫資料行、最後才寫第 1、2 行；
+    //    有人清走第 1、2 行亦是 v4 的位置），套版面時補回第 1、2 行。五欄以外亦有字＝位置不明，整次不做。
+    var state = blankHeaderDataState_(sheet, def.keys.length);
+    if (state.beyond) return { layout: 'UNREADABLE', sheet: sheet, retiredSheet: retiredSheet };
+    if (state.hasData) return { layout: 'V4', sheet: sheet, retiredSheet: retiredSheet, headerRestore: true };
+    return pending(sheet);
+  }
   return { layout: 'LEGACY', sheet: sheet, retiredSheet: retiredSheet };
 }
 
@@ -171,6 +233,9 @@ function readContentSheetV4Inputs_(spreadsheet) {
     worship.v3Rows = parseContentTabRows_(readContentTabDataValues_(detected.sheet, v3Keys.length), v3Keys);
   } else if (detected.layout === 'V4_PENDING' && detected.retiredSheet) {
     worship.v3Rows = parseContentTabRows_(readContentTabDataValues_(detected.retiredSheet, v3Keys.length), v3Keys);
+  } else if (detected.layout === 'RESHAPE_PENDING' && detected.reshapeSheet) {
+    worship.v4Rows = parseContentTabRows_(readContentTabDataValues_(detected.reshapeSheet, worshipDef.keys.length), worshipDef.keys);
+    worship.sourceName = String(detected.reshapeSheet.getName());
   } else if (detected.layout === 'V4') {
     worship.v4Rows = parseContentTabRows_(readContentTabDataValues_(detected.sheet, worshipDef.keys.length), worshipDef.keys);
   }
@@ -183,10 +248,26 @@ function readContentSheetV4Inputs_(spreadsheet) {
     var aHeader = readContentTabHeaderKeys_(attendanceSheet, attendanceDef.keys.length);
     attendance.headerBlank = aHeader.every(function (v) { return v === ''; });
     attendance.headerOk = attendanceDef.keys.every(function (k, i) { return aHeader[i] === k; });
+    if (attendance.headerBlank) {
+      // 第 1、2 行空白而下面有資料：當作現行欄位位置（與「崇拜程序」同一個規則），不可以當成新分頁清走。
+      var aState = blankHeaderDataState_(attendanceSheet, attendanceDef.keys.length);
+      attendance.unreadable = aState.beyond;
+      if (aState.hasData && !aState.beyond) { attendance.headerBlank = false; attendance.headerOk = true; }
+    }
     // 已經鎖住＝v4 由系統建的分頁：行數不對（例如職事表加了主日）就自動重新整理，不用人手確認。
     attendance.locked = hasContentTabDateLock_(attendanceSheet);
     if (attendance.headerOk) {
       attendance.rows = parseContentTabRows_(readContentTabDataValues_(attendanceSheet, attendanceDef.keys.length), attendanceDef.keys);
+    }
+  }
+  if (!attendanceSheet || (attendance.headerBlank === true && attendance.unreadable !== true)) {
+    // 分頁未有或者一行都未寫，而重新整理改了名的舊分頁在＝上一次重新整理中途失敗：由最新那一張再建一次
+    //（不可以當成新分頁開空白行，人數全部在舊分頁）。
+    var attRetired = newestRetiredContentTab_(spreadsheet, CONTENT_SHEET_V4_ATTENDANCE_RESHAPE_BASE_);
+    var retiredHeader = attRetired ? readContentTabHeaderKeys_(attRetired, attendanceDef.keys.length) : [];
+    if (attRetired && attendanceDef.keys.every(function (k, i) { return retiredHeader[i] === k; })) {
+      attendance.rows = parseContentTabRows_(readContentTabDataValues_(attRetired, attendanceDef.keys.length), attendanceDef.keys);
+      attendance.sourceName = String(attRetired.getName());
     }
   }
 
@@ -200,6 +281,8 @@ function readContentSheetV4Inputs_(spreadsheet) {
     var order = def.keys.every(function (k, i) { return header[i] === k; }) ? 'V4'
       : (v3.every(function (k, i) { return header[i] === k; }) ? 'V3'
         : (header.every(function (v) { return v === ''; }) ? 'BLANK' : 'UNKNOWN'));
+    // 第 1、2 行空白而下面有資料：v3 與 v4 的欄位次序不同，分不出是哪一個，不可以把 v4 的第 2 行蓋上去。
+    if (order === 'BLANK' && blankHeaderDataState_(sheet, def.keys.length).hasData) order = 'UNKNOWN';
     lists.push({ tabName: def.tabName, order: order });
   });
 
@@ -228,7 +311,7 @@ function readRetiredContentTabsV4_(spreadsheet, worshipLayout) {
       CONTENT_SHEET_V4_ATTENDANCE_RESHAPE_BASE_],
     note: CONTENT_SHEET_V4_RETIRED_NOTE_, protection: CONTENT_SHEET_V4_RETIRED_PROTECTION_
   }];
-  if (worshipLayout === 'V4' || worshipLayout === 'V4_PENDING' || worshipLayout === 'NONE') {
+  if (worshipLayout === 'V4' || worshipLayout === 'V4_PENDING' || worshipLayout === 'RESHAPE_PENDING' || worshipLayout === 'NONE') {
     groups.push({
       prefixes: legacyMergedTabDefs_().map(function (d) { return d.tabName + CONTENT_SHEET_RETIRED_TAB_SUFFIX_; }),
       note: CONTENT_SHEET_RETIRED_TAB_NOTE_, protection: CONTENT_SHEET_RETIRED_TAB_PROTECTION_
@@ -277,8 +360,11 @@ function isOneRowPerDateCanonical_(rows, expectedDates) {
  *     後四樣見 `readContentSheetV4Inputs_()`；新建的內容表 `created:true`、`worship.layout:'NONE'`。
  * Returns:
  *   {{needsMigration:boolean,
- *     worship:{action:string, rows:Object[], weekWrites:Object[], notCarried:Object[], fromRetired:boolean},
- *     attendance:{action:string, rows:Object[], notCarried:Object[]},
+ *     worship:{action:string, rows:Object[], weekWrites:Object[], conflicts:Object[], notCarried:Object[], fromRetired:boolean},
+ *       `conflicts`：內容表與週報兩邊都有值而不同的格（保留週報，不寫），`{isoDate, field, weekValue, contentValue}`。
+ *       `cellIssues`：舊分頁被試算表轉成日期／時間的格（讀不到原本的字），新分頁改用週報現有的值，
+ *       `{tab, rowNo, isoDate, field, usedValue}`。
+ *     attendance:{action:string, rows:Object[], notCarried:Object[], cellIssues:Object[], sourceName:string},
  *     reorder:string[], unknownLists:string[],
  *     counts:{worshipRows:number, weekCells:number, weekDates:number, attendanceRows:number, notCarried:number}}}
  *     `worship.action`：`''`（不用做）／`'FROM_V3'`（v3 轉 v4）／`'RESHAPE'`（v4 但形狀不對）／`'CREATE'`（新建）。
@@ -295,14 +381,16 @@ function planContentSheetV4_(input) {
   var movedKeys = contentSheetV4MovedWorshipKeys_();
   var plan = {
     needsMigration: false,
-    worship: { action: '', rows: [], weekWrites: [], notCarried: [], fromRetired: false },
-    attendance: { action: '', rows: [], notCarried: [] },
+    worship: { action: '', rows: [], weekWrites: [], conflicts: [], notCarried: [], cellIssues: [], fromRetired: false },
+    attendance: { action: '', rows: [], notCarried: [], cellIssues: [], sourceName: '' },
     reorder: [], unknownLists: [],
+    // 認不出欄位位置的分頁（獨立審查 2026-10-30 第 1、6 項）：有任何一項就整次不做，一格都不寫。
+    blockers: [],
     // 已改名停用、但隱藏／註解／保護未做齊的舊分頁（補做，不算移轉；自動流程照做）。
     retiredRepairs: (o.retired || []).filter(function (r) {
       return Boolean(r.state && (r.state.needsHide || r.state.needsNote || r.state.needsProtect));
     }),
-    counts: { worshipRows: 0, weekCells: 0, weekDates: 0, attendanceRows: 0, notCarried: 0 }
+    counts: { worshipRows: 0, weekCells: 0, weekDates: 0, attendanceRows: 0, notCarried: 0, cellIssues: 0 }
   };
 
   var weekByIso = {};
@@ -312,6 +400,14 @@ function planContentSheetV4_(input) {
   });
   var inQuarter = {};
   serviceDates.forEach(function (d) { inQuarter[d] = true; });
+
+  // 被試算表轉成日期／時間的格：`parseContentTabRows_()` 已經讀成空字串，原本的字讀不到。新分頁改用週報現有的值
+  //（沒有就留空）並列出來；以前當成空白搬，之後匯入就把週報那一格清空（獨立審查 2026-10-30 第 4 項）。
+  function srcCell(src, k, fallback, issues, label, iso) {
+    if ((src.__typeIssues || []).indexOf(k) === -1) return src[k] === undefined ? '' : src[k];
+    issues.push({ tab: label, rowNo: src.__rowNo, isoDate: iso, field: k, usedValue: fallback });
+    return fallback;
+  }
 
   function notCarriedOf(rows, expected, lastByDate, label) {
     var wanted = {};
@@ -349,27 +445,36 @@ function planContentSheetV4_(input) {
       var week = weekByIso[iso] || null;
       var row = { SERVICE_DATE: iso };
       worshipValueKeys.forEach(function (k) {
-        // 被試算表轉成日期／時間的格照原樣搬（之後匯入會照舊略過並警告），不在這裏猜原本的字。
-        if (src) row[k] = src[k] === undefined ? '' : src[k];
-        else row[k] = week ? migrationText_(week[k]) : '';
+        var fromWeek = week ? migrationText_(week[k]) : '';
+        row[k] = src ? srcCell(src, k, fromWeek, plan.worship.cellIssues, '崇拜程序', iso) : fromWeek;
       });
-      row.NOTES = src ? (src.NOTES === undefined ? '' : src.NOTES) : '';
+      row.NOTES = src ? srcCell(src, 'NOTES', '', plan.worship.cellIssues, '崇拜程序', iso) : '';
       plan.worship.rows.push(row);
       if (!src || !week) return;
       movedKeys.forEach(function (k) {
-        if ((src.__typeIssues || []).indexOf(k) !== -1) return;
+        if ((src.__typeIssues || []).indexOf(k) !== -1) {
+          plan.worship.cellIssues.push({ tab: '崇拜程序', rowNo: src.__rowNo, isoDate: iso, field: k, usedValue: migrationText_(week[k]) });
+          return;
+        }
         var v = migrationText_(src[k]);
         if (v === '') return;
         var current = migrationText_(week[k]);
         if (v === current) return;
+        // 週報已經有另一個值（例如在填寫介面改過）：保留週報的值，只列出來（獨立審查 2026-10-30 第 2 項）。
+        if (current !== '') {
+          plan.worship.conflicts.push({ isoDate: iso, field: k, weekValue: current, contentValue: v });
+          return;
+        }
         plan.worship.weekWrites.push({ isoDate: iso, rowNo: week.__rowNo, field: k, oldValue: current, newValue: v });
         weekDates[iso] = true;
       });
     });
     plan.worship.notCarried = notCarriedOf(o.worship.v3Rows, serviceDates, last, '崇拜程序');
-  } else if (layout === 'V4') {
-    if (!isOneRowPerDateCanonical_(o.worship.v4Rows, serviceDates)) {
+  } else if (layout === 'V4' || layout === 'RESHAPE_PENDING') {
+    if (layout === 'RESHAPE_PENDING' || !isOneRowPerDateCanonical_(o.worship.v4Rows, serviceDates)) {
       plan.worship.action = 'RESHAPE';
+      plan.worship.fromRetired = layout === 'RESHAPE_PENDING';
+      plan.worship.sourceName = layout === 'RESHAPE_PENDING' ? String(o.worship.sourceName || '') : '';
       var v4Rows = (o.worship.v4Rows || []).filter(function (r) { return (r.__typeIssues || []).indexOf('SERVICE_DATE') === -1; });
       var lastV4 = lastActiveRowByDate_(v4Rows);
       serviceDates.forEach(function (iso) {
@@ -378,8 +483,8 @@ function planContentSheetV4_(input) {
         var row = { SERVICE_DATE: iso };
         worshipKeys.forEach(function (k) {
           if (k === 'SERVICE_DATE') return;
-          if (src) row[k] = src[k] === undefined ? '' : src[k];
-          else row[k] = (k === 'NOTES' || !week) ? '' : migrationText_(week[k]);
+          var fromWeek = (k === 'NOTES' || !week) ? '' : migrationText_(week[k]);
+          row[k] = src ? srcCell(src, k, fromWeek, plan.worship.cellIssues, '崇拜程序', iso) : fromWeek;
         });
         plan.worship.rows.push(row);
       });
@@ -403,6 +508,7 @@ function planContentSheetV4_(input) {
   attendanceKeys = attendanceKeys ? attendanceKeys.keys : [];
   if (!att.exists || att.headerBlank === true) {
     plan.attendance.action = 'CREATE';
+    plan.attendance.sourceName = String(att.sourceName || '');
   } else if (!att.headerOk) {
     plan.attendance.action = 'HEADER_UNKNOWN';
   } else if (!isOneRowPerDateCanonical_(att.rows, attendanceDates)) {
@@ -415,11 +521,14 @@ function planContentSheetV4_(input) {
     var lastAtt = lastActiveRowByDate_(aRows);
     attendanceDates.forEach(function (iso) {
       var src = lastAtt[iso] || null;
+      // 崇拜日期 + 7 日＝印這一日人數的那一期週報。
+      var printedIn = weekByIso[addDaysToIsoDate_(iso, 7)] || null;
       var row = { SERVICE_DATE: iso };
       attendanceKeys.forEach(function (k) {
         if (k === 'SERVICE_DATE') return;
         if (k === 'ACTIVE') { row[k] = 'TRUE'; return; }
-        row[k] = src && src[k] !== undefined ? src[k] : '';
+        if (!src) { row[k] = ''; return; }
+        row[k] = srcCell(src, k, printedIn ? migrationText_(printedIn[k]) : '', plan.attendance.cellIssues, att.tabName || '崇拜人數', iso);
       });
       plan.attendance.rows.push(row);
     });
@@ -429,14 +538,25 @@ function planContentSheetV4_(input) {
   // ---- 家事報告、代禱事項：搬欄 ----
   (o.lists || []).forEach(function (l) {
     if (l.order === 'V3') { plan.reorder.push(l.tabName); plan.needsMigration = true; }
-    if (l.order === 'UNKNOWN') plan.unknownLists.push(l.tabName);
+    if (l.order === 'UNKNOWN') {
+      plan.unknownLists.push(l.tabName);
+      plan.blockers.push({ tabName: l.tabName, message: '「' + l.tabName + '」第 2 行（機器鍵）既不是舊版亦不是新版'
+        + '（可能曾經插入、刪除或移動欄，或者第 1、2 行被清走）' });
+    }
   });
+  if (layout === 'UNREADABLE') {
+    plan.blockers.push({ tabName: '崇拜程序', message: '「崇拜程序」第 1、2 行是空的，而第 F 欄以後亦有資料，系統不知道哪一欄是甚麼' });
+  }
+  if (att.unreadable === true) {
+    plan.blockers.push({ tabName: att.tabName, message: '「' + att.tabName + '」第 1、2 行是空的，而定義的欄以外亦有資料，系統不知道哪一欄是甚麼' });
+  }
 
   plan.counts.worshipRows = plan.worship.rows.length;
   plan.counts.weekCells = plan.worship.weekWrites.length;
   plan.counts.weekDates = Object.keys(weekDates).length;
   plan.counts.attendanceRows = plan.attendance.rows.length;
   plan.counts.notCarried = plan.worship.notCarried.length + plan.attendance.notCarried.length;
+  plan.counts.cellIssues = plan.worship.cellIssues.length + plan.attendance.cellIssues.length;
   return plan;
 }
 
@@ -553,7 +673,9 @@ function writeOneRowPerDateTab_(spreadsheet, tabDef, rows, layoutOptions) {
   if (lastRow >= CONTENT_SHEET_FIRST_DATA_ROW_) {
     sheet.getRange(CONTENT_SHEET_FIRST_DATA_ROW_, 1, lastRow - CONTENT_SHEET_FIRST_DATA_ROW_ + 1, tabDef.keys.length).clearContent();
   }
-  applyContentTabLayout_(sheet, tabDef, layoutOptions);
+  // ⚠️ 先寫資料行，**最後**才寫第 1、2 行（提交點，與 v2 移轉同一個規則）：中途失敗的話第 2 行仍然是空的，
+  //    下一次判定為 V4_PENDING，由改了名的舊分頁再建一次；先寫第 2 行的話，下一次會當成已經是 v4 而由週報重建，
+  //    舊分頁的值就帶不過來（獨立審查 2026-10-30 第 3 項）。
   if (rows.length > 0) {
     setContentRangePlainText_(sheet, CONTENT_SHEET_FIRST_DATA_ROW_, 1, rows.length, tabDef.keys.length);
     writeContentRows_(sheet, tabDef.keys, rows.map(function (r) {
@@ -565,6 +687,7 @@ function writeOneRowPerDateTab_(spreadsheet, tabDef, rows, layoutOptions) {
       return out;
     }), CONTENT_SHEET_FIRST_DATA_ROW_);
   }
+  applyContentTabLayout_(sheet, tabDef, layoutOptions);
   ensureContentTabDateLock_(sheet, tabDef.keys.length, rows.length);
   return sheet;
 }
@@ -580,9 +703,10 @@ function writeOneRowPerDateTab_(spreadsheet, tabDef, rows, layoutOptions) {
  *   Error 搬欄失敗時原樣拋出。
  */
 function reorderContentListTabV4_(sheet) {
-  // v3：A 主日日期 B 次序 C 內容 D 連續到 E 有效 → 「連續到」移到 B，再把「有效」（現在在 E）移到 C。
-  sheet.moveColumns(sheet.getRange('D:D'), 2);
-  sheet.moveColumns(sheet.getRange('E:E'), 3);
+  // v3：A 主日日期 B 次序 C 內容 D 連續到 E 有效 → 「連續到」「有效」兩欄**一次過**搬到 B 欄之前
+  //    （A、D、E、B、C）。⚠️ 不可以分兩次搬：第二次失敗的話第 2 行既不是 v3 亦不是 v4，下一次刷新會把 v4 的
+  //    機器鍵蓋上去，「內容」欄讀到的就是「有效」（獨立審查 2026-10-30 第 1 項）。
+  sheet.moveColumns(sheet.getRange('D:E'), 2);
 }
 
 /**
@@ -642,7 +766,7 @@ function applyContentSheetV4_(spreadsheet, plan, quarterId, layoutOptions) {
     if (current && plan.worship.action === 'FROM_V3' && !plan.worship.fromRetired) {
       out.retired.push(retireContentTabV4_(spreadsheet, current, CONTENT_SHEET_V4_WORSHIP_RETIRED_BASE_, quarterId,
         '「崇拜程序」只留讀經經文、證道講題、回應詩歌與備註，'));
-    } else if (current && plan.worship.action === 'RESHAPE') {
+    } else if (current && plan.worship.action === 'RESHAPE' && !plan.worship.fromRetired) {
       out.retired.push(retireContentTabV4_(spreadsheet, current, CONTENT_SHEET_V4_WORSHIP_RESHAPE_BASE_, quarterId,
         '「崇拜程序」要一個主日一行，'));
     }
@@ -713,7 +837,21 @@ function buildContentSheetV4Lines_(plan, options) {
       + ' 行），日期欄鎖住、不可以插入行。');
     lines.push('・序樂、宣召出處、宣召經文、詩歌頌讚、詩班曲名、詩班項目名稱改在填寫介面填：內容表這六欄的值'
       + w + '先搬入週報（' + plan.counts.weekCells + ' 格，' + plan.counts.weekDates + ' 個主日）。');
+    var conflicts = plan.worship.conflicts || [];
+    if (conflicts.length > 0) {
+      var v3Def = contentSheetWorshipTabDefV3_();
+      lines.push('・以下 ' + conflicts.length + ' 格週報已經有另一個值（例如在填寫介面改過），' + w
+        + '保留週報的值，內容表的值不搬；要用內容表的值，請之後在填寫介面改：');
+      conflicts.slice(0, 10).forEach(function (c) {
+        lines.push('　' + c.isoDate + '「' + contentTabColumnLabel_('崇拜程序', c.field, v3Def) + '」：週報「'
+          + c.weekValue + '」，內容表「' + c.contentValue + '」');
+      });
+      if (conflicts.length > 10) lines.push('　（另有 ' + (conflicts.length - 10) + ' 格未列出）');
+    }
     lines.push('・舊的「崇拜程序」' + w + '改名「' + CONTENT_SHEET_V4_WORSHIP_RETIRED_BASE_ + '」，隱藏保留，不刪。');
+  } else if (plan.worship.action === 'RESHAPE' && plan.worship.fromRetired) {
+    lines.push('・「崇拜程序」上一次重新整理未做完，' + w + '由「' + plan.worship.sourceName + '」再建一次（一個主日一行，'
+      + plan.counts.worshipRows + ' 行）。');
   } else if (plan.worship.action === 'RESHAPE') {
     lines.push('・「崇拜程序」的行與這一季的主日對不上，' + w + '重新整理成一個主日一行（' + plan.counts.worshipRows
       + ' 行）；舊分頁' + w + '改名「' + CONTENT_SHEET_V4_WORSHIP_RESHAPE_BASE_ + '」保留。');
@@ -723,6 +861,9 @@ function buildContentSheetV4Lines_(plan, options) {
   if (plan.attendance.action === 'RESHAPE') {
     lines.push('・「崇拜人數」' + w + '整理成一個崇拜日期一行（' + plan.counts.attendanceRows + ' 行），日期欄鎖住、不可以插入行；'
       + '舊分頁' + w + '改名「' + CONTENT_SHEET_V4_ATTENDANCE_RESHAPE_BASE_ + '」保留。');
+  } else if (plan.attendance.action === 'CREATE' && plan.attendance.sourceName) {
+    lines.push('・「崇拜人數」上一次重新整理未做完，' + w + '由「' + plan.attendance.sourceName + '」再建一次（一個崇拜日期一行，'
+      + plan.counts.attendanceRows + ' 行），日期欄鎖住。');
   } else if (plan.attendance.action === 'CREATE') {
     lines.push('・「崇拜人數」' + w + '一個崇拜日期一行預先開好（' + plan.counts.attendanceRows + ' 行），日期欄鎖住。');
   }
@@ -735,6 +876,18 @@ function buildContentSheetV4Lines_(plan, options) {
       lines.push('　' + n.tab + '第 ' + n.rowNo + ' 行（' + (n.isoDate || '沒有日期') + '）：' + n.reason);
     });
     if (plan.counts.notCarried > 10) lines.push('　（另有 ' + (plan.counts.notCarried - 10) + ' 行未列出）');
+  }
+  var cellIssues = (plan.worship.cellIssues || []).concat(plan.attendance.cellIssues || []);
+  if (cellIssues.length > 0) {
+    lines.push('・以下 ' + cellIssues.length + ' 格被試算表轉成日期／時間格式，讀不到原本的字：' + w
+      + '一律改用週報現有的值（週報沒有就留空），原本的格留在改了名的舊分頁，請之後核對：');
+    var worshipV3Def = contentSheetWorshipTabDefV3_();
+    cellIssues.slice(0, 10).forEach(function (c) {
+      var label = contentTabColumnLabel_(c.tab, c.field, c.tab === '崇拜程序' ? worshipV3Def : undefined);
+      lines.push('　' + c.tab + '第 ' + c.rowNo + ' 行（' + c.isoDate + '）「' + label + '」'
+        + (c.usedValue === '' ? '：留空' : '：用週報的「' + c.usedValue + '」'));
+    });
+    if (cellIssues.length > 10) lines.push('　（另有 ' + (cellIssues.length - 10) + ' 格未列出）');
   }
   return lines;
 }
@@ -885,4 +1038,18 @@ function runNightlyContentSort_(options) {
     }
   });
   return out;
+}
+
+/**
+ * 用途：v4 計畫有認不出的分頁時，整次拒絕的訊息。純函式。
+ * Args:
+ *   plan {?Object} `planContentSheetV4_()` 的輸出。
+ * Returns:
+ *   {string} 沒有就是空字串。
+ */
+function contentSheetV4BlockerMessage_(plan) {
+  var blockers = (plan && plan.blockers) || [];
+  if (blockers.length === 0) return '';
+  return blockers.map(function (b) { return b.message; }).join('；') + '。所以這次一格都沒有寫（寫了會把資料放錯欄）。'
+    + '請用「檔案 ▸ 版本記錄」把那張分頁的第 1、2 行與欄位次序還原，再按一次「更新本季內容表…」。';
 }

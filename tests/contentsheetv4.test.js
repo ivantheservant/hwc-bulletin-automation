@@ -439,5 +439,199 @@ test('V4-13 真入口 apiLoadWeek：v4 之後序樂、宣召、詩歌頌讚、�
   assert.strictEqual(resp.data.week.PRELUDE, '序樂甲', '搬入週報的值在介面看得到');
 });
 
+console.log('\n獨立審查 2026-10-30 的修正');
+
+function failResult(resp) {
+  return resp.ok ? resp.data : (resp.error || {});
+}
+
+test('V4-15 家事報告、代禱事項一次過搬兩欄（每張分頁一次 moveColumns）；第 2 行既不是舊版亦不是新版 → 整次拒絕，一格不寫', function () {
+  const env = makeV3Env();
+  const calls = [];
+  ['家事報告', '代禱事項'].forEach(function (name) {
+    const sheet = env.contentSpreadsheet.getSheetByName(name);
+    const real = sheet.moveColumns;
+    sheet.moveColumns = function (spec, dest) { calls.push(name + ':' + dest); return real.apply(sheet, arguments); };
+  });
+  run(env);
+  assert.deepStrictEqual(calls, ['家事報告:2', '代禱事項:2']);
+  // 以前分兩次搬：第二次失敗之後第 2 行是 A、D、B、C、E——既不是 v3 亦不是 v4。
+  const env2 = makeV3Env();
+  const ann = env2.contentSpreadsheet.getSheetByName('家事報告');
+  ann.moveColumns(ann.getRange('D:D'), 2);
+  const before = snapshot(env2);
+  const weeksBefore = JSON.stringify(env2.sandbox.readSheet('BulletinWeeks'));
+  const preview = env2.sandbox.apiPreviewContentSheetBuild(QUARTER_ID);
+  assert.ok(JSON.stringify(preview).indexOf('「家事報告」第 2 行') !== -1, JSON.stringify(preview));
+  const data = failResult(env2.sandbox.apiRunContentSheetBuild(QUARTER_ID));
+  assert.strictEqual(data.ok, false, JSON.stringify(data));
+  assert.ok(String(data.message).indexOf('「家事報告」第 2 行') !== -1 && String(data.message).indexOf('一格都沒有寫') !== -1, data.message);
+  assert.strictEqual(snapshot(env2), before, '內容表一格不寫');
+  assert.strictEqual(JSON.stringify(env2.sandbox.readSheet('BulletinWeeks')), weeksBefore, '週報一格不寫');
+  assertWrittenChinese(assert, '拒絕訊息', [data.message]);
+});
+
+test('V4-16 新「崇拜程序」資料行寫好、第 1、2 行未寫就停止 → 重跑補回第 1、2 行與鎖，結果與一次跑完相同', function () {
+  const clean = makeV3Env();
+  run(clean);
+  const expected = snapshot(clean);
+  const env = makeV3Env();
+  const real = env.sandbox.applyContentTabLayout_;
+  let fired = false;
+  env.sandbox.applyContentTabLayout_ = function (sheet, tabDef) {
+    if (!fired && tabDef && tabDef.tabName === '崇拜程序' && tabDef.keys.length === 5) {
+      fired = true;
+      throw new Error('注入：寫第 1、2 行之前停止');
+    }
+    return real.apply(this, arguments);
+  };
+  assert.strictEqual(env.sandbox.apiRunContentSheetBuild(QUARTER_ID).ok, false);
+  assert.strictEqual(fired, true);
+  env.sandbox.applyContentTabLayout_ = real;
+  run(env);
+  assert.strictEqual(snapshot(env), expected, '重跑之後與一次跑完相同（v3 的值沒有被週報的值蓋過）');
+  // 寫資料行時停止（第 1、2 行仍然是空的）→ 重跑由改了名的 v3 舊分頁再建；以前先寫第 1、2 行，重跑就當成已經是
+  //    新版，由週報重建，講題乙、丙、丁全部帶不過來。
+  const env2 = makeV3Env();
+  const realRows = env2.sandbox.writeContentRows_;
+  let fired2 = false;
+  env2.sandbox.writeContentRows_ = function (sheet) {
+    if (!fired2 && String(sheet.getName()) === '崇拜程序') { fired2 = true; throw new Error('注入：寫資料行時停止'); }
+    return realRows.apply(this, arguments);
+  };
+  assert.strictEqual(env2.sandbox.apiRunContentSheetBuild(QUARTER_ID).ok, false);
+  assert.strictEqual(fired2, true);
+  env2.sandbox.writeContentRows_ = realRows;
+  run(env2);
+  assert.strictEqual(snapshot(env2), expected, '重跑之後與一次跑完相同');
+});
+
+test('V4-17 重新整理改名之後、寫資料行之前停止 → 重跑由最新的「…（整理前，已停用）」再建，不會用回 v3 舊分頁；崇拜人數同理', function () {
+  function prepare() {
+    const e = makeV3Env();
+    run(e);
+    const ws = e.contentSpreadsheet.getSheetByName('崇拜程序');
+    const keys = ws.__data[1];
+    ws.__data.push(keys.map(function (k) { return k === 'SERVICE_DATE' ? D2 : (k === 'SERMON_TITLE' ? '插入的講題' : ''); }));
+    const r1 = ws.__data.findIndex(function (row, i) { return i >= 2 && row[0] === D1; });
+    ws.__data[r1][keys.indexOf('SERMON_TITLE')] = '改過的講題甲';
+    const at = e.contentSpreadsheet.getSheetByName('崇拜人數');
+    const ak = at.__data[1];
+    const ar = at.__data.findIndex(function (row, i) { return i >= 2 && row[0] === minus7(D3); });
+    at.__data[ar][ak.indexOf('ATT_ENG_WORSHIP')] = '77';
+    at.__data.push(ak.map(function (k) {
+      return k === 'SERVICE_DATE' ? minus7(D4) : (k === 'ATT_ENG_WORSHIP' ? '66' : (k === 'ACTIVE' ? 'TRUE' : ''));
+    }));
+    return e;
+  }
+  const clean = prepare();
+  run(clean);
+  const cleanRows = tabRows(clean, '崇拜程序');
+  assert.deepStrictEqual([cleanRows[0].SERMON_TITLE, cleanRows[1].SERMON_TITLE], ['改過的講題甲', '插入的講題'], '對照');
+  const expected = snapshot(clean);
+
+  const env = prepare();
+  const real = env.sandbox.writeContentRows_;
+  const failed = [];
+  env.sandbox.writeContentRows_ = function (sheet) {
+    const name = String(sheet.getName());
+    if ((name === '崇拜程序' || name === '崇拜人數') && failed.indexOf(name) === -1) {
+      failed.push(name);
+      throw new Error('注入：寫資料行之前停止');
+    }
+    return real.apply(this, arguments);
+  };
+  assert.strictEqual(env.sandbox.apiRunContentSheetBuild(QUARTER_ID).ok, false, '第一次：崇拜程序停止');
+  const imp = env.sandbox.apiRunQuarterContentImport(QUARTER_ID);
+  assert.strictEqual(imp.data.ok, false);
+  assert.ok(String(imp.data.message).indexOf('上一次更新未做完') !== -1, imp.data.message);
+  const p = env.sandbox.apiPreviewContentSheetBuild(QUARTER_ID).data;
+  assert.ok(p.lines.join('\n').indexOf('「崇拜程序」上一次重新整理未做完，會由「崇拜程序（整理前，已停用）」再建一次') !== -1, p.lines.join('\n'));
+  assertWrittenChinese(assert, '預覽', p.lines);
+  assert.strictEqual(env.sandbox.apiRunContentSheetBuild(QUARTER_ID).ok, false, '第二次：崇拜人數停止');
+  assert.deepStrictEqual(failed, ['崇拜程序', '崇拜人數']);
+  env.sandbox.writeContentRows_ = real;
+  run(env);
+  assert.strictEqual(snapshot(env), expected, '重跑之後與一次跑完相同');
+});
+
+test('V4-18 週報已經有另一個值（例如在填寫介面改過）→ 保留週報的值，預覽與結果列出兩邊的值；週報空白的格照搬', function () {
+  const env = makeV3Env({
+    weekRows: [
+      { SERVICE_DATE: D1, QUARTER_ID: QUARTER_ID, PRELUDE: '介面改的序樂', CALL_REF: '詩篇 100:1' },
+      { SERVICE_DATE: D2, QUARTER_ID: QUARTER_ID, PRELUDE: '週報的序樂' },
+      { SERVICE_DATE: D3, QUARTER_ID: QUARTER_ID },
+      { SERVICE_DATE: D4, QUARTER_ID: QUARTER_ID },
+      { SERVICE_DATE: D5, QUARTER_ID: QUARTER_ID, SERMON_TITLE: '週報的講題' }
+    ]
+  });
+  const preview = env.sandbox.apiPreviewContentSheetBuild(QUARTER_ID).data.lines.join('\n');
+  ['內容表這六欄的值會先搬入週報（4 格，1 個主日）', '以下 1 格週報已經有另一個值',
+    D1 + '「序樂」：週報「介面改的序樂」，內容表「序樂甲」'].forEach(function (t) {
+    assert.ok(preview.indexOf(t) !== -1, '預覽缺少：' + t + '\n' + preview);
+  });
+  run(env);
+  const w1 = weekOf(env, D1);
+  assert.strictEqual(w1.PRELUDE, '介面改的序樂', '週報的值保留');
+  assert.deepStrictEqual([w1.CALL_TEXT, w1.HYMN_PRAISE, w1.CHOIR_TITLE, w1.CHOIR_LABEL], ['宣召經文甲', '頌讚甲', '詩班曲甲', '詩班獻詩']);
+});
+
+test('V4-19 被試算表轉成日期／時間的格：新分頁用週報現有的值並列出來；之後匯入不會把週報那一格清空', function () {
+  const env = makeV3Env({
+    weekRows: [
+      { SERVICE_DATE: D1, QUARTER_ID: QUARTER_ID, SCRIPTURE_REF: '約翰福音 3:16', PRELUDE: '週報的序樂一' },
+      { SERVICE_DATE: D2, QUARTER_ID: QUARTER_ID, ATT_ENG_WORSHIP: '45' },
+      { SERVICE_DATE: D3, QUARTER_ID: QUARTER_ID },
+      { SERVICE_DATE: D4, QUARTER_ID: QUARTER_ID },
+      { SERVICE_DATE: D5, QUARTER_ID: QUARTER_ID }
+    ]
+  });
+  const ws = env.contentSpreadsheet.getSheetByName('崇拜程序');
+  const keys = ws.__data[1];
+  const r1 = ws.__data.findIndex(function (row, i) { return i >= 2 && row[0] === D1; });
+  ws.__data[r1][keys.indexOf('SCRIPTURE_REF')] = new Date(1899, 11, 30, 3, 16);
+  ws.__data[r1][keys.indexOf('PRELUDE')] = new Date(1899, 11, 30, 9, 30);
+  const at = env.contentSpreadsheet.getSheetByName('崇拜人數');
+  const ak = at.__data[1];
+  const ar = at.__data.findIndex(function (row, i) { return i >= 2 && row[0] === minus7(D2); });
+  at.__data[ar][ak.indexOf('ATT_ENG_WORSHIP')] = new Date(1900, 0, 14);
+  const data = run(env);
+  const text = data.lines.join('\n');
+  ['以下 3 格被試算表轉成日期／時間格式', '崇拜程序第 ' + (r1 + 1) + ' 行（' + D1 + '）「讀經經文」：用週報的「約翰福音 3:16」',
+    '「序樂」：用週報的「週報的序樂一」', '崇拜人數第 ' + (ar + 1) + ' 行（' + minus7(D2) + '）「英語堂崇拜」：用週報的「45」'].forEach(function (t) {
+    assert.ok(text.indexOf(t) !== -1, '結果缺少：' + t + '\n' + text);
+  });
+  assertWrittenChinese(assert, '結果', data.lines);
+  assert.strictEqual(tabRows(env, '崇拜程序')[0].SCRIPTURE_REF, '約翰福音 3:16');
+  assert.strictEqual(tabRows(env, '崇拜人數')[1].ATT_ENG_WORSHIP, '45');
+  assert.strictEqual(weekOf(env, D1).PRELUDE, '週報的序樂一');
+  assert.strictEqual(env.sandbox.apiRunQuarterContentImport(QUARTER_ID).data.ok, true);
+  assert.strictEqual(weekOf(env, D1).SCRIPTURE_REF, '約翰福音 3:16', '匯入之後週報那一格仍然在');
+  assert.strictEqual(String(weekOf(env, D2).ATT_ENG_WORSHIP), '45');
+});
+
+test('V4-20 第 1、2 行被清走：「崇拜人數」下面有資料 → 照現行欄位補回第 1、2 行，人數不清走；「家事報告」分不出新舊次序 → 整次拒絕', function () {
+  const env = makeV3Env();
+  run(env);
+  const at = env.contentSpreadsheet.getSheetByName('崇拜人數');
+  // v4 之後才填的人數（改了名的舊分頁沒有）：清走第 1、2 行之後仍然要在。
+  const r3 = at.__data.findIndex(function (row, i) { return i >= 2 && row[0] === minus7(D3); });
+  at.__data[r3][at.__data[1].indexOf('ATT_ENG_WORSHIP')] = '99';
+  const before = tabRows(env, '崇拜人數');
+  at.__data[0] = at.__data[0].map(function () { return ''; });
+  at.__data[1] = at.__data[1].map(function () { return ''; });
+  run(env);
+  assert.deepStrictEqual(tabRows(env, '崇拜人數'), before, '人數不清走、第 1、2 行補回');
+  assert.strictEqual(env.contentSpreadsheet.getSheetByName('崇拜人數（整理前，已停用）2'), null, '不用重建');
+  const ann = env.contentSpreadsheet.getSheetByName('家事報告');
+  ann.__data[0] = ann.__data[0].map(function () { return ''; });
+  ann.__data[1] = ann.__data[1].map(function () { return ''; });
+  const snap = snapshot(env);
+  const data = failResult(env.sandbox.apiRunContentSheetBuild(QUARTER_ID));
+  assert.strictEqual(data.ok, false, JSON.stringify(data));
+  assert.ok(String(data.message).indexOf('「家事報告」第 2 行') !== -1, data.message);
+  assert.strictEqual(snapshot(env), snap, '一格不寫');
+});
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail === 0 ? 0 : 1);

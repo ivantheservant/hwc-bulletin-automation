@@ -290,6 +290,10 @@ function previewContentSheetBuild_(quarterId) {
     }
     if (!legacyLayout) {
       v4 = planContentSheetV4_(Object.assign(readContentSheetV4Inputs_(spreadsheet), { serviceDates: serviceDates }));
+      var blocker = contentSheetV4BlockerMessage_(v4);
+      if (blocker) {
+        return { ok: false, quarterId: qid, title: title, reason: 'CONTENT_SHEET_HEADER_CHANGED', lines: [], message: blocker };
+      }
     }
   } else {
     var newInputs = {

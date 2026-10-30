@@ -316,7 +316,7 @@ function buildRenderContext_(model, options) {
   // 舊範本（2026-10-30 之前）只有一個財政表：標題用這一期的報告標題（綜合收支優先），沒有報告就照樣式；
   //    附註、結餘用綜合收支那一份（以前讀 BulletinWeeks.FINANCE_NOTE／FINANCE_BALANCE，介面與內容表都填不到）。
   values.FINANCE_TITLE = mainReport ? renderValueText_(mainReport.title)
-    : (specialReport ? renderValueText_(specialReport.title) : buildFinanceTitle_(financeTitlePattern, m.isoDate));
+    : (specialReport ? renderValueText_(specialReport.title) : buildFinanceTitle_(financeTitlePattern, financeReports.isoDate || m.isoDate));
   values.FINANCE_NOTE = renderValueText_(mainReport ? mainReport.note : (specialReport ? specialReport.note : ''));
   values.FINANCE_BALANCE = renderValueText_(mainReport ? mainReport.balance : '');
 
@@ -326,7 +326,8 @@ function buildRenderContext_(model, options) {
   var financePeriodPattern = opts.financePeriodLabelPattern === undefined
     ? FINANCE_PERIOD_LABEL_PATTERN_DEFAULT_
     : opts.financePeriodLabelPattern;
-  values.FINANCE_PERIOD_LABEL = buildFinancePeriodLabel_(financePeriodPattern, m.isoDate);
+  // 特別崇拜印的是上一個主日的財政行：月份跟那一個主日（financeReports.isoDate），與兩款報告的標題同一個來源。
+  values.FINANCE_PERIOD_LABEL = buildFinancePeriodLabel_(financePeriodPattern, financeReports.isoDate || m.isoDate);
 
   // ---- 浸禮合堂副框六欄 ----
   // 顯示文字（單人欄位的尊稱）已經由 buildBaptismBoxFields_() 在資料模型
