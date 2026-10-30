@@ -1363,7 +1363,15 @@
         callServer('apiRunContentSheetBuild', [quarterId], function (runResp) {
           if (!runResp.ok) { showMessage('error', runResp.error.message); return; }
           if (!runResp.data.ok) { showMessage('error', runResp.data.message); return; }
-          showMessage('success', '已更新本季內容表。之後內容表改過，系統會自動更新之後的週報；想立即更新這一週，可以按「重新匯入」。');
+          // 2026-10-30（部署 @74 後瀏覽器測試）：結果有「⚠️」的行（權限設不到、鎖不到等）一定要講出來，
+          //    以前只顯示「已更新」，權限沒有設好亦看不到。
+          var warnLines = (runResp.data.lines || []).map(function (l) { return String(l || '').trim(); })
+            .filter(function (l) { return l.indexOf('⚠️') === 0; });
+          if (warnLines.length > 0) {
+            showMessage('warning', '已更新本季內容表，但有 ' + warnLines.length + ' 項要留意：' + warnLines.join('　'));
+          } else {
+            showMessage('success', '已更新本季內容表。之後內容表改過，系統會自動更新之後的週報；想立即更新這一週，可以按「重新匯入」。');
+          }
           loadWeek(isoDate, { keepMessage: true });
           refreshWeekSelectorLabels();
         }, { busyText: '更新內容表中…' });

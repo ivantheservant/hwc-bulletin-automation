@@ -29,7 +29,9 @@ function readContentSheetSharingConfig_() {
     access: raw === 'EDIT' ? 'EDIT' : 'VIEW',
     accessRaw: raw,
     editorGroups: getConfigTextList_(CONFIG_KEYS.CONTENT_SHEET_EDITOR_GROUPS, 'CC,DB,ADMIN,IT,WORSHIP'),
-    financeGroups: getConfigTextList_(CONFIG_KEYS.CONTENT_SHEET_FINANCE_EDITOR_GROUPS, 'DB,ADMIN,IT')
+    financeGroups: getConfigTextList_(CONFIG_KEYS.CONTENT_SHEET_FINANCE_EDITOR_GROUPS, 'DB,ADMIN,IT'),
+    // 2026-10-30 部署 @74 後瀏覽器測試：網域未填時預覽亦要講明網域權限不會改（以前預覽照講「網域內只可以看」）。
+    domain: String(getConfig_(CONFIG_KEYS.CONTENT_SHEET_DOMAIN, '') || '').trim()
   };
 }
 
@@ -82,9 +84,19 @@ function planContentSheetSharing_(input) {
     }
   }
   Object.keys(recipientWarnings).forEach(function (m) { out.warnings.push('Recipients：' + m); });
-  out.lines.push(out.access === 'VIEW'
-    ? '內容表權限：教會網域內只可以看；可以修改的是 ' + (config.editorGroups || []).join('、') + ' 組（' + out.editors.length + ' 人）。'
-    : '內容表權限：教會網域內任何人都可以修改。');
+  // `domain` 未有（舊的呼叫方）＝不知道，照舊講；空字串＝Config 未填，網域連結權限不會改。
+  var domainBlank = config.domain !== undefined && String(config.domain || '').trim() === '';
+  out.domainBlank = domainBlank;
+  if (domainBlank) {
+    out.lines.push('內容表權限：Config 的 CONTENT_SHEET_DOMAIN 未填，網域的連結權限不會自動改（「共用」現在怎樣設就保持怎樣）'
+      + (out.access === 'VIEW' ? '；可以修改的 ' + (config.editorGroups || []).join('、') + ' 組（' + out.editors.length + ' 人）會逐個加為編輯者。' : '。'));
+    out.warnings.push('Config 的 CONTENT_SHEET_DOMAIN 未填（例如 holywordchurch.org.nz）：填好之後再按一次「更新本季內容表」，'
+      + '網域內的人才會' + (out.access === 'VIEW' ? '只可以看' : '可以修改') + '。');
+  } else {
+    out.lines.push(out.access === 'VIEW'
+      ? '內容表權限：教會網域內只可以看；可以修改的是 ' + (config.editorGroups || []).join('、') + ' 組（' + out.editors.length + ' 人）。'
+      : '內容表權限：教會網域內任何人都可以修改。');
+  }
   out.lines.push(out.financeLocked
     ? '「財政報告」分頁：只限 ' + config.financeGroups.join('、') + ' 組（' + out.financeEditors.length + ' 人）修改。'
     : '「財政報告」分頁：不另外限制。');
@@ -163,7 +175,7 @@ function applyContentSheetSharing_(fileId, spreadsheet, plan, domain) {
   }
 
   out.lines = plan.lines.slice().concat(out.lines);
-  if (!domainSet) {
+  if (!domainSet && !plan.domainBlank) {
     out.lines.push('⚠️ 未設定 ' + CONFIG_KEYS.CONTENT_SHEET_DOMAIN + '，網域連結權限沒有自動設定，請人手在「共用」設定。');
   }
   if (out.added.length > 0) out.lines.push('已加編輯者（不寄通知信）：' + out.added.length + ' 人。');

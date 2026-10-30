@@ -858,6 +858,14 @@ test('12a. 權限計畫（純函式 planContentSheetSharing_）：VIEW＋組別�
   assert.strictEqual(edit.financeLocked, false);
   const bad = sb.planContentSheetSharing_({ config: Object.assign({}, cfg, { accessRaw: 'READ' }), recipientRows: rows, today: today });
   assert.ok(bad.warnings.join('').indexOf('只可以填 VIEW 或 EDIT') !== -1);
+  // 部署 @74 後瀏覽器測試：CONTENT_SHEET_DOMAIN 未填 → 預覽不可以講「網域內只可以看」，要講明不會改並提示填 Config。
+  const noDomain = sb.planContentSheetSharing_({ config: Object.assign({}, cfg, { domain: '' }), recipientRows: rows, today: today });
+  assert.strictEqual(noDomain.lines[0].indexOf('教會網域內只可以看'), -1, noDomain.lines[0]);
+  assert.ok(noDomain.lines[0].indexOf('CONTENT_SHEET_DOMAIN 未填，網域的連結權限不會自動改') !== -1, noDomain.lines[0]);
+  assert.ok(noDomain.warnings.join('').indexOf('填好之後再按一次「更新本季內容表」') !== -1);
+  const withDomain = sb.planContentSheetSharing_({ config: Object.assign({}, cfg, { domain: 'x.com' }), recipientRows: rows, today: today });
+  assert.ok(withDomain.lines[0].indexOf('教會網域內只可以看') !== -1);
+  assert.strictEqual(withDomain.warnings.join('').indexOf('CONTENT_SHEET_DOMAIN'), -1);
 });
 
 test('12b. CONTENT_SHEET_DOMAIN 未填 → 照樣建立得到，但唔設分享權限而且對話框有提醒', function () {
