@@ -364,5 +364,67 @@ test('定義 b. 列分組剛好用齊六個機器鍵，每列兩格，沒有重�
 
 // =====================================================================
 
+// =====================================================================
+// 7. 2026-10-31：新副本的版面——「受浸肢體」「入會肢體」各佔一整列（按 2026-10-04 實際週報）
+// =====================================================================
+
+/** 四列：主禮兩格一列、受浸肢體一整列、入會肢體一整列、孩童兩格一列。 */
+function fullWidthMembersDocumentXml() {
+  return fx.documentXml(
+    fx.para(fx.run('副框之前的內容'))
+    + fx.table([
+      fx.row([
+        fx.cell(fx.para(fx.run('浸禮：{{BAPTISM_OFFICIANT}}'))),
+        fx.cell(fx.para(fx.run('入會禮：{{MEMBERSHIP_OFFICIANT}}')))
+      ]),
+      fx.row([fx.cell(fx.para(fx.run('受浸肢體：{{BAPTISM_MEMBERS}}')))]),
+      fx.row([fx.cell(fx.para(fx.run('入會肢體：{{MEMBERSHIP_MEMBERS}}')))]),
+      fx.row([
+        fx.cell(fx.para(fx.run('孩童奉獻禮：{{CHILD_DEDICATION_OFFICIANT}}'))),
+        fx.cell(fx.para(fx.run('奉獻孩童：{{CHILD_DEDICATION_CHILDREN}}')))
+      ])
+    ])
+    + fx.para(fx.run('副框之後的內容'))
+  );
+}
+
+test('7a. 一整列的名單：只有受浸肢體 → 入會肢體那一列整列刪走，不會留下孤零零的「入會肢體：」', function () {
+  const values = Object.assign(emptyValues(), { BAPTISM_OFFICIANT: '林立文牧師', BAPTISM_MEMBERS: '何燕芬 馮凱琳' });
+  const result = applyOptionalLabelledCellRows_(fullWidthMembersDocumentXml(), values, baptismBoxRowGroups_());
+  const out = renderDocumentXml_(result.xml, { values: values, lists: {}, missingValueMode: 'BLANK' }).xml;
+  const text = visibleText(out);
+  assert.strictEqual(result.removedRows, 2, '入會肢體一列、孩童一列');
+  assert.strictEqual(result.clearedCells, 1, '主禮那一列只清「入會禮：」那一格');
+  assert.ok(text.indexOf('受浸肢體：何燕芬 馮凱琳') !== -1);
+  assert.strictEqual(text.indexOf('入會肢體'), -1, '入會肢體標籤不可以留下');
+  assert.strictEqual(text.indexOf('入會禮'), -1, '入會禮標籤不可以留下');
+  assert.strictEqual(countTag(out, 'w:tr'), 2);
+});
+
+test('7b. 一整列的名單：六格全空 → 整個表格刪走，前後內容不受影響', function () {
+  const result = applyOptionalLabelledCellRows_(fullWidthMembersDocumentXml(), emptyValues(), baptismBoxRowGroups_());
+  assert.strictEqual(result.removedTables, 1);
+  const text = visibleText(result.xml);
+  assert.ok(text.indexOf('副框之前的內容') !== -1 && text.indexOf('副框之後的內容') !== -1);
+  assert.strictEqual(countTag(result.xml, 'w:tbl'), 0);
+});
+
+test('7c. 一整列的名單：只有入會肢體 → 受浸肢體那一列刪走，入會肢體保留', function () {
+  const values = Object.assign(emptyValues(), { MEMBERSHIP_MEMBERS: '孔玉芬 楊婉芬' });
+  const result = applyOptionalLabelledCellRows_(fullWidthMembersDocumentXml(), values, baptismBoxRowGroups_());
+  const text = visibleText(result.xml);
+  assert.strictEqual(result.removedRows, 3, '主禮、受浸肢體、孩童三列');
+  assert.ok(text.indexOf('入會肢體：{{MEMBERSHIP_MEMBERS}}') !== -1);
+  assert.strictEqual(text.indexOf('受浸肢體'), -1);
+});
+
+test('7d. 舊版面（兩格同一列）結果不變：只有受浸肢體 → 同列「入會肢體」那一格清空，該列保留', function () {
+  const values = Object.assign(emptyValues(), { BAPTISM_MEMBERS: '陳大文' });
+  const result = applyOptionalLabelledCellRows_(baptismDocumentXml(), values, baptismBoxRowGroups_());
+  assert.strictEqual(result.removedRows, 2);
+  assert.strictEqual(result.clearedCells, 1);
+  assert.strictEqual(result.removedTables, 0);
+});
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail === 0 ? 0 : 1);

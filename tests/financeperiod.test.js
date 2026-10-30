@@ -167,5 +167,35 @@ test('9d. 兩個預設樣式都用同一組符記名（{{YEAR}}／{{MONTH}}）',
 
 // =====================================================================
 
+// =====================================================================
+// 10. 2026-10-31：月份跟報告標題（實際週報 2026-08-02 印六月份、2026-10-04 印八月份）
+// =====================================================================
+
+test('10a. 標題「…-2026 年 08 月份」→ 期別「8月份」，不是上一個月', function () {
+  assert.strictEqual(sandbox.buildFinancePeriodLabelForReport_('{{MONTH}}月份', '2026-10-04', '聖道堂綜合收支財務報告-2026 年 08 月份'), '8月份');
+  assert.strictEqual(sandbox.buildFinancePeriodLabelForReport_('{{MONTH}}月份', '2026-08-02', '財政部消息： 聖道堂綜合收支財務報告-2026年 06月份'), '6月份');
+});
+
+test('10b. 標題沒有年月（或留空）→ 照舊上一個月', function () {
+  assert.strictEqual(sandbox.buildFinancePeriodLabelForReport_('{{MONTH}}月份', '2026-10-04', ''), '9月份');
+  assert.strictEqual(sandbox.buildFinancePeriodLabelForReport_('{{MONTH}}月份', '2026-10-04', '財政報告'), '9月份');
+  assert.strictEqual(sandbox.financeMonthFromTitle_('2026 年 13 月'), null, '不合理的月份不用');
+});
+
+test('10c. 經 buildRenderContext_：{{FINANCE_PERIOD_LABEL}} 與綜合收支表頭 {{PERIOD}} 同一個月份', function () {
+  const split = sandbox.buildFinanceReports_([
+    { title: '聖道堂綜合收支財務報告-2026 年 08 月份', rowLabel: '總收入', specialOverseas: '1', hardship: '2', col3: '3', col4: '4' }
+  ], { isoDate: '2026-10-04' });
+  const period = sandbox.buildFinancePeriodLabelForReport_(FINANCE_PERIOD_LABEL_PATTERN_DEFAULT_, '2026-10-04', split.main.title);
+  const model = {
+    isoDate: '2026-10-04',
+    financeReports: { isoDate: '2026-10-04', main: split.main, special: null, periodLabel: period,
+      columnLabels: sandbox.financeColumnLabels_({ periodLabel: period }) }
+  };
+  const ctx = buildRenderContext_(model, {});
+  assert.strictEqual(ctx.values.FINANCE_PERIOD_LABEL, '8月份');
+  assert.strictEqual(ctx.values.FINANCE_MAIN_HEAD1, '8月份實際數字');
+});
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail === 0 ? 0 : 1);

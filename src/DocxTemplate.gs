@@ -1313,8 +1313,9 @@ function clearCellTextKeepingStructure_(cellXml) {
  *     否則被 Word 拆散的佔位符找不到）。
  *   values {Object<string,*>} 佔位符 → 值。判斷「有沒有值」用
  *     `isTruthyForTemplate_()`，與條件列同一套標準。
- *   rowGroups {string[][]} 每個元素是一列，內含該列各格的機器鍵。
- *     例如 `baptismBoxRowGroups_()`（`src/BaptismBox.gs`）。
+ *   rowGroups {string[][]} 要處理的機器鍵（例如 `baptismBoxRowGroups_()`，`src/BaptismBox.gs`）。
+ *     2026-10-31 起**實際分組按範本上每個佔位符所在的那一列**，不按這個陣列的分組：
+ *     範本可以把一個鍵放一整列（例如名單長的「受浸肢體」）。
  * Returns:
  *   {{xml:string, removedRows:number, clearedCells:number,
  *     removedTables:number, found:boolean}} `found` 為 false 代表範本內
@@ -1333,28 +1334,43 @@ function applyOptionalLabelledCellRows_(xml, values, rowGroups) {
   var tblRanges = findElementRanges_(source, 'w:tbl');
 
   // ---- 逐列盤點：這一列有哪些格在範本內、各自空不空 ----
-  var plans = [];
+  // 2026-10-31（範本副本，按 2026-10-04 浸禮合堂實際版面）：**按範本上實際所在的那一列分組**，不再假設
+  //   `rowGroups` 每一組就是同一列。新副本把「受浸肢體」「入會肢體」各放一整列（名單長），舊的分組會令
+  //   「入會肢體」那一列留下孤零零的標籤。`rowGroups` 只用來列出要處理哪些鍵；舊範本（兩格同一列）結果不變。
+  var cellsByRow = {};
+  var rowOrder = [];
   groups.forEach(function (keys) {
-    var cells = [];
     (keys || []).forEach(function (key) {
       var placeholder = '{{' + key + '}}';
       var at = source.indexOf(placeholder);
       if (at === -1) return; // 這個範本沒有這一格，略過
       var owningTc = innermostRangeContaining_(tcRanges, at);
       if (!owningTc) return; // 佔位符不在表格內：不屬於本函式處理的形態
-      cells.push({ key: key, at: at, tc: owningTc, filled: isTruthyForTemplate_(lookup[key]) });
+      var owningTr = innermostRangeContaining_(trRanges, at);
+      if (!owningTr) return;
+      var rowKey = String(owningTr.start);
+      if (!cellsByRow[rowKey]) {
+        cellsByRow[rowKey] = { tr: owningTr, tbl: innermostRangeContaining_(tblRanges, at), cells: [] };
+        rowOrder.push(rowKey);
+      }
+      var filled = isTruthyForTemplate_(lookup[key]);
+      // 同一格出現兩個鍵（不應該發生）：合併成一格，任何一個有值就算有值，免得同一段範圍被改兩次。
+      var sameCell = cellsByRow[rowKey].cells.filter(function (c) { return c.tc.start === owningTc.start; })[0];
+      if (sameCell) {
+        sameCell.filled = sameCell.filled || filled;
+        return;
+      }
+      cellsByRow[rowKey].cells.push({ key: key, at: at, tc: owningTc, filled: filled });
     });
-    if (cells.length === 0) return;
-
-    var owningTr = innermostRangeContaining_(trRanges, cells[0].at);
-    if (!owningTr) return;
-
-    plans.push({
-      tr: owningTr,
-      tbl: innermostRangeContaining_(tblRanges, cells[0].at),
-      cells: cells,
-      allEmpty: cells.every(function (c) { return !c.filled; })
-    });
+  });
+  var plans = rowOrder.map(function (rowKey) {
+    var row = cellsByRow[rowKey];
+    return {
+      tr: row.tr,
+      tbl: row.tbl,
+      cells: row.cells,
+      allEmpty: row.cells.every(function (c) { return !c.filled; })
+    };
   });
 
   if (plans.length === 0) {

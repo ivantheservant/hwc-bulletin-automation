@@ -217,6 +217,45 @@ function buildFinancePeriodLabel_(pattern, isoDate) {
 }
 
 /**
+ * 用途：2026-10-31：由報告標題讀出報告月份（例如「聖道堂綜合收支財務報告-2026 年 08 月份」→ 2026 年 8 月）。純函式。
+ *   實際週報的財政報告不一定是上一個月：2026-08-02 印六月份、2026-10-04 印八月份。幹事在內容表填了報告標題，
+ *   表頭的月份就要跟標題，否則標題寫「08 月份」而表頭印「9月份」。
+ * Args:
+ *   title {*} 報告標題。
+ * Returns:
+ *   {?{year:number, month:number}} 標題沒有「yyyy 年 m 月」就回 `null`。
+ * Raises:
+ *   （無）
+ */
+function financeMonthFromTitle_(title) {
+  var m = /(\d{4})\s*年\s*(\d{1,2})\s*月/.exec(String(title === null || title === undefined ? '' : title));
+  if (!m) return null;
+  var month = Number(m[2]);
+  if (!(month >= 1 && month <= 12)) return null;
+  return { year: Number(m[1]), month: month };
+}
+
+/**
+ * 用途：2026-10-31：期別標籤（`{{FINANCE_PERIOD_LABEL}}`、綜合收支表頭的 `{{PERIOD}}`）。標題有年月就跟標題，
+ *   否則照舊用上一個月（`buildFinancePeriodLabel_()`）。純函式。
+ * Args:
+ *   pattern {string} Config `FINANCE_PERIOD_LABEL_PATTERN`。
+ *   isoDate {string} 主日日期（特別崇拜＝上一個主日），yyyy-MM-dd。
+ *   reportTitle {*} 綜合收支報告的標題（沒有就空白）。
+ * Returns:
+ *   {string}
+ * Raises:
+ *   （無）
+ */
+function buildFinancePeriodLabelForReport_(pattern, isoDate, reportTitle) {
+  var fromTitle = financeMonthFromTitle_(reportTitle);
+  if (!fromTitle) return buildFinancePeriodLabel_(pattern, isoDate);
+  return String(pattern || '')
+    .split('{{YEAR}}').join(String(fromTitle.year))
+    .split('{{MONTH}}').join(String(fromTitle.month));
+}
+
+/**
  * 用途：把資料模型轉成 Word 範本要用的佔位符表。**純函式**。
  *
  *   完整的佔位符清單見 docs/佔位符對照表.md。這裡刻意把全部鍵都**明確
@@ -327,7 +366,9 @@ function buildRenderContext_(model, options) {
     ? FINANCE_PERIOD_LABEL_PATTERN_DEFAULT_
     : opts.financePeriodLabelPattern;
   // 特別崇拜印的是上一個主日的財政行：月份跟那一個主日（financeReports.isoDate），與兩款報告的標題同一個來源。
-  values.FINANCE_PERIOD_LABEL = buildFinancePeriodLabel_(financePeriodPattern, financeReports.isoDate || m.isoDate);
+  // 2026-10-31：月份跟綜合收支報告的標題（與表頭 {{PERIOD}} 同一個來源，見 buildFinancePeriodLabelForReport_()）。
+  values.FINANCE_PERIOD_LABEL = buildFinancePeriodLabelForReport_(financePeriodPattern, financeReports.isoDate || m.isoDate,
+    mainReport ? mainReport.title : '');
 
   // ---- 浸禮合堂副框六欄 ----
   // 顯示文字（單人欄位的尊稱）已經由 buildBaptismBoxFields_() 在資料模型

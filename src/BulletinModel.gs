@@ -522,9 +522,10 @@ function assembleBulletinModel_(input) {
     specialTitlePattern: config.financeSpecialTitlePattern,
     specialKeywords: config.financeSpecialKeywords
   });
-  var financePeriodLabel = buildFinancePeriodLabel_(
+  // 2026-10-31：期別跟綜合收支報告的標題月份（實際週報有時印兩個月前的報告）；沒有標題月份就用上一個月。
+  var financePeriodLabel = buildFinancePeriodLabelForReport_(
     config.financePeriodLabelPattern === undefined ? FINANCE_PERIOD_LABEL_PATTERN_DEFAULT_ : config.financePeriodLabelPattern,
-    financeIso);
+    financeIso, financeSplit.main ? financeSplit.main.title : '');
   model.financeReports = {
     // 標題月份、期間用的日期（特別崇拜＝上一個主日）。Word 舊範本的 {{FINANCE_TITLE}}／{{FINANCE_PERIOD_LABEL}} 亦用這一個。
     isoDate: financeIso,
