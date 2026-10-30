@@ -448,7 +448,7 @@ test('G9-3 競態：揀檔之後、讀完之前換了主日 → 讀完時丟棄�
   assert.strictEqual(publishCalls(t).length, 0);
 });
 
-test('G9-4 第二道防線：state 裏面的 PDF 是另一個主日揀的 → runPublish 拒絕，訊息列與確認視窗都顯示「揀檔之後換了主日，請重新揀這一週的 PDF。」；只寄出不受影響', function () {
+test('G9-4 第二道防線：state 裏面的 PDF 是另一個主日揀的 → runPublish 拒絕，訊息列與確認視窗都顯示「選了檔案之後換了主日，請重新選這一週的 PDF。」；只寄出不受影響', function () {
   const t = loadPublishResultRegion('2028-04-16');
   t.state.publish.pdfBase64 = 'Q0NDQw==';
   t.state.publish.pdfName = '2028-04-09_週報.pdf';
@@ -457,9 +457,9 @@ test('G9-4 第二道防線：state 裏面的 PDF 是另一個主日揀的 → ru
   t.elements.doPublishCheck.checked = true;
   t.api.runPublish(true);
   assert.strictEqual(publishCalls(t).length, 0);
-  assert.strictEqual(t.api.weekChangedMessage, '揀檔之後換了主日，請重新揀這一週的 PDF。');
-  assert.ok(t.calls.messages.some(function (m) { return m.type === 'error' && m.text === '揀檔之後換了主日，請重新揀這一週的 PDF。'; }));
-  assert.deepStrictEqual(t.calls.confirmErrors, ['揀檔之後換了主日，請重新揀這一週的 PDF。'], '確認視窗是 modal，視窗內也要寫');
+  assert.strictEqual(t.api.weekChangedMessage, '選了檔案之後換了主日，請重新選這一週的 PDF。');
+  assert.ok(t.calls.messages.some(function (m) { return m.type === 'error' && m.text === '選了檔案之後換了主日，請重新選這一週的 PDF。'; }));
+  assert.deepStrictEqual(t.calls.confirmErrors, ['選了檔案之後換了主日，請重新選這一週的 PDF。'], '確認視窗是 modal，視窗內也要寫');
 
   // 只寄出（不發佈）不用 PDF，不擋。
   t.elements.doPublishCheck.checked = false;

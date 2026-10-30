@@ -412,7 +412,7 @@ function fakeSummary(overrides) {
         invariantFailures: ['I06'], elapsedMs: 30
       },
       {
-        id: 'S15', name: '揀錯檔案', result: 'INVARIANT_WARNING',
+        id: 'S15', name: '選錯檔案', result: 'INVARIANT_WARNING',
         expected: '被拒', actual: '被拒；不變量 I06 不成立',
         evidence: '情境本身通過，但跑完之後不變量不成立：I06',
         invariantFailures: ['I06'], elapsedMs: 20
@@ -797,7 +797,7 @@ test('describePublishBlock_：揀錯檔案擋住 → 一樣算 blocked，gate �
   });
   assert.strictEqual(b.blocked, true, '被另一道守門擋住，一樣是「被擋住」');
   assert.strictEqual(b.gate, 'UPLOAD_IS_CURRENT_MASTER');
-  assert.ok(b.gateLabel.indexOf('揀錯檔案') !== -1, b.gateLabel);
+  assert.ok(b.gateLabel.indexOf('選錯檔案') !== -1, b.gateLabel);
   assert.ok(b.message.indexOf('目前已發佈的那一份') !== -1, b.message);
 });
 

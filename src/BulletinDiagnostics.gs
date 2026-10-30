@@ -303,7 +303,7 @@ function buildBulletinModelReportLines_(model, slotCheck) {
   // 2026-10-27：每週標題來自職事表 ServiceDates.Title（不再讀 SpecialSundays）。
   lines.push('每週標題（特別主日）：' + (model.special ? model.special.title : '（無，普通主日）'));
   lines.push('程序範本：' + (model.templateId || '（無）')
-    + (String((model.weekFields || {}).PROGRAM_TEMPLATE_ID || '').trim() ? '（人手揀選）' : '（自動：跟每週標題）'));
+    + (String((model.weekFields || {}).PROGRAM_TEMPLATE_ID || '').trim() ? '（人手選擇）' : '（自動：跟每週標題）'));
   lines.push('大標題：' + model.header.pageTitle + '　封面日期：' + model.header.coverDate);
   lines.push('人數表標題：' + model.header.attendanceHeading + '（' + model.header.attendanceDate + '）');
   lines.push('下週事奉標題：' + model.header.nextWeekHeading + '（' + model.header.nextWeekDate + '）');

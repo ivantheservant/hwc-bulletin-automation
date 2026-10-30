@@ -1047,7 +1047,7 @@ function buildMonkeyReportLines_(summary) {
   lines.push('【逐步記錄】');
   summary.steps.forEach(function (s) {
     lines.push('第 ' + s.stepNo + ' 步　合法：[' + s.availableIds.join(', ') + ']　'
-      + '揀了：' + (s.chosenLabel || s.chosenId));
+      + '選了：' + (s.chosenLabel || s.chosenId));
     lines.push('　　結果：' + s.result + '　' + s.detail);
     lines.push('　　不變量：' + s.invariantStatus);
   });
@@ -1085,7 +1085,7 @@ function monkeyCoverageHeadline_(coverage) {
   var chosen = (coverage || []).filter(function (c) { return c.chosen > 0; })
     .sort(function (a, b) { return b.chosen - a.chosen; })
     .map(function (c) { return c.id + ' ' + c.chosen; });
-  return '動作覆蓋：' + (chosen.length > 0 ? chosen.join('、') : '（一個都沒有揀過）');
+  return '動作覆蓋：' + (chosen.length > 0 ? chosen.join('、') : '（一個都沒有選過）');
 }
 
 /**
@@ -1112,7 +1112,7 @@ function monkeyCoverageProblemLines_(coverage) {
   });
 
   if (neverChosen.length > 0) {
-    lines.push('⚠️ 從未揀中（有資格但一次都抽不中）：'
+    lines.push('⚠️ 從未抽中（有資格但一次都抽不中）：'
       + neverChosen.map(function (c) { return c.id; }).join('、'));
   }
   notApplicable.forEach(function (entry) {
@@ -1122,7 +1122,7 @@ function monkeyCoverageProblemLines_(coverage) {
   });
 
   if (lines.length === 0) {
-    lines.push('（每一個動作都至少被揀中過一次。）');
+    lines.push('（每一個動作都至少被抽中過一次。）');
   }
   return lines;
 }
@@ -1238,7 +1238,7 @@ function menuResumeMonkey_() {
         + '　執行編號：' + pending.runId + '\n'
         + '　亂數種子：' + pending.seed + '\n'
         + '　進度：' + pending.stepsDone + '／' + pending.targetSteps + ' 步，還有 ' + remaining + ' 步\n\n'
-        + '⚠️ 同一個執行編號、同一個種子、亂數狀態還原——揀中的動作序列會與'
+        + '⚠️ 同一個執行編號、同一個種子、亂數狀態還原——抽中的動作序列會與'
         + '「一次過跑滿」完全相同。\n\n'
         + '要繼續嗎？',
       ui.ButtonSet.YES_NO);

@@ -41,7 +41,7 @@
         ⚠️ 「封存」在本系統**不等於刪除**：資料一格未動，取消勾選就見得返，
         亦可以用選單「取消封存季度」完全還原。
       -->
-      <label class="topbar-field" id="showArchivedField" title="已封存的季度預設不顯示。封存不等於刪除——資料一格未動，隨時見得返。">
+      <label class="topbar-field" id="showArchivedField" title="已封存的季度預設不顯示。封存不等於刪除——資料一格未動，取消勾選就會再顯示。">
         <input type="checkbox" id="showArchivedCheck"> 顯示已封存
       </label>
       <!-- ⚠️ 一個可見季度都沒有時一定要有一句說明，不可以只顯示一個空下拉。 -->
@@ -118,7 +118,7 @@
       <div id="previewLinkUrl" class="preview-link-url">（載入中）</div>
       <div class="preview-link-actions">
         <button id="copyPreviewLinkBtn" type="button" class="btn btn-small">複製連結</button>
-        <a id="openPreviewLink" class="preview-link-open hidden" target="_blank" rel="noopener">開啟看看</a>
+        <a id="openPreviewLink" class="preview-link-open hidden" target="_blank" rel="noopener">開啟</a>
         <span id="copyPreviewLinkDone" class="hint hidden">已複製</span>
       </div>
       <p class="hint">
@@ -142,7 +142,7 @@
       </div>
       <div id="rosterMeta" class="readonly-meta"></div>
       <p class="hint">
-        在這裡改動的名單<strong>只存在週報，永遠不會寫回職事表</strong>。
+        在這裏改動的名單<strong>只存在週報，永遠不會寫回職事表</strong>。
         沒有改動過的崗位會自動跟隨職事表最新版；改動過的崗位，職事表之後再改也會<strong>保留你填的名字</strong>，旁邊會顯示職事表的名字。
       </p>
       <!-- v3：你填的名字與職事表不同的崗位（職事表未排定的不算）。每次載入與「由職事表重新取數」之後更新。 -->
@@ -405,7 +405,7 @@
     <details class="panel snapshot-panel" id="snapshotPanel">
       <summary>版本記錄（這一個主日）</summary>
       <p class="hint">
-        每次儲存、匯入或同步之前，系統都會自動存一個版本。先在下拉揀一個版本，可以「預覽這個版本」（唯讀）或「看差異」，
+        每次儲存、匯入或同步之前，系統都會自動存一個版本。先在下拉選一個版本，可以「預覽這個版本」（唯讀）或「看差異」，
         確定之後才「還原到這個版本」。還原不會刪走任何版本：還原之前與之後各會多存一個版本。
       </p>
       <div id="snapshotStatus" class="hint"></div>
@@ -474,7 +474,7 @@
         </label>
         <div id="publishSendRow" class="publish-sub">
           <p class="hint">
-            郵件會附上這一個主日的<strong>預覽連結</strong>與<strong>本季內容表連結</strong>；這一期已經發佈的話，亦會附上 master 連結。
+            電郵會附上這一個主日的<strong>預覽連結</strong>與<strong>本季內容表連結</strong>；這一期已經發佈的話，亦會附上 master 連結。
           </p>
           <div id="publishGroupOptions" class="publish-groups"></div>
           <label class="publish-custom">

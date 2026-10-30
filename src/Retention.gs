@@ -506,7 +506,7 @@ function buildRetentionReportLines_(plan, archived, skipped, config) {
 
   lines.push('⚠️ 封存只是「預設不顯示」，一格資料都沒有刪：');
   lines.push('　　BulletinWeeks 只多了一個 ARCHIVED=TRUE 的標記，內容一格未動；');
-  lines.push('　　季度填寫表是隱藏（不是刪除），取消隱藏就見得返；');
+  lines.push('　　季度填寫表是隱藏（不是刪除），取消隱藏就會再見到；');
   lines.push('　　內容表檔案沒有刪，只是登記行的「有效」改成 FALSE。');
   lines.push('　　要完全還原，用選單「取消封存季度」。');
   lines.push('');

@@ -125,7 +125,7 @@ function enrichAuthError_(err) {
   if (!isAuthError) return message;
 
   return message + '　⚠️ 這是授權範圍問題。請按選單「' + APP_NAME + ' ▸ ' + AUTHORIZE_MENU_LABEL_ + '」，'
-    + '或在 Apps Script 編輯器的函式下拉揀 ' + AUTHORIZE_FUNCTION_NAME_ + ' 再按執行，'
+    + '或在 Apps Script 編輯器的函式下拉選 ' + AUTHORIZE_FUNCTION_NAME_ + ' 再按執行，'
     + '在彈出的授權畫面按 Allow。若填寫介面仍然失敗，需要重新部署網頁應用程式。';
 }
 

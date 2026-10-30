@@ -766,7 +766,7 @@ test('覆蓋統計：列出每個動作被揀中幾多次', function () {
 test('覆蓋統計：零次而且有資格的，標成「從未揀中」', function () {
   const env = makeEnv({});
   const lines = env.sandbox.monkeyCoverageProblemLines_(fakeSummary().coverage).join('\n');
-  assert.ok(lines.indexOf('從未揀中') !== -1, lines);
+  assert.ok(lines.indexOf('從未抽中') !== -1, lines);
   assert.ok(lines.indexOf('EDIT_FIELDS') !== -1, lines);
 });
 
@@ -778,7 +778,7 @@ test('覆蓋統計：零次而且不適用的，另外標並寫明原因', funct
   assert.ok(lines.indexOf('不適用（未進入候選）：PUBLISH') !== -1, lines);
   assert.ok(lines.indexOf('SELFTEST_MASTER_PDF_FILE_ID') !== -1, '要寫明原因：' + lines);
   // PUBLISH 不可以同時出現在「從未揀中」那一行。
-  const neverLine = lines.split('\n').filter(function (l) { return l.indexOf('從未揀中') !== -1; })[0] || '';
+  const neverLine = lines.split('\n').filter(function (l) { return l.indexOf('從未抽中') !== -1; })[0] || '';
   assert.ok(neverLine.indexOf('PUBLISH') === -1, 'PUBLISH 是不適用，不是抽不中：' + neverLine);
 });
 
@@ -788,7 +788,7 @@ test('覆蓋統計：全部動作都揀過 → 明講「每一個動作都至少
     { id: 'A', label: 'a', chosen: 3, notApplicableReasons: [] },
     { id: 'B', label: 'b', chosen: 1, notApplicableReasons: [] }
   ]).join('\n');
-  assert.ok(lines.indexOf('每一個動作都至少被揀中過一次') !== -1, lines);
+  assert.ok(lines.indexOf('每一個動作都至少被抽中過一次') !== -1, lines);
 });
 
 test('報告與摘要都有覆蓋統計那一段', function () {
@@ -1026,7 +1026,7 @@ test('報告：逐步記錄印出「合法動作」與「揀了甚麼」', funct
 
   assert.ok(text.indexOf('第 1 步') !== -1, text);
   assert.ok(text.indexOf('CREATE_WEEKS') !== -1, text);
-  assert.ok(text.indexOf('揀了：建立本季空白週報') !== -1, text);
+  assert.ok(text.indexOf('選了：建立本季空白週報') !== -1, text);
   assert.ok(text.indexOf('不變量：') !== -1, text);
 });
 

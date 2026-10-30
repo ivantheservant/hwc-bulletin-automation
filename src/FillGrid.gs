@@ -716,7 +716,7 @@ function buildFillAppearanceReportLines_(facts) {
 
   lines.push('「條件格式規則」（共 ' + facts.conditionalFormatRules.length + ' 條）');
   if (facts.conditionalFormatRules.length === 0) {
-    lines.push('（沒有任何條件格式規則——如果預期應該有特別主日整行淺黃、已填格子淺綠，這裡是空的就代表沒套用成功。）');
+    lines.push('（沒有任何條件格式規則——如果預期應該有特別主日整行淺黃、已填格子淺綠，這裏是空的就代表沒套用成功。）');
   } else {
     facts.conditionalFormatRules.forEach(function (rule, i) {
       lines.push((i + 1) + '. 範圍：' + rule.ranges.join('、'));

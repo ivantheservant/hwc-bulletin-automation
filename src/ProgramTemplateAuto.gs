@@ -168,12 +168,12 @@ function migrateProgramTemplateToAuto_() {
     appendAuditLog_({
       action: PROGRAM_TEMPLATE_AUTO_MIGRATED_ACTION_, sheetName: SHEETS.BULLETIN_WEEKS,
       notes: '一次性清理完成：清空 ' + plan.clear.length + ' 格（其中 ' + changed.length + ' 個主日實際用的範本有變）、'
-        + '保留 ' + plan.keep.length + ' 格（人手揀過或已封存）。'
+        + '保留 ' + plan.keep.length + ' 格（人手選過或已封存）。'
     });
 
     var manualKept = plan.keep.filter(function (k) { return k.reason === 'MANUAL'; });
     var lines = ['程序範本改為跟每週標題：清空系統以前寫入的 ' + plan.clear.length + ' 格'
-      + (manualKept.length > 0 ? '，保留人手揀過的 ' + manualKept.length + ' 格（'
+      + (manualKept.length > 0 ? '，保留人手選過的 ' + manualKept.length + ' 格（'
         + manualKept.slice(0, 8).map(function (k) { return k.isoDate + ' ' + k.value; }).join('、')
         + (manualKept.length > 8 ? '……' : '') + '）' : '')
       + '；已封存的不動。只做這一次。'];
@@ -186,7 +186,7 @@ function migrateProgramTemplateToAuto_() {
         lines.push('　……另有 ' + (changed.length - PROGRAM_TEMPLATE_AUTO_DIALOG_MAX_) + ' 個，見 AuditLog（動作 '
           + PROGRAM_TEMPLATE_AUTO_CLEAR_ACTION_ + '）。');
       }
-      lines.push('　不對的話：在職事表那一週的「類型」欄填標題（例如「浸禮主日」），或者在填寫介面揀範本。');
+      lines.push('　不對的話：在職事表那一週的「類型」欄填標題（例如「浸禮主日」），或者在填寫介面選範本。');
     }
     return { ran: true, cleared: plan.clear.length, kept: plan.keep.length, changed: changed, lines: lines };
   });

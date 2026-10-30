@@ -1148,7 +1148,7 @@
     // ⚠️ 這一粒的範圍是**這一個主日**，不是整季——名稱與提示都要講明範圍
     //    （見 docs/已知bug類型.md 事故四十五）。
     var oneWeekBtn = makeSmallButton('重新匯入（只限這一個主日）', function () { startContentImport(); });
-    oneWeekBtn.title = '內容表改過之後按這裏，這一個主日的週報才會更新（只匯入目前選住的這一個主日）。';
+    oneWeekBtn.title = '內容表改過之後按這裏，這一個主日的週報才會更新（只匯入目前選中的這一個主日）。';
     bar.appendChild(oneWeekBtn);
   }
 
@@ -1921,7 +1921,7 @@
    *   {string}
    */
   function snapshotMetaText(version) {
-    return [version.createdAt || '（時間不明）', version.createdBy || '（未知使用者）', version.reasonLabel || '']
+    return [version.createdAt || '（時間不明）', version.createdBy || '（未知用戶）', version.reasonLabel || '']
       .join('｜');
   }
 
@@ -2113,8 +2113,8 @@
       '1. 先自動存一個版本，之後可以在版本記錄還原；',
       '2. 這一週在填寫介面填的欄位（例如大標題、獻花、下週事奉標題、程序增刪、清單次序）改回建立時的預設值；',
       '3. 這一週的事奉框覆寫（包括上一週「下週事奉」改到這一週的）全部停用（不刪行），事奉改回以職事表為準；以前在介面改過的欄位亦一併停用；',
-      '4. 如果本季已有內容表，由內容表重新匯入這一週（序樂、經文、講題、詩歌、詩班等以內容表為準）；',
-      '5. 職事表一格都不會改；已發佈的 PDF、已寄出的郵件、已產生的 Word 檔都不受影響。'
+      '4. 如果本季已有內容表，由內容表重新匯入這一週（讀經經文、證道講題、回應詩歌以內容表為準；特別崇拜不會匯入）；',
+      '5. 職事表一格都不會改；已發佈的 PDF、已寄出的電郵、已產生的 Word 檔都不受影響。'
     ];
     if (hasUnsavedChanges) {
       lines.push('');
@@ -2172,7 +2172,7 @@
         state.snapshotVersions);
       updateSnapshotButtons();
       var latest = state.snapshotVersions[0];
-      var lastEdit = latest ? '最後修改：' + (latest.createdAt || '（時間不明）') + '（' + (latest.createdBy || '未知使用者')
+      var lastEdit = latest ? '最後修改：' + (latest.createdAt || '（時間不明）') + '（' + (latest.createdBy || '未知用戶')
         + '，' + (latest.reasonLabel || '') + '）。' : '';
       if (data.versions.length === 0) {
         setSnapshotStatus('這一個主日還沒有任何版本。');
@@ -3844,7 +3844,7 @@
   }
 
   /** G9：已選的 PDF 是在另一個主日揀的，拒絕發佈時的提示。 */
-  var PUBLISH_PDF_WEEK_CHANGED_MESSAGE = '揀檔之後換了主日，請重新揀這一週的 PDF。';
+  var PUBLISH_PDF_WEEK_CHANGED_MESSAGE = '選了檔案之後換了主日，請重新選這一週的 PDF。';
   // END publish-run
 
   /**
@@ -4500,7 +4500,7 @@
    */
   function backfillRoster() {
     if (!state.quarterId) {
-      showMessage('error', '未知道目前是哪一季，請先揀一個主日。');
+      showMessage('error', '還未知道現在是哪一季，請先選一個主日。');
       return;
     }
     callServer('apiBackfillRoster', [state.quarterId], function (resp) {

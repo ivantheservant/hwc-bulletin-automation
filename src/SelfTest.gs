@@ -954,7 +954,7 @@ function selfTestS27_(ctx) {
   return selfTestOutcome_(ok, '顯示 ' + target,
     '顯示 ' + (page.isoDate || '（算不到）'),
     '指定日期 ' + target + '；沙盒季度共 ' + dates.length + ' 個主日。'
-      + '　⚠️ 刻意揀第二個主日——揀第一個的話，分不出「用了指定日期」與'
+      + '　⚠️ 刻意選第二個主日——選第一個的話，分不出「用了指定日期」與'
       + '「其實走了下一個主日那條路」。');
 }
 
@@ -2534,8 +2534,8 @@ function describePublishBlock_(result) {
  */
 function publishGateLabel_(reason) {
   var labels = {
-    UPLOAD_IS_CURRENT_MASTER: '揀錯檔案（你選的是目前已發佈的那一份）',
-    UPLOAD_IS_PLACEHOLDER: '揀錯檔案（你選的是佔位檔）',
+    UPLOAD_IS_CURRENT_MASTER: '選錯檔案（你選的是目前已發佈的那一份）',
+    UPLOAD_IS_PLACEHOLDER: '選錯檔案（你選的是佔位檔）',
     NOT_PDF: '不是 PDF',
     EMPTY_FILE: '空檔案',
     TOO_LARGE: '超過大小上限',
@@ -2666,7 +2666,7 @@ function selfTestPublishGuard_(config) {
     return selfTestOutcome_(null, '已設定沙盒 master 發佈檔案', '尚未設定',
       'Config 的 ' + CONFIG_KEYS.SELFTEST_MASTER_PDF_FILE_ID + ' 是空的，所以略過 S13–S15。'
         + '⚠️ 自測機絕對不會碰正式那一個 master 檔案（' + CONFIG_KEYS.PUBLISHED_PDF_FILE_ID
-        + '），所以要驗發佈就必須另外建立一個沙盒檔案並填在這裡。'
+        + '），所以要驗發佈就必須另外建立一個沙盒檔案並填在這裏。'
         + '「略過」不等於「通過」。');
   }
   if (selfTestSandboxDates_(config).length === 0) {

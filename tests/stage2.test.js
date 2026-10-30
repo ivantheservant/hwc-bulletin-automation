@@ -1114,7 +1114,7 @@ test('版本下拉：每項「時間｜由誰｜原因」，最新那項標明�
   assert.strictEqual(select.children.length, 2);
   assert.strictEqual(select.children[0].value, 'V2');
   assert.strictEqual(select.children[0].textContent, '（最新）2027-11-05 21:30｜ivan｜產生 Word 之後');
-  assert.strictEqual(select.children[1].textContent, '2027-11-05 20:00｜（未知使用者）｜填寫介面儲存');
+  assert.strictEqual(select.children[1].textContent, '2027-11-05 20:00｜（未知用戶）｜填寫介面儲存');
   assert.strictEqual(select.disabled, false);
 
   // 預設揀最新那一個：摘要當文字（標籤字元不會變成 HTML），有 Word 才有連結。
@@ -1207,8 +1207,8 @@ test('重設對話框內容：五點照指定字眼', function () {
     '1. 先自動存一個版本，之後可以在版本記錄還原；',
     '2. 這一週在填寫介面填的欄位（例如大標題、獻花、下週事奉標題、程序增刪、清單次序）改回建立時的預設值；',
     '3. 這一週的事奉框覆寫（包括上一週「下週事奉」改到這一週的）全部停用（不刪行），事奉改回以職事表為準；以前在介面改過的欄位亦一併停用；',
-    '4. 如果本季已有內容表，由內容表重新匯入這一週（序樂、經文、講題、詩歌、詩班等以內容表為準）；',
-    '5. 職事表一格都不會改；已發佈的 PDF、已寄出的郵件、已產生的 Word 檔都不受影響。'
+    '4. 如果本季已有內容表，由內容表重新匯入這一週（讀經經文、證道講題、回應詩歌以內容表為準；特別崇拜不會匯入）；',
+    '5. 職事表一格都不會改；已發佈的 PDF、已寄出的電郵、已產生的 Word 檔都不受影響。'
   ]);
   assert.ok(Array.from(t.api.resetLines(true)).indexOf('這一週的表單有未儲存的改動，重設後會丟失這些改動。') !== -1);
   assertWrittenChinese(assert, '重設對話框', lines);

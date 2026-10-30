@@ -1061,7 +1061,7 @@ function restoreWeekSnapshotLocked_(payload) {
       text: '已還原到版本「' + versionLabel + '」：週報欄位 ' + plan.fieldChanges.length
         + ' 格、事奉框覆寫 ' + dutyCount + ' 項'
         + (fieldOverrideCount > 0 ? '、' + WEEK_FIELD_OVERRIDE_TERM_ + ' ' + fieldOverrideCount + ' 項' : '')
-        + '。還原前的現況已另存成一個版本，萬一揀錯可以再還原回來；還原之後亦另存了一個版本，原本那個版本不變。'
+        + '。還原前的現況已另存成一個版本，萬一選錯可以再還原回來；還原之後亦另存了一個版本，原本那個版本不變。'
         + (afterRestore.warning ? '　⚠️ ' + afterRestore.warning : '')
     }
   };
