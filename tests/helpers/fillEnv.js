@@ -274,7 +274,10 @@ function makeFillEnv(options) {
   }
 
   function rosterSheet(defKey, rows) {
-    const keys = Object.keys(boot.ROSTER_TABLE_DEFS_[defKey].columns).concat(Object.keys(boot.ROSTER_TABLE_DEFS_[defKey].optionalColumns || {}));
+    let keys = Object.keys(boot.ROSTER_TABLE_DEFS_[defKey].columns).concat(Object.keys(boot.ROSTER_TABLE_DEFS_[defKey].optionalColumns || {}));
+    if (o.noCombinedColumns && defKey === 'SERVICE_DATES') {
+      keys = keys.filter(function (k) { return k !== 'CombinedKind' && k !== 'CombinedName'; });
+    }
     return makeFakeSheet(keys, keys, rows || []);
   }
 
@@ -292,7 +295,10 @@ function makeFillEnv(options) {
         ServiceDateID: 'SD' + (i + 1), QuarterID: QUARTER_ID, ServiceDate: iso, WeekIndex: i + 1,
         IsFirstSundayOfMonth: i === 0, ServiceType: '主日崇拜', SpecialID: '',
         // 2026-10-27：每週標題（職事表「類型」欄）。`o.weekTitles`：{ yyyy-MM-dd: 標題 }。
-        Title: (o.weekTitles || {})[iso] || ''
+        Title: (o.weekTitles || {})[iso] || '',
+        // 2026-10-30：合堂主日。`o.combinedServices`：{ yyyy-MM-dd: {kind, name} }；`o.noCombinedColumns`＝舊試算表沒有這兩欄。
+        CombinedKind: ((o.combinedServices || {})[iso] || {}).kind || '',
+        CombinedName: ((o.combinedServices || {})[iso] || {}).name || ''
       };
     })),
     NameMapping: rosterSheet('NAME_MAPPING', [{ PersonID: 'P9001', NameTC: '陳大文', Active: true }]),

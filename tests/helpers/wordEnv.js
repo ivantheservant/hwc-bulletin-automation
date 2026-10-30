@@ -23,7 +23,7 @@ const OUTPUT_FOLDER = 'FAKE_OUTPUT_FOLDER';
  * 造一個能真的產生 Word 的環境：假 Drive（含進階服務）、假範本、輸出資料夾。
  * Args:
  *   o {{config:Object=, driveOptions:Object=, uiAlerts:Object[]=, noFolder:boolean=,
- *      weekRows:Object[]=}=}
+ *      weekRows:Object[]=, weekTitles:Object=, combinedServices:Object=, noCombinedColumns:boolean=}=}
  */
 function makeWordEnv(o) {
   const opts = o || {};
@@ -37,6 +37,9 @@ function makeWordEnv(o) {
   const env = makeFillEnv({
     withGrid: false,
     emailTemplates: opts.emailTemplates,
+    weekTitles: opts.weekTitles,
+    combinedServices: opts.combinedServices,
+    noCombinedColumns: opts.noCombinedColumns,
     weekRows: opts.weekRows || [
       { SERVICE_DATE: D, QUARTER_ID: QUARTER_ID, WEEK_OF_MONTH: 1, STATUS: 'DRAFT', SERMON_TITLE: '講題一' },
       { SERVICE_DATE: D_NEXT, QUARTER_ID: QUARTER_ID, WEEK_OF_MONTH: 2, STATUS: 'DRAFT', SERMON_TITLE: '講題二' }

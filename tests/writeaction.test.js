@@ -232,7 +232,7 @@ function makeUi(options) {
     copyPreviewLink: function () {}, confirmProgramAdd: function () {}, closeProgramAddForm: function () {},
     refreshUnsavedIndicator: function () {}, updateSnapshotButtons: function () {}, onSnapshotDiffClicked: function () {},
     // 2026-10-30：特別崇拜（與這裏驗的寫入動作無關）。
-    toggleSpecialServiceForm: function () {}, startCreateSpecialService: function () {}, renderSpecialServiceBanner: function () {}
+    toggleSpecialServiceForm: function () {}, startCreateSpecialService: function () {}, startCancelSpecialService: function () {}, renderSpecialServiceBanner: function () {}
   };
   vm.createContext(ctx);
   const code = [
@@ -495,7 +495,7 @@ test('G21-3 其他種類與成功時一致：還原、重設、匯入、補抓�
   const reloadsWeek = Object.keys(table).filter(function (k) { return table[k] === 'week'; }).sort();
   // v3：季度作業（包括整季匯入）已經由填寫介面拿走；「更新本季內容表…」在內容表狀態列，成功之後重新載入主日。
   // 2026-10-30：加「建立特別崇拜」（成功之後打開新建的那一期）。
-  assert.deepStrictEqual(reloadsWeek, ['apiBackfillRoster', 'apiCreateSpecialService', 'apiFetchFromRoster', 'apiResetWeek',
+  assert.deepStrictEqual(reloadsWeek, ['apiBackfillRoster', 'apiCancelSpecialService', 'apiCreateSpecialService', 'apiFetchFromRoster', 'apiResetWeek',
     'apiRestoreWeekSnapshot', 'apiRunContentImport', 'apiRunContentSheetBuild']);
   // 這六個成功處理都會叫 loadWeek()（逐個核對 Script.html 的成功路徑）。
   const js = readSrc('src/ui/Script.html');
@@ -618,7 +618,9 @@ test('G13-10 分類：Script.html 用到的每一個 api 名稱都分了寫入�
     // 2026-10-28：Word 預覽與「下載 Word」同一類（只更新雲端硬碟上同一個 Word，再按一次無害），有自己的逾時句。
     'apiOpenWordPreview',
     // 2026-10-30：建立特別崇拜的預覽（唯讀）。
-    'apiPreviewCreateSpecialService'
+    'apiPreviewCreateSpecialService',
+    // 2026-10-30：取消特別崇拜的預覽（唯讀）。
+    'apiPreviewCancelSpecialService'
   ];
   const used = {};
   (js.match(/'api[A-Z][A-Za-z]+'/g) || []).forEach(function (s) { used[s.slice(1, -1)] = true; });
@@ -638,7 +640,7 @@ test('G13-10 分類：Script.html 用到的每一個 api 名稱都分了寫入�
     // 內容表 v2：apiCreateSpeakerForm、apiRefreshSpeakerFormDates 隨講員表格停用拿走。
     // v3：季度作業區塊拿走，apiRunContentSheetInvite、apiRunCreateWeeks、apiRunQuarterContentImport 不再由填寫介面叫。
     // 2026-10-30：apiCreateSpecialService（建立特別崇拜）。
-    'apiBackfillRoster', 'apiCreateSpecialService', 'apiFetchFromRoster', 'apiResetWeek',
+    'apiBackfillRoster', 'apiCancelSpecialService', 'apiCreateSpecialService', 'apiFetchFromRoster', 'apiResetWeek',
     'apiRestoreWeekSnapshot', 'apiRunContentImport', 'apiRunContentSheetBuild',
     'apiRunPublish', 'apiSaveWeek'
   ]);
@@ -1414,9 +1416,9 @@ test('G19-4 Script.html 內每一個 openConfirmDialog() 的取消分支：會�
   }
   // 內容表 v2：「建立講員表格」隨講員表格停用拿走。
   // v3：季度作業拿走；加「更新本季內容表」；「重讀職事表」改名「由職事表重新取數」。
-  // 2026-10-30：加「建立特別崇拜」。
+  // 2026-10-30：加「建立特別崇拜」「取消特別崇拜」。
   assert.deepStrictEqual(titles, ["'由內容表匯入'", "'更新本季內容表'", "'還原到這個版本'", "'重設這一週'", "'換週'", "'重新讀取職事表'",
-    "'建立特別崇拜'"],
+    "'建立特別崇拜'", "'取消特別崇拜'"],
     '對話框有增減：先檢查取消分支，再更新這裏');
   // 三選一對話框只有「下載 Word」一處，取消甚麼都不做（不是寫入，不講「一格都沒有寫」）。
   // 2026-10-28：加「開啟預覽」（Word 預覽，有未儲存修改時問用哪一個版本；取消甚麼都不做）。

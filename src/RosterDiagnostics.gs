@@ -117,6 +117,8 @@ function buildRosterSnapshotSummaryLines_(snapshot) {
     lines.push('版本：' + (snapshot.versionNo === null ? '（尚未生成）' : snapshot.versionNo));
     lines.push('當月第幾個主日：' + snapshot.weekOfMonth);
     lines.push('每週標題（特別主日）：' + (snapshot.special ? snapshot.special.title : '（無，普通主日）'));
+    lines.push('合堂主日（ServiceDates.CombinedKind／CombinedName）：' + (snapshot.combined
+      ? snapshot.combined.kind + (snapshot.combined.name ? '／' + snapshot.combined.name : '') : '（不是合堂）'));
     lines.push('崗位數：' + snapshot.posts.length);
     lines.push('已排定人數：' + snapshot.assignments.length);
   }

@@ -46,6 +46,9 @@ function makeContentTab(keys, headers, rows, opts) {
  * options.extraTabs：另外加的分頁 `[{tabName, keys, headers, rows}]`（例如已改名的舊分頁）。
  * options.maxColumns：每張分頁的欄數（數字，或者「分頁名稱 → 欄數」）；預設 26，與真的新分頁一樣。
  * options.contentFaults：`{failOnSetValue, failOnSetName, failOnDeleteColumns}`，第 N 次寫入格子／改名／刪欄時拋錯。
+ * options.otherContentSheets：2026-10-30（「連續到」跨季）另外幾份內容表
+ *   `[{quarterId, fileId, content:{分頁: 行}, missing:boolean=, layout:'current'|'v3'=}]`，會登記在 ContentSheets
+ *   （ACTIVE=TRUE）；`missing:true`＝登記了但開不到。
  */
 function makeEnv(options) {
   const o = options || {};
@@ -74,11 +77,16 @@ function makeEnv(options) {
   ownSheets.Prayers = ownSheet('PRAYERS', o.prayers || []);
   ownSheets.Fellowships = ownSheet('FELLOWSHIPS', o.fellowships || []);
   ownSheets.Finance = ownSheet('FINANCE', o.finance || []);
-  ownSheets.ContentSheets = ownSheet('CONTENT_SHEETS', o.contentSheets === undefined ? [{
+  ownSheets.ContentSheets = ownSheet('CONTENT_SHEETS', (o.contentSheets === undefined ? [{
     QUARTER_ID: QUARTER_ID, FILE_ID: FAKE_CONTENT_FILE_ID,
     FILE_URL: 'https://docs.google.com/spreadsheets/d/' + FAKE_CONTENT_FILE_ID + '/edit',
     CREATED_AT: '2027-09-01', LAST_IMPORTED_AT: '', INVITE_SENT_AT: '', ACTIVE: true
-  }] : o.contentSheets);
+  }] : o.contentSheets).concat((o.otherContentSheets || []).map(function (c) {
+    return {
+      QUARTER_ID: c.quarterId, FILE_ID: c.fileId, FILE_URL: 'https://docs.google.com/spreadsheets/d/' + c.fileId + '/edit',
+      CREATED_AT: '2027-06-01', LAST_IMPORTED_AT: '', INVITE_SENT_AT: '', ACTIVE: true
+    };
+  })));
 
   function rosterSheet(defKey, rows) {
     const keys = Object.keys(boot.ROSTER_TABLE_DEFS_[defKey].columns).concat(Object.keys(boot.ROSTER_TABLE_DEFS_[defKey].optionalColumns || {}));
@@ -144,6 +152,18 @@ function makeEnv(options) {
     return s;
   };
 
+  const otherSpreadsheets = {};
+  (o.otherContentSheets || []).forEach(function (c) {
+    if (c.missing) return;
+    const defs = c.layout === 'v3' ? legacyContentTabDefsV3(boot.contentSheetTabDefs_()) : boot.contentSheetTabDefs_();
+    const tabs = defs.map(function (def) {
+      return makeContentTab(def.keys, def.headers, (c.content || {})[def.tabName] || [], { name: def.tabName });
+    });
+    otherSpreadsheets[c.fileId] = makeContentSpreadsheet({
+      id: c.fileId, url: 'https://docs.google.com/spreadsheets/d/' + c.fileId + '/edit', tabs: tabs
+    });
+  });
+
   const locks = { tried: 0, released: 0, fail: Boolean(o.lockFails) };
   const FakeLockService = {
     getScriptLock: function () {
@@ -160,6 +180,7 @@ function makeEnv(options) {
     openById: function (id) {
       if (id === FAKE_ROSTER_ID) return makeFakeSpreadsheet(rosterSheets);
       if (id === FAKE_CONTENT_FILE_ID && !o.contentFileMissing) return contentSpreadsheet;
+      if (otherSpreadsheets[id]) return otherSpreadsheets[id];
       throw new Error('openById: 找不到 ' + id);
     },
     create: function () { throw new Error('這一輪不應該建立新試算表'); },

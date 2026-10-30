@@ -113,7 +113,15 @@ function runContentAutoSync_(options) {
   var weekRows = readSheet(SHEETS.BULLETIN_WEEKS);
   var out = { quarters: [] };
 
-  readSheet(SHEETS.CONTENT_SHEETS).forEach(function (row) {
+  var contentRows = readSheet(SHEETS.CONTENT_SHEETS);
+  var activeFileIdByQuarter = {};
+  contentRows.forEach(function (row) {
+    if (row.ACTIVE !== true) return;
+    var q = String(row.QUARTER_ID || '').trim();
+    if (q) activeFileIdByQuarter[q] = row.FILE_ID;
+  });
+
+  contentRows.forEach(function (row) {
     if (row.ACTIVE !== true) return;
     var qid = String(row.QUARTER_ID || '').trim();
     if (!qid || qid === sandbox) return;
@@ -121,7 +129,12 @@ function runContentAutoSync_(options) {
     out.quarters.push(entry);
 
     var propertyKey = CONTENT_AUTO_SYNC_PROPERTY_PREFIX_ + qid;
-    var mtime = readContentSheetLastUpdatedMillis_(row.FILE_ID);
+    // 2026-10-30：上一季的內容表亦要看（「連續到」本季的家事報告、代禱事項，src/ContentCarryOver.gs）——
+    //    只看本季的修改時間的話，上一季那一行改了，本季的週報不會自動更新。
+    var ownMtime = readContentSheetLastUpdatedMillis_(row.FILE_ID);
+    var prevFileId = activeFileIdByQuarter[previousQuarterId_(qid)];
+    var prevMtime = prevFileId ? readContentSheetLastUpdatedMillis_(prevFileId) : '';
+    var mtime = (ownMtime === null || prevMtime === null) ? null : (String(ownMtime) + '|' + String(prevMtime));
     var lastSynced = readTimedScriptProperty_(propertyKey, CONTENT_AUTO_SYNC_PROPERTY_MAX_AGE_SEC_);
     if (mtime !== null && lastSynced === String(mtime)) { entry.status = 'UNCHANGED'; return; }
 

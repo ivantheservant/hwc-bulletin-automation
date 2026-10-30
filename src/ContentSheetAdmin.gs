@@ -52,8 +52,9 @@ function contentSheetConfig_() {
  * Args:
  *   sheet {Sheet} 目標分頁。
  *   tabDef {Object} `contentSheetTabDefs_()` 其中一項。
- *   options {{dateOptions:string[], attendanceDateOptions:string[],
- *            owners:Object<string,string>, deadlineNote:string}}
+ *   options {{dateOptions:string[], attendanceDateOptions:string[], repeatUntilOptions:string[]=,
+ *            owners:Object<string,string>, deadlineNote:string}} `repeatUntilOptions`：「連續到」下拉
+ *            （本季主日＋下一季頭幾個主日）；省略就用 `dateOptions`。
  * Returns:
  *   {void}
  */
@@ -111,13 +112,15 @@ function applyContentTabLayout_(sheet, tabDef, options) {
   tabDef.dateColumns.forEach(function (key) {
     var col = keys.indexOf(key) + 1;
     if (col <= 0) return;
+    // 2026-10-30：「連續到」可以選到下一季的頭幾個主日（src/ContentCarryOver.gs）。
+    var columnValues = (key === 'REPEAT_UNTIL' && options.repeatUntilOptions) ? options.repeatUntilOptions : dateValues;
     var range = sheet.getRange(CONTENT_SHEET_FIRST_DATA_ROW_, col, blankRows, 1);
     // 日期欄一律純文字：下拉選項係 `yyyy-MM-dd` 字串，唔設純文字嘅話
     // Sheets 會自動轉成 Date，之後匯入讀返出嚟就唔係字串。
     range.setNumberFormat('@');
     // 2026-10-30：一個日期一行的分頁（崇拜程序、崇拜人數）日期由系統預先填好並鎖住，不用下拉；
     //    以前 200 行都有下拉箭咀，看起來好像可以在下面加行（瀏覽器自測）。
-    if (dateValues.length === 0 || tabDef.oneRowPerDate === true) {
+    if (columnValues.length === 0 || tabDef.oneRowPerDate === true) {
       range.clearDataValidations();
       return;
     }
@@ -125,7 +128,7 @@ function applyContentTabLayout_(sheet, tabDef, options) {
     // 相反（嗰邊刻意用 true，下拉只係方便）——內容表嘅日期係之後匯入時
     // 對得返主日嘅唯一根據，手打錯一個字就成行匯入唔到，所以要硬擋。
     range.setDataValidation(
-      SpreadsheetApp.newDataValidation().requireValueInList(dateValues, true).setAllowInvalid(false).build()
+      SpreadsheetApp.newDataValidation().requireValueInList(columnValues, true).setAllowInvalid(false).build()
     );
   });
 
@@ -352,6 +355,7 @@ function buildOrRefreshContentSheetLocked_(quarterId, options) {
   var tabsCreated = [];
   var layoutOptions = {
     dateOptions: dateOptions,
+    repeatUntilOptions: contentRepeatUntilOptions_(serviceDates, contentRepeatUntilExtraWeeks_()),
     attendanceDateOptions: attendanceDateOptions,
     owners: config.owners,
     deadlineNote: config.deadlineNote
@@ -430,6 +434,9 @@ function buildOrRefreshContentSheetLocked_(quarterId, options) {
   // ---- R-030：夏令時間轉換提示 ----
   var dstResult = applyDaylightSavingRows_(spreadsheet, serviceDates);
 
+  // ---- 2026-10-30：權限（網域內只可以看＋指定組別修改；財政報告另外保護，src/ContentSheetSharing.gs）----
+  var sharingResult = applyContentSheetSharing_(fileId, spreadsheet, previewContentSheetSharing_(), config.domain);
+
   arrangeContentTabs_(spreadsheet, contentSheetTabNames_());
   // v3：填寫介面的內容表狀態列（「更新本季內容表…」）讀的是快取，建立／刷新之後即時清走。
   forgetContentSheetSchemaStatus_(fileId);
@@ -456,6 +463,8 @@ function buildOrRefreshContentSheetLocked_(quarterId, options) {
     seededSample: seededSample,
     sharingApplied: sharingApplied,
     sharingError: sharingError,
+    // 2026-10-30：權限設定的結果（每一步失敗都在 lines 講出來）。
+    sharing: sharingResult,
     migration: migrationPlan,
     // v3：浸禮六欄搬入週報、刪欄、停用舊覆寫的計畫與結果（沒有就是 null）。
     upgrade: upgradePlan,
@@ -947,13 +956,11 @@ function buildContentSheetResultLines_(result) {
     if (result.seededSample) {
       lines.push('已預填樣本（首個主日）——確認格式之後請自行修改，或把「有效」改為 FALSE。');
     }
-    if (result.sharingApplied) {
-      lines.push('分享權限：網域內任何人可編輯。');
-    } else if (result.sharingError) {
+    if (result.sharingError) {
       lines.push('⚠️ 分享權限設定失敗：' + result.sharingError + '　請人手設定。');
-    } else {
+    } else if (!result.sharingApplied && !result.sharing) {
       lines.push('⚠️ 未設定 ' + CONFIG_KEYS.CONTENT_SHEET_DOMAIN
-        + '，因此沒有自動設定分享權限——請人手將檔案分享給教會網域內的同工（可編輯）。');
+        + '，因此沒有自動設定分享權限——請人手將檔案分享給教會網域內的同工。');
     }
   } else {
     lines.push((contentSheetV3PlanHasWrites_(result.upgrade) || contentSheetV4PlanHasWrites_(result.v4))
@@ -988,6 +995,12 @@ function buildContentSheetResultLines_(result) {
   }
   if ((result.sortedTabs || []).length > 0) {
     lines.push('已按主日日期、次序排好：' + result.sortedTabs.join('、') + '。');
+  }
+
+  // 2026-10-30：權限（src/ContentSheetSharing.gs）。
+  if (result.sharing && (result.sharing.lines || []).length > 0) {
+    lines.push('');
+    result.sharing.lines.forEach(function (l) { lines.push(l); });
   }
 
   lines.push('');

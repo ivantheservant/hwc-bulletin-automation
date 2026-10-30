@@ -199,10 +199,13 @@ function parseContentTabRows_(values, keys) {
  *   2027-10-03、10-10、10-17、10-24 共四個主日各一行。
  *
  *   四條規則：
- *     - **只展開到該季的主日，不跨季**（`serviceDates` 本身就只有該季）。
+ *     - **只展開到該季的主日**（`serviceDates` 本身就只有該季）。下一季的主日由下一季匯入時，
+ *       讀這一季的內容表帶過去（src/ContentCarryOver.gs）。
  *     - `REPEAT_UNTIL` 留空 → 只出現一次。
  *     - `REPEAT_UNTIL` **早過** `SERVICE_DATE` → 當作只出現一次，記警告。
- *     - `REPEAT_UNTIL` **不是該季主日** → 取該季內**不遲於它**的最後一個
+ *     - `REPEAT_UNTIL` **遲過該季最後一個主日** → 展開到該季最後一個主日，**不記警告**
+ *       （2026-10-30：連續到下一季是刻意的，下一季會自動帶入）。
+ *     - `REPEAT_UNTIL` 在該季之內但**不是該季主日** → 取該季內**不遲於它**的最後一個
  *       主日，記警告。
  *     - 展開出來的行，`SEQ_NO` 沿用原行的值。
  * Args:
@@ -238,6 +241,9 @@ function expandRepeatUntilRows_(rows, serviceDates) {
             + ' 早過「主日日期」' + startIso + '，當作只出現一次。');
           endIndex = startIndex;
         }
+      } else if (dates.length > 0 && untilIso > dates[dates.length - 1]) {
+        // 2026-10-30：連續到下一季——本季展開到最後一個主日，下一季匯入時再由這一行帶過去。
+        endIndex = dates.length - 1;
       } else {
         // 不是本季主日：取本季內不遲於它的最後一個主日。
         var fallback = -1;
@@ -299,18 +305,25 @@ function attendanceDateToServiceDate_(attendanceIso, serviceDates) {
  *     `skippedTabs` 是「整張空白、本次不改動」的分頁名稱；`skipListDates` 是清單類分頁內
  *     有格被試算表轉成日期／時間、這一次不比對的主日（分頁名稱 → 主日 → true）。
  */
-function buildContentImportTargets_(contentData, serviceDates) {
+function buildContentImportTargets_(contentData, serviceDates, carryOver) {
+  var carry = carryOver || { rowsByTab: {}, warnings: [], sourceQuarterId: '' };
   var targets = {};
   var warnings = [];
   var skippedTabs = [];
   var blankActiveRows = [];
   var skipListDates = {};
 
+  (carry.warnings || []).forEach(function (w) { warnings.push(w); });
+
   contentImportTargets_().forEach(function (def) {
     var rows = (contentData || {})[def.tabName] || [];
+    // 2026-10-30：上一季「連續到」帶過來的行（src/ContentCarryOver.gs）。
+    var carriedRows = (def.kind === 'LIST' && def.repeatUntil === true && carry.rowsByTab)
+      ? (carry.rowsByTab[def.tabName] || []) : [];
 
     // ---- 安全規則 1：整張空白就完全不動 ----
-    if (rows.length === 0) {
+    //    （本季這張分頁空白、但上一季有帶過來的行：只匯入那幾個主日，其餘主日不動，見下面。）
+    if (rows.length === 0 && carriedRows.length === 0) {
       skippedTabs.push(def.tabName);
       return;
     }
@@ -410,6 +423,22 @@ function buildContentImportTargets_(contentData, serviceDates) {
           skipListDates[def.tabName][row.__isoDate] = true;
         }
       });
+
+      // 2026-10-30：上一季帶過來的行（行號屬於上一季的內容表，不可以跟本季的 skipRowNos 混在一起）。
+      var carriedDates = {};
+      expandContentCarryOverRows_(carriedRows, serviceDates).forEach(function (row) {
+        if (!byDate[row.__isoDate]) byDate[row.__isoDate] = [];
+        byDate[row.__isoDate].push(row);
+        carriedDates[row.__isoDate] = true;
+      });
+      if (rows.length === 0) {
+        // 本季這張分頁整張空白（安全規則 1）：只動上一季帶過來的那幾個主日，其餘主日週報原有的行不動。
+        (serviceDates || []).forEach(function (iso) {
+          if (carriedDates[iso]) return;
+          if (!skipListDates[def.tabName]) skipListDates[def.tabName] = {};
+          skipListDates[def.tabName][iso] = true;
+        });
+      }
 
       // 同一個主日內按「次序」排先後；次序相同就按內容表上的行號。
       // 2026-10-30（Ivan）：次序留空排在有次序的後面（以前 Number('') 當 0，排在最前）。
@@ -1132,9 +1161,11 @@ function previewContentImport_(quarterId, options) {
   }
 
   var contentData = readContentSheetTabs_(spreadsheet);
+  // 2026-10-30：上一季「連續到」本季的家事報告、代禱事項（src/ContentCarryOver.gs）。
+  var carryOver = readContentCarryOver_(qid, allServiceDates);
   // ⚠️ 「連續到」一定要用**整季**的主日展開，之後才篩出要匯入的那一個
   // 主日——否則只匯入單一主日時，一條由上一週連登過來的報告會消失。
-  var built = buildContentImportTargets_(contentData, allServiceDates);
+  var built = buildContentImportTargets_(contentData, allServiceDates, carryOver);
   // 分頁篩選：沒有被選中的分頁連「整張空白」的提示也不要出（它們根本不在這次範圍內）。
   var tabNames = Array.isArray(opts.tabNames) ? opts.tabNames : null;
   if (tabNames) {

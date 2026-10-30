@@ -13,14 +13,21 @@
  *     沒有安排就用上一個主日的。
  *   - 第 3 頁下週事奉＝下一個主日的職事表。
  *   - 不會自動寄出；內容表匯入、自動同步、職事表補資料、季度核對一律不理這一行。發佈只限當週。
+ *   - 取消（2026-10-30 Ivan）：在那一期按「取消這個特別崇拜…」。**不刪行**：`SERVICE_KIND` 改為
+ *     `SPECIAL_CANCELLED`；主日下拉不再顯示，載入、預覽、Word 一律講明已取消。內容保留：同一日再按
+ *     「建立特別崇拜…」就恢復那一行（名稱用新填的）。已發佈或已寄出的不可以取消。
  *
- * 判斷一行是不是特別崇拜只有一處：`isSpecialServiceRow_()`（bug class 3）。
+ * 判斷一行是不是特別崇拜只有一處：`isSpecialServiceRow_()`（包括已取消的，所以平常主日的流程一律
+ * 不理它）；是不是已取消只有一處：`isCancelledSpecialServiceRow_()`（bug class 3）。
  */
 
 'use strict';
 
 /** `BulletinWeeks.SERVICE_KIND` 的值：特別崇拜。留空＝平常的主日。 */
 var SERVICE_KIND_SPECIAL_ = 'SPECIAL';
+
+/** `BulletinWeeks.SERVICE_KIND` 的值：已取消的特別崇拜（不刪行；同一日再建立就恢復）。 */
+var SERVICE_KIND_SPECIAL_CANCELLED_ = 'SPECIAL_CANCELLED';
 
 /** 名稱最多幾個字（封面、程序表標題用；太長會撐爆版面）。 */
 var SPECIAL_SERVICE_TITLE_MAX_ = 40;
@@ -33,8 +40,46 @@ var SPECIAL_SERVICE_TITLE_MAX_ = 40;
  *   {boolean}
  */
 function isSpecialServiceRow_(row) {
-  return Boolean(row) && String(row.SERVICE_KIND === null || row.SERVICE_KIND === undefined ? '' : row.SERVICE_KIND)
-    .trim().toUpperCase() === SERVICE_KIND_SPECIAL_;
+  var kind = serviceKindOf_(row);
+  return kind === SERVICE_KIND_SPECIAL_ || kind === SERVICE_KIND_SPECIAL_CANCELLED_;
+}
+
+/**
+ * 用途：這一行是不是**已取消**的特別崇拜。純函式。
+ * Args:
+ *   row {?Object}
+ * Returns:
+ *   {boolean}
+ */
+function isCancelledSpecialServiceRow_(row) {
+  return serviceKindOf_(row) === SERVICE_KIND_SPECIAL_CANCELLED_;
+}
+
+/**
+ * 用途：讀出 `SERVICE_KIND`（去頭尾空白、轉大寫）。純函式。
+ * Args:
+ *   row {?Object}
+ * Returns:
+ *   {string} 沒有這一行或這一欄回空字串。
+ */
+function serviceKindOf_(row) {
+  if (!row) return '';
+  var v = row.SERVICE_KIND;
+  return String(v === null || v === undefined ? '' : v).trim().toUpperCase();
+}
+
+/**
+ * 用途：已取消的特別崇拜被載入（填寫介面、預覽、Word）時拋出的錯誤。純函式。
+ * Args:
+ *   isoDate {string}　row {Object} 那一行 BulletinWeeks。
+ * Returns:
+ *   {Error} `code:'SPECIAL_SERVICE_CANCELLED'`。
+ */
+function cancelledSpecialServiceError_(isoDate, row) {
+  var err = new Error(isoDate + ' 的特別崇拜「' + String((row && row.SPECIAL_TYPE) || '') + '」已經取消。'
+    + '要恢復的話，在填寫介面按「建立特別崇拜…」，選同一日再建立（之前填過的內容會保留）。');
+  err.code = 'SPECIAL_SERVICE_CANCELLED';
+  return err;
 }
 
 /**
@@ -188,7 +233,10 @@ function planSpecialServiceCreate_(input) {
     return fail('TITLE_TOO_LONG', '名稱最多 ' + SPECIAL_SERVICE_TITLE_MAX_ + ' 個字（現在 ' + title.length + ' 個）。');
   }
   var rows = o.weekRows || [];
-  if (findBulletinWeekRow_(rows, iso)) return fail('EXISTS', iso + ' 已經有一期週報，不會再建立。');
+  var existing = findBulletinWeekRow_(rows, iso);
+  // 2026-10-30：已取消的特別崇拜＝恢復那一行（不另外加一行，同一日只可以有一行）。
+  var restoring = isCancelledSpecialServiceRow_(existing);
+  if (existing && !restoring) return fail('EXISTS', iso + ' 已經有一期週報，不會再建立。');
   var sourceIso = previousSundayBeforeIso_(iso);
   var source = findBulletinWeekRow_(rows, sourceIso);
   if (!source) {
@@ -215,6 +263,20 @@ function planSpecialServiceCreate_(input) {
   out.sourceIso = sourceIso;
   out.nextSundayIso = nextSundayAfterIso_(iso);
   out.quarterId = quarterId;
+  out.restore = restoring;
+  if (restoring) {
+    // 恢復只改這三格，其餘（事奉、讀經經文、程序等）保留取消之前的內容。
+    out.row = { SERVICE_KIND: SERVICE_KIND_SPECIAL_, SPECIAL_TYPE: title, PAGE_TITLE: title };
+    out.lines = [
+      '恢復：' + iso + ' 之前建立過的特別崇拜「' + String(existing.SPECIAL_TYPE || '') + '」已經取消，這一次會恢復那一期。',
+      '名稱：' + title + '（程序表大標題亦改用這個名稱，之後可以改）',
+      '之前填過的事奉人員、讀經經文、講題與程序會保留。',
+      '家事報告、代禱事項、團契、財政報告、上週崇拜人數：跟上一個主日（' + sourceIso + '）的內容表。',
+      '第 3 頁下週事奉：下一個主日（' + out.nextSundayIso + '）的職事表。',
+      '不會自動寄出；發佈只限當週。'
+    ];
+    return out;
+  }
   out.row = {
     SERVICE_DATE: normalizeDate_(iso),
     QUARTER_ID: out.quarterId,
@@ -287,6 +349,11 @@ function createSpecialService_(isoDate, title) {
   return withScriptLock_('createSpecialService_', SAVE_LOCK_WAIT_MS_, function () {
     var plan = planSpecialServiceCreate_(specialServicePlanInput_(isoDate, title));
     if (!plan.ok) return Object.assign({}, plan, { row: null, created: false });
+    if (plan.restore) {
+      writeSpecialServiceRowCells_(plan.isoDate, plan.row, 'RESTORE_SPECIAL_SERVICE',
+        '恢復已取消的特別崇拜「' + plan.title + '」（季度 ' + plan.quarterId + '）。');
+      return Object.assign({}, plan, { row: null, created: true });
+    }
     writeSheet(SHEETS.BULLETIN_WEEKS, [plan.row]);
     appendAuditLog_({
       action: 'CREATE_SPECIAL_SERVICE', sheetName: SHEETS.BULLETIN_WEEKS, rowKey: plan.isoDate,
@@ -297,5 +364,131 @@ function createSpecialService_(isoDate, title) {
     return Object.assign({}, plan, { row: null, created: true });
   }, function () {
     throw buildLockTimeoutError_(SAVE_LOCK_WAIT_MS_, '請稍等再按一次「建立特別崇拜」。');
+  });
+}
+
+// =====================================================================
+// 取消特別崇拜（2026-10-30 Ivan：先選那一期，再按「取消這個特別崇拜…」；不刪行）
+// =====================================================================
+
+/**
+ * 用途：算出「取消特別崇拜」會做甚麼（預覽與執行共用）。純函式。
+ * Args:
+ *   input {{isoDate:string, weekRows:Object[], publishIndex:Object<string,number>}}
+ *     `publishIndex` 是 `weekSelectorPublishIndex_()`（主日 → 已發佈的版本號）。
+ * Returns:
+ *   {{ok:boolean, reason:string, message:string, isoDate:string, title:string, sourceIso:string,
+ *     lines:string[]}}
+ *   `reason`：`BAD_DATE`／`NOT_FOUND`／`NOT_SPECIAL`／`ALREADY_CANCELLED`／`PUBLISHED`／`SENT`。
+ * Raises:
+ *   （無）
+ */
+function planSpecialServiceCancel_(input) {
+  var o = input || {};
+  var iso = String(o.isoDate || '').trim();
+  var out = { ok: false, reason: '', message: '', isoDate: iso, title: '', sourceIso: '', lines: [] };
+  function fail(reason, message) { out.reason = reason; out.message = message; return out; }
+
+  if (!isIsoDateShape_(iso)) return fail('BAD_DATE', '日期要用 YYYY-MM-DD，例如 2027-03-26。');
+  var row = findBulletinWeekRow_(o.weekRows || [], iso);
+  if (!row) return fail('NOT_FOUND', iso + ' 沒有週報，沒有東西要取消。');
+  if (!isSpecialServiceRow_(row)) {
+    return fail('NOT_SPECIAL', iso + ' 是主日的週報，不可以取消；只有用「建立特別崇拜…」開的那一期才可以取消。');
+  }
+  out.title = String(row.SPECIAL_TYPE || '');
+  if (isCancelledSpecialServiceRow_(row)) return fail('ALREADY_CANCELLED', '特別崇拜「' + out.title + '」（' + iso + '）已經取消。');
+  var publishIndex = o.publishIndex || {};
+  if (Object.prototype.hasOwnProperty.call(publishIndex, iso)) {
+    return fail('PUBLISHED', '特別崇拜「' + out.title + '」（' + iso + '）已經發佈到 master 連結，不可以取消。'
+      + '如果崇拜真的取消，請發佈另一期覆蓋 master 連結，並通知會眾。');
+  }
+  if (String(row.STATUS || '').trim() === BULLETIN_WEEK_STATUS.SENT) {
+    return fail('SENT', '特別崇拜「' + out.title + '」（' + iso + '）已經寄出，不可以取消。');
+  }
+  out.ok = true;
+  out.sourceIso = previousSundayBeforeIso_(iso);
+  out.lines = [
+    '取消特別崇拜「' + out.title + '」（' + iso + '）。',
+    '週報那一行不會刪除，只會標記為已取消；主日下拉不再顯示這一期，預覽連結亦會顯示已取消。',
+    '之前填過的內容會保留：要恢復的話，按「建立特別崇拜…」，選同一日再建立。',
+    '取消之後會打開上一個主日（' + out.sourceIso + '）。'
+  ];
+  return out;
+}
+
+/**
+ * 用途：讀出 `planSpecialServiceCancel_()` 要用的東西。唯讀。
+ * Args:
+ *   isoDate {string}
+ * Returns:
+ *   {Object}
+ */
+function specialServiceCancelInput_(isoDate) {
+  return {
+    isoDate: isoDate,
+    weekRows: readSheet(SHEETS.BULLETIN_WEEKS),
+    publishIndex: weekSelectorPublishIndex_(readSheet(SHEETS.PUBLISH_LOG))
+  };
+}
+
+/**
+ * 用途：預覽「取消特別崇拜」。唯讀。
+ * Args:
+ *   isoDate {string}
+ * Returns:
+ *   {Object} 同 `planSpecialServiceCancel_()`。
+ */
+function previewSpecialServiceCancel_(isoDate) {
+  return planSpecialServiceCancel_(specialServiceCancelInput_(isoDate));
+}
+
+/**
+ * 用途：取消特別崇拜：`SERVICE_KIND` 改為 `SPECIAL_CANCELLED`（不刪行）。在指令碼鎖之內重新算一次計畫。
+ * Args:
+ *   isoDate {string}
+ * Returns:
+ *   {Object} 同 `planSpecialServiceCancel_()`，另有 `cancelled:boolean`。
+ * Raises:
+ *   Error（`code:'LOCK_TIMEOUT'`）拿不到鎖；找不到那一行（計畫之後被改）或寫入失敗原樣拋出。
+ */
+function cancelSpecialService_(isoDate) {
+  return withScriptLock_('cancelSpecialService_', SAVE_LOCK_WAIT_MS_, function () {
+    var plan = planSpecialServiceCancel_(specialServiceCancelInput_(isoDate));
+    if (!plan.ok) return Object.assign({}, plan, { cancelled: false });
+    writeSpecialServiceRowCells_(plan.isoDate, { SERVICE_KIND: SERVICE_KIND_SPECIAL_CANCELLED_ }, 'CANCEL_SPECIAL_SERVICE',
+      '取消特別崇拜「' + plan.title + '」（不刪行；同一日再建立會恢復）。');
+    return Object.assign({}, plan, { cancelled: true });
+  }, function () {
+    throw buildLockTimeoutError_(SAVE_LOCK_WAIT_MS_, '請稍等再按一次「取消這個特別崇拜」。');
+  });
+}
+
+/**
+ * 用途：改特別崇拜那一行的幾格，逐格記 AuditLog。只在指令碼鎖之內叫。IO 層。
+ * Args:
+ *   isoDate {string}　values {Object<string,*>} 機器鍵 → 新值。
+ *   action {string} AuditLog 的 ACTION。　notes {string}
+ * Returns:
+ *   {void}
+ * Raises:
+ *   Error 找不到那一行或那一欄（例如未「初始化工作表」）——寧可失敗也不要靜靜只寫一半。
+ */
+function writeSpecialServiceRowCells_(isoDate, values, action, notes) {
+  var rows = readRowsWithRowNo_(SHEETS.BULLETIN_WEEKS);
+  var row = findBulletinWeekRow_(rows, isoDate);
+  if (!row) throw new Error('找不到 ' + isoDate + ' 的週報（BulletinWeeks），一格都沒有寫。');
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.BULLETIN_WEEKS);
+  var def = COLUMNS[SHEET_ID_BY_NAME[SHEETS.BULLETIN_WEEKS]];
+  Object.keys(values).forEach(function (key) {
+    if (def.keys.indexOf(key) === -1) throw new Error('BulletinWeeks 沒有「' + key + '」這一欄，請先按「初始化工作表」。');
+  });
+  Object.keys(values).forEach(function (key) {
+    var oldValue = row[key];
+    setCellValueTextSafe_(sheet, def, row.__rowNo, key, sanitizeCellText_(values[key]));
+    appendAuditLog_({
+      action: action, sheetName: SHEETS.BULLETIN_WEEKS, rowKey: isoDate, field: key,
+      oldValue: oldValue === null || oldValue === undefined ? '' : String(oldValue), newValue: String(values[key]),
+      notes: notes
+    });
   });
 }

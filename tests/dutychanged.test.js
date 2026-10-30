@@ -527,7 +527,8 @@ function makeUi(sb) {
     updateSnapshotButtons: noop, selectedSnapshotId: function () { return ''; }, onSnapshotDiffClicked: noop,
     onSnapshotRestoreClicked: noop, renderPublishWindow: noop, renderDutyDiffNotice: noop, renderRosterAppLink: noop,
     // 2026-10-30：特別崇拜（與事奉框無關）。
-    toggleSpecialServiceForm: noop, startCreateSpecialService: noop, renderSpecialServiceBanner: noop
+    toggleSpecialServiceForm: noop, startCreateSpecialService: noop, startCancelSpecialService: noop, renderSpecialServiceBanner: noop,
+    renderRosterCombinedLink: noop
   };
   vm.createContext(ctx);
   const code = [

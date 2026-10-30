@@ -179,7 +179,7 @@ test('BulletinWeeks：浸禮副框六欄的中文標題與機器鍵一一對應�
   assert.strictEqual(JSON.stringify(def.headers.slice(-11, -5)), JSON.stringify(expectedHeaders));
 });
 
-test('CONFIG_KEYS 剛好 146 個（與 DEFAULTS 一一對應）', function () {
+test('CONFIG_KEYS 剛好 153 個（與 DEFAULTS 一一對應）', function () {
   // 92 → 91：SEND_TARGET_OFFSET_DAYS 已廢棄（見 docs/已知bug類型.md 事故三十），
   // 已移出 CONFIG_KEYS／DEFAULTS，並加入 cleanupDeprecatedConfigKeys_() 的清單。
   // 2026-08-27 由 98 變 105：R-033 五個（PREVIEW_*）、R-032 兩個。
@@ -196,7 +196,9 @@ test('CONFIG_KEYS 剛好 146 個（與 DEFAULTS 一一對應）', function () {
   //    +3（ROSTER_NOT_A_PERSON_TEXTS、ROSTER_NOT_APPLICABLE_RULE_FLAGS、DUTY_PRINT_EMPTY_ROWS），134 → 136。
   // 2026-10-30（示範之後）：+5（WEEKLY_SEND_BULLETIN、FLOWER_THIS_WEEK_LABEL、FLOWER_NEXT_WEEK_LABEL、
   //    FLOWER_LINE_SEPARATOR、CONTENT_AUTO_SYNC_MINUTES），136 → 141。
-  assert.strictEqual(Object.keys(CONFIG_KEYS).length, 146);
+  // 2026-10-30（第二批）：+7（CONTENT_REPEAT_UNTIL_NEXT_QUARTER_WEEKS、COMBINED_KIND_TEMPLATES、COMBINED_KIND_NAMES、
+  //    WEBAPP_VIEWER_EMAILS、CONTENT_SHEET_LINK_ACCESS、CONTENT_SHEET_EDITOR_GROUPS、CONTENT_SHEET_FINANCE_EDITOR_GROUPS），146 → 153。
+  assert.strictEqual(Object.keys(CONFIG_KEYS).length, 153);
 });
 
 test('這一輪新增的 Config 鍵 FINANCE_PERIOD_LABEL_PATTERN 有定義、有預設值', function () {
@@ -229,14 +231,15 @@ test('CONFIG_KEYS 每一個值都有對應的 DEFAULTS 項目（不會有「有�
   });
 });
 
-test('DEFAULTS 剛好 146 筆（105 ＋ R-035 兩個 ＋ 階段 1 一個 ＋ 階段 2 兩個 ＋ 階段 3 十六個 ＋ D11 一個 ＋ 內容表 v2 一個 ＋ v3 六個 ＋ 2026-10-27 淨加兩個 ＋ 2026-10-30 五個 ＋ 2026-10-30 財政報告四個 ＋ 特別崇拜一個）', function () {
-  assert.strictEqual(DEFAULTS.length, 146);
+test('DEFAULTS 剛好 153 筆（105 ＋ R-035 兩個 ＋ 階段 1 一個 ＋ 階段 2 兩個 ＋ 階段 3 十六個 ＋ D11 一個 ＋ 內容表 v2 一個 ＋ v3 六個 ＋ 2026-10-27 淨加兩個 ＋ 2026-10-30 五個 ＋ 2026-10-30 財政報告四個 ＋ 特別崇拜一個 ＋ 2026-10-30 第二批七個）', function () {
+  assert.strictEqual(DEFAULTS.length, 153);
 });
 
-test('內容表那 10 個 Config 鍵齊備，而且 ID 類 seed 成空字串', function () {
+test('內容表那 13 個 Config 鍵齊備，而且 ID 類 seed 成空字串', function () {
   const contentKeys = Object.keys(CONFIG_KEYS).filter(function (k) { return k.indexOf('CONTENT_SHEET_') === 0; });
   // 2026-08-27 由 9 變 10：R-035 加了 CONTENT_SHEET_ARCHIVE_FOLDER_ID（封存資料夾）。
-  assert.strictEqual(contentKeys.length, 10, '實際：' + contentKeys.join('、'));
+  // 2026-10-30 由 10 變 13：內容表權限（CONTENT_SHEET_LINK_ACCESS、CONTENT_SHEET_EDITOR_GROUPS、CONTENT_SHEET_FINANCE_EDITOR_GROUPS）。
+  assert.strictEqual(contentKeys.length, 13, '實際：' + contentKeys.join('、'));
 
   const byKey = {};
   DEFAULTS.forEach(function (d) { byKey[d.key] = d; });

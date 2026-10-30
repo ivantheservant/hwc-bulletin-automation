@@ -538,3 +538,54 @@ function moveContentSheetFileToFolder_(fileId, folderId) {
     };
   }
 }
+
+// =====================================================================
+// 2026-10-30：內容表權限（src/ContentSheetSharing.gs 的 Drive 部分；DriveApp 只准在這幾個 IO 檔案）
+// =====================================================================
+
+/**
+ * 用途：設定內容表給教會網域的連結權限。
+ * Args:
+ *   fileId {string}　access {string} `VIEW` 或 `EDIT`。
+ * Returns:
+ *   {void}
+ * Raises:
+ *   Error 原樣拋出（呼叫方記下）。
+ */
+function setContentSheetDomainAccess_(fileId, access) {
+  DriveApp.getFileById(String(fileId)).setSharing(DriveApp.Access.DOMAIN,
+    access === 'EDIT' ? DriveApp.Permission.EDIT : DriveApp.Permission.VIEW);
+}
+
+/**
+ * 用途：讀內容表現有的個別用戶權限（電郵 → 角色）。共用雲端硬碟亦適用（Drive 進階服務）。
+ * Args:
+ *   fileId {string}
+ * Returns:
+ *   {Object<string,string>} 電郵（小寫）→ `owner`／`organizer`／`fileOrganizer`／`writer`／`commenter`／`reader`。
+ * Raises:
+ *   Error 原樣拋出。
+ */
+function listContentSheetUserRoles_(fileId) {
+  var out = {};
+  var listed = Drive.Permissions.list(String(fileId), { supportsAllDrives: true, fields: 'permissions(emailAddress,role,type)' });
+  ((listed && listed.permissions) || []).forEach(function (p) {
+    if (p.emailAddress) out[String(p.emailAddress).toLowerCase()] = p.role;
+  });
+  return out;
+}
+
+/**
+ * 用途：把一個人加為內容表的編輯者，不寄通知信。
+ * Args:
+ *   fileId {string}　email {string}
+ * Returns:
+ *   {void}
+ * Raises:
+ *   Error 原樣拋出。
+ */
+function addContentSheetEditorQuietly_(fileId, email) {
+  Drive.Permissions.create({ type: 'user', role: 'writer', emailAddress: String(email) }, String(fileId),
+    { sendNotificationEmail: false, supportsAllDrives: true });
+}
+

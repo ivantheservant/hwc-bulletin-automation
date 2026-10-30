@@ -260,6 +260,10 @@ function previewContentSheetBuild_(quarterId) {
 
   var existing = findContentSheetRow_(qid);
   var lines = ['季度：' + qid, '本季主日：' + serviceDates.length + ' 個'];
+  // 2026-10-30：權限會怎樣設（src/ContentSheetSharing.gs；與建立／刷新同一個計畫）。
+  var sharingPlan = previewContentSheetSharing_();
+  sharingPlan.lines.forEach(function (l) { lines.push(l); });
+  sharingPlan.warnings.forEach(function (w) { lines.push('⚠️ ' + w); });
 
   // 內容表 v2：用與「建立／刷新」同一個讀取函式與同一個 planner 算移轉計畫（bug class 120），
   //    預覽講的數字就是確定之後真正寫的數字。

@@ -65,6 +65,8 @@ function doGet(e) {
   var schema = checkSheetSchema_();
   var template = HtmlService.createTemplateFromFile('ui/Index');
   template.schemaWarning = buildSchemaShortSummary_(schema);
+  // 2026-10-30：只可以看的用戶（WEBAPP_VIEWER_EMAILS）——前端停用全部修改的按鈕；真正把關在 withApiResult_()。
+  template.viewOnly = callerWebAppRole_() === WEBAPP_ROLE_.VIEW ? 'true' : 'false';
   // ⚠️ 前端沒有辦法自己讀 Config，所以由這裏放進 `#app` 的 data 屬性。
   // 不可以用 include('ui/Script') 那一邊的樣板變數——`include()` 造的是
   // 一個**全新的**樣板，這裏設的值傳不過去。
@@ -285,9 +287,54 @@ function isEmailAuthorized_(callerEmail, allowedEmailsList, effectiveEmail) {
  *   {boolean}
  */
 function isCallerAuthorized_() {
-  var allowed = getConfigTextList_(CONFIG_KEYS.WEBAPP_ALLOWED_EMAILS, '');
-  return isEmailAuthorized_(getCallerEmail_(), allowed, getEffectiveEmail_());
+  return callerWebAppRole_() !== WEBAPP_ROLE_.NONE;
 }
+
+/**
+ * 2026-10-30（Ivan）：填寫介面兩種用戶——可以修改（`WEBAPP_ALLOWED_EMAILS`，部署者永遠可以）、
+ *   只可以看（`WEBAPP_VIEWER_EMAILS`）。兩個名單都有＝可以修改。
+ */
+var WEBAPP_ROLE_ = Object.freeze({ EDIT: 'EDIT', VIEW: 'VIEW', NONE: 'NONE' });
+
+/**
+ * 用途：判斷一個電郵在填寫介面是哪一種用戶。純函式。
+ * Args:
+ *   callerEmail {string}　editEmails {string[]} `WEBAPP_ALLOWED_EMAILS`。
+ *   viewerEmails {string[]} `WEBAPP_VIEWER_EMAILS`。　effectiveEmail {string} 部署者。
+ * Returns:
+ *   {string} `WEBAPP_ROLE_` 其中一個。
+ */
+function webAppRoleForEmail_(callerEmail, editEmails, viewerEmails, effectiveEmail) {
+  if (isEmailAuthorized_(callerEmail, editEmails, effectiveEmail)) return WEBAPP_ROLE_.EDIT;
+  var caller = String(callerEmail || '').trim().toLowerCase();
+  if (!caller) return WEBAPP_ROLE_.NONE;
+  var viewers = (viewerEmails || []).map(function (e) { return String(e || '').trim().toLowerCase(); });
+  return viewers.indexOf(caller) !== -1 ? WEBAPP_ROLE_.VIEW : WEBAPP_ROLE_.NONE;
+}
+
+/**
+ * 用途：目前呼叫者在填寫介面是哪一種用戶（讀 Config 兩個名單）。IO 層。
+ * Args: （無）
+ * Returns:
+ *   {string} `WEBAPP_ROLE_` 其中一個。
+ */
+function callerWebAppRole_() {
+  return webAppRoleForEmail_(getCallerEmail_(),
+    getConfigTextList_(CONFIG_KEYS.WEBAPP_ALLOWED_EMAILS, ''),
+    getConfigTextList_(CONFIG_KEYS.WEBAPP_VIEWER_EMAILS, ''),
+    getEffectiveEmail_());
+}
+
+/**
+ * 2026-10-30：「只可以看」的用戶可以叫的 API（白名單；**沒有列出＝不可以**，新加的 API 預設擋住）。
+ *   全部只讀資料，或者只產生 Word 給自己看（下載、開啟預覽），不改週報的任何一格。
+ */
+var VIEW_ONLY_ALLOWED_APIS_ = Object.freeze([
+  'apiListWeeks', 'apiLoadWeek', 'apiPreviewProgram', 'apiListWeekSnapshots', 'apiDiffWeekSnapshot',
+  'apiGetPublishStatus', 'apiDownloadBulletinDocx', 'apiOpenWordPreview', 'apiLogClientError',
+  'apiQuarterMissingReport', 'apiRosterDiffReport', 'apiGetRosterFetchCandidates', 'apiGetQuarterOpsPanel',
+  'apiGoLiveReport', 'apiPublishRevisionsReport', 'apiGetSpeakerFormStatus'
+]);
 
 /**
  * 用途：每一個給前端呼叫的 API 函式開頭都要呼叫這個函式——只在 `doGet`
@@ -318,7 +365,7 @@ function assertCallerAuthorized_() {
  *
  *   純字串常數，沒有跨檔案頂層引用，不受載入次序影響。
  */
-var EXPECTED_USER_ERROR_CODES_ = Object.freeze(['STALE', 'FIELD_CONFLICT', 'CLIENT_OUTDATED']);
+var EXPECTED_USER_ERROR_CODES_ = Object.freeze(['STALE', 'FIELD_CONFLICT', 'CLIENT_OUTDATED', 'SPECIAL_SERVICE_CANCELLED', 'VIEW_ONLY']);
 
 /**
  * 用途：把一個會拋錯的函式包成統一的 `{ ok, data?, error? }` 形狀，並在
@@ -343,6 +390,14 @@ var EXPECTED_USER_ERROR_CODES_ = Object.freeze(['STALE', 'FIELD_CONFLICT', 'CLIE
 function withApiResult_(fn, context) {
   try {
     assertCallerAuthorized_();
+    // 2026-10-30：只可以看的用戶只可以叫白名單內的 API（前端亦會停用按鈕，這裏才是真正把關）。
+    if (VIEW_ONLY_ALLOWED_APIS_.indexOf((context && context.functionName) || '') === -1
+      && callerWebAppRole_() === WEBAPP_ROLE_.VIEW) {
+      var viewErr = new Error('你在「只可以看」的名單（Config 的 WEBAPP_VIEWER_EMAILS），可以查看，但不可以修改、儲存或發佈。'
+        + '要修改的話，請管理員把你的電郵加入 WEBAPP_ALLOWED_EMAILS。');
+      viewErr.code = 'VIEW_ONLY';
+      throw viewErr;
+    }
     return { ok: true, data: fn() };
   } catch (err) {
     var errorCode = (err && err.code) || 'ERROR';
@@ -370,11 +425,12 @@ function withApiResult_(fn, context) {
  *   {{ok:boolean, data:{weeks:Object[], defaultIsoDate:(string|null)}, error?:Object}}
  */
 function apiListWeeks(includeArchived, options) {
+  // 2026-10-30：只可以看的用戶不觸發自動建立季度（那是寫入）。
   var autoCreate = Boolean(options && options.autoCreate === true);
   return withApiResult_(function () {
     // v3：開啟填寫介面（第一次載入）時順手自動建立職事表已有版本的新季度（十分鐘內只檢查一次、每次最多一季）。
     //    失敗不可以令載入失敗（autoCreateQuartersForWebApp_() 不拋錯）。
-    var notice = autoCreate ? autoCreateQuartersForWebApp_() : '';
+    var notice = (autoCreate && callerWebAppRole_() === WEBAPP_ROLE_.EDIT) ? autoCreateQuartersForWebApp_() : '';
     var data = listWeeksForWebApp_(includeArchived === true);
     data.autoCreateNotice = notice;
     return data;
@@ -602,6 +658,33 @@ function apiCreateSpecialService(isoDate, title) {
     return createSpecialService_(isoDate, title);
   },
     { functionName: 'apiCreateSpecialService', argsSummary: 'isoDate=' + isoDate });
+}
+
+/**
+ * 用途：前端呼叫，預覽「取消特別崇拜」會做甚麼。**唯讀。**（src/SpecialService.gs）
+ * Args:
+ *   isoDate {string} 特別崇拜的日期。
+ * Returns:
+ *   {{ok:boolean, data:Object, error?:Object}} `data.ok` 為 false 時 `data.message` 講明原因。
+ */
+function apiPreviewCancelSpecialService(isoDate) {
+  return withApiResult_(function () { return previewSpecialServiceCancel_(isoDate); },
+    { functionName: 'apiPreviewCancelSpecialService', argsSummary: 'isoDate=' + isoDate });
+}
+
+/**
+ * 用途：前端呼叫，真的取消特別崇拜（不刪行，`SERVICE_KIND` 改為 `SPECIAL_CANCELLED`）。
+ * Args:
+ *   isoDate {string}
+ * Returns:
+ *   {{ok:boolean, data:Object, error?:Object}} `data.cancelled` 為 true 代表已經取消。
+ */
+function apiCancelSpecialService(isoDate) {
+  return withApiResult_(function () {
+    assertSheetSchemaUpToDate_('取消特別崇拜');
+    return cancelSpecialService_(isoDate);
+  },
+    { functionName: 'apiCancelSpecialService', argsSummary: 'isoDate=' + isoDate });
 }
 
 /**
@@ -1539,7 +1622,8 @@ function buildWeekListEntries_(rows, todayIso, decorations) {
   var missingIndex = (decorations && decorations.missingIndex) || {};
 
   return (rows || [])
-    .filter(function (r) { return r.SERVICE_DATE instanceof Date; })
+    // 2026-10-30：已取消的特別崇拜不顯示（那一行保留，同一日再建立就恢復）。
+    .filter(function (r) { return r.SERVICE_DATE instanceof Date && !isCancelledSpecialServiceRow_(r); })
     .map(function (r) {
       var isoDate = formatIsoDate_(r.SERVICE_DATE);
       var weekOfMonth = (r.WEEK_OF_MONTH === null || r.WEEK_OF_MONTH === undefined) ? null : r.WEEK_OF_MONTH;
@@ -1850,6 +1934,10 @@ function loadWeekForWebApp_(isoDate) {
       recitationAuto: model.recitationAuto || '',
       // 2026-10-27：程序範本「留空＝自動」時會用哪一個（按每週標題推斷），下拉旁邊提示用。
       templateAuto: model.templateAuto || '',
+      // 2026-10-30：自動值的依據（COMBINED_KIND／TITLE_KEYWORD／DEFAULT）與職事表合堂設定（src/CombinedService.gs）。
+      templateAutoSource: model.templateAutoSource || '',
+      combined: model.combined ? { kind: model.combined.kind, name: model.combined.name,
+        kindName: readCombinedServiceConfig_().kindNames[model.combined.kind] || '' } : null,
       // 階段 1：獻花欄位旁邊的提示。職事表的名字由後端算好（與帶入
       // 獻花同一個 rosterFlowerName_()），前端只負責挑哪一句提示。
       flowerRoster: model.flowerRoster || { thisWeek: '', nextWeek: '' },
@@ -1902,7 +1990,11 @@ function loadWeekForWebApp_(isoDate) {
     // v3：你填的名字與職事表不同的崗位（職事表未排定的不算）。每次載入都講出來，名字一律保留你填的。
     dutyDiffs: buildDutyDiffNotices_(model.rosterDiff),
     // v3：「查看／修改職事表」按鈕的網址（Config ROSTER_WEBAPP_URL）；空字串就不顯示按鈕。
-    rosterWebAppUrl: rosterWebAppUrlForButton_()
+    rosterWebAppUrl: rosterWebAppUrlForButton_(),
+    // 2026-10-30：〔設定合堂主日〕：職事表幹事介面的合堂主日畫面，帶這一週在職事表的季度
+    //    （職事表沒有這一日——例如特別崇拜——就用週報這一行的季度）。空字串＝不顯示。
+    rosterCombinedUrl: buildRosterCombinedUrl_(rosterWebAppUrlForButton_(),
+      model.quarterId || String(weekRow.QUARTER_ID || ''))
   };
 }
 

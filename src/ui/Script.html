@@ -373,7 +373,9 @@
     apiRunPublish: 'publish',
     apiRunContentSheetBuild: 'week',
     // 2026-10-30：建立特別崇拜。再按一次無害（已經建立就講「已經有一期」，不會重複）。
-    apiCreateSpecialService: 'week'
+    apiCreateSpecialService: 'week',
+    // 2026-10-30：取消特別崇拜。再按一次無害（已經取消就講「已經取消」，不會再寫）。
+    apiCancelSpecialService: 'week'
   };
 
   /**
@@ -911,6 +913,10 @@
     var meta = document.getElementById('rosterMeta');
     var parts = [
       '特別主日：' + escapeHtml(readOnly.special ? readOnly.special.title : '（無）'),
+      // 2026-10-30：職事表合堂主日（src/CombinedService.gs）。
+      '合堂：' + escapeHtml(readOnly.combined
+        ? ((readOnly.combined.kindName || readOnly.combined.kind) + (readOnly.combined.name ? '（' + readOnly.combined.name + '）' : ''))
+        : '（不是合堂）'),
       '程序範本：' + escapeHtml(readOnly.templateId || '（無）'),
       '職事表版本：' + escapeHtml(readOnly.rosterVersionUsed === null || readOnly.rosterVersionUsed === undefined
         ? '（尚未生成）' : String(readOnly.rosterVersionUsed))
@@ -941,8 +947,12 @@
     // 2026-10-27：程序範本留空＝自動跟每週標題（職事表「類型」欄）。自動值同樣由後端算好。
     var templateHint = document.getElementById('programTemplateAutoHint');
     if (templateHint) {
+      // 2026-10-30：合堂週的自動值跟職事表的合堂設定（src/CombinedService.gs）。
+      var autoBasis = readOnly.templateAutoSource === 'COMBINED_KIND'
+        ? '（跟職事表合堂主日：' + ((readOnly.combined && (readOnly.combined.kindName || readOnly.combined.kind)) || '') + '）'
+        : '（跟每週標題）';
       templateHint.textContent = readOnly.templateAuto
-        ? ('目前自動值：' + readOnly.templateAuto + '（跟每週標題）')
+        ? ('目前自動值：' + readOnly.templateAuto + autoBasis)
         : '';
     }
 
@@ -3054,6 +3064,7 @@
     // v3：你填的名字與職事表不同的崗位；「查看／修改職事表」按鈕。
     renderDutyDiffNotice(data.dutyDiffs);
     renderRosterAppLink(data.rosterWebAppUrl);
+    renderRosterCombinedLink(data.rosterCombinedUrl);
     setLoaded(true);
     refreshUnsavedIndicator();
     // 2026-10-28：自動由內容表匯入的結果（有改動才講）。
@@ -3158,6 +3169,28 @@
     }
     link.href = url;
     link.classList.remove('hidden');
+  }
+
+  /**
+   * 用途：2026-10-30：〔設定合堂主日〕按鈕（新分頁打開職事表的合堂主日畫面）與旁邊的提示。
+   *   網址由伺服器組好（職事表幹事介面網址＋view=combined＋這一週的季度）；空字串就不顯示。
+   * Args:
+   *   url {string}
+   * Returns:
+   *   {void}
+   */
+  function renderRosterCombinedLink(url) {
+    var link = document.getElementById('rosterCombinedLink');
+    var hint = document.getElementById('rosterCombinedHint');
+    if (!url) {
+      link.classList.add('hidden');
+      link.removeAttribute('href');
+      hint.classList.add('hidden');
+      return;
+    }
+    link.href = url;
+    link.classList.remove('hidden');
+    hint.classList.remove('hidden');
   }
 
   /**
@@ -4428,14 +4461,15 @@
    */
   function renderSpecialServiceBanner(info) {
     var bar = document.getElementById('specialServiceBar');
+    var barText = document.getElementById('specialServiceBarText');
     var subhead = document.getElementById('worshipContentSubhead');
     if (!info) {
       bar.classList.add('hidden');
-      bar.textContent = '';
+      barText.textContent = '';
       subhead.textContent = '由內容表「崇拜程序」填寫（這裏只顯示）';
       return;
     }
-    bar.textContent = '這一期是特別崇拜「' + (info.title || '') + '」（不是主日）：職事表沒有這一日，請在「本週事奉」逐格填'
+    barText.textContent = '這一期是特別崇拜「' + (info.title || '') + '」（不是主日）：職事表沒有這一日，請在「本週事奉」逐格填'
       + '（沒有名字的崗位不印）；讀經經文、證道講題、回應詩歌在這裏填。家事報告、代禱事項、團契、財政報告、上週崇拜人數跟 '
       + (info.contentSourceIso || '') + ' 那一個主日（只顯示）；下週事奉是 ' + (info.nextSundayIso || '') + ' 的職事表。'
       + '這一期不會自動寄出。';
@@ -4473,13 +4507,53 @@
           if (!runResp.ok) { showMessage('error', runResp.error.message); return; }
           if (!runResp.data.ok) { showMessage('error', runResp.data.message); return; }
           toggleSpecialServiceForm(false);
-          showMessage('success', '已建立特別崇拜「' + runResp.data.title + '」（' + runResp.data.isoDate + '）。請填事奉人員、讀經經文、講題與程序，然後按「儲存」。');
+          showMessage('success', (runResp.data.restore ? '已恢復特別崇拜「' : '已建立特別崇拜「') + runResp.data.title + '」（' + runResp.data.isoDate + '）。'
+            + (runResp.data.restore ? '之前填過的內容已保留，請核對之後按「儲存」。' : '請填事奉人員、讀經經文、講題與程序，然後按「儲存」。'));
           callServer('apiListWeeks', [state.showArchived], function (listResp) {
             if (!listResp.ok) { showMessage('error', listResp.error.message); return; }
             populateWeekSelectors(listResp.data, runResp.data.isoDate);
             loadWeek(runResp.data.isoDate, { keepMessage: true });
           }, { busyText: '載入中…' });
         }, { busyText: '建立中…' });
+      });
+    }, { busyText: '計算中…' });
+  }
+
+  /**
+   * 用途：2026-10-30（Ivan）：取消目前這一期特別崇拜。先預覽（伺服器講會做甚麼），確定之後才取消；
+   *   取消之後打開上一個主日。不刪行，同一日再按「建立特別崇拜…」會恢復。
+   * Returns:
+   *   {void}
+   */
+  function startCancelSpecialService() {
+    if (state.inFlight > 0) return;
+    hideMessage();
+    var isoDate = state.isoDate;
+    callServer('apiPreviewCancelSpecialService', [isoDate], function (resp) {
+      if (!resp.ok) { showMessage('error', resp.error.message); return; }
+      var data = resp.data;
+      if (!data.ok) { showMessage('error', data.message); return; }
+      var lines = (data.lines || []).slice();
+      if (hasUnsavedWeekChanges()) {
+        lines.push('');
+        lines.push('這一期有未儲存的改動，取消之後這些改動會丟失。');
+      }
+      lines.push('');
+      lines.push('按「確定」就取消這個特別崇拜；按「取消」就甚麼都不做。');
+      openConfirmDialog('取消特別崇拜', lines, function (accepted) {
+        if (!accepted) { showMessage('info', CANCELLED_NOTHING_WRITTEN_MESSAGE); return; }
+        callServer('apiCancelSpecialService', [isoDate], function (runResp) {
+          if (!runResp.ok) { showMessage('error', runResp.error.message); return; }
+          if (!runResp.data.ok) { showMessage('error', runResp.data.message); return; }
+          var target = runResp.data.sourceIso;
+          showMessage('success', '已取消特別崇拜「' + runResp.data.title + '」（' + runResp.data.isoDate + '）。'
+            + '要恢復的話，按「建立特別崇拜…」，選同一日再建立。');
+          callServer('apiListWeeks', [state.showArchived], function (listResp) {
+            if (!listResp.ok) { showMessage('error', listResp.error.message); return; }
+            populateWeekSelectors(listResp.data, target);
+            loadWeek(target, { keepMessage: true });
+          }, { busyText: '載入中…' });
+        }, { busyText: '取消中…' });
       });
     }, { busyText: '計算中…' });
   }
@@ -4531,6 +4605,7 @@
     document.getElementById('specialServiceBtn').addEventListener('click', function () { toggleSpecialServiceForm(true); });
     document.getElementById('specialServiceCancelBtn').addEventListener('click', function () { toggleSpecialServiceForm(false); });
     document.getElementById('specialServicePreviewBtn').addEventListener('click', startCreateSpecialService);
+    document.getElementById('cancelSpecialServiceBtn').addEventListener('click', startCancelSpecialService);
     document.getElementById('saveBtn').addEventListener('click', saveWeek);
     // v3：每一個可以輸入的區塊右上角都有一粒「儲存」，與頂部那一粒同一個動作（儲存整個主日）。
     var sectionSaves = document.querySelectorAll('[data-save-button]');
@@ -4679,9 +4754,64 @@
     };
   }
 
+  // =====================================================================
+  // 2026-10-30：只可以看的用戶（Config WEBAPP_VIEWER_EMAILS）
+  // =====================================================================
+
+  /** 只可以看的用戶仍然可以用的控制項（換季度、換主日、看預覽、下載 Word、看版本差異）。 */
+  var VIEW_ONLY_ALLOWED_CONTROL_IDS = ['quarterSelect', 'showArchivedCheck', 'weekSelect', 'prevWeekBtn', 'nextWeekBtn',
+    'previewLink', 'copyPreviewLinkBtn', 'snapshotSelect', 'snapshotDiffBtn', 'downloadWordBtn'];
+
+  /**
+   * 用途：這一位用戶是不是只可以看（伺服器在 #app 的 data-view-only 寫好）。
+   * Returns:
+   *   {boolean}
+   */
+  function isViewOnlyUser() {
+    var app = document.getElementById('app');
+    return Boolean(app && app.getAttribute && app.getAttribute('data-view-only') === 'true');
+  }
+
+  /**
+   * 用途：只可以看的用戶：頂部加說明，頁頂與主畫面內除了白名單以外的輸入框、下拉和按鈕一律停用。
+   *   畫面重畫（換週、重新載入）會加新的控制項，所以用 MutationObserver 每次再套一次。
+   *   ⚠️ 這只是方便：真正把關在伺服器（withApiResult_() 的白名單）。
+   * Returns:
+   *   {void}
+   */
+  function applyViewOnlyMode() {
+    if (!isViewOnlyUser()) return;
+    document.getElementById('viewOnlyTopBanner').classList.remove('hidden');
+    ['topbar', 'mainContent'].forEach(function (id) {
+      var root = document.getElementById(id);
+      if (!root || !root.querySelectorAll) return;
+      Array.prototype.forEach.call(root.querySelectorAll('input, textarea, select, button'), function (ctrl) {
+        if (VIEW_ONLY_ALLOWED_CONTROL_IDS.indexOf(ctrl.id) !== -1) return;
+        if (!ctrl.disabled) ctrl.disabled = true;
+      });
+    });
+  }
+
+  /**
+   * 用途：只可以看的用戶：開頁時套一次，之後畫面有新控制項就再套。
+   * Returns:
+   *   {void}
+   */
+  function wireViewOnlyMode() {
+    if (!isViewOnlyUser()) return;
+    applyViewOnlyMode();
+    if (typeof MutationObserver !== 'function') return;
+    var observer = new MutationObserver(function () { applyViewOnlyMode(); });
+    ['topbar', 'mainContent'].forEach(function (id) {
+      var root = document.getElementById(id);
+      if (root) observer.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled'] });
+    });
+  }
+
   function init() {
     wireGlobalErrorHandlers();
     wireStaticEvents();
+    wireViewOnlyMode();
     document.getElementById('missingPanel').classList.add('hidden');
     document.getElementById('conflictPanel').classList.add('hidden');
     applyBusyState();

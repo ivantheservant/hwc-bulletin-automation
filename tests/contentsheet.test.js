@@ -752,16 +752,43 @@ test('11c. 樣本只喺新建立嗰陣寫；刷新唔會再加多一次', functi
   assert.strictEqual(sheet.getLastRow(), before, '刷新唔可以再加一次樣本');
 });
 
-test('12. 分享權限係網域可編輯，唔係任何人', function () {
+test('12. 分享權限係網域（唔係任何人）；2026-10-30 起預設 CONTENT_SHEET_LINK_ACCESS=VIEW：Recipients 有編輯者就網域只可以看', function () {
   const env = makeEnv({});
   const result = env.sandbox.buildOrRefreshContentSheet_(QUARTER_ID);
   const rec = env.driveFiles[result.fileId];
+  const plan = env.sandbox.previewContentSheetSharing_();
 
   assert.ok(rec, '應該對嗰個檔案設過權限');
   assert.strictEqual(rec.sharing.access, 'DOMAIN', '一定要係 DOMAIN，唔可以係 ANYONE_WITH_LINK');
-  assert.strictEqual(rec.sharing.permission, 'EDIT');
+  assert.strictEqual(rec.sharing.permission, plan.access, '最後設的權限與計畫一致');
+  assert.strictEqual(plan.access, plan.editors.length > 0 ? 'VIEW' : 'EDIT');
   assert.strictEqual(rec.movedTo, FAKE_FOLDER_ID, '要搬入指定資料夾');
   assert.strictEqual(result.sharingApplied, true);
+});
+
+test('12a. 權限計畫（純函式 planContentSheetSharing_）：VIEW＋組別電郵；沒有編輯者就保持 EDIT 並講出來；EDIT；財政報告組別', function () {
+  const sb = makeEnv({}).sandbox;
+  const today = sb.normalizeDate_('2027-10-01');
+  const rows = [
+    { GROUP_NAME: 'CC', EMAIL: 'a@x.com', NAME: '甲', ACTIVE: true },
+    { GROUP_NAME: 'DB', EMAIL: 'B@x.com', NAME: '乙', ACTIVE: true },
+    { GROUP_NAME: 'DB', EMAIL: 'c@x.com', NAME: '丙', ACTIVE: false },
+    { GROUP_NAME: 'CC', EMAIL: 'b@x.com', NAME: '乙', ACTIVE: true }
+  ];
+  const cfg = { access: 'VIEW', accessRaw: 'VIEW', editorGroups: ['CC', 'DB'], financeGroups: ['DB'] };
+  const p = sb.planContentSheetSharing_({ config: cfg, recipientRows: rows, today: today });
+  assert.strictEqual(p.access, 'VIEW');
+  assert.deepStrictEqual(Array.from(p.editors).sort(), ['a@x.com', 'b@x.com']);
+  assert.deepStrictEqual(Array.from(p.financeEditors), ['b@x.com']);
+  assert.strictEqual(p.financeLocked, true);
+  const none = sb.planContentSheetSharing_({ config: cfg, recipientRows: [], today: today });
+  assert.strictEqual(none.access, 'EDIT', '沒有編輯者不可以改成只可以看');
+  assert.ok(none.warnings.join('').indexOf('一個有效的電郵都沒有') !== -1);
+  const edit = sb.planContentSheetSharing_({ config: Object.assign({}, cfg, { access: 'EDIT', accessRaw: 'EDIT', financeGroups: [] }), recipientRows: rows, today: today });
+  assert.strictEqual(edit.access, 'EDIT');
+  assert.strictEqual(edit.financeLocked, false);
+  const bad = sb.planContentSheetSharing_({ config: Object.assign({}, cfg, { accessRaw: 'READ' }), recipientRows: rows, today: today });
+  assert.ok(bad.warnings.join('').indexOf('只可以填 VIEW 或 EDIT') !== -1);
 });
 
 test('12b. CONTENT_SHEET_DOMAIN 未填 → 照樣建立得到，但唔設分享權限而且對話框有提醒', function () {

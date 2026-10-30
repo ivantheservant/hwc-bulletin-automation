@@ -45,7 +45,9 @@ function readProgramTemplateConfig_() {
     baptismKeywords: getConfigTextList_(CONFIG_KEYS.TEMPLATE_KEYWORDS_BAPTISM, '浸禮,Baptism,baptism'),
     anniversaryKeywords: getConfigTextList_(CONFIG_KEYS.TEMPLATE_KEYWORDS_ANNIVERSARY, '堂慶,週年,Anniversary,anniversary'),
     combinedKeywords: getConfigTextList_(CONFIG_KEYS.TEMPLATE_KEYWORDS_COMBINED, '合堂,聯合,Combined,combined'),
-    templateDefault: getConfig(CONFIG_KEYS.TEMPLATE_DEFAULT, 'TPL_NORMAL')
+    templateDefault: getConfig(CONFIG_KEYS.TEMPLATE_DEFAULT, 'TPL_NORMAL'),
+    // 2026-10-30：職事表合堂種類 → 範本（src/CombinedService.gs）。
+    combinedKindTemplates: readCombinedServiceConfig_().kindTemplates
   };
 }
 
@@ -118,11 +120,16 @@ function buildProgramTable_(week, snapshot) {
   //    Word、預覽、電郵、填寫介面都由這裏來（見 src/WeekArrangement.gs）。
   var edited = applyProgramEdits_(rows, (week || {}).PROGRAM_EDITS);
 
+  var autoResolved = resolveProgramTemplateId_({}, snapshot, templateConfig);
   return {
     templateId: resolved.templateId,
     inferred: resolved.inferred,
     // 2026-10-27：自動值——刻意把人手揀選當成空白再算一次（同誦讀 recitationAuto 的做法）。
-    templateAuto: resolveProgramTemplateId_({}, snapshot, templateConfig).templateId,
+    templateAuto: autoResolved.templateId,
+    // 2026-10-30：自動值的依據（`COMBINED_KIND`／`TITLE_KEYWORD`／`DEFAULT`），填寫介面提示用；
+    //    合堂種類代號不在 Config 時的代號（資料模型出警告）。
+    templateAutoSource: autoResolved.source,
+    unknownCombinedKind: autoResolved.unknownCombinedKind || '',
     rows: edited.rows,
     // 填寫介面用：拿走的行仍然在（`removed:true`），每一行帶 `key`／`addedId`。
     displayRows: edited.display,
@@ -178,22 +185,44 @@ function buildProgramTable_(week, snapshot) {
  */
 function resolveProgramTemplateId_(week, snapshot, templateConfig) {
   var explicit = String((week && week.PROGRAM_TEMPLATE_ID) || '').trim();
-  if (explicit) return { templateId: explicit, inferred: false };
+  if (explicit) return { templateId: explicit, inferred: false, source: 'EXPLICIT' };
 
+  // 2026-10-30：職事表合堂主日（src/CombinedService.gs）排在每週標題關鍵詞之前。
+  //    代號不在 Config 就改用每週標題判斷，並帶 `unknownCombinedKind` 給資料模型出警告（不可以靜靜當平常主日）。
+  var combined = snapshot && snapshot.combined;
+  var unknownCombinedKind = '';
+  if (combined && combined.kind) {
+    var mapped = String(((templateConfig && templateConfig.combinedKindTemplates) || {})[combined.kind] || '').trim();
+    if (mapped) return { templateId: mapped, inferred: true, source: 'COMBINED_KIND' };
+    unknownCombinedKind = combined.kind;
+  }
+  var byTitle = resolveProgramTemplateIdByTitle_(snapshot, templateConfig);
+  if (unknownCombinedKind) byTitle.unknownCombinedKind = unknownCombinedKind;
+  return byTitle;
+}
+
+/**
+ * 用途：按每週標題（`snapshot.special`）推斷程序範本（`resolveProgramTemplateId_()` 的後半）。純函式。
+ * Args:
+ *   snapshot {Object}　templateConfig {Object}
+ * Returns:
+ *   {{templateId:string, inferred:boolean, source:string}} `source`：`TITLE_KEYWORD`／`DEFAULT`。
+ */
+function resolveProgramTemplateIdByTitle_(snapshot, templateConfig) {
   var special = snapshot && snapshot.special;
   var haystack = special ? (String(special.title || '') + ' ' + String(special.type || '')) : '';
 
   if (containsAnyKeyword_(haystack, templateConfig.baptismKeywords)) {
-    return { templateId: PROGRAM_TEMPLATE_ID_BAPTISM_, inferred: true };
+    return { templateId: PROGRAM_TEMPLATE_ID_BAPTISM_, inferred: true, source: 'TITLE_KEYWORD' };
   }
   if (containsAnyKeyword_(haystack, templateConfig.anniversaryKeywords)) {
-    return { templateId: PROGRAM_TEMPLATE_ID_ANNIVERSARY_, inferred: true };
+    return { templateId: PROGRAM_TEMPLATE_ID_ANNIVERSARY_, inferred: true, source: 'TITLE_KEYWORD' };
   }
   // v3：其他合堂（例如宣教月合堂）。排在浸禮、堂慶之後——「浸禮合堂」「堂慶合堂」仍然用各自的範本。
   if (containsAnyKeyword_(haystack, templateConfig.combinedKeywords)) {
-    return { templateId: PROGRAM_TEMPLATE_ID_COMBINED_, inferred: true };
+    return { templateId: PROGRAM_TEMPLATE_ID_COMBINED_, inferred: true, source: 'TITLE_KEYWORD' };
   }
-  return { templateId: templateConfig.templateDefault, inferred: true };
+  return { templateId: templateConfig.templateDefault, inferred: true, source: 'DEFAULT' };
 }
 
 /**

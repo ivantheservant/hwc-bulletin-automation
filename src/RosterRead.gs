@@ -92,7 +92,10 @@ var ROSTER_TABLE_DEFS_ = Object.freeze({
     },
     optionalColumns: {
       // 每週標題：幹事在職事表「類型」欄改，空白＝預設類型（ServiceType）。
-      Title: 'TEXT'
+      Title: 'TEXT',
+      // 2026-10-30：合堂主日（職事表第八十五輪）。沒有這兩欄＝全部不是合堂（src/CombinedService.gs）。
+      CombinedKind: 'TEXT',
+      CombinedName: 'TEXT'
     }
   },
   NAME_MAPPING: {
@@ -168,7 +171,9 @@ function readRosterSnapshotOptions_() {
     notAPersonTexts: getConfigTextList_(CONFIG_KEYS.ROSTER_NOT_A_PERSON_TEXTS, ROSTER_NOT_A_PERSON_TEXTS_DEFAULT),
     notApplicableRuleFlags: getConfigTextList_(
       CONFIG_KEYS.ROSTER_NOT_APPLICABLE_RULE_FLAGS, ROSTER_NOT_APPLICABLE_RULE_FLAGS_DEFAULT
-    )
+    ),
+    // 2026-10-30：合堂週的標題（每週標題空白時）用的種類名稱（src/CombinedService.gs）。
+    combinedKindNames: readCombinedServiceConfig_().kindNames
   };
 }
 
@@ -393,6 +398,7 @@ function emptyRosterSnapshot_(isoDate, overrides) {
     versionNo: null,
     serviceDate: null,
     special: null,
+    combined: null,
     assignments: [],
     slotsByPost: {},
     posts: [],
@@ -781,7 +787,15 @@ function buildRosterSnapshot_(tables, isoDate, options) {
     specialId: serviceDateRow.SpecialID,
     title: serviceDateRow.Title || ''
   };
+  // 2026-10-30：合堂主日（src/CombinedService.gs）。標題：每週標題優先，空白才用合堂名稱／種類名稱。
+  snapshot.combined = buildRosterCombinedService_(serviceDateRow);
   snapshot.special = buildRosterWeekTitle_(serviceDateRow);
+  if (!snapshot.special && snapshot.combined) {
+    snapshot.special = {
+      title: combinedServiceTitle_(snapshot.combined, opts.combinedKindNames || parseCodeValueList_('COMBINED=合堂,BAPTISM=浸禮,ANNIVERSARY=堂慶')),
+      type: '', source: 'COMBINED'
+    };
+  }
 
   if (Boolean(serviceDateRow.IsFirstSundayOfMonth) !== (weekOfMonth === 1)) {
     warnings.push({

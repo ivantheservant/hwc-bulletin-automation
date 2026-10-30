@@ -794,7 +794,19 @@ var CONFIG_KEYS = Object.freeze({
   FINANCE_MAIN_COLUMN_LABELS: 'FINANCE_MAIN_COLUMN_LABELS',
   FINANCE_SPECIAL_COLUMN_LABELS: 'FINANCE_SPECIAL_COLUMN_LABELS',
   // 特別崇拜（非主日，src/SpecialService.gs）建立時的程序範本。
-  SPECIAL_SERVICE_TEMPLATE_DEFAULT: 'SPECIAL_SERVICE_TEMPLATE_DEFAULT'
+  SPECIAL_SERVICE_TEMPLATE_DEFAULT: 'SPECIAL_SERVICE_TEMPLATE_DEFAULT',
+  // 2026-10-30：內容表「連續到」可以選到下一季的幾多個主日（src/ContentCarryOver.gs）。0＝只可以選本季。
+  CONTENT_REPEAT_UNTIL_NEXT_QUARTER_WEEKS: 'CONTENT_REPEAT_UNTIL_NEXT_QUARTER_WEEKS',
+  // 2026-10-30：職事表合堂主日（ServiceDates.CombinedKind）→ 程序範本（src/CombinedService.gs）。
+  COMBINED_KIND_TEMPLATES: 'COMBINED_KIND_TEMPLATES',
+  // 2026-10-30：合堂種類代號 → 顯示名稱（每週標題空白、合堂名稱亦空白時用）。
+  COMBINED_KIND_NAMES: 'COMBINED_KIND_NAMES',
+  // 2026-10-30：填寫介面「只可以看」的名單（src/WebAppAccess.gs）。
+  WEBAPP_VIEWER_EMAILS: 'WEBAPP_VIEWER_EMAILS',
+  // 2026-10-30：內容表權限（src/ContentSheetSharing.gs）：網域內連結權限、可以修改的組別、財政報告分頁可以修改的組別。
+  CONTENT_SHEET_LINK_ACCESS: 'CONTENT_SHEET_LINK_ACCESS',
+  CONTENT_SHEET_EDITOR_GROUPS: 'CONTENT_SHEET_EDITOR_GROUPS',
+  CONTENT_SHEET_FINANCE_EDITOR_GROUPS: 'CONTENT_SHEET_FINANCE_EDITOR_GROUPS'
 });
 
 // =====================================================================
@@ -1015,7 +1027,7 @@ var DEFAULTS = Object.freeze([
 
   // ---- v3（2026-10-26 Ivan 測試結果 A）----
   { key: CONFIG_KEYS.WEBAPP_SIMULATED_TODAY, value: '', note: '⚠️ 只供測試：填一個日期（yyyy-MM-dd），填寫介面就當今日是這一天——影響「發佈／寄出只限該週」、頂部「目前已發佈」那一行、打開時落在哪一週、自動建立季度、預覽連結（不帶日期那一條）顯示哪一週；不影響星期一自動寄送。正式使用前一定要清空（上線前檢查會是紅色）' },
-  { key: CONFIG_KEYS.ROSTER_WEBAPP_URL, value: '', note: '職事表系統填寫介面的網址。填了之後，週報填寫介面「本週事奉」旁邊會出現「查看／修改職事表」按鈕；留空就不顯示' },
+  { key: CONFIG_KEYS.ROSTER_WEBAPP_URL, value: '', note: '職事表系統幹事介面的網址（以 /exec 結尾）。填了之後，週報填寫介面「本週事奉」旁邊會出現「查看／修改職事表」和「設定合堂主日」兩個按鈕；留空就不顯示' },
   { key: CONFIG_KEYS.TEMPLATE_KEYWORDS_COMBINED, value: '合堂,聯合,Combined,combined', note: '每週標題（職事表「類型」欄）含這些關鍵詞（而不是浸禮或堂慶）就用三堂聯合崇拜範本 TPL_COMBINED（逗號分隔；分大小寫，英文要大小寫各列一次）；只在程序範本留空＝自動時用' },
   { key: CONFIG_KEYS.TEMPLATE_FILE_ID_COMBINED, value: '', note: '三堂聯合崇拜（TPL_COMBINED）Word 範本的雲端硬碟檔案 ID。留空就用堂慶三堂聯合崇拜那一個（TEMPLATE_FILE_ID_ANNIVERSARY）' },
   { key: CONFIG_KEYS.AUTO_CREATE_QUARTERS, value: 'TRUE', note: '職事表某一季已經生成版本（未正式發出亦算）、而且該季未完結時，自動建立該季的週報與內容表（每日一次，以及開啟填寫介面時）。設 FALSE 就停用，改用選單人手建立' },
@@ -1031,7 +1043,14 @@ var DEFAULTS = Object.freeze([
   { key: CONFIG_KEYS.FINANCE_SPECIAL_KEYWORDS, value: '特殊海外,慈惠', note: '「報告標題」含這些詞（逗號分隔）就當作特殊海外奉獻及慈惠基金的款式（兩個數字欄）；其餘有標題的當作綜合收支（四個數字欄）。沒有標題就看有沒有填欄三、欄四' },
   { key: CONFIG_KEYS.FINANCE_MAIN_COLUMN_LABELS, value: '{{PERIOD}}實際數字,截至本月實際數字,截至本月預算,全年預算', note: '綜合收支財政表四個數字欄的表頭（逗號分隔，四項）；{{PERIOD}} 換成期別標籤（FINANCE_PERIOD_LABEL_PATTERN，例如「5月份」）。Word 範本用 {{FINANCE_MAIN_HEAD1}} 至 {{FINANCE_MAIN_HEAD4}}' },
   { key: CONFIG_KEYS.FINANCE_SPECIAL_COLUMN_LABELS, value: '特殊海外奉獻,慈惠', note: '特殊海外奉獻及慈惠基金財政表兩個數字欄的表頭（逗號分隔，兩項）。Word 範本用 {{FINANCE_SPECIAL_HEAD1}}、{{FINANCE_SPECIAL_HEAD2}}' },
-  { key: CONFIG_KEYS.SPECIAL_SERVICE_TEMPLATE_DEFAULT, value: 'TPL_NORMAL', note: '填寫介面「建立特別崇拜」（非主日，例如受苦節）時預設的程序範本 ID；建立之後可以在那一期的程序範本下拉改' }
+  { key: CONFIG_KEYS.SPECIAL_SERVICE_TEMPLATE_DEFAULT, value: 'TPL_NORMAL', note: '填寫介面「建立特別崇拜」（非主日，例如受苦節）時預設的程序範本 ID；建立之後可以在那一期的程序範本下拉改' },
+  { key: CONFIG_KEYS.CONTENT_REPEAT_UNTIL_NEXT_QUARTER_WEEKS, value: '13', note: '內容表「家事報告」「代禱事項」的「連續到」可以選到下一季的幾多個主日（下一季的週報會自動由這一季的內容表帶入）。0＝只可以選本季。改了之後要在填寫介面按「更新本季內容表…」才會更新下拉' },
+  { key: CONFIG_KEYS.COMBINED_KIND_TEMPLATES, value: 'COMBINED=TPL_COMBINED,BAPTISM=TPL_COMBINED_BAPTISM,ANNIVERSARY=TPL_ANNIVERSARY', note: '職事表合堂主日的種類代號（ServiceDates.CombinedKind）→ 程序範本 ID，格式「代號=範本ID」逗號分隔。程序範本留空＝自動時，合堂種類排在每週標題關鍵詞之前；代號不在這裏會在警告說明，並改用每週標題判斷' },
+  { key: CONFIG_KEYS.COMBINED_KIND_NAMES, value: 'COMBINED=合堂,BAPTISM=浸禮,ANNIVERSARY=堂慶', note: '職事表合堂種類代號 → 名稱，格式「代號=名稱」逗號分隔（應與職事表 Config 的 COMBINED_SERVICE_KINDS 一致）。合堂週的標題：職事表每週標題優先；沒有就用合堂名稱（CombinedName）；再沒有就用這裏的名稱' },
+  { key: CONFIG_KEYS.WEBAPP_VIEWER_EMAILS, value: '', note: '只可以看填寫介面、不可以修改的電郵，逗號分隔。同時在 WEBAPP_ALLOWED_EMAILS 的人當作可以修改' },
+  { key: CONFIG_KEYS.CONTENT_SHEET_LINK_ACCESS, value: 'VIEW', note: '內容表給教會網域的連結權限：VIEW＝網域內只可以看（CONTENT_SHEET_EDITOR_GROUPS 的人可以修改）；EDIT＝網域內任何人都可以修改（舊做法）。改了之後在填寫介面按「更新本季內容表…」才套用到現有的內容表' },
+  { key: CONFIG_KEYS.CONTENT_SHEET_EDITOR_GROUPS, value: 'CC,DB,ADMIN,IT,WORSHIP', note: '內容表可以修改的 Recipients 組別（逗號分隔，按 GROUP_NAME；只計 ACTIVE=TRUE）。CONTENT_SHEET_LINK_ACCESS=VIEW 時才有作用' },
+  { key: CONFIG_KEYS.CONTENT_SHEET_FINANCE_EDITOR_GROUPS, value: 'DB,ADMIN,IT', note: '內容表「財政報告」分頁可以修改的 Recipients 組別（逗號分隔）。留空＝不另外限制（與其他分頁相同）' }
 ]);
 
 // =====================================================================

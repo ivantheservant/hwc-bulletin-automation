@@ -70,7 +70,10 @@ function buildBulletinModel_(isoDate, options) {
   // 2026-10-30：特別崇拜（非主日，src/SpecialService.gs）——下週事奉是**下一個主日**（不是加七天），
   //    家事報告等跟上一個主日。所以先讀這一行，才知道下一個主日是哪一日。
   var weekRows = readSheet(SHEETS.BULLETIN_WEEKS);
-  var specialService = isSpecialServiceRow_(findBulletinWeekRow_(weekRows, isoDate));
+  var weekRowForDate = findBulletinWeekRow_(weekRows, isoDate);
+  // 2026-10-30：已取消的特別崇拜（不刪行）——填寫介面、預覽、Word 一律講明，不可以照樣組出一期。
+  if (isCancelledSpecialServiceRow_(weekRowForDate)) throw cancelledSpecialServiceError_(isoDate, weekRowForDate);
+  var specialService = isSpecialServiceRow_(weekRowForDate);
   var nextIsoDate = specialService ? nextSundayAfterIso_(isoDate) : formatIsoDate_(addDays_(targetDate, 7));
   var warnings = [];
   if (specialService) {
@@ -141,6 +144,15 @@ function buildBulletinModel_(isoDate, options) {
 
   var program = buildProgramTable_(week, snapshot);
   (program.editWarnings || []).forEach(function (w) { warnings.push(w); });
+  // 2026-10-30：職事表把這一週設為合堂，但種類代號不在 Config COMBINED_KIND_TEMPLATES（src/CombinedService.gs）。
+  if (program.unknownCombinedKind) {
+    warnings.push({
+      code: 'COMBINED_KIND_UNKNOWN',
+      message: '職事表把這一週設為合堂（種類代號 ' + program.unknownCombinedKind + '），但 Config 的 COMBINED_KIND_TEMPLATES '
+        + '沒有這個代號，程序範本改用每週標題判斷（目前自動值：' + program.templateAuto + '）。'
+        + '請管理員在 COMBINED_KIND_TEMPLATES 加上「' + program.unknownCombinedKind + '=範本ID」，或者在「程序範本」下拉直接選。'
+    });
+  }
 
   // ⚠️ 取值次序固定：**職事表快照 → 套用 DutyOverride → 套用 PersonDisplay
   // 尊稱**，不可以調轉（見 src/DutyOverride.gs 的核心原則）。合併組
@@ -196,6 +208,7 @@ function buildBulletinModel_(isoDate, options) {
     week: week,
     templateId: program.templateId,
     templateAuto: program.templateAuto,
+    templateAutoSource: program.templateAutoSource || '',
     program: program.rows,
     programDisplay: program.displayRows || [],
     recitation: program.recitation,
@@ -373,6 +386,9 @@ function assembleBulletinModel_(input) {
     special: snapshot ? snapshot.special : null,
     templateId: input.templateId || null,
     templateAuto: input.templateAuto || '',
+    templateAutoSource: input.templateAutoSource || '',
+    // 2026-10-30：職事表合堂主日（src/CombinedService.gs）；不是合堂＝null。
+    combined: (snapshot && snapshot.combined) || null,
     dutyBoxPage1: input.dutyBoxPage1 || [],
     program: input.program || [],
     programDisplay: input.programDisplay || input.program || [],

@@ -423,10 +423,10 @@ test('F2-4 只有事奉覆寫有改動，也算有改動：照舊更新 LAST_SAV
 
 console.log('\nF8：STALE／FIELD_CONFLICT／CLIENT_OUTDATED 不寫 ErrorLog');
 
-test('F8-1 清單是一個常數，正是這三個錯誤碼', function () {
+test('F8-1 清單是一個常數，正是這五個錯誤碼（2026-10-30 加已取消的特別崇拜、只可以看的用戶）', function () {
   const env = makeSyncedEnv();
   assert.deepStrictEqual(Array.from(env.sandbox.EXPECTED_USER_ERROR_CODES_).sort(),
-    ['CLIENT_OUTDATED', 'FIELD_CONFLICT', 'STALE']);
+    ['CLIENT_OUTDATED', 'FIELD_CONFLICT', 'SPECIAL_SERVICE_CANCELLED', 'STALE', 'VIEW_ONLY']);
 });
 
 test('F8-2 經 apiSaveWeek()：STALE 回傳錯誤給介面，但不寫 ErrorLog', function () {
