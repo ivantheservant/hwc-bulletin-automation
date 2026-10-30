@@ -544,7 +544,8 @@ function buildSaveOperations_(input) {
   var conflictFields = [];
 
   // 只看 payload 內有出現的欄位；沒有出現的欄位一律不碰。
-  webAppEditableWeekFieldKeys_().forEach(function (key) {
+  // 2026-10-30：特別崇拜多三欄可以寫（讀經經文、證道講題、回應詩歌）。
+  webAppEditableWeekFieldKeys_({ specialService: isSpecialServiceRow_(current) }).forEach(function (key) {
     if (!weekPayloadHasKey_(week, key)) return;
     var currentValue = current[key];
     var sentValue = week[key];
@@ -633,12 +634,20 @@ function normalizeWeekPayloadForCompare_(rawWeek) {
  *
  *   由 `contentImportTargets_()`（`src/ContentImport.gs`）衍生，不另抄
  *   一份——多一份就多一個會不同步的地方。
- * Args: （無）
+ * Args:
+ *   options {{specialService:boolean=}=} 那一期是不是特別崇拜（`isSpecialServiceRow_()`）。
  * Returns:
  *   {string[]} `BulletinWeeks` 的機器鍵。
  */
-function contentSheetOwnedWeekKeys_() {
-  return CONTENT_SHEET_READONLY_FIELDS.WEEK.slice();
+function contentSheetOwnedWeekKeys_(options) {
+  var keys = CONTENT_SHEET_READONLY_FIELDS.WEEK.slice();
+  // 2026-10-30：特別崇拜（非主日）沒有內容表的「崇拜程序」行，讀經經文、證道講題、回應詩歌在介面填
+  //    （src/SpecialService.gs）。人數仍然唯讀（跟上一個主日）。
+  if (options && options.specialService === true) {
+    var uiKeys = specialServiceUiWorshipKeys_();
+    keys = keys.filter(function (k) { return uiKeys.indexOf(k) === -1; });
+  }
+  return keys;
 }
 
 /**
@@ -740,8 +749,8 @@ function contentSheetReadOnlyLabel_(key) {
  * Returns:
  *   {string[]}
  */
-function webAppEditableWeekFieldKeys_() {
-  var owned = contentSheetOwnedWeekKeys_();
+function webAppEditableWeekFieldKeys_(options) {
+  var owned = contentSheetOwnedWeekKeys_(options);
   // ⚠️ R-043／R-045：第三種模式那十欄**照樣寫入 `BulletinWeeks`**，
   //    同時另外記一筆 `FieldOverride`——與 `DutyOverride` 完全同一個做法。
   //
@@ -756,7 +765,7 @@ function webAppEditableWeekFieldKeys_() {
   return webAppWeekFieldKeys_().filter(function (key) { return owned.indexOf(key) === -1; });
 }
 
-function findSubmittedReadOnlyFields_(payload) {
+function findSubmittedReadOnlyFields_(payload, options) {
   var week = (payload && payload.week) || {};
 
   // ⚠️ 判斷準則是「**有沒有真的帶內容**」，不是「有沒有這個 key」。
@@ -764,7 +773,7 @@ function findSubmittedReadOnlyFields_(payload) {
   // `ATT_ENG_WORSHIP: ''` 這類空值；那些空值寫不到任何東西（清單根本
   // 不再處理，見 `buildSaveOperations_()`），為此整個儲存失敗只會令幹事
   // 連其他欄位都改不到。真正要擋的是「帶著實際內容想寫入」。
-  var offending = contentSheetOwnedWeekKeys_().filter(function (key) {
+  var offending = contentSheetOwnedWeekKeys_(options).filter(function (key) {
     var v = week[key];
     return v !== undefined && v !== null && String(v).trim() !== '';
   });
@@ -786,8 +795,8 @@ function findSubmittedReadOnlyFields_(payload) {
   return offending;
 }
 
-function assertContentSheetFieldsNotSubmitted_(payload) {
-  var offending = findSubmittedReadOnlyFields_(payload);
+function assertContentSheetFieldsNotSubmitted_(payload, options) {
+  var offending = findSubmittedReadOnlyFields_(payload, options);
   if (offending.length === 0) return;
 
   var names = offending.map(function (key) { return contentSheetReadOnlyLabel_(key); });
@@ -879,7 +888,8 @@ function saveWeekFromWebApp_(payload) {
   // ⚠️ 一定要排在**任何讀取與寫入之前**：內容表接管的七個區塊一旦出現在
   // payload，整個儲存直接拒絕，一格都不寫。見
   // `assertContentSheetFieldsNotSubmitted_()`。
-  assertContentSheetFieldsNotSubmitted_(payload);
+  // 2026-10-30：特別崇拜的讀經經文、證道講題、回應詩歌在介面填（src/SpecialService.gs）。
+  assertContentSheetFieldsNotSubmitted_(payload, { specialService: isSpecialServiceIsoDate_(isoDate) });
   assertWeekArrangementFieldsValid_(payload);
 
   // G23：讀取、比對、寫入全部在鎖之內。等候時間與內容表匯入、講員表格的 30 秒一致。
@@ -938,8 +948,9 @@ function saveWeekFromWebAppLocked_(payload, isoDate, targetDate) {
   //    只有「這一次真的會改到該主日」才存一個版本（沒有任何改動的儲存不產生
   //    版本，與不更新 `LAST_SAVED_AT` 同一個道理）。計畫算好之後直接交給下面
   //    的套用步驟，不重算一次——算兩次就有「版本說會改、實際沒改」的機會。
-  var nextDate = addDays_(targetDate, 7);
-  var nextIsoDate = formatIsoDate_(nextDate);
+  // 2026-10-30：特別崇拜（非主日）的下週事奉是下一個主日，不是加七天（src/SpecialService.gs）。
+  var nextIsoDate = isSpecialServiceRow_(weekRowInfo) ? nextSundayAfterIso_(isoDate) : formatIsoDate_(addDays_(targetDate, 7));
+  var nextDate = normalizeDate_(nextIsoDate);
   var dutyPlan = planDutyEditsFromPayload_(isoDate, payload.dutyEdits);
   // 審查後修正 5：payload 沒有 nextWeekDutyEdits 這個鍵（沒有下週事奉框的呼叫：自測機、亂行機）就不碰
   // 下一個主日——連「職事表追上了覆寫就自動停用」也不做。自測／亂行只核對 W 在沙盒季度之內

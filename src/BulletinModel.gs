@@ -67,8 +67,16 @@ function buildBulletinModel_(isoDate, options) {
     return emptyBulletinModel_(isoDate, { ok: false, notConfigured: true, warnings: snapshot.warnings.slice() });
   }
 
-  var nextIsoDate = formatIsoDate_(addDays_(targetDate, 7));
+  // 2026-10-30：特別崇拜（非主日，src/SpecialService.gs）——下週事奉是**下一個主日**（不是加七天），
+  //    家事報告等跟上一個主日。所以先讀這一行，才知道下一個主日是哪一日。
+  var weekRows = readSheet(SHEETS.BULLETIN_WEEKS);
+  var specialService = isSpecialServiceRow_(findBulletinWeekRow_(weekRows, isoDate));
+  var nextIsoDate = specialService ? nextSundayAfterIso_(isoDate) : formatIsoDate_(addDays_(targetDate, 7));
   var warnings = [];
+  if (specialService) {
+    // 職事表沒有這一日：週次條件（WEEK_IN 聖餐、祈禱會）一律不成立，要的話在程序增刪加。
+    snapshot.weekOfMonth = null;
+  }
 
   // 下週事奉要讀**下一個主日**的職事表快照。下一個主日不在職事表內
   // （例如跨季而下一季未生成）不可以拋錯——那是很正常的狀況，週報照樣
@@ -84,7 +92,6 @@ function buildBulletinModel_(isoDate, options) {
     });
   }
 
-  var weekRows = readSheet(SHEETS.BULLETIN_WEEKS);
   var week = findBulletinWeekRow_(weekRows, isoDate);
   if (!week) {
     warnings.push({
@@ -110,6 +117,10 @@ function buildBulletinModel_(isoDate, options) {
   //    內容表那一格空白就會把週報的序樂清空（以前預設值只在「建立本季空白週報」寫一次）。這裏只改
   //    週報資料模型（印出來的值），不寫工作表；填寫介面讀的是工作表，照樣顯示空白。
   week = applyPreludeDefault_(week, getConfig(CONFIG_KEYS.PRELUDE_DEFAULT, ''));
+
+  // 2026-10-30：特別崇拜的上週崇拜人數、清單次序跟上一個主日（內容來源主日）。
+  var contentSourceIso = contentSourceIsoForWeek_(week, isoDate);
+  if (specialService) week = applySpecialServiceSourceWeek_(week, findBulletinWeekRow_(weekRows, contentSourceIso) || {});
 
   // ⚠️ R-042：獻花兩欄接上職事表的 `FLOWER` 崗位。
   //
@@ -172,6 +183,9 @@ function buildBulletinModel_(isoDate, options) {
 
   return assembleBulletinModel_({
     isoDate: isoDate,
+    // 2026-10-30：特別崇拜的家事報告、代禱、團契、財政、人數日期跟上一個主日。平常＝targetDate。
+    contentSourceDate: normalizeDate_(contentSourceIso),
+    specialService: specialService,
     flowerRoster: flowerRoster,
     // R-040：下週事奉那一格寫的是**下一個主日**那一筆 DutyOverride，
     // 所以前端要知道它是哪一日。同一個推算只應該有一處。
@@ -292,6 +306,8 @@ function emptyBulletinModel_(isoDate, overrides) {
     flowerRoster: { thisWeek: '', nextWeek: '' },
     announcements: [],
     prayerBlock: { heading: '', items: [] },
+    // 2026-10-30：特別崇拜（非主日，src/SpecialService.gs）。
+    specialService: false,
     finance: [],
     // 2026-10-30：兩款財政報告（src/FinanceReports.gs）。沒有那一款就是 null。
     financeReports: { main: null, special: null, periodLabel: '', columnLabels: { main: ['', '', '', ''], special: ['', ''] } },
@@ -340,8 +356,11 @@ function assembleBulletinModel_(input) {
   var warnings = (input.warnings || []).slice();
   var formatDate = input.formatDate || formatDatePatternSimple_;
 
-  var attendanceDate = addDays_(input.targetDate, -7);
-  var nextWeekDate = addDays_(input.targetDate, 7);
+  // 2026-10-30：特別崇拜的清單與上週崇拜人數跟上一個主日（`contentSourceDate`）；平常＝主日本身。
+  var listDate = input.contentSourceDate instanceof Date ? input.contentSourceDate : input.targetDate;
+  var attendanceDate = addDays_(listDate, -7);
+  // 下週事奉那一個主日：特別崇拜是下一個主日（input.nextIsoDate），平常＝加七天（兩者同一日）。
+  var nextWeekDate = (input.nextIsoDate && normalizeDate_(input.nextIsoDate)) || addDays_(input.targetDate, 7);
 
   var model = emptyBulletinModel_(input.isoDate, {
     ok: true,
@@ -401,6 +420,12 @@ function assembleBulletinModel_(input) {
     Object.assign({}, input.baptismOptions || {}, { warnings: warnings })
   );
 
+  model.specialService = input.specialService === true;
+  if (model.specialService) {
+    // 特別崇拜沒有職事表的「每週標題」：封面 {{SPECIAL_TYPE}}、填寫介面用這一行自己的名稱。
+    model.special = { title: String(week.SPECIAL_TYPE || ''), source: 'SPECIAL_SERVICE' };
+  }
+
   model.flowers = {
     thisWeek: String(week.FLOWER_THIS_WEEK || ''),
     nextWeek: String(week.FLOWER_NEXT_WEEK || '')
@@ -421,7 +446,7 @@ function assembleBulletinModel_(input) {
     });
   }
   function arrangedRows(type, rows) {
-    return arrangeListItems_(type, filterDatedRows_(rows, input.targetDate), arrangement.lists[type])
+    return arrangeListItems_(type, filterDatedRows_(rows, listDate), arrangement.lists[type])
       .filter(function (a) { return a.hidden !== true; })
       .map(function (a) { return a.item; });
   }
@@ -435,7 +460,7 @@ function assembleBulletinModel_(input) {
       .map(function (r) { return { seqNo: r.SEQ_NO, text: String(r.TEXT || '') }; })
   };
 
-  model.finance = filterDatedRows_(input.financeRows, input.targetDate)
+  model.finance = filterDatedRows_(input.financeRows, listDate)
     .map(function (r) {
       return {
         seqNo: r.SEQ_NO,
@@ -985,3 +1010,22 @@ function formatDatePatternSimple_(date, pattern) {
   });
 }
 
+
+/**
+ * 用途：特別崇拜：把上一個主日（內容來源主日）那一行的「上週崇拜人數」十二格與統計日期、清單次序（這一行自己
+ *   沒有安排時）疊上來。純函式，不改傳入的物件。人數只在內容表填，平常由內容表匯入主日那一行；特別崇拜沒有
+ *   內容表的行，所以跟上一個主日印同一組數字。
+ * Args:
+ *   week {Object} 特別崇拜那一行。
+ *   sourceWeek {Object} 上一個主日那一行（沒有就是空物件）。
+ * Returns:
+ *   {Object}
+ */
+function applySpecialServiceSourceWeek_(week, sourceWeek) {
+  var out = Object.assign({}, week);
+  attendanceValueKeys_().concat(['ATTENDANCE_DATE']).forEach(function (key) {
+    out[key] = sourceWeek[key] === undefined ? '' : sourceWeek[key];
+  });
+  if (String(out.LIST_ARRANGEMENT || '').trim() === '') out.LIST_ARRANGEMENT = sourceWeek.LIST_ARRANGEMENT || '';
+  return out;
+}

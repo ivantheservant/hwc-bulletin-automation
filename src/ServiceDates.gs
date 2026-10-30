@@ -179,6 +179,8 @@ function quarterEntriesFromBulletinWeeks_(quarterId) {
   var out = [];
   readSheet(SHEETS.BULLETIN_WEEKS).forEach(function (row) {
     if (String(row.QUARTER_ID || '').trim() !== qid) return;
+    // 2026-10-30：特別崇拜（非主日）不是這一季的主日（src/SpecialService.gs）。
+    if (isSpecialServiceRow_(row)) return;
     var iso = (Object.prototype.toString.call(row.SERVICE_DATE) === '[object Date]')
       ? formatIsoDate_(row.SERVICE_DATE)
       : String(row.SERVICE_DATE || '').trim();

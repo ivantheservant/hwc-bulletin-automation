@@ -611,7 +611,13 @@ function publishWindowForToday_(todayIso) {
  */
 function isWithinPublishWindow_(isoDate, todayIso) {
   var w = publishWindowForToday_(todayIso);
-  return Boolean(w.sundayIso) && String(isoDate || '').trim() === w.sundayIso;
+  var iso = String(isoDate || '').trim();
+  if (!w.sundayIso) return false;
+  if (iso === w.sundayIso) return true;
+  // 2026-10-30：特別崇拜（非主日，src/SpecialService.gs）在同一個時窗之內（星期一至主日）亦可以發佈。
+  //    週報只有主日與特別崇拜兩種，主日以外的日子一定是特別崇拜。
+  return isIsoDateShape_(iso) && isoDateToTime_(iso) !== null && new Date(isoDateToTime_(iso)).getDay() !== 0
+    && iso >= w.fromIso && iso <= w.sundayIso;
 }
 
 /**
@@ -705,6 +711,8 @@ function detectPublishDateIssues_(input) {
   }
 
   var nextSunday = nextSundayOnOrAfter_(todayIso);
+  // 2026-10-30：特別崇拜（非主日）不算「不是下一個主日」，亦不數跳過了幾個主日。
+  if (new Date(targetTime).getDay() !== 0) return issues;
   if (nextSunday && nextSunday !== isoDate) {
     issues.push({ code: 'NOT_NEXT_SUNDAY', message: '這一期不是下一個主日（下一個是 ' + nextSunday + '）。' });
   }

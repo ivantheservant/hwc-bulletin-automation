@@ -66,7 +66,17 @@
       <!-- R-036：職事表整季未有資料時用的補抓鈕。隨時可以按，只填空白格。 -->
       <button id="backfillRosterBtn" type="button" class="btn btn-secondary"
               title="把職事表已經有、而週報仍然空白的事奉格補回去（整季）。⚠️ 只填空白格，不會覆寫你填過的任何一格，所以隨時可以重試。">補抓空白欄位（不覆寫）</button>
+      <!-- 2026-10-30：特別崇拜（非主日，例如受苦節）。按了出下面的小表格，先預覽再確定。 -->
+      <button id="specialServiceBtn" type="button" class="btn btn-secondary"
+              title="主日以外的崇拜（例如受苦節、除夕感恩崇拜）：沒有職事表資料，事奉人員與程序在這裏填，家事報告等跟上一個主日">建立特別崇拜…</button>
       <button id="saveBtn" type="button" class="btn btn-primary" data-save-button>儲存</button>
+    </div>
+    <div id="specialServiceForm" class="special-service-form hidden">
+      <label>日期 <input type="date" id="specialServiceDate"></label>
+      <label>名稱 <input type="text" id="specialServiceTitle" maxlength="40" placeholder="例如：受苦節崇拜"></label>
+      <button id="specialServicePreviewBtn" type="button" class="btn btn-small">預覽並建立…</button>
+      <button id="specialServiceCancelBtn" type="button" class="btn btn-small btn-secondary">取消</button>
+      <span class="hint">不可以是主日。建立之後在這一期填事奉人員、讀經經文、講題與程序；家事報告等跟上一個主日。</span>
     </div>
     <!--
       R-008：「目前已發佈」那一行。v3：只在畫面上是「該週」（上一個主日翌日至該主日）時才顯示，
@@ -90,6 +100,8 @@
       就會消失；這一條是「本季目前的狀態」，未補齊之前一直都要在。
     -->
     <div id="rosterGapBar" class="roster-gap-bar hidden"></div>
+    <!-- 2026-10-30：這一期是特別崇拜（非主日）時的說明（由 Script.html 的 renderSpecialServiceBanner() 填）。 -->
+    <div id="specialServiceBar" class="roster-gap-bar hidden"></div>
     <div id="autoCreateBar" class="roster-gap-bar hidden"></div>
     <div id="messageBar" class="message-bar hidden"></div>
     <div id="missingPanel" class="missing-panel hidden"></div>
@@ -211,7 +223,7 @@
           <span class="hint">留空的話，週報上整行不會出現</span>
         </label>
       </div>
-      <h3 class="subhead">由內容表「崇拜程序」填寫（這裏只顯示）</h3>
+      <h3 class="subhead" id="worshipContentSubhead">由內容表「崇拜程序」填寫（這裏只顯示）</h3>
       <div class="field-grid">
         <label>讀經經文
           <input type="text" data-field="SCRIPTURE_REF">

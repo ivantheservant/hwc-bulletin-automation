@@ -525,7 +525,9 @@ function makeUi(sb) {
     // v3：wireStaticEvents() 新接的幾粒（與事奉框無關）。
     copyPreviewLink: noop, confirmProgramAdd: noop, closeProgramAddForm: noop, refreshUnsavedIndicator: noop,
     updateSnapshotButtons: noop, selectedSnapshotId: function () { return ''; }, onSnapshotDiffClicked: noop,
-    onSnapshotRestoreClicked: noop, renderPublishWindow: noop, renderDutyDiffNotice: noop, renderRosterAppLink: noop
+    onSnapshotRestoreClicked: noop, renderPublishWindow: noop, renderDutyDiffNotice: noop, renderRosterAppLink: noop,
+    // 2026-10-30：特別崇拜（與事奉框無關）。
+    toggleSpecialServiceForm: noop, startCreateSpecialService: noop, renderSpecialServiceBanner: noop
   };
   vm.createContext(ctx);
   const code = [

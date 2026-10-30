@@ -164,7 +164,9 @@ var COLUMNS = Object.freeze({
       '職事表狀態', '已封存',
       // v3（2026-10-26）：這一週的程序增刪、丁戊己三張清單的次序與刪除（JSON，填寫介面維護）。
       //    同樣加在**最尾**，理由見上面第六輪那一段。
-      '程序增刪（這一週）', '清單次序與刪除（這一週）'
+      '程序增刪（這一週）', '清單次序與刪除（這一週）',
+      // 2026-10-30：特別崇拜（非主日）＝SPECIAL；留空＝平常的主日（src/SpecialService.gs）。加在**最尾**。
+      '崇拜類別'
     ],
     keys: [
       'SERVICE_DATE', 'QUARTER_ID', 'WEEK_OF_MONTH', 'SPECIAL_TYPE', 'PAGE_TITLE',
@@ -182,7 +184,8 @@ var COLUMNS = Object.freeze({
       'BAPTISM_OFFICIANT', 'MEMBERSHIP_OFFICIANT', 'CHILD_DEDICATION_OFFICIANT',
       'BAPTISM_MEMBERS', 'MEMBERSHIP_MEMBERS', 'CHILD_DEDICATION_CHILDREN',
       'ROSTER_STATUS', 'ARCHIVED',
-      'PROGRAM_EDITS', 'LIST_ARRANGEMENT'
+      'PROGRAM_EDITS', 'LIST_ARRANGEMENT',
+      'SERVICE_KIND'
     ],
     types: [
       'DATE', 'TEXT', 'INT', 'TEXT', 'TEXT',
@@ -204,7 +207,9 @@ var COLUMNS = Object.freeze({
       // R-035：已封存（TRUE／FALSE）。⚠️ 封存只是「預設不顯示」，一格資料都不會刪。
       'BOOLEAN',
       // v3：兩欄 JSON 一律 TEXT。
-      'TEXT', 'TEXT'
+      'TEXT', 'TEXT',
+      // 2026-10-30：崇拜類別。
+      'TEXT'
     ],
     textFormatColumns: [
       'ATT_ENG_WORSHIP', 'ATT_CANE_WORSHIP', 'ATT_CANN_WORSHIP', 'ATT_MAN_WORSHIP',
@@ -787,7 +792,9 @@ var CONFIG_KEYS = Object.freeze({
   FINANCE_SPECIAL_TITLE_PATTERN: 'FINANCE_SPECIAL_TITLE_PATTERN',
   FINANCE_SPECIAL_KEYWORDS: 'FINANCE_SPECIAL_KEYWORDS',
   FINANCE_MAIN_COLUMN_LABELS: 'FINANCE_MAIN_COLUMN_LABELS',
-  FINANCE_SPECIAL_COLUMN_LABELS: 'FINANCE_SPECIAL_COLUMN_LABELS'
+  FINANCE_SPECIAL_COLUMN_LABELS: 'FINANCE_SPECIAL_COLUMN_LABELS',
+  // 特別崇拜（非主日，src/SpecialService.gs）建立時的程序範本。
+  SPECIAL_SERVICE_TEMPLATE_DEFAULT: 'SPECIAL_SERVICE_TEMPLATE_DEFAULT'
 });
 
 // =====================================================================
@@ -1023,7 +1030,8 @@ var DEFAULTS = Object.freeze([
   { key: CONFIG_KEYS.FINANCE_SPECIAL_TITLE_PATTERN, value: '特殊海外奉獻及慈惠基金{{YEAR}}年{{MONTH}}月份財政報告', note: '內容表「財政報告」的特殊海外奉獻及慈惠基金報告沒有填「報告標題」時用的標題；{{YEAR}}／{{MONTH}} 換成該主日上一個月（與 FINANCE_TITLE_PATTERN 相同）' },
   { key: CONFIG_KEYS.FINANCE_SPECIAL_KEYWORDS, value: '特殊海外,慈惠', note: '「報告標題」含這些詞（逗號分隔）就當作特殊海外奉獻及慈惠基金的款式（兩個數字欄）；其餘有標題的當作綜合收支（四個數字欄）。沒有標題就看有沒有填欄三、欄四' },
   { key: CONFIG_KEYS.FINANCE_MAIN_COLUMN_LABELS, value: '{{PERIOD}}實際數字,截至本月實際數字,截至本月預算,全年預算', note: '綜合收支財政表四個數字欄的表頭（逗號分隔，四項）；{{PERIOD}} 換成期別標籤（FINANCE_PERIOD_LABEL_PATTERN，例如「5月份」）。Word 範本用 {{FINANCE_MAIN_HEAD1}} 至 {{FINANCE_MAIN_HEAD4}}' },
-  { key: CONFIG_KEYS.FINANCE_SPECIAL_COLUMN_LABELS, value: '特殊海外奉獻,慈惠', note: '特殊海外奉獻及慈惠基金財政表兩個數字欄的表頭（逗號分隔，兩項）。Word 範本用 {{FINANCE_SPECIAL_HEAD1}}、{{FINANCE_SPECIAL_HEAD2}}' }
+  { key: CONFIG_KEYS.FINANCE_SPECIAL_COLUMN_LABELS, value: '特殊海外奉獻,慈惠', note: '特殊海外奉獻及慈惠基金財政表兩個數字欄的表頭（逗號分隔，兩項）。Word 範本用 {{FINANCE_SPECIAL_HEAD1}}、{{FINANCE_SPECIAL_HEAD2}}' },
+  { key: CONFIG_KEYS.SPECIAL_SERVICE_TEMPLATE_DEFAULT, value: 'TPL_NORMAL', note: '填寫介面「建立特別崇拜」（非主日，例如受苦節）時預設的程序範本 ID；建立之後可以在那一期的程序範本下拉改' }
 ]);
 
 // =====================================================================

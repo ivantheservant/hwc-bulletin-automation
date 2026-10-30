@@ -1597,6 +1597,8 @@ function autoImportContentForWeek_(isoDate, source) {
     if (!findContentSheetRow_(quarterId)) return { ran: false, changed: 0, reason: 'NO_CONTENT_SHEET', message: '' };
     var weekRow = findBulletinWeekRow_(readSheet(SHEETS.BULLETIN_WEEKS), iso);
     if (weekRow && weekRow.ARCHIVED === true) return { ran: false, changed: 0, reason: 'ARCHIVED', message: '' };
+    // 2026-10-30：特別崇拜沒有內容表的行（src/SpecialService.gs）。
+    if (isSpecialServiceRow_(weekRow)) return { ran: false, changed: 0, reason: 'SPECIAL_SERVICE', message: '' };
 
     var preview = previewContentImport_(quarterId, { isoDate: iso });
     if (!preview.ok) return { ran: true, changed: 0, reason: preview.reason || 'PREVIEW_FAILED', message: preview.message || '' };

@@ -65,6 +65,8 @@ function planContentAutoSyncDates_(weekRows, quarterId, todayIso) {
   (weekRows || []).forEach(function (row) {
     if (String(row.QUARTER_ID || '').trim() !== qid) return;
     if (normalizeBoolean_(row.ARCHIVED) === true) return;
+    // 2026-10-30：特別崇拜沒有內容表的行（家事報告等直接跟上一個主日），不用匯入。
+    if (isSpecialServiceRow_(row)) return;
     var iso = row.SERVICE_DATE instanceof Date ? formatIsoDate_(row.SERVICE_DATE) : String(row.SERVICE_DATE || '').trim();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return;
     if (today && iso < today) return;

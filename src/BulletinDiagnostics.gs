@@ -135,7 +135,7 @@ function createBlankBulletinWeeks_(quarterId) {
   // ⚠️ 要數的是「這一季現在在表上的全部行」，不是「這一次新增的那幾行」。
   //    只數新增的話，全部主日都已經存在時 newRows 是空陣列，狀態分佈
   //    會全部是 0——看起來像「一切正常」，其實是「什麼都沒有數過」。
-  var quarterRows = readSheet(SHEETS.BULLETIN_WEEKS).filter(function (r) {
+  var quarterRows = regularWeekRows_(readSheet(SHEETS.BULLETIN_WEEKS)).filter(function (r) {
     return String(r.QUARTER_ID || '').trim() === String(quarterId || '').trim();
   });
   var statusCounts = countRosterStatuses_(quarterRows);

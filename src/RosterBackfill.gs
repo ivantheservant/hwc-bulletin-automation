@@ -262,6 +262,8 @@ function backfillRosterForQuarter_(quarterId) {
   var targets = [];
   allRows.forEach(function (row, index) {
     if (String(row.QUARTER_ID || '').trim() !== qid) return;
+    // 2026-10-30：特別崇拜（非主日）職事表本來就沒有，不補、不改職事表狀態（src/SpecialService.gs）。
+    if (isSpecialServiceRow_(row)) return;
     targets.push({ row: row, rowNo: index + 3 });
   });
 
@@ -484,7 +486,7 @@ function buildRosterBackfillMessage_(input) {
  */
 function listQuartersWithRosterGaps_() {
   var byQuarter = {};
-  readSheet(SHEETS.BULLETIN_WEEKS).forEach(function (row) {
+  regularWeekRows_(readSheet(SHEETS.BULLETIN_WEEKS)).forEach(function (row) {
     var qid = String(row.QUARTER_ID || '').trim();
     if (!qid) return;
     if (!byQuarter[qid]) {
@@ -516,7 +518,7 @@ function listQuartersWithRosterGaps_() {
  */
 function rosterGapBannerForQuarter_(quarterId) {
   var qid = String(quarterId || '').trim();
-  var counts = countRosterStatuses_(readSheet(SHEETS.BULLETIN_WEEKS).filter(function (row) {
+  var counts = countRosterStatuses_(regularWeekRows_(readSheet(SHEETS.BULLETIN_WEEKS)).filter(function (row) {
     return String(row.QUARTER_ID || '').trim() === qid;
   }));
   var notFound = counts.NOT_FOUND || 0;

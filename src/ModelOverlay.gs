@@ -32,7 +32,7 @@ function overlayEditableWeekValues_(week, values) {
   var out = Object.assign({}, week || {});
   var v = values || {};
   var cols = COLUMNS.BULLETIN_WEEKS;
-  webAppEditableWeekFieldKeys_().forEach(function (key) {
+  webAppEditableWeekFieldKeys_({ specialService: isSpecialServiceRow_(week) }).forEach(function (key) {
     if (!Object.prototype.hasOwnProperty.call(v, key)) return;
     var value = v[key];
     var type = cols.types[cols.keys.indexOf(key)];
@@ -110,9 +110,11 @@ function draftDutyOverrideRows_(isoDate, edits) {
  */
 function buildDraftModelOptions_(isoDate, draft) {
   var d = draft || {};
-  assertContentSheetFieldsNotSubmitted_({ week: d.week || {} });
+  // 2026-10-30：特別崇拜的讀經經文、證道講題、回應詩歌在介面填；下週事奉是下一個主日（src/SpecialService.gs）。
+  var specialService = isSpecialServiceIsoDate_(isoDate);
+  assertContentSheetFieldsNotSubmitted_({ week: d.week || {} }, { specialService: specialService });
   assertWeekArrangementFieldsValid_({ week: d.week || {} });
-  var nextIsoDate = formatIsoDate_(addDays_(normalizeDate_(isoDate), 7));
+  var nextIsoDate = specialService ? nextSundayAfterIso_(isoDate) : formatIsoDate_(addDays_(normalizeDate_(isoDate), 7));
   return {
     weekOverlay: d.week || {},
     dutyOverrideRows: draftDutyOverrideRows_(isoDate, d.dutyEdits),

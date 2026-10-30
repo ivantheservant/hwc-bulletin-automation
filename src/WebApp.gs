@@ -576,6 +576,31 @@ function apiRunCreateWeeks(quarterId) {
 }
 
 /**
+ * 用途：前端呼叫，預覽「建立特別崇拜」（非主日，例如受苦節）會做甚麼。**唯讀。**（src/SpecialService.gs）
+ * Args:
+ *   isoDate {string} 日期，yyyy-MM-dd（不可以是主日）。
+ *   title {string} 名稱，例如「受苦節崇拜」。
+ * Returns:
+ *   {{ok:boolean, data:Object, error?:Object}} `data.ok` 為 false 時 `data.message` 講明原因。
+ */
+function apiPreviewCreateSpecialService(isoDate, title) {
+  return withApiResult_(function () { return previewSpecialServiceCreate_(isoDate, title); },
+    { functionName: 'apiPreviewCreateSpecialService', argsSummary: 'isoDate=' + isoDate });
+}
+
+/**
+ * 用途：前端呼叫，真的建立特別崇拜（BulletinWeeks 加一行）。與預覽同一份計畫，在鎖之內再算一次。
+ * Args:
+ *   isoDate {string}　title {string}
+ * Returns:
+ *   {{ok:boolean, data:Object, error?:Object}} `data.created` 為 true 代表已經建立。
+ */
+function apiCreateSpecialService(isoDate, title) {
+  return withApiResult_(function () { return createSpecialService_(isoDate, title); },
+    { functionName: 'apiCreateSpecialService', argsSummary: 'isoDate=' + isoDate });
+}
+
+/**
  * 用途：前端呼叫，預覽「建立／刷新本季內容表」會建立還是刷新。**唯讀。**
  * Args:
  *   quarterId {string}
@@ -1436,13 +1461,15 @@ function weekSelectorMissingIndex_(weekRows, announcementRows, prayerRows, fello
   (weekRows || []).forEach(function (row) {
     var iso = weekSelectorIsoOf_(row.SERVICE_DATE);
     if (!iso) return;
+    // 2026-10-30：特別崇拜的清單跟上一個主日。
+    var listIso = contentSourceIsoForWeek_(row, iso);
     // F6：只數「一定要填」，與頂部徽章同一個算法（經 `missingCountSummary_()`）。
     index[iso] = missingCountSummary_(buildMissingList_({
       week: row,
       dutyBoxPage1: [],                                  // 見上面的說明：不讀職事表
-      announcementCount: announcements[iso] || 0,
-      prayerCount: prayers[iso] || 0,
-      fellowshipCount: fellowships[iso] || 0
+      announcementCount: announcements[listIso] || 0,
+      prayerCount: prayers[listIso] || 0,
+      fellowshipCount: fellowships[listIso] || 0
     })).requiredCount;
   });
   return index;
@@ -1519,8 +1546,11 @@ function buildWeekListEntries_(rows, todayIso, decorations) {
         ? missingIndex[isoDate]
         : 0;
       var statusLabel = weekSelectorStatusLabel_(publishedVersion, missingCount);
+      // 2026-10-30：特別崇拜（非主日）在下拉顯示名稱。
+      var specialTitle = isSpecialServiceRow_(r) ? String(r.SPECIAL_TYPE || '特別崇拜') : '';
       return {
         isoDate: isoDate,
+        specialService: specialTitle !== '',
         quarterId: String(r.QUARTER_ID || ''),
         weekOfMonth: weekOfMonth,
         status: r.STATUS || '',
@@ -1528,8 +1558,9 @@ function buildWeekListEntries_(rows, todayIso, decorations) {
         publishedVersion: publishedVersion,
         missingCount: missingCount,
         statusLabel: statusLabel,
-        label: isoDate + '（週次 ' + (weekOfMonth === null ? '?' : weekOfMonth) + '）',
-        selectorLabel: isoDate + '　' + statusLabel
+        label: specialTitle ? (isoDate + '（' + specialTitle + '）')
+          : (isoDate + '（週次 ' + (weekOfMonth === null ? '?' : weekOfMonth) + '）'),
+        selectorLabel: isoDate + (specialTitle ? '　' + specialTitle : '') + '　' + statusLabel
       };
     })
     .sort(function (a, b) {
@@ -1742,10 +1773,16 @@ function loadWeekForWebApp_(isoDate) {
 
   var weekRows = readSheet(SHEETS.BULLETIN_WEEKS);
   var weekRow = findBulletinWeekRow_(weekRows, isoDate) || {};
+  // 2026-10-30：特別崇拜（非主日）：清單與上週崇拜人數跟上一個主日（只顯示），讀經經文等三欄在這裏填。
+  var specialService = isSpecialServiceRow_(weekRow);
+  var listIso = contentSourceIsoForWeek_(weekRow, isoDate);
+  var displayRow = specialService
+    ? applySpecialServiceSourceWeek_(weekRow, findBulletinWeekRow_(weekRows, listIso) || {})
+    : weekRow;
 
   var week = {};
   webAppWeekFieldKeys_().forEach(function (key) {
-    var v = weekRow[key];
+    var v = displayRow[key];
     if (v instanceof Date) {
       week[key] = formatIsoDate_(v);
     } else {
@@ -1755,7 +1792,7 @@ function loadWeekForWebApp_(isoDate) {
 
   // v3（第 13 項）：丁戊己按這一週的安排排列；拿走了的仍然送去介面（`hidden:true`，畫刪除線），
   //    每一則帶 `arrangeKey`。次序與鍵由 arrangeListItems_() 算，與資料模型同一支。
-  var arrangement = parseListArrangement_(weekRow.LIST_ARRANGEMENT);
+  var arrangement = parseListArrangement_(displayRow.LIST_ARRANGEMENT);
   function arrangedForUi(type, items) {
     return arrangeListItems_(type, items, arrangement.lists[type]).map(function (a) {
       return Object.assign({}, a.item, { arrangeKey: a.key, hidden: a.hidden === true, sourceIndex: a.sourceIndex });
@@ -1766,12 +1803,12 @@ function loadWeekForWebApp_(isoDate) {
     isoDate: isoDate,
     week: week,
     lists: {
-      announcements: arrangedForUi('announcements', pickWebAppListItems_(readSheet(SHEETS.ANNOUNCEMENTS), isoDate, ['TEXT'])),
-      prayers: arrangedForUi('prayers', pickWebAppListItems_(readSheet(SHEETS.PRAYERS), isoDate, ['TEXT'])),
-      fellowships: arrangedForUi('fellowships', pickWebAppListItems_(readSheet(SHEETS.FELLOWSHIPS), isoDate,
+      announcements: arrangedForUi('announcements', pickWebAppListItems_(readSheet(SHEETS.ANNOUNCEMENTS), listIso, ['TEXT'])),
+      prayers: arrangedForUi('prayers', pickWebAppListItems_(readSheet(SHEETS.PRAYERS), listIso, ['TEXT'])),
+      fellowships: arrangedForUi('fellowships', pickWebAppListItems_(readSheet(SHEETS.FELLOWSHIPS), listIso,
         ['FELLOWSHIP_NAME', 'MEETING_DATE', 'MEETING_TIME', 'CONTENT'])),
       // 2026-10-30：財政報告兩款，全部欄都顯示（唯讀）。鍵由 webAppListDefs_() 決定（與 Script.html LIST_DEFS.finance 相同）。
-      finance: pickWebAppListItems_(readSheet(SHEETS.FINANCE), isoDate, webAppListDefs_().finance.fieldKeys)
+      finance: pickWebAppListItems_(readSheet(SHEETS.FINANCE), listIso, webAppListDefs_().finance.fieldKeys)
     },
     lastSavedAt: canonicalSaveToken_(weekRow.LAST_SAVED_AT),
     readOnly: {
@@ -1810,9 +1847,12 @@ function loadWeekForWebApp_(isoDate) {
       //    東西；分岔的方向如果是「前端少列了一項」，那一欄就會變成看起來
       //    可以改、一按儲存又被整次拒絕。見 CONTENT_SHEET_READONLY_FIELDS。
       readOnlyFields: {
-        week: CONTENT_SHEET_READONLY_FIELDS.WEEK.slice(),
+        week: contentSheetOwnedWeekKeys_({ specialService: specialService }),
         lists: CONTENT_SHEET_READONLY_FIELDS.LISTS.slice()
-      }
+      },
+      // 2026-10-30：特別崇拜（非主日）。`contentSourceIso` 是家事報告等跟的那一個主日。
+      specialService: specialService ? { title: String(weekRow.SPECIAL_TYPE || ''), contentSourceIso: listIso,
+        nextSundayIso: model.nextIsoDate || '' } : null
     },
     missing: model.missing,
     // F6：頂部徽章與待填清單面板用的分類，由 `splitMissingList_()` 算好。
@@ -1827,7 +1867,9 @@ function loadWeekForWebApp_(isoDate) {
     rosterDiff: model.rosterDiff,
     // 內容表 v2：季度填寫表已停用，不再送「開啟本季填寫表」的連結（以前的 fillGridUrl）。
     // R-011：七個唯讀區塊上方那一行要用的資料（內容表連結、最後匯入時間）。
-    contentSheet: buildContentSheetStatusForWebApp_(model.quarterId),
+    // 2026-10-30：職事表沒有這一日（特別崇拜、職事表未有的季度）時 model.quarterId 是空的，用這一行自己的季度。
+    contentSheet: Object.assign({}, buildContentSheetStatusForWebApp_(model.quarterId || String(weekRow.QUARTER_ID || '').trim()),
+      specialService ? { specialService: { contentSourceIso: listIso } } : {}),
     // 「重新讀取職事表」按鈕成功之後要顯示的文案；一律算好給前端，
     // 前端只在那個按鈕的情境下使用，一般切換主日時不理會這個欄位。
     rosterReloadMessage: buildRosterReloadMessage_(model.rosterVersionUsed, model.rosterIsOfficial),

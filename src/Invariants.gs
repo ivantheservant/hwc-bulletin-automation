@@ -295,7 +295,8 @@ function numberRegistryProbes_(ctx) {
       },
       reported: function () { return resolveQuarterServiceDateEntries_(quarterId).dates.length; },
       recount: function () {
-        return readSheet(SHEETS.BULLETIN_WEEKS).filter(function (r) {
+        // 2026-10-30：特別崇拜（非主日）不是這一季的主日。
+        return regularWeekRows_(readSheet(SHEETS.BULLETIN_WEEKS)).filter(function (r) {
           return String(r.QUARTER_ID || '').trim() === quarterId;
         }).length;
       }
@@ -583,7 +584,7 @@ function invariantDefaultContext_() {
     if (!resolution.ok) return empty;
 
     var quarterId = resolution.quarterId;
-    var isoDates = readSheet(SHEETS.BULLETIN_WEEKS)
+    var isoDates = regularWeekRows_(readSheet(SHEETS.BULLETIN_WEEKS))
       .filter(function (r) { return String(r.QUARTER_ID || '').trim() === quarterId; })
       .map(function (r) {
         return (Object.prototype.toString.call(r.SERVICE_DATE) === '[object Date]')
@@ -1363,7 +1364,8 @@ function runInvariantI11_(ctx) {
         'Config 的 ROSTER_SPREADSHEET_ID 是空的，無法核對職事表講的季度。');
     }
 
-    var rows = readSheet(SHEETS.BULLETIN_WEEKS).filter(function (r) {
+    // 2026-10-30：特別崇拜（非主日）職事表本來就沒有，不核對（src/SpecialService.gs）。
+    var rows = regularWeekRows_(readSheet(SHEETS.BULLETIN_WEEKS)).filter(function (r) {
       if (!scopeQuarter) return true;
       return String(r.QUARTER_ID || '').trim() === scopeQuarter;
     });

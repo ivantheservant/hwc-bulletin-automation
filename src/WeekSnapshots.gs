@@ -335,7 +335,7 @@ function diffWeekSnapshotState_(payload, current, postDisplayRows) {
   var snapWeek = payload.week || {};
   var curWeek = current.weekRow || {};
 
-  webAppEditableWeekFieldKeys_().forEach(function (key) {
+  webAppEditableWeekFieldKeys_({ specialService: isSpecialServiceRow_(curWeek) }).forEach(function (key) {
     // 版本裏沒有這一欄（例如 v3 之前存的版本沒有程序增刪、清單次序）：還原不會改它，看差異亦不列
     // （與 planWeekSnapshotRestore_() 同一個規則；看差異講的就是還原會做的）。
     if (!Object.prototype.hasOwnProperty.call(snapWeek, key)) return;
@@ -462,7 +462,7 @@ function planWeekSnapshotRestore_(payload, current) {
   var curWeek = current.weekRow || {};
 
   var fieldChanges = [];
-  webAppEditableWeekFieldKeys_().forEach(function (key) {
+  webAppEditableWeekFieldKeys_({ specialService: isSpecialServiceRow_(curWeek) }).forEach(function (key) {
     if (!Object.prototype.hasOwnProperty.call(snapWeek, key)) return;
     if (weekSnapshotText_(snapWeek[key]) === weekSnapshotText_(curWeek[key])) return;
     fieldChanges.push({ field: key, oldValue: curWeek[key], newValue: snapWeek[key] });
@@ -1174,7 +1174,7 @@ function readBlankWeekSettings_() {
 function planWeekReset_(blankRow, current) {
   var curWeek = current.weekRow || {};
   var fieldChanges = [];
-  webAppEditableWeekFieldKeys_().forEach(function (key) {
+  webAppEditableWeekFieldKeys_({ specialService: isSpecialServiceRow_(curWeek) }).forEach(function (key) {
     var target = Object.prototype.hasOwnProperty.call(blankRow, key) ? blankRow[key] : '';
     if (weekSnapshotText_(target) === weekSnapshotText_(curWeek[key])) return;
     fieldChanges.push({ field: key, oldValue: curWeek[key], newValue: target });
@@ -1269,6 +1269,13 @@ function resetWeekLocked_(isoDate, lastSavedAt) {
     defaults: settings.defaults,
     rosterStatus: String(state.weekRow.ROSTER_STATUS || '')
   });
+  // 2026-10-30：特別崇拜重設回建立時的樣子（大標題＝名稱、程序範本＝Config 預設），而且不由內容表匯入
+  //    （沒有內容表的行；家事報告等本來就跟上一個主日）。
+  var specialService = isSpecialServiceRow_(state.weekRow);
+  if (specialService) {
+    blankRow.PAGE_TITLE = String(state.weekRow.SPECIAL_TYPE || '');
+    blankRow.PROGRAM_TEMPLATE_ID = getConfig(CONFIG_KEYS.SPECIAL_SERVICE_TEMPLATE_DEFAULT, 'TPL_NORMAL');
+  }
   var plan = planWeekReset_(blankRow, state);
 
   // 內容表 v2（決定 15）：重設會先把欄位清回預設值，再由內容表匯入這一個主日。內容表第 2 行
@@ -1277,7 +1284,7 @@ function resetWeekLocked_(isoDate, lastSavedAt) {
   var importMessage = '';
   var hasContentSheet = false;
   try {
-    hasContentSheet = Boolean(quarterId && findContentSheetRow_(quarterId));
+    hasContentSheet = !specialService && Boolean(quarterId && findContentSheetRow_(quarterId));
   } catch (lookupErr) {
     importMessage = '查不到本季有沒有內容表（' + ((lookupErr && lookupErr.message) ? lookupErr.message : String(lookupErr)) + '），沒有重新匯入。';
   }
@@ -1314,7 +1321,7 @@ function resetWeekLocked_(isoDate, lastSavedAt) {
   // 所以重讀一次才算差異。
   var after = readBulletinWeekRowWithRowNo_(isoDate) || {};
   var finalChanges = [];
-  webAppEditableWeekFieldKeys_().forEach(function (key) {
+  webAppEditableWeekFieldKeys_({ specialService: isSpecialServiceRow_(state.weekRow) }).forEach(function (key) {
     if (weekSnapshotText_(after[key]) !== weekSnapshotText_(state.weekRow[key])) {
       finalChanges.push({ field: key, newValue: after[key] });
     }
