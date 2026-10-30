@@ -44,24 +44,6 @@ function transposedContentHeaders_(tabDef) {
 }
 
 /**
- * 用途：欄號 → 欄的字母（1 → A，27 → AA）。純函式。
- * Args:
- *   n {number}
- * Returns:
- *   {string}
- */
-function contentColumnLetter_(n) {
-  var out = '';
-  var x = Math.floor(Number(n) || 0);
-  while (x > 0) {
-    var r = (x - 1) % 26;
-    out = String.fromCharCode(65 + r) + out;
-    x = Math.floor((x - 1) / 26);
-  }
-  return out;
-}
-
-/**
  * 用途：警告訊息裏一筆資料在內容表的位置：橫放分頁講「第 D 欄」，其餘講「第 5 行」。純函式。
  * Args:
  *   row {Object} `parseContentTabRows_()` 或 `readTransposedContentRows_()` 的一筆。

@@ -95,7 +95,9 @@ var ROSTER_TABLE_DEFS_ = Object.freeze({
       Title: 'TEXT',
       // 2026-10-30：合堂主日（職事表第八十五輪）。沒有這兩欄＝全部不是合堂（src/CombinedService.gs）。
       CombinedKind: 'TEXT',
-      CombinedName: 'TEXT'
+      CombinedName: 'TEXT',
+      // 2026-10-31：詩班獻詩（職事表第九十輪）。TRUE＝這個主日詩班獻詩；空白或者沒有這一欄＝不是。
+      ChoirSinging: 'BOOLEAN'
     }
   },
   NAME_MAPPING: {
@@ -114,6 +116,11 @@ var ROSTER_TABLE_DEFS_ = Object.freeze({
       // ALLOW／BLOCK／WARN（一個列舉），不是 boolean，週報也用不到。
       PostID: 'TEXT', PostName_TC: 'TEXT', SlotCount: 'INT', Frequency: 'TEXT',
       AutoGenerate: 'BOOLEAN', DisplayOrder: 'INT', Active: 'BOOLEAN', EmptyDisplay: 'TEXT'
+    },
+    // 2026-10-31（職事表第九十輪）：ShowInRoster＝FALSE 的行只是名單組別（例如 CHOIR「詩班」），不是職事表崗位。
+    //    留空、TRUE 或者沒有這一欄＝崗位。用 TEXT 讀，空白才可以當 TRUE（BOOLEAN 會把空白讀成 false）。
+    optionalColumns: {
+      ShowInRoster: 'TEXT'
     }
   }
 });
@@ -399,6 +406,8 @@ function emptyRosterSnapshot_(isoDate, overrides) {
     serviceDate: null,
     special: null,
     combined: null,
+    choirSinging: false,
+    choirQuarterSet: false,
     assignments: [],
     slotsByPost: {},
     posts: [],
@@ -789,6 +798,12 @@ function buildRosterSnapshot_(tables, isoDate, options) {
   };
   // 2026-10-30：合堂主日（src/CombinedService.gs）。標題：每週標題優先，空白才用合堂名稱／種類名稱。
   snapshot.combined = buildRosterCombinedService_(serviceDateRow);
+  // 2026-10-31：詩班獻詩（職事表第九十輪）。`choirQuarterSet`＝這一季職事表有設定任何一個詩班獻詩主日
+  //    （有才會警告「不是獻詩主日而填了詩班曲名」，未設定的季度不提）。
+  snapshot.choirSinging = serviceDateRow.ChoirSinging === true;
+  snapshot.choirQuarterSet = tables.serviceDates.some(function (r) {
+    return String(r.QuarterID || '') === String(serviceDateRow.QuarterID || '') && r.ChoirSinging === true;
+  });
   snapshot.special = buildRosterWeekTitle_(serviceDateRow);
   if (!snapshot.special && snapshot.combined) {
     snapshot.special = {
@@ -1075,7 +1090,7 @@ function formatIsoDate_(d) {
  */
 function buildActiveRosterPostsList_(postsRows) {
   return postsRows
-    .filter(function (p) { return Boolean(p.Active); })
+    .filter(function (p) { return Boolean(p.Active) && !isRosterNameGroupPost_(p); })
     .slice()
     .sort(function (a, b) { return (a.DisplayOrder || 0) - (b.DisplayOrder || 0); })
     .map(function (p) {
@@ -1089,6 +1104,20 @@ function buildActiveRosterPostsList_(postsRows) {
         emptyDisplay: p.EmptyDisplay
       };
     });
+}
+
+/**
+ * 用途：2026-10-31（職事表第九十輪）：`Posts.ShowInRoster` 是 FALSE＝只是名單組別（例如「詩班」），不是職事表崗位。
+ *   留空、TRUE、或者職事表沒有這一欄＝崗位。純函式。
+ * Args:
+ *   postRow {Object} `tables.posts` 的一行。
+ * Returns:
+ *   {boolean}
+ */
+function isRosterNameGroupPost_(postRow) {
+  var v = postRow ? postRow.ShowInRoster : '';
+  if (v === false) return true;
+  return String(v === null || v === undefined ? '' : v).trim().toUpperCase() === 'FALSE';
 }
 
 /**

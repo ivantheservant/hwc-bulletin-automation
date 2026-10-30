@@ -228,8 +228,16 @@
         <label>詩班曲名
           <input type="text" data-field="CHOIR_TITLE">
           <span class="hint">留空的話，週報上整行不會出現</span>
+          <!-- 2026-10-31：職事表這一個主日詩班獻詩時顯示。 -->
+          <span id="choirRosterHint" class="hint hidden"><strong>職事表：本主日詩班獻詩</strong></span>
         </label>
       </div>
+      <p class="hint">
+        <!-- 2026-10-31：開啟職事表幹事介面的「詩班獻詩」畫面（view=choir）。 -->
+        <a id="rosterChoirLink" class="btn btn-small btn-secondary hidden" target="_blank" rel="noopener"
+           title="在新分頁打開職事表幹事介面的「詩班獻詩」畫面（只限職事表幹事介面名單內的人）。">設定詩班獻詩</a>
+        <span id="rosterChoirHint" class="hidden">在職事表儲存之後，回到週報重新打開這一個主日，才會看到新的設定。</span>
+      </p>
       <h3 class="subhead" id="worshipContentSubhead">由內容表「崇拜程序」填寫（這裏只顯示）</h3>
       <div class="field-grid">
         <label>讀經經文

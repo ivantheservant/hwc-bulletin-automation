@@ -281,6 +281,7 @@ function buildOrRefreshContentSheetLocked_(quarterId, options) {
   //    先經原有的 v2／v3 移轉（用凍結的 v3 定義）變成 v3，再轉成 v4；已經是 v4 的不再經 v2／v3 移轉。
   var migrationPlan = null;
   var upgradePlan = null;
+  var orphanLegacy = [];
   var v4Detect = spreadsheet ? detectWorshipTabLayoutV4_(spreadsheet) : { layout: 'NONE' };
   var runLegacy = Boolean(spreadsheet) && (v4Detect.layout === 'LEGACY' || v4Detect.layout === 'V3');
   var v4PrePlan = null;
@@ -304,8 +305,10 @@ function buildOrRefreshContentSheetLocked_(quarterId, options) {
         return { ok: false, created: false, quarterId: qid, reason: 'CONTENT_SHEET_HEADER_CHANGED', message: preBlocker };
       }
     }
+    // 2026-10-31：「崇拜程序」已是新版而舊「宣召」／「浸禮合堂」未改名（舊版本的死胡同留下的）：要人手確認。
+    orphanLegacy = planOrphanLegacyContentTabs_(spreadsheet, v4Detect.layout);
     var needsMigration = (runLegacy && (migrationPlan.needsMigration || contentSheetV3PlanHasWrites_(upgradePlan)))
-      || v4Detect.layout === 'LEGACY' || Boolean(v4PrePlan && v4PrePlan.needsMigration);
+      || v4Detect.layout === 'LEGACY' || Boolean(v4PrePlan && v4PrePlan.needsMigration) || orphanLegacy.length > 0;
     if (needsMigration && buildOptions.migrate !== true) {
       // 2026-10-30：只差「崇拜人數」改為日子橫放（其餘已經是新版）→ 只講這一項。
       var transposeOnly = v4Detect.layout !== 'LEGACY' && Boolean(v4PrePlan) && v4PrePlan.worship.action !== 'FROM_V3'
@@ -394,6 +397,7 @@ function buildOrRefreshContentSheetLocked_(quarterId, options) {
   }
   var v4Result = contentSheetV4PlanHasWrites_(v4Plan)
     ? applyContentSheetV4_(spreadsheet, v4Plan, qid, layoutOptions) : null;
+  var orphanRetired = orphanLegacy.length > 0 ? retireOrphanLegacyContentTabs_(spreadsheet, orphanLegacy, qid) : [];
 
   var sampleRows = (created && config.seedSample) ? buildContentSheetSampleRows_(serviceDates) : {};
   var seededSample = false;
@@ -487,6 +491,9 @@ function buildOrRefreshContentSheetLocked_(quarterId, options) {
     sharingError: sharingError,
     // 2026-10-30：權限設定的結果（每一步失敗都在 lines 講出來）。
     sharing: sharingResult,
+    // 2026-10-31：改名保留的舊分頁（「崇拜程序」已是新版而舊分頁未改名）。
+    orphanLegacy: orphanLegacy,
+    orphanRetired: orphanRetired,
     migration: migrationPlan,
     // v3：浸禮六欄搬入週報、刪欄、停用舊覆寫的計畫與結果（沒有就是 null）。
     upgrade: upgradePlan,
@@ -1017,6 +1024,11 @@ function buildContentSheetResultLines_(result) {
   }
   if ((result.sortedTabs || []).length > 0) {
     lines.push('已按主日日期、次序排好：' + result.sortedTabs.join('、') + '。');
+  }
+  var orphanLines = buildOrphanLegacyContentTabLines_(result.orphanLegacy, true);
+  if (orphanLines.length > 0) {
+    lines.push('');
+    orphanLines.forEach(function (l) { lines.push(l); });
   }
 
   // 2026-10-30：權限（src/ContentSheetSharing.gs）。

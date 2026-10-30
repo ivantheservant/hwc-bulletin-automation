@@ -40,6 +40,8 @@ function makeWordEnv(o) {
     weekTitles: opts.weekTitles,
     combinedServices: opts.combinedServices,
     noCombinedColumns: opts.noCombinedColumns,
+    choirSundays: opts.choirSundays,
+    rosterPosts: opts.rosterPosts,
     weekRows: opts.weekRows || [
       { SERVICE_DATE: D, QUARTER_ID: QUARTER_ID, WEEK_OF_MONTH: 1, STATUS: 'DRAFT', SERMON_TITLE: '講題一' },
       { SERVICE_DATE: D_NEXT, QUARTER_ID: QUARTER_ID, WEEK_OF_MONTH: 2, STATUS: 'DRAFT', SERMON_TITLE: '講題二' }

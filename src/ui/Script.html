@@ -3073,6 +3073,7 @@
     renderDutyDiffNotice(data.dutyDiffs);
     renderRosterAppLink(data.rosterWebAppUrl);
     renderRosterCombinedLink(data.rosterCombinedUrl);
+    renderRosterChoir(data.choirSinging === true, data.rosterChoirUrl);
     setLoaded(true);
     refreshUnsavedIndicator();
     // 2026-10-28：自動由內容表匯入的結果（有改動才講）。
@@ -3190,6 +3191,28 @@
   function renderRosterCombinedLink(url) {
     var link = document.getElementById('rosterCombinedLink');
     var hint = document.getElementById('rosterCombinedHint');
+    if (!url) {
+      link.classList.add('hidden');
+      link.removeAttribute('href');
+      hint.classList.add('hidden');
+      return;
+    }
+    link.href = url;
+    link.classList.remove('hidden');
+    hint.classList.remove('hidden');
+  }
+
+  /**
+   * 用途：2026-10-31：甲區「詩班曲名」旁邊：職事表這一個主日詩班獻詩就顯示提示；〔設定詩班獻詩〕連結（view=choir）。
+   * Args:
+   *   choirSinging {boolean}　url {string} 空字串＝不顯示連結。
+   * Returns:
+   *   {void}
+   */
+  function renderRosterChoir(choirSinging, url) {
+    document.getElementById('choirRosterHint').classList.toggle('hidden', !choirSinging);
+    var link = document.getElementById('rosterChoirLink');
+    var hint = document.getElementById('rosterChoirHint');
     if (!url) {
       link.classList.add('hidden');
       link.removeAttribute('href');

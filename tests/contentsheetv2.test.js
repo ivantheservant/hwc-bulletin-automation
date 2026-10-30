@@ -913,5 +913,47 @@ test('C-NW 沒有「崇拜程序」而「宣召」「浸禮合堂」未改名：
   assert.strictEqual(contentSnapshot(env), snap);
 });
 
+test('C-NW2 「崇拜程序」已是新版而舊「宣召」未改名（舊版本死胡同留下的）：預覽講明、確定之後改名保留、資料不搬不刪，之後匯入正常；再按一次一格不改', function () {
+  const callDef = legacyContentTabDefV1('宣召');
+  const env = contentEnv.makeEnv({
+    extraTabs: [Object.assign({}, callDef, { rows: [
+      { SERVICE_DATE: D1, CALL_REF: '詩篇 1:1', CALL_TEXT: '舊宣召經文', ACTIVE: 'TRUE' },
+      { SERVICE_DATE: D2, CALL_REF: '', CALL_TEXT: '', ACTIVE: 'TRUE' }
+    ] })]
+  });
+  const before = env.sandbox.apiRunQuarterContentImport(QUARTER_ID);
+  assert.strictEqual(before.data.ok, false);
+  assert.ok(String(before.data.message).indexOf('仍然有舊的「宣召」分頁') !== -1, before.data.message);
+  assert.strictEqual(env.sandbox.detectWorshipTabLayoutV4_(env.contentSpreadsheet).layout, 'V4');
+  const preview = env.sandbox.apiPreviewContentSheetBuild(QUARTER_ID);
+  assert.strictEqual(preview.ok, true, JSON.stringify(preview));
+  const ptext = preview.data.lines.join('\n');
+  ['舊的「宣召」分頁仍然未改名（匯入因此被擋），會改名「宣召（已停用）」隱藏保留', '裏面有 1 行有值（' + D1 + '）', '不會搬入週報'].forEach(function (t) {
+    assert.ok(ptext.indexOf(t) !== -1, '預覽缺少：' + t + '\n' + ptext);
+  });
+  assertWrittenChinese(assert, '預覽', preview.data.lines);
+  // 自動流程（不准移轉）不替人改名。
+  const auto = env.sandbox.buildOrRefreshContentSheet_(QUARTER_ID);
+  assert.strictEqual(auto.ok, false);
+  assert.strictEqual(auto.reason, 'NEEDS_MIGRATION');
+  assert.ok(env.contentSpreadsheet.getSheetByName('宣召'), '自動流程一格不改');
+  const oldData = plain(env.contentSpreadsheet.getSheetByName('宣召').__data);
+  const data = run(env);
+  assert.strictEqual(data.ok, true, JSON.stringify(data));
+  assert.strictEqual(env.contentSpreadsheet.getSheetByName('宣召'), null);
+  const retired = env.contentSpreadsheet.getSheetByName('宣召（已停用）');
+  assert.ok(retired, '改名保留');
+  assert.strictEqual(retired.isSheetHidden(), true);
+  assert.deepStrictEqual(plain(retired.__data), oldData, '資料一格不改');
+  assert.ok(data.lines.join('\n').indexOf('已改名「宣召（已停用）」隱藏保留') !== -1, data.lines.join('\n'));
+  const audit = env.sandbox.readSheet_('AuditLog').filter(function (a) { return a.FIELD === '宣召' && a.NEW_VALUE === '宣召（已停用）'; });
+  assert.strictEqual(audit.length, 1);
+  const after = env.sandbox.apiRunQuarterContentImport(QUARTER_ID);
+  assert.strictEqual(after.data.ok, true, JSON.stringify(after.data));
+  const snap = contentSnapshot(env);
+  run(env);
+  assert.strictEqual(contentSnapshot(env), snap, '再按一次一格不改');
+});
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail === 0 ? 0 : 1);

@@ -2014,6 +2014,10 @@ function loadWeekForWebApp_(isoDate) {
     // 2026-10-30：〔設定合堂主日〕：職事表幹事介面的合堂主日畫面，帶這一週在職事表的季度
     //    （職事表沒有這一日——例如特別崇拜——就用週報這一行的季度）。空字串＝不顯示。
     rosterCombinedUrl: buildRosterCombinedUrl_(rosterWebAppUrlForButton_(),
+      model.quarterId || String(weekRow.QUARTER_ID || '')),
+    // 2026-10-31：詩班獻詩（職事表第九十輪）：甲區「詩班」旁邊的提示與〔設定詩班獻詩〕（view=choir）。
+    choirSinging: Boolean(model.choirSinging),
+    rosterChoirUrl: buildRosterViewUrl_(rosterWebAppUrlForButton_(), 'choir',
       model.quarterId || String(weekRow.QUARTER_ID || ''))
   };
 }

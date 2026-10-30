@@ -272,6 +272,7 @@ function previewContentSheetBuild_(quarterId) {
   var upgrade = null;
   var v4 = null;
   var legacyLayout = false;
+  var orphanLegacy = [];
   if (existing) {
     var spreadsheet = openContentSpreadsheet_(existing.FILE_ID);
     if (!spreadsheet) {
@@ -292,6 +293,7 @@ function previewContentSheetBuild_(quarterId) {
         return { ok: false, quarterId: qid, title: title, reason: migration.reason, lines: [], message: migration.message };
       }
     }
+    orphanLegacy = planOrphanLegacyContentTabs_(spreadsheet, detected.layout);
     if (!legacyLayout) {
       v4 = planContentSheetV4_(Object.assign(readContentSheetV4Inputs_(spreadsheet), { serviceDates: serviceDates }));
       var blocker = contentSheetV4BlockerMessage_(v4);
@@ -316,13 +318,16 @@ function previewContentSheetBuild_(quarterId) {
   var upgradeLines = buildContentSheetV3UpgradeLines_(upgrade, { applied: false });
   var migrationLines = buildContentSheetMigrationLines_(migration, { applied: false, created: false });
   var v4Lines = buildContentSheetV4Lines_(v4, { applied: false });
+  // 2026-10-31：「崇拜程序」已是新版而舊分頁未改名。
+  var orphanLines = buildOrphanLegacyContentTabLines_(orphanLegacy, false);
+  if (orphanLines.length > 0) v4Lines = v4Lines.length > 0 ? v4Lines.concat(orphanLines) : ['【舊分頁】'].concat(orphanLines);
   if (legacyLayout) {
     v4Lines = ['【內容表新版面（2026-10-30）】',
       '・移轉成 v3 之後，「崇拜程序」會只留讀經經文、證道講題、回應詩歌與備註，一個主日一行；序樂、宣召、詩歌頌讚、'
         + '詩班的值先搬入週報；舊分頁改名保留，不刪。「崇拜人數」一個崇拜日期一行；「家事報告」「代禱事項」搬欄。'];
   }
   var needsMigration = Boolean(existing) && ((migration && migration.needsMigration)
-    || contentSheetV3PlanHasWrites_(upgrade) || legacyLayout || Boolean(v4 && v4.needsMigration));
+    || contentSheetV3PlanHasWrites_(upgrade) || legacyLayout || Boolean(v4 && v4.needsMigration) || orphanLegacy.length > 0);
 
   if (existing) {
     lines.push('');

@@ -298,7 +298,9 @@ function makeFillEnv(options) {
         Title: (o.weekTitles || {})[iso] || '',
         // 2026-10-30：合堂主日。`o.combinedServices`：{ yyyy-MM-dd: {kind, name} }；`o.noCombinedColumns`＝舊試算表沒有這兩欄。
         CombinedKind: ((o.combinedServices || {})[iso] || {}).kind || '',
-        CombinedName: ((o.combinedServices || {})[iso] || {}).name || ''
+        CombinedName: ((o.combinedServices || {})[iso] || {}).name || '',
+        // 2026-10-31：詩班獻詩（職事表第九十輪）。`o.choirSundays`：[yyyy-MM-dd]。
+        ChoirSinging: (o.choirSundays || []).indexOf(iso) !== -1 ? 'TRUE' : ''
       };
     })),
     NameMapping: rosterSheet('NAME_MAPPING', [{ PersonID: 'P9001', NameTC: '陳大文', Active: true }]),

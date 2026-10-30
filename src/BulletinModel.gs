@@ -402,6 +402,9 @@ function assembleBulletinModel_(input) {
     templateAutoSource: input.templateAutoSource || '',
     // 2026-10-30：職事表合堂主日（src/CombinedService.gs）；不是合堂＝null。
     combined: (snapshot && snapshot.combined) || null,
+    // 2026-10-31：職事表詩班獻詩（第九十輪）。
+    choirSinging: Boolean(snapshot && snapshot.choirSinging),
+    choirQuarterSet: Boolean(snapshot && snapshot.choirQuarterSet),
     dutyBoxPage1: input.dutyBoxPage1 || [],
     program: input.program || [],
     programDisplay: input.programDisplay || input.program || [],
@@ -557,8 +560,18 @@ function assembleBulletinModel_(input) {
     dutyBoxPage1: model.dutyBoxPage1,
     announcementCount: model.announcements.length,
     prayerCount: model.prayerBlock.items.length,
-    fellowshipCount: model.fellowships.length
+    fellowshipCount: model.fellowships.length,
+    choirSinging: model.choirSinging
   });
+  // 2026-10-31：這一季職事表有設定詩班獻詩主日，而這一個主日不是，卻填了詩班曲名 → 提醒（照印）。
+  var choirTitleNow = String(week.CHOIR_TITLE === null || week.CHOIR_TITLE === undefined ? '' : week.CHOIR_TITLE).trim();
+  if (model.choirQuarterSet && !model.choirSinging && choirTitleNow !== '') {
+    model.warnings.push({
+      code: 'CHOIR_NOT_IN_ROSTER',
+      message: '職事表沒有把這一個主日設為詩班獻詩，但已填了詩班曲名「' + choirTitleNow + '」（照樣會印）。'
+        + '如果這一週真的有詩班獻詩，請在職事表「開季前準備 ▸ 詩班獻詩」勾選；不是的話，請清走詩班曲名。'
+    });
+  }
 
   return model;
 }
@@ -619,7 +632,8 @@ function filterDatedRows_(rows, targetDate) {
  *   Config 的 `PRELUDE_DEFAULT` 補上即可，不需要每週叫人填一次。
  * Args:
  *   input {{week:Object, dutyBoxPage1:Object[], announcementCount:number,
- *          prayerCount:number, fellowshipCount:number}}
+ *          prayerCount:number, fellowshipCount:number, choirSinging:boolean=}}
+ *     `choirSinging`（2026-10-31）：職事表這一個主日詩班獻詩 → 詩班曲名空白就列入待填。
  * Returns:
  *   {{field:string, label:string, reason:string}[]}
  */
@@ -658,6 +672,11 @@ function buildMissingList_(input) {
     var callTab = contentSheetTabForWeekField_('CALL_TEXT');
     add('CALL_TEXT', labelOf('CALL_TEXT') + '／' + labelOf('CALL_REF'),
       '宣召經文與出處兩者皆未填。' + contentSheetFillHint_(callTab), false, callTab);
+  }
+
+  // 2026-10-31：職事表這一個主日詩班獻詩（第九十輪），詩班曲名一定要填（在填寫介面甲區）。
+  if (input.choirSinging === true && isBlank('CHOIR_TITLE')) {
+    add('CHOIR_TITLE', labelOf('CHOIR_TITLE'), '職事表：這一個主日詩班獻詩，請在填寫介面甲區填「詩班曲名」。');
   }
 
   ['SCRIPTURE_REF', 'SERMON_TITLE', 'RESPONSE_HYMN', 'FLOWER_THIS_WEEK'].forEach(function (key) {

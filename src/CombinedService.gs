@@ -77,12 +77,25 @@ function combinedServiceTitle_(combined, kindNames) {
  *   {string} 不顯示按鈕時回空字串。
  */
 function buildRosterCombinedUrl_(baseUrl, quarterId) {
+  return buildRosterViewUrl_(baseUrl, 'combined', quarterId);
+}
+
+/**
+ * 用途：2026-10-31：職事表幹事介面某一個畫面的深連結（職事表說明第 10 節：`?view=<畫面>&quarter=<季度>`）。純函式。
+ * Args:
+ *   baseUrl {string} Config ROSTER_WEBAPP_URL（/exec 網址）。　view {string} `combined`／`choir`。　quarterId {string}
+ * Returns:
+ *   {string} 網址；網址不是 https、畫面不認得或季度格式不對＝空字串（不顯示按鈕）。
+ */
+function buildRosterViewUrl_(baseUrl, view, quarterId) {
   var base = String(baseUrl || '').trim();
   var q = String(quarterId || '').trim();
+  var v = String(view || '').trim();
+  if (['combined', 'choir'].indexOf(v) === -1) return '';
   if (!/^https:\/\//i.test(base) || !/^\d{4}T[1-4]$/.test(q)) return '';
   var hashIndex = base.indexOf('#');
   if (hashIndex !== -1) base = base.slice(0, hashIndex);
-  return base + (base.indexOf('?') === -1 ? '?' : '&') + 'view=combined&quarter=' + encodeURIComponent(q);
+  return base + (base.indexOf('?') === -1 ? '?' : '&') + 'view=' + v + '&quarter=' + encodeURIComponent(q);
 }
 
 /**

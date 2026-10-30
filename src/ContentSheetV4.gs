@@ -1083,3 +1083,89 @@ function contentSheetV4BlockerMessage_(plan) {
   return blockers.map(function (b) { return b.message; }).join('；') + '。所以這次一格都沒有寫（寫了會把資料放錯欄）。'
     + '請用「檔案 ▸ 版本記錄」把那張分頁的第 1、2 行與欄位次序還原，再按一次「更新本季內容表…」。';
 }
+
+/**
+ * 用途：2026-10-31（2028T4）：「崇拜程序」已經是新版（或者不是舊版），而舊的「宣召」／「浸禮合堂」分頁仍然未改名
+ *   ——v2 移轉不會再跑，匯入卻一直因為舊分頁被擋（死胡同）。列出這些分頁與裏面有字的行，「更新本季內容表」時改名保留。
+ *   唯讀。
+ * Args:
+ *   spreadsheet {Spreadsheet}
+ *   layout {string} `detectWorshipTabLayoutV4_()` 的 layout；`LEGACY`／`V3` 由 v2 移轉處理，這裏回空陣列。
+ * Returns:
+ *   {{tabName:string, kind:string, valueRows:number, dates:string[]}[]}
+ *     `valueRows`：有效而且有值的行數（這些值**不會**搬入週報，只留在改了名的分頁）。
+ * Raises:
+ *   Error 讀取失敗時原樣拋出。
+ */
+function planOrphanLegacyContentTabs_(spreadsheet, layout) {
+  if (layout === 'LEGACY' || layout === 'V3') return [];
+  var out = [];
+  legacyMergedTabDefs_().forEach(function (def) {
+    var sheet = spreadsheet.getSheetByName(def.tabName);
+    if (!sheet) return;
+    var rows = parseContentTabRows_(readContentTabDataValues_(sheet, def.keys.length), def.keys);
+    var dates = [];
+    var valueRows = 0;
+    rows.forEach(function (r) {
+      if (r.__active === false) return;
+      var hasValue = (def.valueKeys || def.keys).some(function (k) {
+        return k !== 'SERVICE_DATE' && k !== 'ACTIVE' && k !== 'NOTES' && String(r[k] === undefined || r[k] === null ? '' : r[k]).trim() !== '';
+      });
+      if (!hasValue) return;
+      valueRows++;
+      var iso = String(r.SERVICE_DATE || '').trim();
+      if (iso && dates.indexOf(iso) === -1) dates.push(iso);
+    });
+    out.push({ tabName: def.tabName, kind: def.kind, valueRows: valueRows, dates: dates });
+  });
+  return out;
+}
+
+/**
+ * 用途：把 `planOrphanLegacyContentTabs_()` 列出的分頁改名保留（「…（已停用）」、隱藏、A1 註解、警告式保護），
+ *   一張一筆 AuditLog。資料一格不改、不刪、不搬。IO 層。
+ * Args:
+ *   spreadsheet {Spreadsheet}　orphans {Object[]}　quarterId {string}
+ * Returns:
+ *   {{from:string, to:string}[]}
+ * Raises:
+ *   Error 改名失敗時原樣拋出。
+ */
+function retireOrphanLegacyContentTabs_(spreadsheet, orphans, quarterId) {
+  var done = [];
+  (orphans || []).forEach(function (o) {
+    var sheet = spreadsheet.getSheetByName(o.tabName);
+    if (!sheet) return;
+    var newName = uniqueRetiredContentTabName_(spreadsheet, o.tabName);
+    renameRetiredContentTab_(sheet, newName);
+    done.push({ from: o.tabName, to: newName });
+    appendAuditLog_({
+      action: 'CONTENT_SHEET_MIGRATE_V4', sheetName: SHEETS.CONTENT_SHEETS, rowKey: quarterId, field: o.tabName,
+      oldValue: o.tabName, newValue: newName,
+      notes: '「崇拜程序」已是新版而舊分頁「' + o.tabName + '」未改名：改名保留（' + o.valueRows + ' 行有值，沒有搬入週報），之後隱藏，沒有刪除。'
+    });
+    ensureRetiredContentTabState_(sheet,
+      inspectRetiredContentTab_(sheet, CONTENT_SHEET_RETIRED_TAB_NOTE_, CONTENT_SHEET_RETIRED_TAB_PROTECTION_),
+      CONTENT_SHEET_RETIRED_TAB_NOTE_, CONTENT_SHEET_RETIRED_TAB_PROTECTION_);
+  });
+  return done;
+}
+
+/**
+ * 用途：預覽／結果的說明行。純函式。
+ * Args:
+ *   orphans {Object[]}　applied {boolean}
+ * Returns:
+ *   {string[]}
+ */
+function buildOrphanLegacyContentTabLines_(orphans, applied) {
+  var w = applied ? '已' : '會';
+  return (orphans || []).map(function (o) {
+    return '・舊的「' + o.tabName + '」分頁仍然未改名' + (applied ? '' : '（匯入因此被擋）') + '，' + w + '改名「' + o.tabName
+      + CONTENT_SHEET_RETIRED_TAB_SUFFIX_ + '」隱藏保留。'
+      + (o.valueRows > 0
+        ? '裏面有 ' + o.valueRows + ' 行有值（' + o.dates.slice(0, 5).join('、') + (o.dates.length > 5 ? '等' : '')
+          + '），不會搬入週報；v4 起' + (o.kind === 'CALL' ? '宣召' : '浸禮副框') + '在填寫介面填，需要的話請人手抄入。'
+        : '裏面沒有要搬的資料。');
+  });
+}

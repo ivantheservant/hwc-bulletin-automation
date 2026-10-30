@@ -528,7 +528,8 @@ function makeUi(sb) {
     onSnapshotRestoreClicked: noop, renderPublishWindow: noop, renderDutyDiffNotice: noop, renderRosterAppLink: noop,
     // 2026-10-30：特別崇拜（與事奉框無關）。
     toggleSpecialServiceForm: noop, startCreateSpecialService: noop, startCancelSpecialService: noop, renderSpecialServiceBanner: noop,
-    renderRosterCombinedLink: noop
+    renderRosterCombinedLink: noop,
+    renderRosterChoir: noop
   };
   vm.createContext(ctx);
   const code = [
