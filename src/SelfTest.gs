@@ -509,7 +509,7 @@ function selfTestScenarios_() {
     { id: 'S32', name: '三季資料：最舊那一季列入封存，其餘兩季維持可見', run: selfTestS32_ },
     { id: 'S33', name: '取消封存：那一季重新出現在可見清單', run: selfTestS33_ },
     { id: 'S34', name: '封存不會碰 Diagnostics／PublishLog／AuditLog／SendLog', run: selfTestS34_ },
-    { id: 'S35', name: '沙盒季度永不被封存、永不出現在使用者的季度下拉', run: selfTestS35_ },
+    { id: 'S35', name: '沙盒季度永不被封存、永不出現在用戶的季度下拉', run: selfTestS35_ },
     { id: 'S36', name: '有未發佈而且有內容的主日：封存前列出並要求確認', run: selfTestS36_ },
     { id: 'S37', name: '沒有任何可見季度：有提示語而且講得出下一步，不是空白下拉', run: selfTestS37_ }
   ];
@@ -517,7 +517,7 @@ function selfTestScenarios_() {
 
 /**
  * 用途：S19：職事表沒有該季資料 → 建立本季週報 → 斷言建立成功、
- *   `ROSTER_STATUS` 是 `NOT_FOUND`、事奉格全空、對話框有講明（R-036）。
+ *   `ROSTER_STATUS` 是 `NOT_FOUND`、事奉格全空、對話框有說明（R-036）。
  *
  *   ⚠️ 沙盒季度本來就是刻意選一個職事表沒有資料的季度，所以這一條驗的
  *   正是生產路徑本身，不需要另造假資料。這一條紅代表「職事表未出就完全
@@ -585,7 +585,7 @@ function selfTestS19_(ctx) {
     && messageMentions;
 
   return selfTestOutcome_(ok,
-    '建立到主日、全部 ROSTER_STATUS=NOT_FOUND、只可能來自職事表的格全空、對話框有講明',
+    '建立到主日、全部 ROSTER_STATUS=NOT_FOUND、只可能來自職事表的格全空、對話框有說明',
     rows.length + ' 個主日、其中 ' + notFoundCount + ' 個 NOT_FOUND、'
       + '只可能來自職事表的格有值的 ' + nonBlankDuty + ' 格、'
       + '季度寫錯的 ' + wrongQuarter + ' 行、'
@@ -633,9 +633,9 @@ function selfTestS20_(ctx) {
   var ok = result.rosterFound === false && result.filled === 0 && dutyUnchanged && saidSo;
 
   return selfTestOutcome_(ok,
-    '補了 0 格、事奉格一格未變、訊息有講明職事表仍然找不到',
+    '補了 0 格、事奉格一格未變、訊息有說明職事表仍然找不到',
     '補了 ' + result.filled + ' 格、事奉格' + (dutyUnchanged ? '一格未變' : '變了')
-      + '、訊息' + (saidSo ? '有' : '沒有') + '講明',
+      + '、訊息' + (saidSo ? '有' : '沒有') + '說明',
     '季度 ' + config.quarterId + '；職事表狀態 '
       + describeRosterStatusCounts_(result.statusBefore) + ' → '
       + describeRosterStatusCounts_(result.statusAfter)
@@ -1347,7 +1347,7 @@ function selfTestS37_(ctx) {
     && hintHasAction;
 
   return selfTestOutcome_(ok,
-    '可見 0 季、勾「顯示已封存」見到 2 季、提示語講得出下一步',
+    '可見 0 季、勾「顯示已封存」看到 2 季、提示語說得出下一步',
     '可見 ' + visible.length + ' 季、勾之後 ' + withArchived.length + ' 季、'
       + '提示語' + (hintHasAction ? '有' : '沒有') + '講下一步',
     '提示語：「' + RETENTION_EMPTY_HINT_ + '」'
@@ -1914,8 +1914,8 @@ function selfTestS07_(ctx) {
 
   var stateful = runStatefulChecks_({ quarterId: config.quarterId });
   var ok = after === before && saidSkipped && stateful.failedCount === 0;
-  return selfTestOutcome_(ok, before + ' 行（一行都不可以少）並且報告講明「本次不改動」',
-    after + ' 行；報告' + (saidSkipped ? '有' : '沒有') + '講明',
+  return selfTestOutcome_(ok, before + ' 行（一行都不可以少）並且報告說明「本次不改動」',
+    after + ' 行；報告' + (saidSkipped ? '有' : '沒有') + '說明',
     '清空前 ' + before + ' 行、清空後 ' + after + ' 行；'
       + '略過的分頁：' + (imported.plan.skippedTabs.join('、') || '（沒有）')
       + '；' + selfTestStatefulSummary_(stateful));
@@ -3211,7 +3211,7 @@ function buildSelfTestReportLines_(summary) {
     });
     lines.push('　　牽涉的不變量：' + Object.keys(warnedIds).sort().join('、')
       + '；受影響的情境 ' + warned.length + ' 個。');
-    lines.push('　　⚠️ 一條不變量不成立，會令它後面每一個情境一齊變黃。'
+    lines.push('　　⚠️ 一條不變量不成立，會令它後面每一個情境一併變黃。'
       + '先查那一條不變量，不要逐個情境查。');
     warned.forEach(function (r) {
       lines.push('');

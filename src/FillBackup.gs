@@ -278,9 +278,9 @@ function createFillBackup_(quarterId, reason) {
  */
 function currentUserEmailForBackup_() {
   try {
-    return Session.getActiveUser().getEmail() || '（未知使用者）';
+    return Session.getActiveUser().getEmail() || '（未知用戶）';
   } catch (err) {
-    return '（未知使用者）';
+    return '（未知用戶）';
   }
 }
 

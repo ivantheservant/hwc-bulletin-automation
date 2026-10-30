@@ -1361,7 +1361,7 @@ function executePublish_(isoDate, blob, options) {
     SERVICE_DATE: normalizeDate_(isoDate),
     VERSION_NO: versionNo,
     PUBLISHED_AT: new Date(),
-    PUBLISHED_BY: sanitizeCellText_(actor || '（未知使用者）'),
+    PUBLISHED_BY: sanitizeCellText_(actor || '（未知用戶）'),
     ARCHIVE_FILE_ID: sanitizeCellText_(archive.fileId),
     SENT: o.sent === true,
     SENT_GROUPS: sanitizeCellText_(o.sentGroups || ''),

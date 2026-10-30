@@ -28,7 +28,7 @@
  */
 function fillGridRetiredMessage_() {
   return '季度填寫表已停用（2026-10），這個動作一格都沒有寫。每週的內容請在填寫介面填寫，'
-    + '或者在本季內容表的「崇拜程序」填寫，再由填寫介面匯入。如果仍然見到舊的選單項目，請重新整理試算表。';
+    + '或者在本季內容表的「崇拜程序」填寫，再由填寫介面匯入。如果仍然看到舊的選單項目，請重新載入試算表。';
 }
 
 // =====================================================================
@@ -365,7 +365,7 @@ function buildFillInviteHtml_(input) {
 
   parts.push('<h3 style="margin:1.2em 0 0.4em;">直達連結</h3>');
   parts.push('<ul>');
-  parts.push('<li><a href="' + esc(links.grid) + '">' + esc(input.quarterId) + ' 季度填寫表</a>（一張表看晒整季）</li>');
+  parts.push('<li><a href="' + esc(links.grid) + '">' + esc(input.quarterId) + ' 季度填寫表</a>（一張表看到整季）</li>');
   parts.push('<li><a href="' + esc(links.announcements) + '">家事報告</a></li>');
   parts.push('<li><a href="' + esc(links.prayers) + '">代禱事項</a></li>');
   parts.push('<li><a href="' + esc(links.finance) + '">月度財政報告</a></li>');

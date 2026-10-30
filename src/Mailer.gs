@@ -77,7 +77,8 @@ function sendBulletinForDate_(isoDate, options) {
   //    Config `SEND_WHEN_ROSTER_MISSING` 改成 FALSE 就回復舊行為。
   //    見 docs/已知bug類型.md 事故四十。
   var rosterPending = false;
-  if (!model.found) {
+  // 特別崇拜：職事表本來就沒有這一日（事奉在填寫介面填），不是「事奉資料未定」。
+  if (!model.found && model.specialService !== true) {
     var sendAnyway = normalizeBoolean_(getConfig(CONFIG_KEYS.SEND_WHEN_ROSTER_MISSING, 'TRUE')) === true;
     if (!sendAnyway) {
       var notFoundErr = new Error('sendBulletinForDate_：' + isoDate
@@ -416,7 +417,7 @@ function menuPreviewBulletinEmail_() {
     }
 
     var model = buildBulletinModel_(isoDate);
-    if (model.notConfigured || !model.found) {
+    if (model.notConfigured || (!model.found && model.specialService !== true)) {
       ui.alert('無法預覽', '職事表尚未設定，或這個主日在職事表找不到資料。', ui.ButtonSet.OK);
       return;
     }

@@ -189,7 +189,7 @@ test('Config：SNAPSHOT_THROTTLE_MINUTES 預設 15、SNAPSHOT_LIST_LIMIT 預設 
 test('weekSnapshotActorShort_：只顯示電郵 @ 之前', function () {
   const sb = makeEnv().sandbox;
   assert.strictEqual(sb.weekSnapshotActorShort_('ivan@church.example'), 'ivan');
-  assert.strictEqual(sb.weekSnapshotActorShort_('（未知使用者）'), '（未知使用者）');
+  assert.strictEqual(sb.weekSnapshotActorShort_('（未知用戶）'), '（未知用戶）');
   assert.strictEqual(sb.weekSnapshotActorShort_(''), '');
 });
 

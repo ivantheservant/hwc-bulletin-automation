@@ -357,9 +357,10 @@ function menuInstallSendTrigger_() {
       '安裝自動寄送觸發器',
       [
         '已安裝：每週' + weekdayLabel + '　約 ' + result.hour + ':' + pad2Trigger_(result.minute) + ' 執行一次。',
-        '另外每日約 ' + result.dailyHour + ':00 檢查一次職事表有沒有新季度（有就自動建立該季週報與內容表）。',
+        '另外每日約 ' + result.dailyHour + ':00 檢查一次職事表有沒有新季度（有就自動建立該季週報與內容表），'
+          + '並把內容表的家事報告、代禱事項、財政報告按主日日期與次序排好。',
         result.syncMinutes > 0
-          ? '內容表有改動時，每 ' + result.syncMinutes + ' 分鐘自動匯入今日及之後的主日（預覽連結會跟住更新）。'
+          ? '內容表有改動時，每 ' + result.syncMinutes + ' 分鐘自動匯入今日及之後的主日（預覽連結會隨之更新）。'
           : (result.syncValid
             ? '內容表自動同步：Config ' + CONFIG_KEYS.CONTENT_AUTO_SYNC_MINUTES + ' 是 0，沒有安裝。'
             : '⚠️ Config ' + CONFIG_KEYS.CONTENT_AUTO_SYNC_MINUTES + ' 不是 0、5、10、15、30 或 60，內容表自動同步沒有安裝。'),

@@ -103,6 +103,51 @@ function isSpecialServiceIsoDate_(isoDate) {
 }
 
 /**
+ * 用途：特別崇拜用的職事表快照：週次條件（聖餐、祈禱會週）一律不成立；職事表沒有這一日的話，按職事表的崗位清單
+ *   （Posts，每個崗位 SlotCount 格）開空白格，給幹事在「本週事奉」逐格填（沒有名字的格不印，Config
+ *   `DUTY_PRINT_EMPTY_ROWS`）。以前快照沒有任何一格，「本週事奉」顯示「沒有事奉資料」，事奉人員填不到
+ *   （2026-10-30 瀏覽器自測）。純函式，不改傳入的快照。
+ * Args:
+ *   snapshot {Object} `readRosterSnapshot_()` 的回傳值。
+ *   rosterOptions {{communionWeeks:number[], notApplicableRuleFlags:string[]}} `readRosterSnapshotOptions_()`。
+ * Returns:
+ *   {Object} 新的快照。
+ */
+function specialServiceRosterSnapshot_(snapshot, rosterOptions) {
+  var o = rosterOptions || {};
+  var out = Object.assign({}, snapshot, { weekOfMonth: null });
+  if (out.found) return out;
+  out.assignments = [];
+  (out.posts || []).forEach(function (p) {
+    var n = Math.max(1, Math.floor(Number(p.slotCount) || 1));
+    for (var i = 1; i <= n; i++) {
+      out.assignments.push({ postId: p.postId, slotIndex: i, personId: null, personName: '', assignSource: '',
+        locked: false, ruleFlags: [] });
+    }
+  });
+  out.slotsByPost = buildRosterSlotIndex_(out, o.communionWeeks || [], o.notApplicableRuleFlags || []);
+  return out;
+}
+
+/**
+ * 用途：讀一個日期的職事表快照；那一日是特別崇拜就套 `specialServiceRosterSnapshot_()`。資料模型、程序表即時預覽、
+ *   事奉儲存、職事表比對都經這裏，免得各自判斷一次（bug class 3）。唯讀。
+ * Args:
+ *   isoDate {string}
+ *   weekRow {?Object=} 這一日的 BulletinWeeks 行；省略就讀一次。
+ * Returns:
+ *   {Object}
+ * Raises:
+ *   Error 讀取失敗時原樣拋出。
+ */
+function readRosterSnapshotForWeek_(isoDate, weekRow) {
+  var snapshot = readRosterSnapshot_(isoDate);
+  var row = weekRow === undefined ? findBulletinWeekRow_(readSheet(SHEETS.BULLETIN_WEEKS), isoDate) : weekRow;
+  if (!isSpecialServiceRow_(row) || snapshot.notConfigured) return snapshot;
+  return specialServiceRosterSnapshot_(snapshot, readRosterSnapshotOptions_());
+}
+
+/**
  * 用途：BulletinWeeks 的行剔走特別崇拜（季度的主日清單、自動同步、職事表補資料、季度核對用）。純函式。
  * Args:
  *   rows {Object[]}

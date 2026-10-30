@@ -633,5 +633,28 @@ test('V4-20 第 1、2 行被清走：「崇拜人數」下面有資料 → 照�
   assert.strictEqual(snapshot(env), snap, '一格不寫');
 });
 
+test('V4-21 某一日在舊分頁只有停用的行（例如示範樣本設了有效＝FALSE）→ 新分頁那一日留空，不由週報帶回；完全沒有行的照舊由週報帶入', function () {
+  const env = makeV3Env({
+    weekRows: [
+      { SERVICE_DATE: D1, QUARTER_ID: QUARTER_ID },
+      { SERVICE_DATE: D2, QUARTER_ID: QUARTER_ID, SERMON_TITLE: '樣本講題', SCRIPTURE_REF: '樣本經文' },
+      { SERVICE_DATE: D3, QUARTER_ID: QUARTER_ID },
+      { SERVICE_DATE: D4, QUARTER_ID: QUARTER_ID },
+      { SERVICE_DATE: D5, QUARTER_ID: QUARTER_ID, SERMON_TITLE: '週報的講題' }
+    ]
+  });
+  const ws = env.contentSpreadsheet.getSheetByName('崇拜程序');
+  const keys = ws.__data[1];
+  const r2 = ws.__data.findIndex(function (row, i) { return i >= 2 && row[0] === D2; });
+  ws.__data[r2][keys.indexOf('SERMON_TITLE')] = '樣本講題';
+  ws.__data[r2][keys.indexOf('ACTIVE')] = 'FALSE';
+  run(env);
+  const rows = tabRows(env, '崇拜程序');
+  assert.deepStrictEqual([rows[1].SERMON_TITLE, rows[1].SCRIPTURE_REF], ['', ''], '只有停用的行：留空');
+  assert.strictEqual(rows[4].SERMON_TITLE, '週報的講題', '完全沒有行：由週報帶入');
+  assert.strictEqual(env.sandbox.apiRunQuarterContentImport(QUARTER_ID).data.ok, true);
+  assert.strictEqual(String(weekOf(env, D2).SERMON_TITLE || ''), '', '之後匯入：週報那一日亦清空（與內容表一致）');
+});
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail === 0 ? 0 : 1);

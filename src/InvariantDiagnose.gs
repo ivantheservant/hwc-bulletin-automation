@@ -178,7 +178,7 @@ function describeI06Difference_(comparison, master) {
   if (c.leftValue === c.rightValue) {
     return {
       kind: 'SAME', summary: '兩邊完全相同',
-      detail: '發佈當時的指紋來自' + (c.leftSourceLabel || '（沒有講明）') + '。'
+      detail: '發佈當時的指紋來自' + (c.leftSourceLabel || '（沒有說明）') + '。'
     };
   }
 
@@ -191,7 +191,7 @@ function describeI06Difference_(comparison, master) {
       summary: '大小不同：發佈當時 ' + left.bytes + ' 位元組，現在 ' + right.bytes + ' 位元組',
       detail: '差 ' + Math.abs(right.bytes - left.bytes) + ' 位元組。'
         + '大小都變了，代表檔案內容真的被換過（不是編碼差異）。'
-        + '發佈當時的指紋來自' + (c.leftSourceLabel || '（沒有講明）') + '。'
+        + '發佈當時的指紋來自' + (c.leftSourceLabel || '（沒有說明）') + '。'
     };
   }
 
@@ -200,7 +200,7 @@ function describeI06Difference_(comparison, master) {
     summary: '大小相同（' + left.bytes + ' 位元組）但 MD5 不同',
     detail: '同樣長度、不同內容——通常代表檔案被另一份同樣大小的內容覆寫，'
       + '或者 Drive 重新編碼過。'
-      + '發佈當時的指紋來自' + (c.leftSourceLabel || '（沒有講明）') + '。'
+      + '發佈當時的指紋來自' + (c.leftSourceLabel || '（沒有說明）') + '。'
   };
 }
 
@@ -369,7 +369,7 @@ function i06NextStepText_(d) {
 
   if (kind === 'SAME') {
     return '　兩邊相同，I06 的「正式」通道應該是綠的。如果它報「對不上」，'
-      + '那是 I06 的 bug，請把這份報告連同自測報告一齊交出來。';
+      + '那是 I06 的 bug，請把這份報告連同自測報告一併交出來。';
   }
   if (kind === 'UNAVAILABLE') {
     return '　其中一邊取不到，所以 I06 應該報「驗證不到」而不是「對不上」。'
@@ -848,7 +848,7 @@ function i04DifferenceText_(d) {
       + '一次 writeSheet() 正常只會有一兩個——很可能是多次寄出被併成一批。';
   } else {
     text += '\n　這一批的時間戳記只有 ' + d.distinctTimestamps.length + ' 個，'
-      + '不像是多次寄出被併埋。要查的是 Recipients 在那一次寄出之後有沒有改過。';
+      + '不像是多次寄出被合併。要查的是 Recipients 在那一次寄出之後有沒有改過。';
   }
   return text;
 }
@@ -864,11 +864,11 @@ function i04NextStepText_(d) {
   if (d.loggedCount === 0) return '　先寄一次（試行也可以），之後這一條才驗得到。';
   if (d.previewCount === null) return '　先修好「算收件人」那一段，見上面的其他發現。';
   if (d.previewCount === d.loggedCount) {
-    return '　兩邊相同。如果自測機仍然報 I04 不成立，請把這份報告連同自測報告一齊交出來。';
+    return '　兩邊相同。如果自測機仍然報 I04 不成立，請把這份報告連同自測報告一併交出來。';
   }
   if (d.mergedSendCount && d.mergedSendCount > 1) {
     return '　這是 I04 自己的問題，不是寄送的問題：'
-      + '「一批」用時間視窗圈，連續兩次寄出會被併埋。'
+      + '「一批」用時間視窗圈，連續兩次寄出會被合併。'
       + '正確的做法是替每一次寄出寫一個批次編號（SendLog.BATCH_ID），'
       + '由編號圈一批，不再靠時間猜。';
   }

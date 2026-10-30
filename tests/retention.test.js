@@ -362,7 +362,7 @@ test('force:true → 照樣封存，而且 AuditLog 講明使用者確認過', f
   const audit = env.sandbox.readSheet(env.sandbox.SHEETS.AUDIT_LOG)
     .filter(function (a) { return String(a.ACTION) === 'ARCHIVE_QUARTER'; });
   assert.strictEqual(audit.length, 1);
-  assert.ok(String(audit[0].NOTES).indexOf('使用者已確認') !== -1,
+  assert.ok(String(audit[0].NOTES).indexOf('用戶已確認') !== -1,
     '要記低係人手確認過先封存：' + audit[0].NOTES);
 });
 
@@ -692,7 +692,7 @@ test('兩個職事表選單的名稱都答到「會不會覆寫」', function ()
   assert.ok(menu.indexOf('補抓空白的事奉欄位（整季，不覆寫已填的）') !== -1,
     '選單那一個要講明「不覆寫已填的」');
   // v3（Ivan 測試結果 A 第 7 項）：頂部「重讀職事表」拿走，改為「本週事奉」框內兩粒：一粒不覆寫、一粒明講覆寫。
-  assert.ok(index.indexOf('由職事表重新取數（不覆寫）') !== -1, 'UI 不覆寫那一粒要講明「不覆寫」');
+  assert.ok(index.indexOf('重新讀取職事表（不覆寫）') !== -1, 'UI 不覆寫那一粒要講明「不覆寫」');
   assert.ok(index.indexOf('以職事表覆寫我的修改…') !== -1, 'UI 覆寫那一粒要講明「覆寫」');
   assert.strictEqual(index.indexOf('重讀職事表（本主日，不覆寫）'), -1, '頂部那一粒已經拿走');
   assert.strictEqual(menu.indexOf('從職事表補抓'), -1, '舊名不應該再出現');

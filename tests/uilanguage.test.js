@@ -25,7 +25,18 @@ function test(name, fn) {
 }
 
 /** 台灣式或口語的用字（香港書面語的寫法在括號）。 */
-const AVOID_WORDS = ['這裡', '那裡', '哪裡', '見得返', '使用者', '點選', '螢幕', '軟體', '網路'];
+const AVOID_WORDS = ['這裡', '那裡', '哪裡', '見得返', '使用者', '點選', '螢幕', '軟體', '網路',
+  // 2026-10-30（Ivan：新的語言設定）：口語或過份壓縮的寫法（香港書面語的寫法在括號）。
+  '一齊',   // 一併／一起
+  '取數',   // 讀取
+  '先講',   // 先列出／先說明
+  '講明',   // 說明
+  '講清楚', // 說清楚
+  '跟住',   // 隨之／跟隨
+  '看晒',   // 看到全部
+  '好返',   // 恢復
+  '併埋'    // 合併
+];
 
 function readUi(name) {
   return fs.readFileSync(path.join(__dirname, '..', 'src', 'ui', name), 'utf8').replace(/\r\n/g, '\n');
@@ -78,6 +89,22 @@ test('Script.html 的字串', function () {
 test('FillConflict.html 看得見的文字與字串', function () {
   const html = readUi('FillConflict.html');
   check('FillConflict.html', visibleHtmlText(html).concat(scriptStrings((html.match(/<script>([\s\S]*?)<\/script>/) || ['', ''])[1])));
+});
+
+test('伺服器的字串（src/*.gs，對話框、訊息、說明、寫入試算表的文字）', function () {
+  const dir = path.join(__dirname, '..', 'src');
+  let count = 0;
+  const problems = [];
+  fs.readdirSync(dir).filter(function (f) { return f.endsWith('.gs'); }).forEach(function (f) {
+    let texts = scriptStrings(fs.readFileSync(path.join(dir, f), 'utf8').replace(/\r\n/g, '\n'))
+      .filter(function (t) { return /[\u4e00-\u9fff]/.test(t); });
+    // 例外：工作表的欄名（改了會與現有的試算表對不上）、照抄 Google 介面的字。
+    count += texts.length;
+    texts = texts.filter(function (t) { return t !== '使用者' && t.indexOf('網域內的使用者') === -1; });
+    try { check(f, texts); } catch (err) { problems.push(err.message); }
+  });
+  assert.ok(count > 2000, '應該抽到很多個字串（' + count + '）');
+  assert.deepStrictEqual(problems, [], problems.join('\n'));
 });
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');

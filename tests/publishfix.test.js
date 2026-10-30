@@ -741,7 +741,7 @@ test('9i-2. CONTENT_MD5 空、又沒有 ARCHIVE_FILE_ID → 取不到，並講�
   });
   assert.strictEqual(expected.fingerprint, '');
   assert.ok(expected.reason.indexOf('沒有 ARCHIVE_FILE_ID') !== -1, expected.reason);
-  assert.ok(expected.reason.indexOf('自己好返') !== -1, '要講明下一次發佈就會好返：' + expected.reason);
+  assert.ok(expected.reason.indexOf('自動恢復正常') !== -1, '要講明下一次發佈就會好返：' + expected.reason);
 });
 
 test('9i-3. 存檔副本讀不到 → 取不到，並講明是存檔副本那一邊讀不到', function () {

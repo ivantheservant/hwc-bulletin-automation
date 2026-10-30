@@ -74,8 +74,8 @@ function buildBulletinModel_(isoDate, options) {
   var nextIsoDate = specialService ? nextSundayAfterIso_(isoDate) : formatIsoDate_(addDays_(targetDate, 7));
   var warnings = [];
   if (specialService) {
-    // 職事表沒有這一日：週次條件（WEEK_IN 聖餐、祈禱會）一律不成立，要的話在程序增刪加。
-    snapshot.weekOfMonth = null;
+    // 職事表沒有這一日：週次條件（WEEK_IN 聖餐、祈禱會）一律不成立，要的話在程序增刪加；事奉按崗位清單開空白格。
+    snapshot = specialServiceRosterSnapshot_(snapshot, readRosterSnapshotOptions_());
   }
 
   // 下週事奉要讀**下一個主日**的職事表快照。下一個主日不在職事表內

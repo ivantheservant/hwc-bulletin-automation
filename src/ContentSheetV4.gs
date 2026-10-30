@@ -440,12 +440,17 @@ function planContentSheetV4_(input) {
     plan.needsMigration = true;
     var v3Rows = (o.worship.v3Rows || []).filter(function (r) { return (r.__typeIssues || []).indexOf('SERVICE_DATE') === -1; });
     var last = lastActiveRowByDate_(v3Rows);
+    // 這一日在舊分頁有行、但全部停用（有效＝FALSE）：同工的意思是「這一日沒有內容」，新分頁留空，不可以改用週報
+    //    現有的值（2026-10-30 2028T3：示範樣本設了 FALSE，轉換之後又由週報帶回新分頁）。
+    var datesWithRows = {};
+    v3Rows.forEach(function (r) { datesWithRows[String(r.SERVICE_DATE || '').trim()] = true; });
     serviceDates.forEach(function (iso) {
       var src = last[iso] || null;
       var week = weekByIso[iso] || null;
       var row = { SERVICE_DATE: iso };
+      var onlyInactive = !src && datesWithRows[iso] === true;
       worshipValueKeys.forEach(function (k) {
-        var fromWeek = week ? migrationText_(week[k]) : '';
+        var fromWeek = (week && !onlyInactive) ? migrationText_(week[k]) : '';
         row[k] = src ? srcCell(src, k, fromWeek, plan.worship.cellIssues, '崇拜程序', iso) : fromWeek;
       });
       row.NOTES = src ? srcCell(src, 'NOTES', '', plan.worship.cellIssues, '崇拜程序', iso) : '';

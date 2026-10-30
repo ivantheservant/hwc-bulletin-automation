@@ -1717,7 +1717,7 @@ function planDutyEditsFromPayload_(isoDate, dutyEdits) {
     if (!anyActive) return null;
   }
 
-  var snapshot = readRosterSnapshot_(isoDate);
+  var snapshot = readRosterSnapshotForWeek_(isoDate);
   return computeDutyOverridePlan_({
     edits: edits,
     existingRows: readDutyOverrideRowsWithRowNo_(isoDate),

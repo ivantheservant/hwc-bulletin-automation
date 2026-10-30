@@ -1048,7 +1048,7 @@ test('RV5-2 真正入口：亂行機「經填寫介面改幾格」揀中沙盒�
 console.log('\n審查後修正 7：「重讀職事表」不再靜靜丟掉未儲存的事奉改動');
 
 // v3（Ivan 測試結果 A 第 7 項）：頂部「重讀職事表」改為事奉框內的「由職事表重新取數（不覆寫）」，確認句跟着改。
-const RV7_PROMPT = '重新取數會按職事表最新內容重畫事奉框，你未儲存的事奉改動會丟失，確定嗎？';
+const RV7_PROMPT = '重新讀取會按職事表最新內容重新顯示事奉框，你未儲存的事奉改動會丟失，確定嗎？';
 
 function apiLoadCount(ui) { return ui.calls.filter(function (c) { return c.name === 'apiLoadWeek'; }).length; }
 
@@ -1073,7 +1073,7 @@ test('RV7-2 事奉框改了名字 → 按「重讀職事表」→ 出頁內確�
   const messageBefore = ui.message();
   const before = apiLoadCount(ui);
   ui.click('fetchFromRosterBtn');
-  assert.deepStrictEqual(ui.dialog(), { title: '由職事表重新取數', lines: [RV7_PROMPT] });
+  assert.deepStrictEqual(ui.dialog(), { title: '重新讀取職事表', lines: [RV7_PROMPT] });
   assert.strictEqual(apiLoadCount(ui), before, '確認之前不送');
   ui.click('confirmCancelBtn');
   assert.strictEqual(ui.dialog(), null);

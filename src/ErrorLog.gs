@@ -39,9 +39,9 @@ function appendErrorLog_(entry) {
     var actor = entry.actor;
     if (!actor) {
       try {
-        actor = Session.getActiveUser().getEmail() || '（未知使用者）';
+        actor = Session.getActiveUser().getEmail() || '（未知用戶）';
       } catch (e) {
-        actor = '（未知使用者）';
+        actor = '（未知用戶）';
       }
     }
 

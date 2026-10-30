@@ -115,7 +115,9 @@ function applyContentTabLayout_(sheet, tabDef, options) {
     // 日期欄一律純文字：下拉選項係 `yyyy-MM-dd` 字串，唔設純文字嘅話
     // Sheets 會自動轉成 Date，之後匯入讀返出嚟就唔係字串。
     range.setNumberFormat('@');
-    if (dateValues.length === 0) {
+    // 2026-10-30：一個日期一行的分頁（崇拜程序、崇拜人數）日期由系統預先填好並鎖住，不用下拉；
+    //    以前 200 行都有下拉箭咀，看起來好像可以在下面加行（瀏覽器自測）。
+    if (dateValues.length === 0 || tabDef.oneRowPerDate === true) {
       range.clearDataValidations();
       return;
     }

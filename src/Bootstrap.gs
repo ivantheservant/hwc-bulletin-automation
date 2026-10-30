@@ -151,7 +151,7 @@ function upgradeSystemSeededDefaults_() {
       rowKey: key, field: 'VALUE', oldValue: current, newValue: target,
       notes: '系統自己種下的預設值已過時（' + rule.reason + '），自動更新。'
         + '⚠️ 只動白名單上的鍵，而且只在現值仍然等於舊預設值時才動；'
-        + '使用者自己改過的值一律不會被碰。'
+        + '用戶自己改過的值一律不會被碰。'
     });
     upgrades.push({ key: key, from: current, to: target });
   });
@@ -1086,7 +1086,7 @@ function seedSendNoticeRow_() {
     ].join('\n'),
     ACTIVE: true,
     NOTES: 'v3：填寫介面「寄出」的通知信（不論有沒有同時發佈）。{{PreviewUrl}} 是這一個主日的預覽連結；'
-      + '{{ContentSheetUrl}} 是本季內容表；{{MasterLinkLine}} 在這一期已發佈時是 master 連結，否則講明未發佈；'
+      + '{{ContentSheetUrl}} 是本季內容表；{{MasterLinkLine}} 在這一期已發佈時是 master 連結，否則說明未發佈；'
       + '{{AttachmentLine}} 有附件時才有內容。'
   };
 }

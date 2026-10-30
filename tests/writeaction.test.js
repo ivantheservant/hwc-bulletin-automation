@@ -300,20 +300,20 @@ function clickRestoreButton(ui, snapshotId) {
 
 const DIFF_OK = { ok: true, data: { createdAt: '2026-10-22 08:00', reasonLabel: '填寫介面儲存', rows: [], noteLine: '還原前會先自動存一個版本。', lastSavedAt: '2026-10-22 09:00:00' } };
 
-const EXPECTED_SAVE_MESSAGE = '伺服器沒有回應（apiSaveWeek），儲存可能已經完成，你的改動仍在畫面上。請再按一次「儲存」：如果系統說「這一週的資料在你載入之後被改過」，即是上一次已經存好，重新載入這一週就會見到。';
+const EXPECTED_SAVE_MESSAGE = '伺服器沒有回應（apiSaveWeek），儲存可能已經完成，你的改動仍在畫面上。請再按一次「儲存」：如果系統說「這一週的資料在你載入之後被改過」，即是上一次已經存好，重新載入這一週就會看到。';
 
 // G24 改了以下幾句的結尾：不再叫人「確認未完成才再做一次」，改叫人等 5 分鐘再核對、不要即時再做。
-const WAIT_ENDING = '如果仍未見到結果，伺服器可能仍在處理，請等 5 分鐘再重新載入核對，不要即時再做一次。';
+const WAIT_ENDING = '如果仍未看到結果，伺服器可能仍在處理，請等 5 分鐘再重新載入核對，不要即時再做一次。';
 const EXPECTED_SEND_ONLY_MESSAGE = '伺服器沒有回應（apiRunPublish），這個動作可能已經完成。寄出不會在填寫介面留下記錄，'
   + '請先看試算表的 SendLog 有沒有剛才這一次的寄出記錄（模擬模式亦會記錄）。'
-  + '如果仍未見到記錄，伺服器可能仍在處理，請等 5 分鐘再看一次，不要即時再寄，以免重複寄信。';
+  + '如果仍未看到記錄，伺服器可能仍在處理，請等 5 分鐘再看一次，不要即時再寄，以免重複寄信。';
 const EXPECTED_PUBLISH_ONLY_MESSAGE = '伺服器沒有回應（apiRunPublish），這個動作可能已經完成。系統已重新載入頁頂「目前已發佈」，'
   + '請先看它的主日、版本和發佈時間是否已經是剛才這一次（「版本記錄」上方的發佈記錄亦會多一版）。' + WAIT_ENDING;
 const EXPECTED_PUBLISH_AND_SEND_MESSAGE = '伺服器沒有回應（apiRunPublish），這個動作可能已經完成。系統已重新載入頁頂「目前已發佈」，'
   + '請先看它的主日、版本和發佈時間是否已經是剛才這一次；寄出不會在填寫介面留下記錄，請看試算表的 SendLog 有沒有剛才這一次的寄出記錄。'
   + WAIT_ENDING + '已經發佈而未寄出的話，再做時只勾「寄出」。';
 const EXPECTED_SAVE_TIMEOUT_MESSAGE = '伺服器在 120 秒內沒有回應（apiSaveWeek），伺服器可能仍在處理，你的改動仍在畫面上。'
-  + '請等一兩分鐘才再按「儲存」：如果系統說「這一週的資料在你載入之後被改過」，即是上一次已經存好，重新載入這一週就會見到。';
+  + '請等一兩分鐘才再按「儲存」：如果系統說「這一週的資料在你載入之後被改過」，即是上一次已經存好，重新載入這一週就會看到。';
 
 /** G24：寫入類（儲存除外）逾時的一句。where 是重新載入頁面之後要看的地方。 */
 function expectedTimeoutMessage(fnName, where, noRedo, note) {
@@ -1406,7 +1406,7 @@ test('G19-4 Script.html 內每一個 openConfirmDialog() 的取消分支：會�
     if (m[1].trim() === 'title') continue;
     const callback = js.slice(m.index, js.indexOf('callServer(', m.index) === -1 ? m.index + 400 : js.indexOf('callServer(', m.index));
     titles.push(m[1].trim());
-    if (m[1].indexOf("'換週'") !== -1 || m[1].indexOf("'由職事表重新取數'") !== -1) {
+    if (m[1].indexOf("'換週'") !== -1 || m[1].indexOf("'重新讀取職事表'") !== -1) {
       assert.ok(callback.indexOf('CANCELLED_NOTHING_WRITTEN_MESSAGE') === -1, m[1] + ' 不是寫入，不用「一格都沒有寫」');
       continue;
     }
@@ -1415,7 +1415,7 @@ test('G19-4 Script.html 內每一個 openConfirmDialog() 的取消分支：會�
   // 內容表 v2：「建立講員表格」隨講員表格停用拿走。
   // v3：季度作業拿走；加「更新本季內容表」；「重讀職事表」改名「由職事表重新取數」。
   // 2026-10-30：加「建立特別崇拜」。
-  assert.deepStrictEqual(titles, ["'由內容表匯入'", "'更新本季內容表'", "'還原到這個版本'", "'重設這一週'", "'換週'", "'由職事表重新取數'",
+  assert.deepStrictEqual(titles, ["'由內容表匯入'", "'更新本季內容表'", "'還原到這個版本'", "'重設這一週'", "'換週'", "'重新讀取職事表'",
     "'建立特別崇拜'"],
     '對話框有增減：先檢查取消分支，再更新這裏');
   // 三選一對話框只有「下載 Word」一處，取消甚麼都不做（不是寫入，不講「一格都沒有寫」）。
@@ -1841,7 +1841,7 @@ test('G19b-3 其他確認對話框沒有同類路徑：openConfirmDialog() 的�
 
 console.log('\n寫入類沒有回應的結尾（G24）');
 
-test('G24-1 連線錯誤：每一個寫入種類（儲存除外）的句子都以「如果仍未見到結果……不要即時再做一次。」作結（只寄出改講再寄），不再有「確認未完成才再做一次」', function () {
+test('G24-1 連線錯誤：每一個寫入種類（儲存除外）的句子都以「如果仍未看到結果……不要即時再做一次。」作結（只寄出改講再寄），不再有「確認未完成才再做一次」', function () {
   const ui = makeUi();
   ['week', 'publish', 'quarterOps', 'quarterImport'].forEach(function (kind) {
     const text = ui.ctx.describeNoResponseFailure('apiX', kind, []);

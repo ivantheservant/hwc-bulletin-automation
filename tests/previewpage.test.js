@@ -481,6 +481,25 @@ test('職事表未有資料 → 照樣寄，而且信中有待定提示', functi
   assert.ok(body.indexOf('事奉資料尚未確定') !== -1, '要有待定提示：' + body);
 });
 
+test('工作表上的舊範本沒有 {{ContentSheetUrl}} → 內容表連結放在預覽連結之後，不是加在「敬上」之後', function () {
+  const oldTemplates = boot.seedEmailTemplatesRows_().map(function (r) {
+    if (r.TEMPLATE_ID !== 'PREVIEW_NOTICE') return r;
+    return Object.assign({}, r, { BODY: '各位：\n\n{{PreviewUrl}}\n\n{{RosterPendingNote}}\n\n謝謝！\n\n粵語堂週報系統　敬上' });
+  });
+  const env = mailEnv({ emailTemplates: oldTemplates });
+  const sb = env.sandbox;
+  assert.strictEqual(sb.readSheet(sb.SHEETS.EMAIL_TEMPLATES).filter(function (r) { return r.TEMPLATE_ID === 'PREVIEW_NOTICE'; }).length, 1);
+  const weeks = sb.readSheet(sb.SHEETS.BULLETIN_WEEKS);
+  const qid = String(weeks[0].QUARTER_ID || '');
+  assert.ok(qid, '前提：週報有季度');
+  sb.writeSheet(sb.SHEETS.CONTENT_SHEETS, [{ QUARTER_ID: qid, FILE_ID: 'CS1', FILE_URL: 'https://docs.google.com/spreadsheets/d/CS1/edit', ACTIVE: true }]);
+  sb.sendPreviewNotice_('2030-01-06');
+  const body = String(sb.readSheet(sb.SHEETS.SEND_LOG)[0].BODY_PREVIEW);
+  const iLink = body.indexOf('https://docs.google.com/spreadsheets/d/CS1/edit');
+  assert.ok(iLink !== -1, body);
+  assert.ok(iLink > body.indexOf('page=preview') && iLink < body.indexOf('謝謝！'), body);
+});
+
 // =====================================================================
 // 第 4 組：R-032 重複段落偵測
 // =====================================================================

@@ -283,7 +283,7 @@ function buildRetireLegacyPreviewLines_(plan) {
     });
   }
   if (plan.speakerForm) {
-    lines.push('【講員表格】停止收件（表格與舊答案不會刪除）。講員打開舊連結會見到：「' + speakerFormClosedMessage_() + '」');
+    lines.push('【講員表格】停止收件（表格與舊答案不會刪除）。講員打開舊連結會看到：「' + speakerFormClosedMessage_() + '」');
     if (plan.speakerForm.accepting === null) {
       lines.push('　⚠️ 現時查不到表格狀態（表格開不到，或者部署後還沒有重新授權 forms 範圍）。按「是」會嘗試關閉，失敗會在結果列出。');
     }

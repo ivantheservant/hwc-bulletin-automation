@@ -383,7 +383,7 @@
    *   NO_RESPONSE_WAIT_ENDING（見 describeNoResponseFailure()）。
    */
   var NO_RESPONSE_CHECK_HINTS = {
-    keepForm: '儲存可能已經完成，你的改動仍在畫面上。請再按一次「儲存」：如果系統說「這一週的資料在你載入之後被改過」，即是上一次已經存好，重新載入這一週就會見到。',
+    keepForm: '儲存可能已經完成，你的改動仍在畫面上。請再按一次「儲存」：如果系統說「這一週的資料在你載入之後被改過」，即是上一次已經存好，重新載入這一週就會看到。',
     week: '這個動作可能已經完成。系統已重新載入這一個主日，請先看「最後儲存時間」和「版本記錄」。',
     // G18／G22(a)：發佈加寄出（以及不知道這一次做甚麼）用這一句；只發佈、只寄出見
     // PUBLISH_NO_RESPONSE_HINTS。
@@ -406,10 +406,10 @@
    *   20 秒之後重新載入看不到結果，不等於沒有做；建立內容表、建立本季週報、
    *   寄出內容表連結這幾個沒有防重複，照提示再做就會重複。所以改叫人等 5 分鐘再核對。
    */
-  var NO_RESPONSE_WAIT_ENDING = '如果仍未見到結果，伺服器可能仍在處理，請等 5 分鐘再重新載入核對，不要即時再做一次。';
+  var NO_RESPONSE_WAIT_ENDING = '如果仍未看到結果，伺服器可能仍在處理，請等 5 分鐘再重新載入核對，不要即時再做一次。';
 
   /** 第二批測試修正 G24：儲存逾時的一句（連線錯誤用 NO_RESPONSE_CHECK_HINTS.keepForm）。 */
-  var KEEP_FORM_TIMEOUT_HINT = '伺服器可能仍在處理，你的改動仍在畫面上。請等一兩分鐘才再按「儲存」：如果系統說「這一週的資料在你載入之後被改過」，即是上一次已經存好，重新載入這一週就會見到。';
+  var KEEP_FORM_TIMEOUT_HINT = '伺服器可能仍在處理，你的改動仍在畫面上。請等一兩分鐘才再按「儲存」：如果系統說「這一週的資料在你載入之後被改過」，即是上一次已經存好，重新載入這一週就會看到。';
 
   /**
    * 用途：第二批測試修正 G18／G22(a)：發佈（apiRunPublish）沒有回應時，按這一次做甚麼
@@ -425,7 +425,7 @@
     sendOnly: '這個動作可能已經完成。寄出不會在填寫介面留下記錄，請先看試算表的 SendLog 有沒有剛才這一次的寄出記錄（模擬模式亦會記錄）。',
     // G24：只寄出的結尾（只寄出沒有重新載入甚麼，核對的是 SendLog；伺服器端防重複只有
     // PUBLISH_DEDUP_SEC 秒，等 5 分鐘之後再寄就會再寄一封）。
-    sendOnlyEnding: '如果仍未見到記錄，伺服器可能仍在處理，請等 5 分鐘再看一次，不要即時再寄，以免重複寄信。',
+    sendOnlyEnding: '如果仍未看到記錄，伺服器可能仍在處理，請等 5 分鐘再看一次，不要即時再寄，以免重複寄信。',
     // 發佈加寄出：發佈可能已經做了而寄出未做，再做時要避免多發佈一版。
     bothNote: '已經發佈而未寄出的話，再做時只勾「寄出」。'
   };
@@ -1065,7 +1065,7 @@
       if (!elm) return;
       elm.readOnly = true;
       elm.classList.add('is-readonly');
-      elm.title = '本欄內容來自內容表，請到內容表修改後按「重新匯入」。';
+      elm.title = '本欄內容來自內容表，請到內容表修改；改好之後系統會自動更新這一週（打開這一頁時即時更新，其餘時間會定時更新）。';
     });
 
     var bars = document.querySelectorAll('[data-content-sheet-bar]');
@@ -1125,7 +1125,7 @@
       outdated.textContent = '　本季內容表比系統舊，要先更新才可以匯入。';
       bar.appendChild(outdated);
       var upgradeBtn = makeSmallButton('更新本季內容表…', function () { startContentSheetUpgrade(); });
-      upgradeBtn.title = '先講會做甚麼（加欄、搬資料），你確認之後才會更新；同工填過的內容一格都不會刪。';
+      upgradeBtn.title = '先列出會做甚麼（加欄、搬資料），你確認之後才會更新；同工填過的內容一格都不會刪除。';
       bar.appendChild(upgradeBtn);
       return;
     }
@@ -1148,7 +1148,7 @@
     // ⚠️ 這一粒的範圍是**這一個主日**，不是整季——名稱與提示都要講明範圍
     //    （見 docs/已知bug類型.md 事故四十五）。
     var oneWeekBtn = makeSmallButton('重新匯入（只限這一個主日）', function () { startContentImport(); });
-    oneWeekBtn.title = '內容表改過之後按這裏，這一個主日的週報才會更新（只匯入目前選中的這一個主日）。';
+    oneWeekBtn.title = '系統會自動由內容表更新；想立即更新這一個主日，可以按這裏（只匯入目前選中的這一個主日）。';
     bar.appendChild(oneWeekBtn);
   }
 
@@ -1353,7 +1353,7 @@
         callServer('apiRunContentSheetBuild', [quarterId], function (runResp) {
           if (!runResp.ok) { showMessage('error', runResp.error.message); return; }
           if (!runResp.data.ok) { showMessage('error', runResp.data.message); return; }
-          showMessage('success', '已更新本季內容表。之後內容表改過，按各區上方的「重新匯入」就會更新這一週。');
+          showMessage('success', '已更新本季內容表。之後內容表改過，系統會自動更新之後的週報；想立即更新這一週，可以按「重新匯入」。');
           loadWeek(isoDate, { keepMessage: true });
           refreshWeekSelectorLabels();
         }, { busyText: '更新內容表中…' });
@@ -2695,7 +2695,7 @@
     });
     if (items.length === 0) {
       var empty = el('div', 'hint');
-      empty.textContent = '（本週未有資料。內容由內容表輸入，填好之後按上方的「重新匯入」。）';
+      empty.textContent = '（本週未有資料。內容在內容表輸入，填好之後系統會自動更新到這裏。）';
       container.appendChild(empty);
     }
   }
@@ -3070,13 +3070,15 @@
    */
   function renderAutoImportNotice(autoImport) {
     var a = autoImport || {};
-    var quietReasons = ['', 'NO_QUARTER', 'NO_CONTENT_SHEET', 'ARCHIVED'];
+    // 特別崇拜沒有內容表的行（清單跟上一個主日），不是「未能匯入」。
+    var quietReasons = ['', 'NO_QUARTER', 'NO_CONTENT_SHEET', 'ARCHIVED', 'SPECIAL_SERVICE'];
     if (Number(a.changed || 0) > 0) {
       showMessage('info', '已自動由內容表更新這一週 ' + a.changed + ' 項（內容表最新的內容）。');
       return;
     }
     if (quietReasons.indexOf(String(a.reason || '')) === -1) {
-      showMessage('info', '這一週未能自動由內容表匯入：' + (a.message || a.reason) + '　畫面顯示的是週報現有的內容。');
+      showMessage('info', '這一週未能自動由內容表匯入：' + (a.message || ('原因代號 ' + a.reason + '，詳情請看試算表的 ErrorLog'))
+        + '　畫面顯示的是週報現有的內容。');
     }
   }
 
@@ -3280,7 +3282,7 @@
     if (!state.isoDate) return;
     if (state.inFlight > 0) return;
     if (!hasUnsavedDutyEdits()) { startRosterReload(); return; }
-    openConfirmDialog('由職事表重新取數', [RELOAD_ROSTER_DISCARD_DUTY_PROMPT], function (accepted) {
+    openConfirmDialog('重新讀取職事表', [RELOAD_ROSTER_DISCARD_DUTY_PROMPT], function (accepted) {
       if (accepted) startRosterReload();
     });
   }
@@ -3289,7 +3291,7 @@
    * 審查後修正 7：「重讀職事表」會重畫事奉框，事奉框有未儲存的改動時先問的一句。放在 reloadRosterOnly()
    * 之後（測試會把 reloadRosterOnly() 至 buildSavePayload() 這一段抽出來執行）。
    */
-  var RELOAD_ROSTER_DISCARD_DUTY_PROMPT = '重新取數會按職事表最新內容重畫事奉框，你未儲存的事奉改動會丟失，確定嗎？';
+  var RELOAD_ROSTER_DISCARD_DUTY_PROMPT = '重新讀取會按職事表最新內容重新顯示事奉框，你未儲存的事奉改動會丟失，確定嗎？';
 
   /**
    * 用途：真正送出「重讀職事表」的請求（`reloadRosterOnly()` 確認之後才叫）。
@@ -3300,7 +3302,7 @@
   function startRosterReload() {
     if (!state.isoDate || state.inFlight > 0) return;
     hideMessage();
-    callServer('apiLoadWeek', [state.isoDate], onRosterReloaded, { busyText: '由職事表重新取數中…' });
+    callServer('apiLoadWeek', [state.isoDate], onRosterReloaded, { busyText: '重新讀取職事表中…' });
   }
 
   /**
@@ -4076,7 +4078,7 @@
     openChoiceDialog('下載 Word', [
       '這一頁有未儲存的修改。',
       '「已儲存的版本」：用最後一次儲存的內容產生，並更新雲端硬碟上的最新 Word。',
-      '「包括未儲存修改的版本（草稿）」：連同畫面上未儲存的修改一齊產生，只下載，不存到雲端硬碟，亦不會儲存你的修改。'
+      '「包括未儲存修改的版本（草稿）」：連同畫面上未儲存的修改一併產生，只下載，不存到雲端硬碟，亦不會儲存你的修改。'
     ], { ok: '已儲存的版本', alt: '包括未儲存修改的版本（草稿）' }, function (choice) {
       if (choice === 'ok') startWordDownload(null);
       else if (choice === 'alt') startWordDownload(buildSavePayload());
@@ -4127,7 +4129,7 @@
     openChoiceDialog('開啟預覽', [
       '這一頁有未儲存的修改。',
       '「已儲存的版本」：用最後一次儲存的內容產生，並更新雲端硬碟上的最新 Word。',
-      '「包括未儲存修改的版本（草稿）」：連同畫面上未儲存的修改一齊產生，另存為「草稿預覽」，不會儲存你的修改。'
+      '「包括未儲存修改的版本（草稿）」：連同畫面上未儲存的修改一併產生，另存為「草稿預覽」，不會儲存你的修改。'
     ], { ok: '已儲存的版本', alt: '包括未儲存修改的版本（草稿）' }, function (choice) {
       if (choice === 'ok') startWordPreview({});
       else if (choice === 'alt') {
@@ -4257,7 +4259,10 @@
     quarters.forEach(function (q) {
       var o = el('option');
       o.value = q.quarterId;
-      o.textContent = q.label + '（' + q.weeks.length + ' 個主日）';
+      // 特別崇拜不是主日：分開數（以前「13 個主日」加了一個特別崇拜就變成「14 個主日」）。
+      var specials = q.weeks.filter(function (w) { return w.specialService === true; }).length;
+      o.textContent = q.label + '（' + (q.weeks.length - specials) + ' 個主日'
+        + (specials > 0 ? '、' + specials + ' 個特別崇拜' : '') + '）';
       qSel.appendChild(o);
     });
 

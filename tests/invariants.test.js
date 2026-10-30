@@ -572,7 +572,7 @@ test('I06 ⚪：CONTENT_MD5 空、又沒有存檔副本 → 驗證不到，講�
   assert.ok(r.evidence.indexOf('驗證不到（不是對不上）') !== -1, r.evidence);
   assert.ok(r.evidence.indexOf('沒有 ARCHIVE_FILE_ID') !== -1,
     '要講明是哪一邊取不到：' + r.evidence);
-  assert.ok(r.evidence.indexOf('自己好返') !== -1, r.evidence);
+  assert.ok(r.evidence.indexOf('自動恢復正常') !== -1, r.evidence);
 });
 
 test('I06 ⚪：存檔副本讀不到 → 驗證不到，並講明是存檔副本讀不到', function () {
@@ -625,7 +625,7 @@ test('I06 ⚪：舊資料（沒有 CONTENT_MD5、共用記錄也認不出）→ 
   assert.strictEqual(r.ok, null,
     '認不出屬於哪一個檔案的舊記錄，不可以當成正式那一邊的——那正是第三輪那個假紅：'
     + r.evidence);
-  assert.ok(r.evidence.indexOf('自己好返') !== -1, r.evidence);
+  assert.ok(r.evidence.indexOf('自動恢復正常') !== -1, r.evidence);
 });
 
 // =====================================================================

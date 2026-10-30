@@ -385,7 +385,7 @@ function countProtectedSheets_() {
  *   {{label:string, status:string, message:string}}
  */
 function buildSandboxVisibilityItem_(statuses) {
-  var label = '上線前：沙盒季度不在使用者可見範圍';
+  var label = '上線前：沙盒季度不在用戶可見範圍';
   var sandbox = String(getConfig(CONFIG_KEYS.SELFTEST_QUARTER_ID, '') || '').trim();
 
   if (!sandbox) {
@@ -416,14 +416,14 @@ function buildSandboxVisibilityItem_(statuses) {
   if (leaked.length > 0) {
     return {
       label: label, status: statuses.RED,
-      message: '⚠️ 沙盒季度「' + sandbox + '」竟然出現在使用者的季度下拉。'
+      message: '⚠️ 沙盒季度「' + sandbox + '」竟然出現在用戶的季度下拉。'
         + '那一季的資料自測機隨時會清走——幹事在那裏填任何東西都是做白工。'
         + '請檢查 visibleQuarterList_()（src/Retention.gs）。'
     };
   }
   return {
     label: label, status: statuses.GREEN,
-    message: '沙盒季度「' + sandbox + '」不會出現在使用者的季度下拉（勾了「顯示已封存」都不會）。'
+    message: '沙盒季度「' + sandbox + '」不會出現在用戶的季度下拉（勾了「顯示已封存」都不會）。'
   };
 }
 

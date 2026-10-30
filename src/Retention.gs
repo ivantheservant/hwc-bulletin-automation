@@ -333,7 +333,7 @@ function archiveQuarter_(quarterId, options) {
     notes: '封存季度 ' + qid + '：' + out.weekRows + ' 行標記 ARCHIVED、'
       + out.fillGrid.message + out.contentSheet.message
       + '　⚠️ 一格資料都沒有刪，按「取消封存」可以完全還原。'
-      + (blockers.length > 0 ? ('　⚠️ 有 ' + blockers.length + ' 個未發佈但有內容的主日，使用者已確認照樣封存。') : '')
+      + (blockers.length > 0 ? ('　⚠️ 有 ' + blockers.length + ' 個未發佈但有內容的主日，用戶已確認照樣封存。') : '')
   });
 
   out.ok = true;
@@ -474,7 +474,7 @@ function buildRetentionReportLines_(plan, archived, skipped, config) {
     + config.visibleQuarters);
   lines.push('目前可見：' + (plan.visible.length > 0 ? plan.visible.join('、') : '（沒有）'));
   if (plan.sandbox.length > 0) {
-    lines.push('沙盒季度（永不封存、永不出現在使用者的季度下拉）：' + plan.sandbox.join('、'));
+    lines.push('沙盒季度（永不封存、永不出現在用戶的季度下拉）：' + plan.sandbox.join('、'));
   }
   lines.push('');
 
@@ -485,7 +485,7 @@ function buildRetentionReportLines_(plan, archived, skipped, config) {
     lines.push('　　季度填寫表：' + (a.fillGrid ? a.fillGrid.message : '（沒有處理）'));
     lines.push('　　內容表：' + (a.contentSheet ? a.contentSheet.message : '（沒有處理）'));
     if (a.blockers && a.blockers.length > 0) {
-      lines.push('　　⚠️ 有 ' + a.blockers.length + ' 個未發佈但有內容的主日，使用者已確認照樣封存。');
+      lines.push('　　⚠️ 有 ' + a.blockers.length + ' 個未發佈但有內容的主日，用戶已確認照樣封存。');
     }
   });
   lines.push('');
@@ -506,7 +506,7 @@ function buildRetentionReportLines_(plan, archived, skipped, config) {
 
   lines.push('⚠️ 封存只是「預設不顯示」，一格資料都沒有刪：');
   lines.push('　　BulletinWeeks 只多了一個 ARCHIVED=TRUE 的標記，內容一格未動；');
-  lines.push('　　季度填寫表是隱藏（不是刪除），取消隱藏就會再見到；');
+  lines.push('　　季度填寫表是隱藏（不是刪除），取消隱藏就會再看到；');
   lines.push('　　內容表檔案沒有刪，只是登記行的「有效」改成 FALSE。');
   lines.push('　　要完全還原，用選單「取消封存季度」。');
   lines.push('');

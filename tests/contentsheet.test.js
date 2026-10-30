@@ -623,17 +623,15 @@ test('5. 季度多咗一個主日 → 下拉選單跟住更新，舊資料唔郁
 // 6-8. 下拉與格式
 // =====================================================================
 
-test('6. 崇拜人數嘅下拉包含「第一個主日減七天」', function () {
+test('6. 崇拜人數預先開好的日期包含「第一個主日減七天」（2026-10-30 v4：一個日期一行、日期欄鎖住，不再有下拉）', function () {
   const env = makeEnv({});
   env.sandbox.buildOrRefreshContentSheet_(QUARTER_ID);
   const sheet = env.contentSpreadsheet().getSheetByName('崇拜人數');
-  const validation = sheet.__validations['3,1'];
-
-  assert.ok(validation, '崇拜日期欄應該有下拉');
-  assert.strictEqual(validation.__values[0], '2027-10-31',
+  assert.strictEqual(sheet.__validations['3,1'], undefined, '日期由系統填好並鎖住，不用下拉（以前 200 行都有下拉箭咀）');
+  const dates = sheet.__data.slice(2).map(function (r) { return String(r[0] || ''); }).filter(Boolean);
+  assert.strictEqual(dates[0], '2027-10-31',
     '第一個主日 2027-11-07 減七天＝2027-10-31，否則該季第一期嘅人數無處可填');
-  assert.ok(validation.__values.indexOf('2027-11-07') !== -1, '該季主日一樣要喺入面');
-  assert.strictEqual(validation.__values.length, SERVICE_DATES.length + 1);
+  assert.strictEqual(dates.length, SERVICE_DATES.length);
 });
 
 test('7. 「日期」「時間」「五個數字欄」「十二個人數格」嘅儲存格格式係純文字', function () {

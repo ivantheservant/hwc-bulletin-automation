@@ -283,5 +283,47 @@ test('S-11 財政報告：特別崇拜印上一個主日的財政行，標題月
   assert.deepStrictEqual(plain(special.financeReports.columnLabels), plain(sunday.financeReports.columnLabels));
 });
 
+test('S-12 本週事奉：職事表沒有這一日 → 按崗位清單開空白格（以前顯示「沒有事奉資料」）；填了的人印在 Word，空格不印；程序即時預覽與資料模型同一個快照', function () {
+  const env = makeEnv();
+  const sb = env.sandbox;
+  create(env, FRI, '受苦節崇拜');
+  const load = sb.apiLoadWeek(FRI).data;
+  const rows = plain(load.readOnly.dutyBoxPage1);
+  assert.ok(rows.length > 0, '要有事奉格：' + JSON.stringify(rows));
+  const slots = [].concat.apply([], rows.map(function (r) { return r.slots || []; }));
+  assert.ok(slots.length > 0 && slots.every(function (sl) { return sl.rosterName === '' && sl.bulletinName === ''; }), JSON.stringify(slots));
+  const first = slots[0];
+  const saved = sb.apiSaveWeek({
+    isoDate: FRI, lastSavedAt: load.lastSavedAt, payloadVersion: sb.SAVE_PAYLOAD_VERSION_,
+    week: {}, baseWeek: {},
+    dutyEdits: [{ postId: first.postId, slotIndex: first.slotIndex, name: '陳大文', baseName: '' }],
+    announcements: [], prayers: [], fellowships: [], finance: []
+  });
+  assert.strictEqual(saved.ok, true, JSON.stringify(saved.error));
+  const model = sb.buildBulletinModel_(FRI);
+  const filled = plain(model.dutyBoxPage1).filter(function (r) { return String(r.text).indexOf('陳大文') !== -1; });
+  assert.strictEqual(filled.length, 1, JSON.stringify(plain(model.dutyBoxPage1)));
+  const again = plain(sb.apiLoadWeek(FRI).data.readOnly.dutyBoxPage1);
+  const s2 = [].concat.apply([], again.map(function (r) { return r.slots || []; }))
+    .filter(function (sl) { return sl.postId === first.postId && sl.slotIndex === first.slotIndex; })[0];
+  assert.strictEqual(s2.bulletinName, '陳大文', '重新載入之後仍然在');
+  // 程序即時預覽：週次條件不成立，與資料模型相同。
+  const preview = plain(sb.apiPreviewProgram(FRI, {}).data);
+  assert.deepStrictEqual(preview.rows.map(function (r) { return r.itemName; }), plain(model.program).map(function (r) { return r.itemName; }));
+});
+
+test('S-13 草稿預覽頁（真入口 buildPreviewPage_）：寫「崇拜日期」、不出「事奉資料尚未確定」、頁尾講明跟哪一個主日', function () {
+  const env = makeEnv();
+  create(env, FRI, '受苦節崇拜');
+  const page = env.sandbox.buildPreviewPage_(FRI);
+  assert.strictEqual(page.ok, true, JSON.stringify(page));
+  const text = page.html.replace(/<[^>]+>/g, '');
+  assert.ok(text.indexOf('崇拜日期：' + FRI) !== -1, text.slice(0, 400));
+  assert.strictEqual(text.indexOf('本期事奉資料尚未確定'), -1);
+  assert.ok(text.indexOf('特別崇拜：家事報告、代禱事項、團契、財政報告與上週崇拜人數跟 ' + SOURCE + ' 那一個主日。') !== -1, text.slice(-600));
+  const sun = env.sandbox.buildPreviewPage_(SOURCE).html.replace(/<[^>]+>/g, '');
+  assert.ok(sun.indexOf('主日日期：' + SOURCE) !== -1);
+});
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail === 0 ? 0 : 1);

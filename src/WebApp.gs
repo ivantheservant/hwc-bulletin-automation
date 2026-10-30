@@ -2200,9 +2200,10 @@ function buildRosterReloadMessage_(versionNo, isOfficial) {
  *   {{templateId:string, rows:Object[]}}
  */
 function previewProgramForWebApp_(isoDate, draftFields) {
-  var snapshot = readRosterSnapshot_(isoDate);
   var weekRows = readSheet(SHEETS.BULLETIN_WEEKS);
   var weekRow = findBulletinWeekRow_(weekRows, isoDate) || {};
+  // 特別崇拜：週次條件不成立，與資料模型同一個快照（否則即時預覽與印出來的不一樣）。
+  var snapshot = readRosterSnapshotForWeek_(isoDate, weekRow);
   var draftWeek = Object.assign({}, weekRow, draftFields || {});
   // 內容表 v2（審查 C5）：序樂留空時與 Word、電郵一樣印 Config PRELUDE_DEFAULT（同一支 applyPreludeDefault_()，
   //    見 buildBulletinModel_()），否則填寫介面的程序預覽與印出來的不一樣。
@@ -2377,7 +2378,7 @@ function menuOpenWebApp_() {
         '5. 按「部署」，複製產生的網址',
         '6. 把網址貼進 Config 的 WEBAPP_URL 這一格',
         '',
-        '完成後重新點選這個選單項目即可看到連結。'
+        '完成後再按一次這個選單項目，就會看到連結。'
       ].join('\n'),
       ui.ButtonSet.OK
     );

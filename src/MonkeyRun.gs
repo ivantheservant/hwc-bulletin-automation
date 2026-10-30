@@ -880,7 +880,7 @@ function monkeySplitActions_(actions, state) {
     }
     unavailable.push({
       id: action.id,
-      reason: action.unavailableReason ? action.unavailableReason(state) : '（沒有講明原因）'
+      reason: action.unavailableReason ? action.unavailableReason(state) : '（沒有說明原因）'
     });
   });
   return { available: available, unavailable: unavailable };
@@ -909,7 +909,7 @@ function monkeyMarkChosen_(coverage, actionId) {
 /** 記一次「不適用」連原因。同一個原因只記一次。 */
 function monkeyMarkNotApplicable_(coverage, actionId, reason) {
   if (!coverage[actionId]) return;
-  coverage[actionId].reasons[String(reason || '（沒有講明原因）')] = true;
+  coverage[actionId].reasons[String(reason || '（沒有說明原因）')] = true;
 }
 
 /**

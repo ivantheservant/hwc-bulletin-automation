@@ -1126,7 +1126,7 @@ function authorizationScopeProbes_() {
     { item: 'MailApp（寄信配額查詢）', probe: function () { MailApp.getRemainingDailyQuota(); } },
     { item: 'ScriptApp（觸發器清單）', probe: function () { ScriptApp.getProjectTriggers(); } },
     { item: 'FormApp（講員表格）', probe: function () { probeFormsAccess_(); } },
-    { item: 'Session（目前使用者）', probe: function () { Session.getActiveUser().getEmail(); } }
+    { item: 'Session（目前用戶）', probe: function () { Session.getActiveUser().getEmail(); } }
   ];
 }
 

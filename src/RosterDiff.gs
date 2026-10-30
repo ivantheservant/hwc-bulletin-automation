@@ -160,9 +160,10 @@ function buildRosterDiff_(isoDate, snapshot, overrides, lastSnapshotVersion, opt
  *     （`readRosterSnapshot_()` 原樣拋出）。
  */
 function computeRosterDiff_(isoDate) {
-  var snapshot = readRosterSnapshot_(isoDate);
   var overrides = readDutyOverrideRows_(isoDate);
   var weekRow = findBulletinWeekRow_(readSheet(SHEETS.BULLETIN_WEEKS), isoDate) || {};
+  // 特別崇拜：與資料模型同一個快照（按崗位清單開的空白格）。
+  var snapshot = readRosterSnapshotForWeek_(isoDate, weekRow);
   var lastSnapshotVersion = (weekRow.ROSTER_SNAPSHOT_VERSION === undefined) ? null : weekRow.ROSTER_SNAPSHOT_VERSION;
 
   var postLabels = {};

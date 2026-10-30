@@ -34,11 +34,11 @@ function appendAuditLog_(entry) {
   var actor = entry.actor;
   if (!actor) {
     try {
-      actor = Session.getActiveUser().getEmail() || '（未知使用者）';
+      actor = Session.getActiveUser().getEmail() || '（未知用戶）';
     } catch (e) {
       // Session.getActiveUser() 在部分執行環境（例如非同網域的觸發器）
       // 可能沒有權限回傳電郵，這不應該阻擋稽核記錄本身被寫入。
-      actor = '（未知使用者）';
+      actor = '（未知用戶）';
     }
   }
 

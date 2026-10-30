@@ -190,7 +190,7 @@ function renderPreviewHtml_(data) {
   html.push('<div class="notice">' + escapeHtml_(d.notice || '') + '</div>');
 
   html.push('<h1>' + escapeHtml_(d.pageTitle || '週報草稿預覽') + '</h1>');
-  html.push('<p class="meta">主日日期：<b>' + previewCell_(d.isoDate) + '</b>'
+  html.push('<p class="meta">' + escapeHtml_(d.dateLabel || '主日日期') + '：<b>' + previewCell_(d.isoDate) + '</b>'
     + '　　使用的範本：' + previewCell_(d.templateLabel) + '</p>');
 
   if (d.errorMessage) {
@@ -433,6 +433,8 @@ function buildPreviewData_(model, options) {
     pageTitle: (header.pageTitle || '崇拜程序') + '　草稿預覽',
     notice: o.notice || '',
     isoDate: m.isoDate || '',
+    // 特別崇拜不是主日。
+    dateLabel: m.specialService === true ? '崇拜日期' : '主日日期',
     templateLabel: m.templateId || '',
     rosterPendingNote: o.rosterPendingNote || '',
     dateWarning: o.dateWarning || '',
@@ -470,12 +472,17 @@ function buildPreviewFooterLines_(isoDate, model, timezone) {
 
   var importedAt = '';
   try {
-    var contentRow = findContentSheetRow_((model || {}).quarterId || '');
+    // 職事表沒有這一日（特別崇拜）時資料模型的季度是空的，用這一行自己的季度。
+    var contentRow = findContentSheetRow_((model || {}).quarterId || String(weekRow.QUARTER_ID || '').trim());
     if (contentRow) importedAt = fmt(contentRow.LAST_IMPORTED_AT);
   } catch (err) {
     importedAt = '';
   }
   lines.push('內容表最後匯入：' + (importedAt || '（未匯入過，或者本季未建立內容表）'));
+  if ((model || {}).specialService === true) {
+    lines.push('特別崇拜：家事報告、代禱事項、團契、財政報告與上週崇拜人數跟 '
+      + contentSourceIsoForWeek_(weekRow, isoDate) + ' 那一個主日。');
+  }
 
   var published = readSheet(SHEETS.PUBLISH_LOG).filter(function (r) {
     return r.IS_SELFTEST !== true && publishRowIsoDate_(r) === isoDate;
@@ -558,7 +565,8 @@ function buildPreviewPage_(requestedIso, options) {
   // ⚠️ 職事表未有該季資料時**照樣顯示**，只是加一句說明——那正是 R-036
   //    的整個用意：未到時候不是錯誤。
   var pendingNote = '';
-  if (model.found !== true) {
+  // 特別崇拜：職事表本來就沒有這一日（事奉在填寫介面填），不是「事奉資料未定」。
+  if (model.found !== true && model.specialService !== true) {
     pendingNote = getConfig(CONFIG_KEYS.BULLETIN_ROSTER_PENDING_NOTE,
       '本期事奉資料尚未確定，稍後另行通知。');
   }
@@ -649,7 +657,7 @@ function sendPreviewNotice_(isoDate) {
   var pendingNote = '';
   try {
     var model = buildBulletinModel_(isoDate);
-    if (model.found !== true) {
+    if (model.found !== true && model.specialService !== true) {
       pendingNote = getConfig(CONFIG_KEYS.BULLETIN_ROSTER_PENDING_NOTE,
         '本期事奉資料尚未確定，稍後另行通知。');
     }
@@ -671,7 +679,11 @@ function sendPreviewNotice_(isoDate) {
   };
   var bodyTemplate = String(template.BODY || '');
   if (contentSheetUrl && bodyTemplate.indexOf('{{ContentSheetUrl}}') === -1) {
-    bodyTemplate += '\n\n本季內容表（家事報告、代禱事項、崇拜程序等內容在這裏填）：\n{{ContentSheetUrl}}';
+    // 放在預覽連結之後（與現行範本同一個位置）；舊範本連預覽連結都沒有的話才加在信末。以前一律加在「敬上」之後。
+    var contentParagraph = '本季內容表（家事報告、代禱事項、崇拜程序等內容在這裏填）：\n\n{{ContentSheetUrl}}';
+    bodyTemplate = bodyTemplate.indexOf('{{PreviewUrl}}') !== -1
+      ? bodyTemplate.replace('{{PreviewUrl}}', '{{PreviewUrl}}\n\n' + contentParagraph)
+      : bodyTemplate + '\n\n' + contentParagraph;
   }
   var subject = renderEmailTemplate_(String(template.SUBJECT || ''), vars, []);
   var plainBody = renderEmailTemplate_(bodyTemplate, vars, []);

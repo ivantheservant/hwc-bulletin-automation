@@ -1010,7 +1010,7 @@ function resolvePublishExpectedFingerprint_(row) {
     return {
       fingerprint: '', sourceLabel: '',
       reason: '這一行沒有記 CONTENT_MD5（加欄之前的舊資料），而且沒有 ARCHIVE_FILE_ID，'
-        + '所以連存檔副本都沒有得對。下一次發佈之後，指紋會直接記在該行上，這一條就會自己好返。'
+        + '所以連存檔副本都沒有得對。下一次發佈之後，指紋會直接記在該行上，這一條就會自動恢復正常。'
     };
   }
 
