@@ -596,7 +596,11 @@ function apiPreviewCreateSpecialService(isoDate, title) {
  *   {{ok:boolean, data:Object, error?:Object}} `data.created` 為 true 代表已經建立。
  */
 function apiCreateSpecialService(isoDate, title) {
-  return withApiResult_(function () { return createSpecialService_(isoDate, title); },
+  return withApiResult_(function () {
+    // 新欄 SERVICE_KIND 要先「初始化工作表」才有；未有就寫不到那一欄，所以與儲存一樣先擋。
+    assertSheetSchemaUpToDate_('建立特別崇拜');
+    return createSpecialService_(isoDate, title);
+  },
     { functionName: 'apiCreateSpecialService', argsSummary: 'isoDate=' + isoDate });
 }
 
