@@ -183,7 +183,7 @@ test('DRY_RUN=TRUE：完全沒有呼叫 MailApp.sendEmail，SendLog 每個收件
   assert.strictEqual(result.dryRun, true);
   assert.strictEqual(env.mailApp.calls.length, 0, 'DRY_RUN 時絕對不可以呼叫 MailApp.sendEmail');
 
-  const sendLogRows = env.sandbox.readSheet('SendLog');
+  const sendLogRows = env.sandbox.readSheet_('SendLog');
   assert.strictEqual(sendLogRows.length, 2);
   sendLogRows.forEach(function (r) {
     assert.strictEqual(r.STATUS, 'DRY_RUN');
@@ -204,7 +204,7 @@ test('DRY_RUN=FALSE：每個收件人剛好呼叫一次 MailApp.sendEmail，Send
   assert.strictEqual(result.sentCount, 2);
   assert.strictEqual(result.failedCount, 0);
 
-  const sendLogRows = env.sandbox.readSheet('SendLog');
+  const sendLogRows = env.sandbox.readSheet_('SendLog');
   assert.strictEqual(sendLogRows.length, 2);
   sendLogRows.forEach(function (r) { assert.strictEqual(r.STATUS, 'SENT'); });
 });
@@ -221,7 +221,7 @@ test('其中一個收件人 sendEmail 拋錯：其餘收件人照樣寄完，Sen
   assert.strictEqual(result.failedCount, 1);
   assert.strictEqual(env.mailApp.calls.length, 2, '兩個收件人都要嘗試寄送，不可以因為第一個失敗就中斷');
 
-  const sendLogRows = env.sandbox.readSheet('SendLog');
+  const sendLogRows = env.sandbox.readSheet_('SendLog');
   const failedRow = sendLogRows.filter(function (r) { return r.STATUS === 'FAILED'; })[0];
   const sentRow = sendLogRows.filter(function (r) { return r.STATUS === 'SENT'; })[0];
   assert.ok(failedRow, '應該有一行 FAILED');
@@ -238,7 +238,7 @@ test('有任何收件人失敗時，BulletinWeeks 的 STATUS 不會變成 SENT',
   const env = makeEnv({ config: { DRY_RUN: 'FALSE' }, mailAppOptions: { failFor: ['a@x.com'] } });
   env.sandbox.sendBulletinForDate_(env.isoDate, {});
 
-  const week = env.sandbox.readSheet('BulletinWeeks')[0];
+  const week = env.sandbox.readSheet_('BulletinWeeks')[0];
   assert.notStrictEqual(week.STATUS, 'SENT');
 });
 
@@ -246,7 +246,7 @@ test('全部成功且非 DRY_RUN 時，BulletinWeeks 的 STATUS 會變成 SENT�
   const env = makeEnv({ config: { DRY_RUN: 'FALSE' } });
   env.sandbox.sendBulletinForDate_(env.isoDate, {});
 
-  const week = env.sandbox.readSheet('BulletinWeeks')[0];
+  const week = env.sandbox.readSheet_('BulletinWeeks')[0];
   assert.strictEqual(week.STATUS, 'SENT');
   // `week.SENT_AT` 是在 vm sandbox 內用 normalizeDate_() 造出來的 Date，
   // 跟本檔案（外層 Node realm）的 Date 不是同一個建構子，instanceof 在
@@ -254,14 +254,14 @@ test('全部成功且非 DRY_RUN 時，BulletinWeeks 的 STATUS 會變成 SENT�
   // Object.prototype.toString 判斷，這個判斷不受 realm 影響。
   assert.strictEqual(Object.prototype.toString.call(week.SENT_AT), '[object Date]');
 
-  const auditRows = env.sandbox.readSheet('AuditLog');
+  const auditRows = env.sandbox.readSheet_('AuditLog');
   assert.ok(auditRows.some(function (r) { return r.ACTION === 'SEND_BULLETIN'; }));
 });
 
 test('DRY_RUN=TRUE 時，即使全部「成功」，BulletinWeeks 的 STATUS 也不會變成 SENT', function () {
   const env = makeEnv({ config: { DRY_RUN: 'TRUE' } });
   env.sandbox.sendBulletinForDate_(env.isoDate, {});
-  const week = env.sandbox.readSheet('BulletinWeeks')[0];
+  const week = env.sandbox.readSheet_('BulletinWeeks')[0];
   assert.notStrictEqual(week.STATUS, 'SENT');
 });
 
@@ -276,7 +276,7 @@ test('MailApp 配額不足：一封都不寄，拋錯，SendLog 沒有任何新�
   }, function (err) { return err.code === 'QUOTA_INSUFFICIENT'; });
 
   assert.strictEqual(env.mailApp.calls.length, 0);
-  assert.strictEqual(env.sandbox.readSheet('SendLog').length, 0);
+  assert.strictEqual(env.sandbox.readSheet_('SendLog').length, 0);
 });
 
 test('DRY_RUN=TRUE 時完全不檢查配額（反正不會真的寄）', function () {
@@ -375,7 +375,7 @@ test('職事表找不到該主日 → SendLog 的錯誤欄註明「不是錯誤�
   const env = makeEnv({ isoDate: '2027-10-03', serviceDates: [] });
   env.sandbox.sendBulletinForDate_('2027-10-03', {});
 
-  const rows = env.sandbox.readSheet(env.sandbox.SHEETS.SEND_LOG);
+  const rows = env.sandbox.readSheet_(env.sandbox.SHEETS.SEND_LOG);
   assert.ok(rows.length > 0, 'SendLog 要有紀錄');
   assert.ok(String(rows[0].ERROR).indexOf('不是錯誤') !== -1, String(rows[0].ERROR));
   assert.ok(String(rows[0].ERROR).indexOf('事奉資料尚未確定') !== -1, String(rows[0].ERROR));

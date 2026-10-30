@@ -47,7 +47,7 @@ function promptForQuarterId_(ui, title) {
  */
 function listBulletinWeekQuarterIds_() {
   var seen = {};
-  readSheet(SHEETS.BULLETIN_WEEKS).forEach(function (row) {
+  readSheet_(SHEETS.BULLETIN_WEEKS).forEach(function (row) {
     var qid = String(row.QUARTER_ID || '').trim();
     if (qid) seen[qid] = true;
   });

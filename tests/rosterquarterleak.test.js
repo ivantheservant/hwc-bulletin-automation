@@ -176,7 +176,7 @@ function makeEnv(options) {
 
 /** 讀回某一季的資料列。 */
 function quarterRows(env, quarterId) {
-  return env.sandbox.readSheet(env.sandbox.SHEETS.BULLETIN_WEEKS).filter(function (r) {
+  return env.sandbox.readSheet_(env.sandbox.SHEETS.BULLETIN_WEEKS).filter(function (r) {
     return String(r.QUARTER_ID || '').trim() === quarterId;
   });
 }
@@ -239,7 +239,7 @@ test('QUARTER_ID 一律是呼叫方指定那一季，不是職事表講的那一
   const env = makeEnv({});
   env.sandbox.createBlankBulletinWeeks_(TARGET_QUARTER);
 
-  const all = env.sandbox.readSheet(env.sandbox.SHEETS.BULLETIN_WEEKS);
+  const all = env.sandbox.readSheet_(env.sandbox.SHEETS.BULLETIN_WEEKS);
   all.forEach(function (row) {
     assert.strictEqual(String(row.QUARTER_ID), TARGET_QUARTER,
       '有一行的季度是 ' + row.QUARTER_ID);
@@ -260,7 +260,7 @@ test('職事表把一個 2030 年的主日登記在 2027T4 之下 → QUARTER_ID
   const env = makeEnv({ rosterExtraServiceDate: { iso: '2030-04-07', quarterId: ROSTER_QUARTER } });
   env.sandbox.createBlankBulletinWeeks_(TARGET_QUARTER);
 
-  const all = env.sandbox.readSheet(env.sandbox.SHEETS.BULLETIN_WEEKS);
+  const all = env.sandbox.readSheet_(env.sandbox.SHEETS.BULLETIN_WEEKS);
   const strays = all.filter(function (r) { return String(r.QUARTER_ID) !== TARGET_QUARTER; });
   assert.strictEqual(strays.length, 0,
     '有 ' + strays.length + ' 行被寫進了別一季：'

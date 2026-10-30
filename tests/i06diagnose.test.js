@@ -435,7 +435,7 @@ test('重新對齊：把 master 目前的指紋寫回該行的 CONTENT_BYTES／C
   assert.strictEqual(result.ok, true, result.message);
   assert.strictEqual(result.fingerprint, md5Fingerprint(masterBytes));
 
-  const row = env.sandbox.readSheet(env.sandbox.SHEETS.PUBLISH_LOG)[0];
+  const row = env.sandbox.readSheet_(env.sandbox.SHEETS.PUBLISH_LOG)[0];
   assert.strictEqual(Number(row.CONTENT_BYTES), masterBytes.length);
   assert.strictEqual(String(row.CONTENT_MD5), md5Fingerprint(masterBytes).split(':')[1]);
 });
@@ -460,9 +460,9 @@ test('重新對齊：**不會碰 Drive 檔案**，只改 PublishLog 兩格', fun
     publishLog: [publishRow({ CONTENT_BYTES: 5, CONTENT_MD5: 'oldmd5' })]
   });
 
-  const before = env.sandbox.readSheet(env.sandbox.SHEETS.PUBLISH_LOG)[0];
+  const before = env.sandbox.readSheet_(env.sandbox.SHEETS.PUBLISH_LOG)[0];
   env.sandbox.realignI06Fingerprint_({});
-  const after = env.sandbox.readSheet(env.sandbox.SHEETS.PUBLISH_LOG)[0];
+  const after = env.sandbox.readSheet_(env.sandbox.SHEETS.PUBLISH_LOG)[0];
 
   // Drive 那一份位元組完全沒有變。
   assert.strictEqual(JSON.stringify(masterBytes), JSON.stringify([0x25, 0x50, 0x44, 0x46, 0x01, 0xAA]));
@@ -502,7 +502,7 @@ test('重新對齊：只動最新那一行，舊行不受影響', function () {
   });
 
   env.sandbox.realignI06Fingerprint_({});
-  const rows = env.sandbox.readSheet(env.sandbox.SHEETS.PUBLISH_LOG);
+  const rows = env.sandbox.readSheet_(env.sandbox.SHEETS.PUBLISH_LOG);
   assert.strictEqual(String(rows[0].CONTENT_MD5), 'first', '舊行不可以被動');
   assert.strictEqual(String(rows[1].CONTENT_MD5), md5Fingerprint(masterBytes).split(':')[1]);
 });

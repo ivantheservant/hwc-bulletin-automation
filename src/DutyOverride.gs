@@ -156,7 +156,7 @@ function readDutyOverrideRowsWithRowNo_(isoDate) {
 function readDutyOverrideRows_(isoDate) {
   var rows;
   try {
-    rows = readSheet(SHEETS.DUTY_OVERRIDE);
+    rows = readSheet_(SHEETS.DUTY_OVERRIDE);
   } catch (err) {
     return [];
   }
@@ -412,7 +412,7 @@ function applyDutyOverridePlan_(plan, targetDate, isoDate, actorEmail, auditEntr
         REASON: sanitizeCellText_(row.REASON)
       });
     });
-    writeSheet(SHEETS.DUTY_OVERRIDE, rows);
+    writeSheet_(SHEETS.DUTY_OVERRIDE, rows);
 
     plan.appends.forEach(function (row) {
       auditEntriesOut.push({

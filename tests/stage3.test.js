@@ -151,20 +151,20 @@ function speakerEvent(answer, meta) {
 }
 
 function submissions(env) {
-  return plain(env.sandbox.readSheet('SpeakerFormSubmissions').map(function (r) {
+  return plain(env.sandbox.readSheet_('SpeakerFormSubmissions').map(function (r) {
     return { date: env.sandbox.fillGridCellText_(r.SERVICE_DATE), email: r.RESPONDENT_EMAIL, speaker: r.SPEAKER_NAME,
       scripture: r.SCRIPTURE_REF, title: r.SERMON_TITLE, notes: r.NOTES, result: r.RESULT, detail: r.DETAIL, active: r.ACTIVE };
   }));
 }
 
 function weekRowOf(env, iso) {
-  return env.sandbox.readSheet('BulletinWeeks').filter(function (r) {
+  return env.sandbox.readSheet_('BulletinWeeks').filter(function (r) {
     return env.sandbox.fillGridCellText_(r.SERVICE_DATE) === iso;
   })[0];
 }
 
 function auditOf(env, action) {
-  return env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === action; });
+  return env.sandbox.readSheet_('AuditLog').filter(function (r) { return r.ACTION === action; });
 }
 
 function snapshotReasons(env, iso) {
@@ -210,7 +210,7 @@ function contentSpeakerEvent(answer) {
 }
 
 function contentWeekOf(env, iso) {
-  return env.sandbox.readSheet('BulletinWeeks').filter(function (r) { return env.sandbox.formatIsoDate_(r.SERVICE_DATE) === iso; })[0];
+  return env.sandbox.readSheet_('BulletinWeeks').filter(function (r) { return env.sandbox.formatIsoDate_(r.SERVICE_DATE) === iso; })[0];
 }
 
 // =====================================================================
@@ -345,12 +345,12 @@ const RETIRED_LABEL = '講員表格已停用，沒有寫入';
 
 test('沒有內容表：結果 RETIRED；BulletinWeeks 一格不動、不存版本；答案照記一行、AuditLog、通知', function () {
   const env = makeEnv({ week: { SCRIPTURE_REF: '舊經文', SERMON_TITLE: '舊講題', PRELUDE: '序樂不動' } });
-  const weeksBefore = JSON.stringify(env.sandbox.readSheet('BulletinWeeks'));
+  const weeksBefore = JSON.stringify(env.sandbox.readSheet_('BulletinWeeks'));
   const result = env.sandbox.onSpeakerFormSubmit_(speakerEvent({ scripture: '羅馬書 8:28', title: '萬事互相效力', notes: '請預備投影' }));
 
   assert.strictEqual(result.result, 'RETIRED', JSON.stringify(result));
   assert.strictEqual(result.published, false);
-  assert.strictEqual(JSON.stringify(env.sandbox.readSheet('BulletinWeeks')), weeksBefore, '週報一格都不可以寫');
+  assert.strictEqual(JSON.stringify(env.sandbox.readSheet_('BulletinWeeks')), weeksBefore, '週報一格都不可以寫');
   assert.strictEqual(snapshotReasons(env, D).length, 0, '沒有寫入就不存版本');
 
   const subs = submissions(env);
@@ -369,7 +369,7 @@ test('沒有內容表：結果 RETIRED；BulletinWeeks 一格不動、不存版�
   assert.strictEqual(audit[0].NEW_VALUE, 'RETIRED');
   assert.strictEqual(auditOf(env, 'SPEAKER_FORM_WRITE').length, 0, '沒有逐格寫入記錄');
 
-  const log = env.sandbox.readSheet('SendLog');
+  const log = env.sandbox.readSheet_('SendLog');
   assert.strictEqual(log.length, 1, '照 DRY_RUN 通知管理員（只寫 SendLog）');
   assert.ok(log[0].SUBJECT.indexOf(RETIRED_LABEL) !== -1, log[0].SUBJECT);
   assertWrittenChinese(assert, '停用說明', [subs[0].detail, env.sandbox.speakerFormResultLabel_('RETIRED')]);
@@ -378,11 +378,11 @@ test('沒有內容表：結果 RETIRED；BulletinWeeks 一格不動、不存版�
 test('有內容表：內容表「崇拜程序」與週報一格不動、不匯入；答案照記一行 RETIRED', function () {
   const env = makeContentEnv();
   const contentBefore = JSON.stringify(env.contentTabs[TAB].__data);
-  const weeksBefore = JSON.stringify(env.sandbox.readSheet('BulletinWeeks'));
+  const weeksBefore = JSON.stringify(env.sandbox.readSheet_('BulletinWeeks'));
   const result = env.sandbox.onSpeakerFormSubmit_(contentSpeakerEvent({ scripture: '羅馬書 8:28', title: '新講題乙' }));
   assert.strictEqual(result.result, 'RETIRED', JSON.stringify(result));
   assert.strictEqual(JSON.stringify(env.contentTabs[TAB].__data), contentBefore, '內容表一格都不可以寫（講員表格不可以是第二個寫入入口）');
-  assert.strictEqual(JSON.stringify(env.sandbox.readSheet('BulletinWeeks')), weeksBefore, '週報一格都不可以寫');
+  assert.strictEqual(JSON.stringify(env.sandbox.readSheet_('BulletinWeeks')), weeksBefore, '週報一格都不可以寫');
   assert.strictEqual(contentWeekOf(env, '2027-10-10').SERMON_TITLE, '舊講題乙');
   assert.strictEqual(snapshotReasons(env, '2027-10-10').length, 0);
   assert.strictEqual(submissions(env).length, 1);
@@ -398,7 +398,7 @@ test('題目字眼對不上、認不出主日日期：答案照樣記一行（RE
   assert.strictEqual(subs.length, 2);
   assert.strictEqual(subs[1].date, '', '認不出的日期記為空白');
   assert.strictEqual(weekRowOf(env, D).SERMON_TITLE, '舊');
-  assert.strictEqual(env.sandbox.readSheet('SendLog').length, 2);
+  assert.strictEqual(env.sandbox.readSheet_('SendLog').length, 2);
 });
 
 test('拿不到鎖 → 拋錯並記 ErrorLog，不處理這份答案', function () {
@@ -406,7 +406,7 @@ test('拿不到鎖 → 拋錯並記 ErrorLog，不處理這份答案', function 
   env.sandbox.LockService = { getScriptLock: function () { return { tryLock: function () { return false; }, releaseLock: function () {} }; } };
   assert.throws(function () { env.sandbox.onSpeakerFormSubmit_(speakerEvent()); }, /拿不到指令碼鎖/);
   assert.strictEqual(submissions(env).length, 0);
-  assert.strictEqual(env.sandbox.readSheet('ErrorLog').filter(function (r) { return r.ERROR_CODE === 'LOCK_TIMEOUT'; }).length, 1);
+  assert.strictEqual(env.sandbox.readSheet_('ErrorLog').filter(function (r) { return r.ERROR_CODE === 'LOCK_TIMEOUT'; }).length, 1);
 });
 
 // =====================================================================
@@ -419,7 +419,7 @@ test('DRY_RUN=TRUE：完全不呼叫 MailApp，只寫 SendLog（STATUS 為 SPEAK
   const env = makeEnv({ week: { SERMON_TITLE: '舊' }, config: { DRY_RUN: 'TRUE' } });
   env.sandbox.onSpeakerFormSubmit_(speakerEvent({ title: '新講題' }));
   assert.strictEqual(env.mail.calls.length, 0, 'DRY_RUN 不可以寄出任何郵件');
-  const log = env.sandbox.readSheet('SendLog');
+  const log = env.sandbox.readSheet_('SendLog');
   assert.strictEqual(log.length, 1);
   assert.strictEqual(log[0].STATUS, 'SPEAKER_FORM_NOTICE');
   assert.strictEqual(log[0].DRY_RUN, true);
@@ -437,7 +437,7 @@ test('DRY_RUN=FALSE：寄給 ADMIN 組，內容有主日、講員、經文、講
     '寫入結果：' + RETIRED_LABEL + '：', '「崇拜程序」', '填寫介面：https://example.invalid/webapp']
     .forEach(function (piece) { assert.ok(mail.body.indexOf(piece) !== -1, '通知內容缺少：' + piece + '\n' + mail.body); });
   assert.strictEqual(mail.body.indexOf('這一期已經發佈'), -1, '沒有寫入，不用提已發佈的 PDF');
-  assert.strictEqual(env.sandbox.readSheet('SendLog')[0].DRY_RUN, false);
+  assert.strictEqual(env.sandbox.readSheet_('SendLog')[0].DRY_RUN, false);
   assertWrittenChinese(assert, '通知內容', [mail.subject, mail.body]);
 });
 
@@ -454,7 +454,7 @@ test('通知組別沒有任何收件人 → 不寄也不報錯，答案照記', 
   const result = env.sandbox.onSpeakerFormSubmit_(speakerEvent({ title: '新' }));
   assert.strictEqual(result.result, 'RETIRED');
   assert.strictEqual(env.mail.calls.length, 0);
-  assert.strictEqual(env.sandbox.readSheet('SendLog').length, 0);
+  assert.strictEqual(env.sandbox.readSheet_('SendLog').length, 0);
   assert.strictEqual(submissions(env).length, 1);
 });
 
@@ -462,14 +462,14 @@ test('通知寄不出（MailApp 拋錯）→ SendLog 記 FAILED；通知整個�
   const env = makeEnv({ week: { SERMON_TITLE: '舊' }, config: { DRY_RUN: 'FALSE' } });
   env.mail.sendEmail = function () { throw new Error('配額用完'); };
   assert.strictEqual(env.sandbox.onSpeakerFormSubmit_(speakerEvent({ title: '新' })).result, 'RETIRED');
-  assert.strictEqual(env.sandbox.readSheet('SendLog')[0].STATUS, 'FAILED');
+  assert.strictEqual(env.sandbox.readSheet_('SendLog')[0].STATUS, 'FAILED');
   assert.strictEqual(submissions(env).length, 1);
 
   const env2 = makeEnv({ week: { SERMON_TITLE: '舊' } });
   env2.sandbox.buildRecipientList_ = function () { throw new Error('收件人工作表壞了'); };
   assert.strictEqual(env2.sandbox.onSpeakerFormSubmit_(speakerEvent()).result, 'RETIRED');
   assert.strictEqual(submissions(env2).length, 1);
-  const errs = env2.sandbox.readSheet('ErrorLog').filter(function (r) { return r.ERROR_CODE === 'SPEAKER_FORM_NOTICE_FAILED'; });
+  const errs = env2.sandbox.readSheet_('ErrorLog').filter(function (r) { return r.ERROR_CODE === 'SPEAKER_FORM_NOTICE_FAILED'; });
   assert.strictEqual(errs.length, 1);
   assert.ok(errs[0].MESSAGE.indexOf('答案已經記下') !== -1, errs[0].MESSAGE);
 });
@@ -482,7 +482,7 @@ console.log('\n講員核對警告已停用');
 
 /** 停用之前留下的一份已寫入答案（講員與事奉框不同）。 */
 function seedOldAnswer(env, speaker) {
-  env.sandbox.writeSheet('SpeakerFormSubmissions', [{
+  env.sandbox.writeSheet_('SpeakerFormSubmissions', [{
     TIMESTAMP: new Date(), SERVICE_DATE: env.sandbox.normalizeDate_(D), RESPONDENT_EMAIL: 'speaker@church.example',
     SPEAKER_NAME: speaker, SCRIPTURE_REF: '約翰福音 3:16', SERMON_TITLE: '神愛世人', NOTES: '', RESULT: 'APPLIED', DETAIL: '', ACTIVE: true
   }]);
@@ -540,7 +540,7 @@ test('apiCreateSpeakerForm／apiRefreshSpeakerFormDates／apiGetSpeakerFormStatu
     [false, true].forEach(function (created) {
       const env = created ? makeCreatedEnv() : makeEnv({ weekRows: [weekRowInput(D)], config: { SPEAKER_FORM_FOLDER_ID: SHARED_FOLDER } });
       if (!created) { const w = makeWatchedFormApp(); env.sandbox.FormApp = w.FormApp; env.formTouched = w.touched; }
-      const configBefore = JSON.stringify(env.sandbox.readSheet('Config'));
+      const configBefore = JSON.stringify(env.sandbox.readSheet_('Config'));
       const resp = env.sandbox[fn]();
       const label = fn + (created ? '（已建立表格）' : '（未建立表格）');
       assert.strictEqual(resp.ok, false, label);
@@ -548,7 +548,7 @@ test('apiCreateSpeakerForm／apiRefreshSpeakerFormDates／apiGetSpeakerFormStatu
       assert.strictEqual(resp.error.message, '講員表格已停用，請在本季內容表「崇拜程序」填寫讀經經文與證道講題。這個動作一格都沒有寫。');
       assert.deepStrictEqual(env.formTouched, [], label + '：不可以碰 FormApp');
       assert.strictEqual(env.triggers.installed.length, 0, label + '：不可以裝觸發器');
-      assert.strictEqual(JSON.stringify(env.sandbox.readSheet('Config')), configBefore, label + '：Config 不可以變');
+      assert.strictEqual(JSON.stringify(env.sandbox.readSheet_('Config')), configBefore, label + '：Config 不可以變');
       assert.strictEqual(env.drive.calls.update.length, 0, label + '：不可以搬檔案');
     });
   });
@@ -559,14 +559,14 @@ test('星期一觸發器（weeklyBulletinSendTrigger_）：已建立表格也不
   env.sandbox.autoCreateContentSheetsForUpcomingQuarters_ = function () { return { created: [], invited: [], skipped: [] }; };
   env.sandbox.weeklyBulletinSendTrigger_();
   assert.deepStrictEqual(env.formTouched, []);
-  assert.strictEqual(env.sandbox.readSheet('ErrorLog').filter(function (r) { return r.ERROR_CODE === 'SPEAKER_FORM_REFRESH_FAILED'; }).length, 0);
+  assert.strictEqual(env.sandbox.readSheet_('ErrorLog').filter(function (r) { return r.ERROR_CODE === 'SPEAKER_FORM_REFRESH_FAILED'; }).length, 0);
 });
 
 test('「建立本季空白週報」（createBlankBulletinWeeks_）新增主日之後不刷新日期選項（一次都不碰 FormApp）', function () {
   const env = makeCreatedEnv({ weekRows: [weekRowInput(D)] });
-  const before = env.sandbox.readSheet('BulletinWeeks').length;
+  const before = env.sandbox.readSheet_('BulletinWeeks').length;
   env.sandbox.createBlankBulletinWeeks_(QUARTER_ID);
-  assert.ok(env.sandbox.readSheet('BulletinWeeks').length > before, '前提：這一次真的新增了主日');
+  assert.ok(env.sandbox.readSheet_('BulletinWeeks').length > before, '前提：這一次真的新增了主日');
   assert.deepStrictEqual(env.formTouched, []);
 });
 

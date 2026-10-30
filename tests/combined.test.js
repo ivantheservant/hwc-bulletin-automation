@@ -104,6 +104,18 @@ test('CS-6 種類代號不在 Config → 警告講明（不可以靜靜當平常
   assert.strictEqual(m.special.title, '青年主日');
 });
 
+test('CS-6b 獨立審查第 7 項：COMBINED_KIND_TEMPLATES 指向 ProgramTemplates 沒有的範本 → 程序表空白要警告（不可以靜靜印空表）', function () {
+  const env = makeWordEnv({
+    combinedServices: { [D]: { kind: 'BAPTISM', name: '' } },
+    config: { COMBINED_KIND_TEMPLATES: 'BAPTISM=TPL_NOT_THERE' }
+  });
+  const m = env.sandbox.buildBulletinModel_(D);
+  assert.strictEqual(m.templateId, 'TPL_NOT_THERE');
+  const w = plain(m.warnings).filter(function (x) { return x.code === 'PROGRAM_TEMPLATE_EMPTY'; });
+  assert.strictEqual(w.length, 1, JSON.stringify(plain(m.warnings)));
+  assert.ok(w[0].message.indexOf('COMBINED_KIND_TEMPLATES') !== -1, w[0].message);
+});
+
 console.log('\n填寫介面（真入口 apiLoadWeek）');
 
 test('CS-7 apiLoadWeek：合堂資料、自動值依據；〔設定合堂主日〕網址帶這一週在職事表的季度；ROSTER_WEBAPP_URL 留空就不顯示', function () {
@@ -124,7 +136,7 @@ test('CS-7 apiLoadWeek：合堂資料、自動值依據；〔設定合堂主日�
 
 test('CS-8 週報一格都不寫入職事表：讀合堂設定、載入之後職事表的 ServiceDates 完全不變', function () {
   const env = makeWordEnv({ combinedServices: { [D]: { kind: 'BAPTISM', name: '' } } });
-  const roster = env.sandbox.SpreadsheetApp.openById(env.sandbox.getConfig('ROSTER_SPREADSHEET_ID', ''));
+  const roster = env.sandbox.SpreadsheetApp.openById(env.sandbox.getConfig_('ROSTER_SPREADSHEET_ID', ''));
   const sheet = roster.getSheetByName('ServiceDates');
   function dump() { return JSON.stringify(sheet.getRange(1, 1, sheet.getLastRow(), sheet.getLastColumn()).getValues()); }
   const before = dump();

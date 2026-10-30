@@ -82,7 +82,7 @@ function quarterOpsMissingQuarterResult_(quarterId, title) {
 function quarterOpsFormatStamp_(value) {
   if (Object.prototype.toString.call(value) !== '[object Date]') return '';
   return Utilities.formatDate(
-    value, getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland'), 'yyyy-MM-dd HH:mm');
+    value, getConfig_(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland'), 'yyyy-MM-dd HH:mm');
 }
 
 /**
@@ -94,7 +94,7 @@ function quarterOpsFormatStamp_(value) {
  */
 function countBulletinWeeksInQuarter_(quarterId) {
   var qid = String(quarterId || '').trim();
-  return readSheet(SHEETS.BULLETIN_WEEKS).filter(function (r) {
+  return readSheet_(SHEETS.BULLETIN_WEEKS).filter(function (r) {
     return String(r.QUARTER_ID || '').trim() === qid;
   }).length;
 }
@@ -137,7 +137,7 @@ function previewCreateBlankWeeks_(quarterId) {
     };
   }
 
-  var existingRows = readSheet(SHEETS.BULLETIN_WEEKS);
+  var existingRows = readSheet_(SHEETS.BULLETIN_WEEKS);
   var willAdd = [];
   var willSkip = [];
   dates.forEach(function (isoDate) {
@@ -430,7 +430,7 @@ function previewContentSheetInvite_(quarterId) {
   if (guard) return guard;
 
   var qid = String(quarterId).trim();
-  var dryRun = normalizeBoolean_(getConfig(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
+  var dryRun = normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
   var config = contentSheetConfig_();
 
   var row = findContentSheetRow_(qid);
@@ -442,7 +442,7 @@ function previewContentSheetInvite_(quarterId) {
     };
   }
 
-  var recipientsResult = buildRecipientList_(readSheet(SHEETS.RECIPIENTS), config.inviteGroups, null);
+  var recipientsResult = buildRecipientList_(readSheet_(SHEETS.RECIPIENTS), config.inviteGroups, null);
   var recipients = recipientsResult.recipients || [];
 
   var lines = [
@@ -578,7 +578,7 @@ function quarterContentImport_(quarterId, apply) {
     });
   }
 
-  var dryRun = normalizeBoolean_(getConfig(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
+  var dryRun = normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
   return {
     ok: true, quarterId: qid, title: title,
     lines: buildContentImportDialogLines_(result, { dryRun: dryRun, applied: Boolean(apply) }),
@@ -710,7 +710,7 @@ function goLiveReport_() {
  *   {{fileId:string, fileName:string, revisions:Object, publishRows:Object[]}}
  */
 function collectPublishRevisionFacts_() {
-  var fileId = String(getConfig(CONFIG_KEYS.PUBLISHED_PDF_FILE_ID, '') || '').trim();
+  var fileId = String(getConfig_(CONFIG_KEYS.PUBLISHED_PDF_FILE_ID, '') || '').trim();
   var facts = fileId ? readDriveFileFacts_(fileId) : { ok: false, fileName: '', message: '' };
   var revisions = fileId
     ? driveListRevisions_(fileId, 20)
@@ -771,7 +771,7 @@ function quarterOpsPanelData_(quarterId) {
   return {
     quarterId: qid,
     quarterSource: typed ? '（目前選住的季度）' : fallback.sourceLabel,
-    dryRun: normalizeBoolean_(getConfig(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true,
+    dryRun: normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true,
     weekCount: qid ? countBulletinWeeksInQuarter_(qid) : 0,
     contentSheet: {
       exists: Boolean(contentSheetRow),

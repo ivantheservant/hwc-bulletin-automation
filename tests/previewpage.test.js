@@ -154,7 +154,7 @@ function makeEnv(options) {
   // BulletinWeeks 的行要在 sandbox 造好之後寫（Date 跨 realm 過不到正規化）。
   (o.weekRowSpecs || []).forEach(function (spec) {
     const p = spec.isoDate.split('-').map(Number);
-    sandbox.writeSheet(sandbox.SHEETS.BULLETIN_WEEKS, [Object.assign({
+    sandbox.writeSheet_(sandbox.SHEETS.BULLETIN_WEEKS, [Object.assign({
       SERVICE_DATE: sandbox.__mkDate(p[0], p[1] - 1, p[2], 0, 0, 0),
       QUARTER_ID: spec.quarterId || '2030T1',
       WEEK_OF_MONTH: 1,
@@ -425,7 +425,7 @@ test('DRY_RUN=TRUE → 不會真寄，但照樣寫 SendLog（STATUS=PREVIEW）',
   assert.strictEqual(result.dryRun, true);
   assert.strictEqual(result.recipientCount, 2, '只有 CC 與 DB 兩組，OTHER 不算');
 
-  const rows = env.sandbox.readSheet(env.sandbox.SHEETS.SEND_LOG);
+  const rows = env.sandbox.readSheet_(env.sandbox.SHEETS.SEND_LOG);
   assert.strictEqual(rows.length, 2);
   rows.forEach(function (r) {
     assert.strictEqual(String(r.STATUS), 'PREVIEW');
@@ -436,7 +436,7 @@ test('DRY_RUN=TRUE → 不會真寄，但照樣寫 SendLog（STATUS=PREVIEW）',
 test('信的內文含那條預覽連結', function () {
   const env = mailEnv();
   env.sandbox.sendPreviewNotice_('2030-01-06');
-  const rows = env.sandbox.readSheet(env.sandbox.SHEETS.SEND_LOG);
+  const rows = env.sandbox.readSheet_(env.sandbox.SHEETS.SEND_LOG);
   assert.ok(String(rows[0].BODY_PREVIEW).indexOf('page=preview') !== -1,
     '寄一封沒有連結的信等於白寄：' + rows[0].BODY_PREVIEW);
 });
@@ -444,7 +444,7 @@ test('信的內文含那條預覽連結', function () {
 test('信的內文講明「版面與正式印刷版不同」與「連結固定不變」', function () {
   const env = mailEnv();
   env.sandbox.sendPreviewNotice_('2030-01-06');
-  const body = String(env.sandbox.readSheet(env.sandbox.SHEETS.SEND_LOG)[0].BODY_PREVIEW);
+  const body = String(env.sandbox.readSheet_(env.sandbox.SHEETS.SEND_LOG)[0].BODY_PREVIEW);
   assert.ok(body.indexOf('版面與正式印刷版不同') !== -1, body);
   assert.ok(body.indexOf('固定不變') !== -1, body);
 });
@@ -454,7 +454,7 @@ test('PREVIEW_ENABLED=FALSE → 不寄，SendLog 一筆都沒有多', function (
   const result = env.sandbox.sendPreviewNotice_('2030-01-06');
   assert.strictEqual(result.sent, false);
   assert.strictEqual(result.reason, 'DISABLED');
-  assert.strictEqual(env.sandbox.readSheet(env.sandbox.SHEETS.SEND_LOG).length, 0);
+  assert.strictEqual(env.sandbox.readSheet_(env.sandbox.SHEETS.SEND_LOG).length, 0);
 });
 
 test('取不到網址 → 不寄，而且講明原因（不是靜靜寄一封沒有連結的信）', function () {
@@ -477,7 +477,7 @@ test('職事表未有資料 → 照樣寄，而且信中有待定提示', functi
   const env = mailEnv();
   const result = env.sandbox.sendPreviewNotice_('2030-01-06');
   assert.strictEqual(result.sent, true, '職事表未有資料一樣要寄');
-  const body = String(env.sandbox.readSheet(env.sandbox.SHEETS.SEND_LOG)[0].BODY_PREVIEW);
+  const body = String(env.sandbox.readSheet_(env.sandbox.SHEETS.SEND_LOG)[0].BODY_PREVIEW);
   assert.ok(body.indexOf('事奉資料尚未確定') !== -1, '要有待定提示：' + body);
 });
 
@@ -488,13 +488,13 @@ test('工作表上的舊範本沒有 {{ContentSheetUrl}} → 內容表連結放�
   });
   const env = mailEnv({ emailTemplates: oldTemplates });
   const sb = env.sandbox;
-  assert.strictEqual(sb.readSheet(sb.SHEETS.EMAIL_TEMPLATES).filter(function (r) { return r.TEMPLATE_ID === 'PREVIEW_NOTICE'; }).length, 1);
-  const weeks = sb.readSheet(sb.SHEETS.BULLETIN_WEEKS);
+  assert.strictEqual(sb.readSheet_(sb.SHEETS.EMAIL_TEMPLATES).filter(function (r) { return r.TEMPLATE_ID === 'PREVIEW_NOTICE'; }).length, 1);
+  const weeks = sb.readSheet_(sb.SHEETS.BULLETIN_WEEKS);
   const qid = String(weeks[0].QUARTER_ID || '');
   assert.ok(qid, '前提：週報有季度');
-  sb.writeSheet(sb.SHEETS.CONTENT_SHEETS, [{ QUARTER_ID: qid, FILE_ID: 'CS1', FILE_URL: 'https://docs.google.com/spreadsheets/d/CS1/edit', ACTIVE: true }]);
+  sb.writeSheet_(sb.SHEETS.CONTENT_SHEETS, [{ QUARTER_ID: qid, FILE_ID: 'CS1', FILE_URL: 'https://docs.google.com/spreadsheets/d/CS1/edit', ACTIVE: true }]);
   sb.sendPreviewNotice_('2030-01-06');
-  const body = String(sb.readSheet(sb.SHEETS.SEND_LOG)[0].BODY_PREVIEW);
+  const body = String(sb.readSheet_(sb.SHEETS.SEND_LOG)[0].BODY_PREVIEW);
   const iLink = body.indexOf('https://docs.google.com/spreadsheets/d/CS1/edit');
   assert.ok(iLink !== -1, body);
   assert.ok(iLink > body.indexOf('page=preview') && iLink < body.indexOf('謝謝！'), body);

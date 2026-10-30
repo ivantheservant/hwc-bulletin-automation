@@ -55,14 +55,14 @@ function dutyBoxPageKeys_(page) {
  */
 function buildDutyBox_(snapshot, page, warnings, diffByKey) {
   var honorificKey = page === 1 ? CONFIG_KEYS.HONORIFIC_ON_PAGE1 : CONFIG_KEYS.HONORIFIC_ON_PAGE3;
-  var honorificRaw = getConfig(honorificKey, page === 1 ? 'TRUE' : 'FALSE');
+  var honorificRaw = getConfig_(honorificKey, page === 1 ? 'TRUE' : 'FALSE');
 
   return buildDutyBoxRows_({
     snapshot: snapshot,
     page: page,
-    postDisplayRows: readSheet(SHEETS.POST_DISPLAY),
-    mergeGroupRows: readSheet(SHEETS.MERGE_GROUPS),
-    personDisplayRows: readSheet(SHEETS.PERSON_DISPLAY),
+    postDisplayRows: readSheet_(SHEETS.POST_DISPLAY),
+    mergeGroupRows: readSheet_(SHEETS.MERGE_GROUPS),
+    personDisplayRows: readSheet_(SHEETS.PERSON_DISPLAY),
     withHonorific: normalizeBoolean_(honorificRaw) === true,
     targetDate: normalizeDate_(snapshot.isoDate),
     diffByKey: diffByKey || {},

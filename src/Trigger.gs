@@ -169,7 +169,7 @@ function weeklyBulletinSendTrigger_() {
 
     // 2026-10-30（Ivan）：星期一只寄草稿預覽連結＋內容表連結；週報正文（連 Word 附件）預設不再自動寄，
     //    定稿由幹事按「發佈」寄出通知。Config WEEKLY_SEND_BULLETIN=TRUE 回復舊做法。
-    if (normalizeBoolean_(getConfig(CONFIG_KEYS.WEEKLY_SEND_BULLETIN, 'FALSE')) !== true) {
+    if (normalizeBoolean_(getConfig_(CONFIG_KEYS.WEEKLY_SEND_BULLETIN, 'FALSE')) !== true) {
       appendAuditLog_({
         action: 'WEEKLY_SEND_BULLETIN_SKIPPED', sheetName: SHEETS.SEND_LOG, rowKey: targetIso,
         notes: '星期一自動流程：只寄草稿預覽連結與內容表連結；Config ' + CONFIG_KEYS.WEEKLY_SEND_BULLETIN
@@ -204,7 +204,7 @@ function weeklyTriggerTargetSunday_(options) {
   var todayIso = opts.todayIso;
   if (!todayIso) {
     try {
-      todayIso = Utilities.formatDate(new Date(), getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland'), 'yyyy-MM-dd');
+      todayIso = Utilities.formatDate(new Date(), getConfig_(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland'), 'yyyy-MM-dd');
     } catch (err) {
       return { ok: false, todayIso: '', isoDate: '', alreadySent: false,
         reason: '讀不到今日日期（Config SYS_TIMEZONE 可能有誤）：' + ((err && err.message) ? err.message : String(err)) };
@@ -307,9 +307,9 @@ function resolveScriptAppWeekDay_(weekdayName) {
 function installWeeklySendTrigger_() {
   var removedCount = removeAllSendTriggers_();
 
-  var weekdayName = getConfig(CONFIG_KEYS.SEND_WEEKDAY, 'MONDAY');
-  var hour = normalizeInt_(getConfig(CONFIG_KEYS.SEND_HOUR, '6'));
-  var minute = normalizeInt_(getConfig(CONFIG_KEYS.SEND_MINUTE, '0'));
+  var weekdayName = getConfig_(CONFIG_KEYS.SEND_WEEKDAY, 'MONDAY');
+  var hour = normalizeInt_(getConfig_(CONFIG_KEYS.SEND_HOUR, '6'));
+  var minute = normalizeInt_(getConfig_(CONFIG_KEYS.SEND_MINUTE, '0'));
   var weekDayEnum = resolveScriptAppWeekDay_(weekdayName);
 
   ScriptApp.newTrigger('weeklyBulletinSendTrigger_')
@@ -329,7 +329,7 @@ function installWeeklySendTrigger_() {
 
   // 2026-10-30：內容表有改動就每 N 分鐘自動匯入（src/ContentAutoSync.gs）。0＝不安裝；不是允許的值也不安裝，
   //    並在結果講明（不可以靜靜當作關掉）。
-  var sync = parseContentAutoSyncMinutes_(getConfig(CONFIG_KEYS.CONTENT_AUTO_SYNC_MINUTES, '30'));
+  var sync = parseContentAutoSyncMinutes_(getConfig_(CONFIG_KEYS.CONTENT_AUTO_SYNC_MINUTES, '30'));
   if (sync.minutes > 0) {
     var syncBuilder = ScriptApp.newTrigger('contentAutoSyncTrigger_').timeBased();
     if (sync.minutes === 60) syncBuilder.everyHours(1); else syncBuilder.everyMinutes(sync.minutes);

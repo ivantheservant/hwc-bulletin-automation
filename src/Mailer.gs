@@ -49,7 +49,7 @@
  *     `TEMPLATE_NOT_FOUND`）如果任何一個前置檢查不通過。
  */
 function sendBulletinForDate_(isoDate, options) {
-  var blockIfOutdated = normalizeBoolean_(getConfig(CONFIG_KEYS.SEND_BLOCK_IF_SCHEMA_OUTDATED, 'TRUE')) === true;
+  var blockIfOutdated = normalizeBoolean_(getConfig_(CONFIG_KEYS.SEND_BLOCK_IF_SCHEMA_OUTDATED, 'TRUE')) === true;
   if (blockIfOutdated) {
     var schema = checkSheetSchema_();
     if (!schema.ok) {
@@ -79,7 +79,7 @@ function sendBulletinForDate_(isoDate, options) {
   var rosterPending = false;
   // 特別崇拜：職事表本來就沒有這一日（事奉在填寫介面填），不是「事奉資料未定」。
   if (!model.found && model.specialService !== true) {
-    var sendAnyway = normalizeBoolean_(getConfig(CONFIG_KEYS.SEND_WHEN_ROSTER_MISSING, 'TRUE')) === true;
+    var sendAnyway = normalizeBoolean_(getConfig_(CONFIG_KEYS.SEND_WHEN_ROSTER_MISSING, 'TRUE')) === true;
     if (!sendAnyway) {
       var notFoundErr = new Error('sendBulletinForDate_：' + isoDate
         + ' 這個主日在職事表找不到資料，而 Config 的 '
@@ -97,7 +97,7 @@ function sendBulletinForDate_(isoDate, options) {
     throw noRecipientsErr;
   }
 
-  var dryRun = normalizeBoolean_(getConfig(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
+  var dryRun = normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
 
   if (!dryRun) {
     var quota = MailApp.getRemainingDailyQuota();
@@ -114,8 +114,8 @@ function sendBulletinForDate_(isoDate, options) {
   // 真的寄出才把附件存成最新版；DRY_RUN 只寫 SendLog，不碰雲端硬碟。
   var attachment = renderBulletinAttachment_(model, { storeLatest: !dryRun });
 
-  var templateId = getConfig(CONFIG_KEYS.EMAIL_TEMPLATE_ID, 'TPL_WEEKLY_BULLETIN');
-  var templateRows = readSheet(SHEETS.EMAIL_TEMPLATES);
+  var templateId = getConfig_(CONFIG_KEYS.EMAIL_TEMPLATE_ID, 'TPL_WEEKLY_BULLETIN');
+  var templateRows = readSheet_(SHEETS.EMAIL_TEMPLATES);
   var template = templateRows.filter(function (t) { return t.TEMPLATE_ID === templateId && t.ACTIVE === true; })[0];
   if (!template) {
     var templateErr = new Error('sendBulletinForDate_：EmailTemplates 找不到啟用中的範本「' + templateId + '」。');
@@ -123,13 +123,13 @@ function sendBulletinForDate_(isoDate, options) {
     throw templateErr;
   }
 
-  var includeMissing = normalizeBoolean_(getConfig(CONFIG_KEYS.SEND_INCLUDE_MISSING_LIST, 'TRUE')) === true;
-  var timezone = getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland');
+  var includeMissing = normalizeBoolean_(getConfig_(CONFIG_KEYS.SEND_INCLUDE_MISSING_LIST, 'TRUE')) === true;
+  var timezone = getConfig_(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland');
   var generatedAtText = Utilities.formatDate(new Date(), timezone, 'yyyy-MM-dd HH:mm:ss');
 
   var templateWarnings = [];
   var vars = {
-    ChurchName: getConfig(CONFIG_KEYS.CHURCH_NAME, ''),
+    ChurchName: getConfig_(CONFIG_KEYS.CHURCH_NAME, ''),
     ServiceDate: model.isoDate,
     SpecialType: model.special ? model.special.title : '',
     MissingCount: String(missingCountSummary_(model.missing).requiredCount),
@@ -145,7 +145,7 @@ function sendBulletinForDate_(isoDate, options) {
   //    唯一的合理反應是「系統壞了」。講一句就變成「未到，稍後通知」。
   var rosterPendingNote = '';
   if (rosterPending) {
-    rosterPendingNote = String(getConfig(CONFIG_KEYS.BULLETIN_ROSTER_PENDING_NOTE,
+    rosterPendingNote = String(getConfig_(CONFIG_KEYS.BULLETIN_ROSTER_PENDING_NOTE,
       '本期事奉資料尚未確定，稍後另行通知。') || '').trim();
     if (rosterPendingNote) introText = rosterPendingNote + '\n\n' + introText;
   }
@@ -279,7 +279,7 @@ function markBulletinAsSent_(isoDate) {
 
 /**
  * 用途：把一批 `SendLog` 行寫入，並替它們**全部**蓋上同一個批次編號。
- *   全部寄送流程一律經這一支，不可以直接 `writeSheet(SHEETS.SEND_LOG, …)`。
+ *   全部寄送流程一律經這一支，不可以直接 `writeSheet_(SHEETS.SEND_LOG, …)`。
  *
  *   ⚠️ 為什麼要有批次編號（docs/已知bug類型.md 事故三十九）：
  *   不變量 I04 要驗「寄出前預覽的人數 === 實際寄出的封數」，所以它要
@@ -299,7 +299,7 @@ function writeSendLogRows_(rows) {
 
   var batchId = newSendBatchId_();
   list.forEach(function (row) { row.BATCH_ID = sanitizeCellText_(batchId); });
-  writeSheet(SHEETS.SEND_LOG, list);
+  writeSheet_(SHEETS.SEND_LOG, list);
   return batchId;
 }
 
@@ -313,7 +313,7 @@ function writeSendLogRows_(rows) {
  *   {string}
  */
 function newSendBatchId_() {
-  var timezone = getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland');
+  var timezone = getConfig_(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland');
   var stamp;
   try {
     stamp = Utilities.formatDate(new Date(), timezone, 'yyyyMMddHHmmss');
@@ -423,8 +423,8 @@ function menuPreviewBulletinEmail_() {
     }
 
     var attachment = renderBulletinAttachment_(model);
-    var includeMissing = normalizeBoolean_(getConfig(CONFIG_KEYS.SEND_INCLUDE_MISSING_LIST, 'TRUE')) === true;
-    var timezone = getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland');
+    var includeMissing = normalizeBoolean_(getConfig_(CONFIG_KEYS.SEND_INCLUDE_MISSING_LIST, 'TRUE')) === true;
+    var timezone = getConfig_(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland');
     var generatedAtText = Utilities.formatDate(new Date(), timezone, 'yyyy-MM-dd HH:mm:ss');
     var html = buildBulletinEmailHtml_(model, {
       attachment: attachment, includeMissingList: includeMissing, generatedAtText: generatedAtText

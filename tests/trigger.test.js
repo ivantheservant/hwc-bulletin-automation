@@ -166,7 +166,7 @@ test('weeklyBulletinSendTrigger_：選中的目標日一定是星期日，而且
   const env = makeEnv({ config: { ROSTER_SPREADSHEET_ID: '' } });
   env.sandbox.weeklyBulletinSendTrigger_();
 
-  const errorRows = env.sandbox.readSheet('ErrorLog');
+  const errorRows = env.sandbox.readSheet_('ErrorLog');
   assert.ok(
     errorRows.every(function (r) { return r.ERROR_CODE !== 'TARGET_NOT_SUNDAY'; }),
     '不應該再卡在「目標日不是星期日」，實際：'
@@ -195,7 +195,7 @@ test('weeklyBulletinSendTrigger_：分歧提醒失敗不會連累週報寄送—
   const env = makeEnv({ config: { ROSTER_SPREADSHEET_ID: '' } });
   assert.doesNotThrow(function () { env.sandbox.weeklyBulletinSendTrigger_(); });
 
-  const errorRows = env.sandbox.readSheet('ErrorLog');
+  const errorRows = env.sandbox.readSheet_('ErrorLog');
   assert.ok(
     errorRows.some(function (r) { return r.FUNCTION_NAME.indexOf('sendConflictNoticeIfNeeded_') !== -1; }),
     '應該有一筆來自分歧提醒的錯誤，實際：' + JSON.stringify(errorRows.map(function (r) { return r.FUNCTION_NAME; }))

@@ -152,7 +152,7 @@ test('無覆寫（因此無衝突）→ 不寄，reason=NO_CONFLICT，完全沒�
   assert.strictEqual(result.sent, false);
   assert.strictEqual(result.reason, 'NO_CONFLICT');
   assert.strictEqual(env.mailApp.calls.length, 0);
-  assert.strictEqual(env.sandbox.readSheet('SendLog').length, 0);
+  assert.strictEqual(env.sandbox.readSheet_('SendLog').length, 0);
 });
 
 test('有覆寫但職事表沒有再改過（OVERRIDDEN，不是 CONFLICT）→ 不寄', function () {
@@ -251,7 +251,7 @@ test('指紋會寫進 ConflictNoticeLog（只新增，不覆寫既有記錄）',
   const env = makeEnv({ rosterChairName: '王美美', overrideRosterValue: '陳大文', config: { DRY_RUN: 'FALSE' } });
   env.sandbox.sendConflictNoticeIfNeeded_(ISO_DATE);
 
-  const rows = env.sandbox.readSheet('ConflictNoticeLog');
+  const rows = env.sandbox.readSheet_('ConflictNoticeLog');
   assert.strictEqual(rows.length, 1);
   assert.strictEqual(rows[0].POST_ID, 'CHAIR');
   assert.strictEqual(rows[0].SLOT_INDEX, 1);
@@ -280,7 +280,7 @@ test('DRY_RUN=TRUE：完全沒有呼叫 MailApp.sendEmail，但 SendLog 有記�
   assert.strictEqual(result.dryRun, true);
   assert.strictEqual(env.mailApp.calls.length, 0, 'DRY_RUN 時絕對不可以呼叫 MailApp.sendEmail');
 
-  const sendLog = env.sandbox.readSheet('SendLog');
+  const sendLog = env.sandbox.readSheet_('SendLog');
   assert.strictEqual(sendLog.length, 1);
   assert.strictEqual(sendLog[0].STATUS, 'CONFLICT_NOTICE');
   assert.strictEqual(sendLog[0].DRY_RUN, true);
@@ -290,7 +290,7 @@ test('DRY_RUN=TRUE：**不會**把指紋記進 ConflictNoticeLog——否則第�
   const env = makeEnv({ rosterChairName: '王美美', overrideRosterValue: '陳大文', config: { DRY_RUN: 'TRUE' } });
   env.sandbox.sendConflictNoticeIfNeeded_(ISO_DATE);
 
-  assert.strictEqual(env.sandbox.readSheet('ConflictNoticeLog').length, 0,
+  assert.strictEqual(env.sandbox.readSheet_('ConflictNoticeLog').length, 0,
     '指紋是「會改變將來行為的狀態」，試行模式不可以動它（SendLog 只是記錄，照寫沒問題）');
 
   // 再跑一次，仍然會「寄」——證明試行不會消耗掉通知機會。
@@ -302,7 +302,7 @@ test('DRY_RUN=FALSE 時寄出之後，SendLog 的 STATUS 同樣是 CONFLICT_NOTI
   const env = makeEnv({ rosterChairName: '王美美', overrideRosterValue: '陳大文', config: { DRY_RUN: 'FALSE' } });
   env.sandbox.sendConflictNoticeIfNeeded_(ISO_DATE);
 
-  const sendLog = env.sandbox.readSheet('SendLog');
+  const sendLog = env.sandbox.readSheet_('SendLog');
   assert.strictEqual(sendLog.length, 1);
   assert.strictEqual(sendLog[0].STATUS, 'CONFLICT_NOTICE');
   assert.strictEqual(sendLog[0].DRY_RUN, false);

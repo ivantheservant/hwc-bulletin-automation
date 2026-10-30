@@ -158,7 +158,7 @@ test('1. 全部三個主日成功產生，回傳統計與 BulletinWeeks 記錄�
   assert.strictEqual(summary.skipped, 0);
   assert.strictEqual(summary.stoppedForTime, false);
 
-  const weeks = env.sandbox.readSheet('BulletinWeeks');
+  const weeks = env.sandbox.readSheet_('BulletinWeeks');
   weeks.forEach(function (w) {
     assert.ok(w.DOC_ID, w.SERVICE_DATE + ' 應該有 DOC_ID');
     // ⚠️ 跨 vm realm：這個 Date 是 sandbox 造出來的，不可以用
@@ -169,7 +169,7 @@ test('1. 全部三個主日成功產生，回傳統計與 BulletinWeeks 記錄�
 
   assert.strictEqual(env.drive.listAllFiles().length, 3, '應該產生了 3 個檔案');
 
-  const diagnostics = env.sandbox.readSheet('Diagnostics');
+  const diagnostics = env.sandbox.readSheet_('Diagnostics');
   assert.ok(diagnostics.some(function (r) { return r.REPORT_NAME === '本季週報產生'; }));
 });
 

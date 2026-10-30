@@ -54,7 +54,7 @@ function assertArrayEqual(actual, expected, message) {
 
 /** 取某一張表 ACTIVE=TRUE 的行，按主日與次序排。 */
 function activeRows(env, sheetName) {
-  return env.sandbox.readSheet(sheetName)
+  return env.sandbox.readSheet_(sheetName)
     .filter(function (r) { return r.ACTIVE === true; })
     .sort(function (a, b) {
       const da = env.sandbox.formatIsoDate_(a.SERVICE_DATE);
@@ -177,7 +177,7 @@ test('8. 「刪除」只把 ACTIVE 改 FALSE，行仍然在', function () {
 
   env.sandbox.applyContentImport_(QUARTER_ID, {});
 
-  const rows = env.sandbox.readSheet('Announcements');
+  const rows = env.sandbox.readSheet_('Announcements');
   const stale = rows.filter(function (r) { return r.TEXT === '要被停用的'; });
   assert.strictEqual(stale.length, 1, '整行仍然在');
   assert.strictEqual(stale[0].ACTIVE, false, '只是 ACTIVE 改成 FALSE');
@@ -198,7 +198,7 @@ test('9. 內容表某張表整張空白 → 該張完全不動，報告有說明
   assert.strictEqual(result.plan.removed, 0, '整張空白絕對不可以當成「全部刪除」');
 
   env.sandbox.applyContentImport_(QUARTER_ID, {});
-  const rows = env.sandbox.readSheet('Announcements');
+  const rows = env.sandbox.readSheet_('Announcements');
   assert.strictEqual(rows[0].ACTIVE, true, '本來就有的那一行一定要原封不動');
 
   const lines = env.sandbox.buildContentImportDialogLines_(result, {}).join('\n');
@@ -212,18 +212,18 @@ test('10. 內容表全部空白 → 週報一格都沒有改', function () {
     content: {}
   });
 
-  const before = JSON.stringify(env.sandbox.readSheet('Announcements'))
-    + JSON.stringify(env.sandbox.readSheet('Prayers'))
-    + JSON.stringify(env.sandbox.readSheet('BulletinWeeks'));
+  const before = JSON.stringify(env.sandbox.readSheet_('Announcements'))
+    + JSON.stringify(env.sandbox.readSheet_('Prayers'))
+    + JSON.stringify(env.sandbox.readSheet_('BulletinWeeks'));
 
   const result = env.sandbox.applyContentImport_(QUARTER_ID, {});
   assert.strictEqual(result.plan.added + result.plan.updated + result.plan.removed, 0);
   // R-043／R-045 之後係八張；內容表 v2 把「宣召」「浸禮合堂」併入「崇拜程序」，變成六張。
   assert.strictEqual(result.plan.skippedTabs.length, 6, '六張分頁全部整張空白');
 
-  const after = JSON.stringify(env.sandbox.readSheet('Announcements'))
-    + JSON.stringify(env.sandbox.readSheet('Prayers'))
-    + JSON.stringify(env.sandbox.readSheet('BulletinWeeks'));
+  const after = JSON.stringify(env.sandbox.readSheet_('Announcements'))
+    + JSON.stringify(env.sandbox.readSheet_('Prayers'))
+    + JSON.stringify(env.sandbox.readSheet_('BulletinWeeks'));
   assert.strictEqual(after, before, '一格都不可以改');
 });
 
@@ -238,10 +238,10 @@ test('11. 確認之前沒有任何寫入（previewContentImport_ 是唯讀的）
   const result = env.sandbox.previewContentImport_(QUARTER_ID, {});
   assert.ok(result.plan.added + result.plan.updated > 0, '應該算得出有改動');
 
-  assert.strictEqual(env.sandbox.readSheet('Announcements').length, 0, '預覽不可以寫任何嘢');
-  assert.strictEqual(env.sandbox.readSheet('BulletinWeeks')[0].SCRIPTURE_REF, '');
-  assert.strictEqual(env.sandbox.readSheet('AuditLog').length, 0);
-  assert.strictEqual(env.sandbox.readSheet('ContentSheets')[0].LAST_IMPORTED_AT, null);
+  assert.strictEqual(env.sandbox.readSheet_('Announcements').length, 0, '預覽不可以寫任何嘢');
+  assert.strictEqual(env.sandbox.readSheet_('BulletinWeeks')[0].SCRIPTURE_REF, '');
+  assert.strictEqual(env.sandbox.readSheet_('AuditLog').length, 0);
+  assert.strictEqual(env.sandbox.readSheet_('ContentSheets')[0].LAST_IMPORTED_AT, null);
 });
 
 // =====================================================================
@@ -255,7 +255,7 @@ test('12. 匯入後 AuditLog 有逐格記錄，來源 CONTENT_SHEET', function (
 
   env.sandbox.applyContentImport_(QUARTER_ID, {});
 
-  const audit = env.sandbox.readSheet('AuditLog')
+  const audit = env.sandbox.readSheet_('AuditLog')
     .filter(function (r) { return r.ACTION === 'CONTENT_SHEET_IMPORT'; });
   assert.strictEqual(audit.length, 2, '兩個欄位各一筆');
   const fields = audit.map(function (r) { return r.FIELD; }).sort();
@@ -270,10 +270,10 @@ test('13. 匯入後 LAST_IMPORTED_AT 有更新', function () {
   const env = makeEnv({
     content: { 崇拜程序: [{ SERVICE_DATE: '2027-10-03', SCRIPTURE_REF: 'x', RESPONSE_HYMN: 'y', ACTIVE: 'TRUE' }] }
   });
-  assert.strictEqual(env.sandbox.readSheet('ContentSheets')[0].LAST_IMPORTED_AT, null);
+  assert.strictEqual(env.sandbox.readSheet_('ContentSheets')[0].LAST_IMPORTED_AT, null);
 
   env.sandbox.applyContentImport_(QUARTER_ID, {});
-  const after = env.sandbox.readSheet('ContentSheets')[0].LAST_IMPORTED_AT;
+  const after = env.sandbox.readSheet_('ContentSheets')[0].LAST_IMPORTED_AT;
   assert.strictEqual(Object.prototype.toString.call(after), '[object Date]', '實際：' + after);
 });
 
@@ -481,7 +481,7 @@ test('19. 人數十二格維持原樣文字，-- 與「前:5 / 後:120」不變'
   });
   env.sandbox.applyContentImport_(QUARTER_ID, {});
 
-  const week = env.sandbox.readSheet('BulletinWeeks')
+  const week = env.sandbox.readSheet_('BulletinWeeks')
     .filter(function (r) { return env.sandbox.formatIsoDate_(r.SERVICE_DATE) === '2027-10-03'; })[0];
   assert.strictEqual(week.ATT_ENG_WORSHIP, '57');
   assert.strictEqual(week.ATT_CANE_WORSHIP, '前:5 / 後:120', '原樣保存，不可以被轉成數字');
@@ -497,7 +497,7 @@ test('20. 宣召兩欄寫入 BulletinWeeks（內容表 v2：由「崇拜程序�
   });
   env.sandbox.applyContentImport_(QUARTER_ID, {});
 
-  const week = env.sandbox.readSheet('BulletinWeeks')
+  const week = env.sandbox.readSheet_('BulletinWeeks')
     .filter(function (r) { return env.sandbox.formatIsoDate_(r.SERVICE_DATE) === '2027-10-10'; })[0];
   assert.strictEqual(week.SCRIPTURE_REF, '詩篇 100:1-2');
   assert.strictEqual(week.RESPONSE_HYMN, '普天下當向耶和華歡呼！');
@@ -523,9 +523,9 @@ test('21. apiSaveWeek() 收到七個唯讀區塊的欄位 → 回傳錯誤，沒
     assert.ok(resp.error.message.indexOf(k) !== -1, '訊息要列出是哪幾個欄位：' + resp.error.message);
   });
 
-  assert.strictEqual(env.sandbox.readSheet('BulletinWeeks')[0].SERMON_TITLE, '',
+  assert.strictEqual(env.sandbox.readSheet_('BulletinWeeks')[0].SERMON_TITLE, '',
     '拒絕之後連其他欄位都不可以寫進去');
-  assert.strictEqual(env.sandbox.readSheet('Announcements').length, 0);
+  assert.strictEqual(env.sandbox.readSheet_('Announcements').length, 0);
 });
 
 test('21b. 七個唯讀區塊的欄位清單由 contentImportTargets_() 衍生，不是另抄一份', function () {
@@ -583,8 +583,8 @@ test('23. 由真正入口跑一次整季匯入，不拋錯，而且真的寫入'
   assert.doesNotThrow(function () { env.sandbox.menuImportFromContentSheet_(); });
 
   assert.strictEqual(activeRows(env, 'Announcements').length, 1);
-  assert.strictEqual(env.sandbox.readSheet('BulletinWeeks')[0].SCRIPTURE_REF, '詩篇');
-  assert.strictEqual(env.sandbox.readSheet('ErrorLog').length, 0);
+  assert.strictEqual(env.sandbox.readSheet_('BulletinWeeks')[0].SCRIPTURE_REF, '詩篇');
+  assert.strictEqual(env.sandbox.readSheet_('ErrorLog').length, 0);
 
   const titles = env.uiAlerts.map(function (a) { return a.title; });
   assert.ok(titles.indexOf('匯入完成') !== -1, JSON.stringify(titles));
@@ -595,7 +595,7 @@ test('23c. 單週匯入（apiRunContentImport）寫一行 AuditLog 摘要；預�
     content: { 崇拜程序: [{ SERVICE_DATE: '2027-10-03', SCRIPTURE_REF: '詩篇', RESPONSE_HYMN: '經文', ACTIVE: 'TRUE' }] }
   });
   const summaries = function () {
-    return env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'WEBAPP_CONTENT_IMPORT_WEEK'; });
+    return env.sandbox.readSheet_('AuditLog').filter(function (r) { return r.ACTION === 'WEBAPP_CONTENT_IMPORT_WEEK'; });
   };
 
   env.sandbox.apiPreviewContentImport('2027-10-03');
@@ -619,8 +619,8 @@ test('23b. 選單：使用者在確認對話框選「否」→ 一格都不會�
   });
 
   env.sandbox.menuImportFromContentSheet_();
-  assert.strictEqual(env.sandbox.readSheet('Announcements').length, 0, '確認之前一格都不可以寫');
-  assert.strictEqual(env.sandbox.readSheet('ContentSheets')[0].LAST_IMPORTED_AT, null);
+  assert.strictEqual(env.sandbox.readSheet_('Announcements').length, 0, '確認之前一格都不可以寫');
+  assert.strictEqual(env.sandbox.readSheet_('ContentSheets')[0].LAST_IMPORTED_AT, null);
 });
 
 test('23c. 匯入包在 LockService 內，而且一定會釋放', function () {
@@ -639,7 +639,7 @@ test('23d. 拿不到鎖 → 明確錯誤，不會半途寫入', function () {
   });
   assert.throws(function () { env.sandbox.applyContentImport_(QUARTER_ID, {}); },
     function (err) { return err.code === 'LOCK_TIMEOUT'; });
-  assert.strictEqual(env.sandbox.readSheet('BulletinWeeks')[0].SCRIPTURE_REF, '');
+  assert.strictEqual(env.sandbox.readSheet_('BulletinWeeks')[0].SCRIPTURE_REF, '');
 });
 
 test('24. Diagnostics 的匯入預覽不超過 DIAGNOSTICS_MAX_ROWS', function () {
@@ -656,7 +656,7 @@ test('24. Diagnostics 的匯入預覽不超過 DIAGNOSTICS_MAX_ROWS', function (
   assert.ok(preview.plan.details.length > 40, '應該造出遠多於上限的明細');
 
   env.sandbox.writeDiagnosticsReport_('內容表匯入預覽', env.sandbox.buildContentImportReportLines_(preview));
-  const diagnostics = env.sandbox.readSheet('Diagnostics');
+  const diagnostics = env.sandbox.readSheet_('Diagnostics');
   assert.ok(diagnostics.length <= 40, '實際：' + diagnostics.length);
 });
 
@@ -752,7 +752,7 @@ test('25e. 這個檢查本身有效（反向鎖：口語字真的捉得到）', 
 // =====================================================================
 
 function weekOf(env, iso) {
-  return env.sandbox.readSheet('BulletinWeeks')
+  return env.sandbox.readSheet_('BulletinWeeks')
     .filter(function (r) { return env.sandbox.formatIsoDate_(r.SERVICE_DATE) === iso; })[0];
 }
 
@@ -778,7 +778,7 @@ test('範圍 1. 宣召：只匯入 10-03 → 10-10 的宣召一格都不可以�
   assert.strictEqual(weekOf(env, '2027-10-10').RESPONSE_HYMN, '舊經文乙');
   assert.strictEqual(applied.plan.weekUpdates.length, 1);
   assert.strictEqual(applied.plan.updated, 1, '「修改了幾行」只算選定的那一週');
-  const audit = env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'CONTENT_IMPORT' || r.SHEET_NAME === 'BulletinWeeks'; });
+  const audit = env.sandbox.readSheet_('AuditLog').filter(function (r) { return r.ACTION === 'CONTENT_IMPORT' || r.SHEET_NAME === 'BulletinWeeks'; });
   audit.forEach(function (r) {
     assert.ok(String(r.ROW_KEY).indexOf('2027-10-10') === -1, '範圍外的主日不可以有 AuditLog：' + r.ROW_KEY);
   });
@@ -873,12 +873,12 @@ function setHeaderKey(env, tabName, col, value) {
 function importSnapshot(env) {
   const out = {};
   ['BulletinWeeks', 'Announcements', 'Prayers', 'Fellowships', 'Finance', 'AuditLog', 'FieldOverride', 'WeekSnapshots', 'ContentSheets']
-    .forEach(function (n) { out[n] = JSON.stringify(env.sandbox.readSheet(n)); });
+    .forEach(function (n) { out[n] = JSON.stringify(env.sandbox.readSheet_(n)); });
   return out;
 }
 
 function weekOf(env, iso) {
-  return env.sandbox.readSheet('BulletinWeeks').filter(function (r) { return env.sandbox.formatIsoDate_(r.SERVICE_DATE) === iso; })[0];
+  return env.sandbox.readSheet_('BulletinWeeks').filter(function (r) { return env.sandbox.formatIsoDate_(r.SERVICE_DATE) === iso; })[0];
 }
 
 const WORSHIP_CONTENT = {
@@ -952,7 +952,7 @@ test('V5-5 重設這一週（apiResetWeek）：內容表第 2 行不符 → 整�
     weekRows: [{ SERVICE_DATE: '2027-10-03', QUARTER_ID: QUARTER_ID, SERMON_TITLE: '幹事改的', PRELUDE: '手填序樂' }],
     content: WORSHIP_CONTENT
   });
-  env.sandbox.writeSheet('FieldOverride', [{
+  env.sandbox.writeSheet_('FieldOverride', [{
     SERVICE_DATE: env.sandbox.normalizeDate_('2027-10-03'), FIELD_KEY: 'SERMON_TITLE', OVERRIDE_VALUE: '幹事改的',
     SOURCE_VALUE_AT_OVERRIDE: '', OVERRIDE_AT: new Date(), OVERRIDE_BY: 'x', REASON: '', ACTIVE: true, NOTES: ''
   }]);
@@ -982,7 +982,7 @@ test('V5-6 週欄位類：讀經經文被試算表轉成時間 → 那一格不�
   assert.strictEqual(warning.length, 1, JSON.stringify(result.plan.warnings));
   assert.ok(warning[0].indexOf('「崇拜程序」第 3 行「讀經經文」') !== -1 && warning[0].indexOf('週報保留原值') !== -1, warning[0]);
   assertWrittenChinese(assert, '日期格警告', warning);
-  assert.ok(env.sandbox.readSheet('BulletinWeeks').every(function (r) { return String(r.SCRIPTURE_REF).indexOf('1899') === -1; }));
+  assert.ok(env.sandbox.readSheet_('BulletinWeeks').every(function (r) { return String(r.SCRIPTURE_REF).indexOf('1899') === -1; }));
 });
 
 test('V5-7 清單類：團契「時間」被轉成時間 → 那一行涉及的主日不匯入（既有的行一格不動、不停用），其他主日照常', function () {
@@ -1015,13 +1015,13 @@ test('V5-8 清單類：「連續到」被轉成日期 → 不知道範圍，整�
     { SERVICE_DATE: '2027-10-24', SEQ_NO: '10', TEXT: '乙', ACTIVE: 'TRUE' }
   ] } });
   env.sandbox.applyContentImport_(QUARTER_ID, {});
-  const before = JSON.stringify(env.sandbox.readSheet('Announcements'));
+  const before = JSON.stringify(env.sandbox.readSheet_('Announcements'));
   const tab = env.contentTabs['家事報告'].__data;
   // 2026-10-30（內容表 v4）：「連續到」在 B 欄（index 1）、「內容」在 E 欄（index 4）。
   tab[2][1] = new Date(2027, 9, 10);
   tab[3][4] = '乙改了';
   const result = env.sandbox.applyContentImport_(QUARTER_ID, {});
-  assert.strictEqual(JSON.stringify(env.sandbox.readSheet('Announcements')), before);
+  assert.strictEqual(JSON.stringify(env.sandbox.readSheet_('Announcements')), before);
   assert.ok(result.plan.warnings.some(function (w) { return w.indexOf('整張「家事報告」這一次不匯入') !== -1; }), JSON.stringify(result.plan.warnings));
 });
 
@@ -1054,7 +1054,7 @@ test('V6-1 v4：「崇拜程序」三個值欄全部只可以在內容表輸入�
       c2[key] = '另一週新值';
       const env = makeEnv({ weekRows: [w1, w2], content: { 崇拜程序: [c1, c2] } });
       if (mode === 'OLD_OVERRIDE') {
-        env.sandbox.writeSheet('FieldOverride', [{
+        env.sandbox.writeSheet_('FieldOverride', [{
           SERVICE_DATE: env.sandbox.normalizeDate_('2027-10-03'), FIELD_KEY: key, OVERRIDE_VALUE: '幹事改的',
           SOURCE_VALUE_AT_OVERRIDE: '週報舊值', OVERRIDE_AT: new Date(), OVERRIDE_BY: 'x', REASON: '', ACTIVE: true, NOTES: ''
         }]);

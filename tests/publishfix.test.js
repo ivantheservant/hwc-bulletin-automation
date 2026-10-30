@@ -365,11 +365,11 @@ function publishOnce(env, base64, extra) {
 }
 
 function readPublishLog(env) {
-  return env.sandbox.readSheet(env.sandbox.SHEETS.PUBLISH_LOG);
+  return env.sandbox.readSheet_(env.sandbox.SHEETS.PUBLISH_LOG);
 }
 
 function readErrorLog(env) {
-  return env.sandbox.readSheet(env.sandbox.SHEETS.ERROR_LOG);
+  return env.sandbox.readSheet_(env.sandbox.SHEETS.ERROR_LOG);
 }
 
 /** 在一個暫存目錄裡放幾個假的 .gs，跑 lint-drive-shared 的 lint()。 */
@@ -946,7 +946,7 @@ test('10f. 版本號與 IS_SELFTEST 由同一個判斷得出，不是各自判�
   assert.strictEqual(decl, 1, 'executePublish_ 應該只判斷一次「這一次是不是自測」');
   assert.ok(fn.indexOf('IS_SELFTEST: isSelfTestRun,') !== -1,
     '寫入 PublishLog 那一欄要用同一個變數，否則標籤與版本號可以對不上');
-  assert.ok(fn.indexOf('publishLogRowsOfKind_(readSheet(SHEETS.PUBLISH_LOG), isSelfTestRun)') !== -1,
+  assert.ok(fn.indexOf('publishLogRowsOfKind_(readSheet_(SHEETS.PUBLISH_LOG), isSelfTestRun)') !== -1,
     '版本號要在同一類的行裏面數');
   assert.ok(fn.indexOf('nextPublishVersion_(readOfficialPublishLogRows_()') === -1,
     '版本號不可以用「正式報表」那一支——那正是事故四十六的成因');

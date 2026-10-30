@@ -1007,8 +1007,8 @@ function sortContentListTabs_(spreadsheet) {
  */
 function runNightlyContentSort_(options) {
   var out = [];
-  var sandbox = String(getConfig(CONFIG_KEYS.SELFTEST_QUARTER_ID, '') || '').trim();
-  readSheet(SHEETS.CONTENT_SHEETS).forEach(function (row) {
+  var sandbox = String(getConfig_(CONFIG_KEYS.SELFTEST_QUARTER_ID, '') || '').trim();
+  readSheet_(SHEETS.CONTENT_SHEETS).forEach(function (row) {
     if (row.ACTIVE !== true) return;
     var qid = String(row.QUARTER_ID || '').trim();
     if (!qid || qid === sandbox) return;

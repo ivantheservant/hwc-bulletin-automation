@@ -435,15 +435,15 @@ function fullWeekFields(boot) {
 }
 
 function readPublishLog(env) {
-  return env.sandbox.readSheet(env.sandbox.SHEETS.PUBLISH_LOG);
+  return env.sandbox.readSheet_(env.sandbox.SHEETS.PUBLISH_LOG);
 }
 
 function readSendLog(env) {
-  return env.sandbox.readSheet(env.sandbox.SHEETS.SEND_LOG);
+  return env.sandbox.readSheet_(env.sandbox.SHEETS.SEND_LOG);
 }
 
 function readErrorLog(env) {
-  return env.sandbox.readSheet(env.sandbox.SHEETS.ERROR_LOG);
+  return env.sandbox.readSheet_(env.sandbox.SHEETS.ERROR_LOG);
 }
 
 /** 造一個「今日剛好就是目標主日的前一個星期日」的環境，日期完全正常。 */
@@ -503,7 +503,7 @@ test('3. 建立 master 檔案：ID 寫回 Config，三條連結都用同一個 I
   const env = makeEnv({ noMasterFile: true });
   const result = env.sandbox.ensureMasterPublishFile_();
 
-  const written = env.sandbox.getConfig(env.sandbox.CONFIG_KEYS.PUBLISHED_PDF_FILE_ID, '');
+  const written = env.sandbox.getConfig_(env.sandbox.CONFIG_KEYS.PUBLISHED_PDF_FILE_ID, '');
   assert.strictEqual(written, result.fileId, 'ID 一定要寫回 Config，否則下次又會再建立一個');
 
   assert.strictEqual(result.links.view, 'https://drive.google.com/file/d/' + result.fileId + '/view');
@@ -876,7 +876,7 @@ test('19. 只寄不發佈 → PublishLog 沒有新增', function () {
 test('19b. 只寄出 → AuditLog 寫一行 WEBAPP_SEND_NOTICE（主日、組別、人數、DRY_RUN）；同時發佈則不重複寫', function () {
   const env = makeCleanEnv({ config: { DRY_RUN: 'TRUE', PUBLISH_DEDUP_SEC: '0' } });
   const audit = function () {
-    return env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'WEBAPP_SEND_NOTICE'; });
+    return env.sandbox.readSheet_('AuditLog').filter(function (r) { return r.ACTION === 'WEBAPP_SEND_NOTICE'; });
   };
 
   const result = env.sandbox.runPublishFlow_({
@@ -900,8 +900,8 @@ test('19b. 只寄出 → AuditLog 寫一行 WEBAPP_SEND_NOTICE（主日、組別
     pdfBase64: PDF_BASE64, pdfName: '週報.pdf', groups: ['CC'], customEmails: '', confirmed: true
   });
   assert.strictEqual(both.ok, true, both.message);
-  assert.strictEqual(env2.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'WEBAPP_SEND_NOTICE'; }).length, 0);
-  assert.ok(env2.sandbox.readSheet('AuditLog').some(function (r) { return r.ACTION === 'PUBLISH_BULLETIN'; }));
+  assert.strictEqual(env2.sandbox.readSheet_('AuditLog').filter(function (r) { return r.ACTION === 'WEBAPP_SEND_NOTICE'; }).length, 0);
+  assert.ok(env2.sandbox.readSheet_('AuditLog').some(function (r) { return r.ACTION === 'PUBLISH_BULLETIN'; }));
 });
 
 test('20. v3：只寄不發佈、從未發佈過 → 照寄（不再要求先發佈），信內沒有 master 連結，講明未發佈', function () {
@@ -1318,7 +1318,7 @@ test('G2-1 v3 只寄出、選中 2028-04-09、master 現時是 2027-11-07（經 
 
   assert.ok(done.lines.indexOf('通知信內容：2028-04-09 的預覽連結、本季內容表連結（這一期未發佈，所以沒有 master 連結）。') !== -1,
     done.lines.join('\n'));
-  const audit = env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'WEBAPP_SEND_NOTICE'; });
+  const audit = env.sandbox.readSheet_('AuditLog').filter(function (r) { return r.ACTION === 'WEBAPP_SEND_NOTICE'; });
   assert.strictEqual(audit.length, 1);
   assert.strictEqual(audit[0].ROW_KEY, G2_SELECTED);
   assert.ok(audit[0].NOTES.indexOf('通知的主日：2028-04-09（未發佈，沒有 master 連結）') !== -1, audit[0].NOTES);
@@ -1361,7 +1361,7 @@ test('G2-3 v3 發佈加寄出：主旨是選中的主日、SendLog 狀態 PUBLIS
   assert.strictEqual(done.sent.masterIncluded, true);
   assert.ok(String(logs[0].BODY_PREVIEW).indexOf('這一期已經發佈') !== -1, logs[0].BODY_PREVIEW);
   assert.ok(done.lines.join('\n').indexOf('、master 連結（這一期已發佈）。') !== -1, done.lines.join('\n'));
-  assert.strictEqual(env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'WEBAPP_SEND_NOTICE'; }).length, 0);
+  assert.strictEqual(env.sandbox.readSheet_('AuditLog').filter(function (r) { return r.ACTION === 'WEBAPP_SEND_NOTICE'; }).length, 0);
 });
 
 test('G2-4 v3 只寄出、選中的主日就是 master 現時那一期 → 信內有 master 連結；狀態仍是 SEND_ONLY', function () {
@@ -1407,7 +1407,7 @@ test('G2-5b 讀不到本季內容表的連結 → 照寄，信內寫「讀不到
   assert.strictEqual(result.ok, true, result.message);
   assert.ok(env.mails[0].body.indexOf('（讀不到本季內容表的連結，請聯絡幹事）') !== -1, env.mails[0].body);
   assert.strictEqual(env.mails[0].body.indexOf('本季未有內容表'), -1);
-  assert.ok(env.sandbox.readSheet('ErrorLog').some(function (r) { return r.ERROR_CODE === 'CONTENT_SHEET_LINK_UNREADABLE'; }));
+  assert.ok(env.sandbox.readSheet_('ErrorLog').some(function (r) { return r.ERROR_CODE === 'CONTENT_SHEET_LINK_UNREADABLE'; }));
 });
 
 test('G2-6 v3 只寄出、正式 master 而 PublishLog 只有自測的行 → 照寄，沒有 master 連結（自測那一期不算正式 master 那一期）', function () {
@@ -1473,7 +1473,7 @@ test('G10-1 v3 只寄出、選中的主日就是 master 那一期而版本號空
   assert.strictEqual(done.sent.masterIncluded, true);
   assert.strictEqual(done.sent.noticeVersionNo, null, '讀不到就是 null，不是 0');
 
-  const audit = env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'WEBAPP_SEND_NOTICE'; })[0];
+  const audit = env.sandbox.readSheet_('AuditLog').filter(function (r) { return r.ACTION === 'WEBAPP_SEND_NOTICE'; })[0];
   const subject = readSendLog(env)[0].SUBJECT;
   const everything = [done.lines.join('\n'), subject, audit.NOTES].join('\n');
   assert.strictEqual(everything.indexOf('第 0 版'), -1, everything);
@@ -1523,7 +1523,7 @@ test('G22-1 真正入口 apiRunPublish：只寄出同一份 payload 連續兩次
   assert.ok(second.data.message.indexOf('1 個收件人，模擬模式只有記錄），為免重複，這次沒有再寄。') !== -1, second.data.message);
   assert.ok(second.data.message.indexOf('請 ' + G22_DEDUP_SEC + ' 秒之後再按') !== -1, '時窗跟 Config：' + second.data.message);
   assert.strictEqual(readSendLog(env).length, 1, 'SendLog 只有一行');
-  const audit = env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'WEBAPP_SEND_NOTICE'; });
+  const audit = env.sandbox.readSheet_('AuditLog').filter(function (r) { return r.ACTION === 'WEBAPP_SEND_NOTICE'; });
   assert.strictEqual(audit.length, 1);
   assertWrittenChinese(assert, 'G22 防重複訊息', second.data.message);
 });
@@ -1538,7 +1538,7 @@ test('G22-2 不算重複：收件人不同（改寄另一組）照寄；上一�
   const later = makeG22Env();
   later.sandbox.apiRunPublish(Object.assign({}, G22_PAYLOAD));
   // 不等真時間：把那一行的時間撥前 SEND_ONLY_DEDUP_SEC + 1 秒（由 Config 現值算，見 bug class 115）。
-  // 用儲存格原值的建構子造新的 Date（sandbox 那一個 realm），readSheet() 才認得。
+  // 用儲存格原值的建構子造新的 Date（sandbox 那一個 realm），readSheet_() 才認得。
   const sheet = later.sandbox.SpreadsheetApp.getActiveSpreadsheet().getSheetByName('SendLog');
   const cell = sheet.getRange(3, later.sandbox.COLUMNS.SEND_LOG.keys.indexOf('TIMESTAMP') + 1);
   const stamp = cell.getValue();
@@ -1571,12 +1571,12 @@ test('G22-3 findRecentNoticeBatch_：全部 FAILED 的一批不算（一封都�
   assert.strictEqual(found.recipientCount, 1);
 });
 
-test('G22-5 改正 G22(b) 第一版的說法：正式環境 readSheet() 的 DATE 欄經 normalizeDate_()，Date 原樣回傳、時分秒仍在；丟時分秒的是假工作表（keepDateTime 之外）', function () {
+test('G22-5 改正 G22(b) 第一版的說法：正式環境 readSheet_() 的 DATE 欄經 normalizeDate_()，Date 原樣回傳、時分秒仍在；丟時分秒的是假工作表（keepDateTime 之外）', function () {
   const s = makeG22Env().sandbox;
   const d = s.normalizeDate_('2027-11-07');   // sandbox 那一個 realm 的 Date
   d.setHours(10, 4, 37);
   const back = s.normalizeByType_(s.COLUMN_TYPES.DATE, d, { sheet: 'SendLog', key: 'TIMESTAMP', row: 3 });
-  assert.strictEqual(back.getTime(), d.getTime(), 'readSheet() 用的正規化不截時分秒');
+  assert.strictEqual(back.getTime(), d.getTime(), 'readSheet_() 用的正規化不截時分秒');
   const { toRealmSafeCellValue } = require('./helpers/fakeSpreadsheet');
   assert.strictEqual(toRealmSafeCellValue(d), '2027-11-07', '假工作表平常會把 Date 存成日期字串（所以要 keepDateTime）');
 });
@@ -1739,7 +1739,7 @@ function lockThatRunsFirst(env, beforeGrant) {
 }
 
 function appendPublishLogRow(env, row) {
-  env.sandbox.writeSheet(env.sandbox.SHEETS.PUBLISH_LOG, [Object.assign({
+  env.sandbox.writeSheet_(env.sandbox.SHEETS.PUBLISH_LOG, [Object.assign({
     VERSION_NO: 1, PUBLISHED_BY: 'other@example.com', ARCHIVE_FILE_ID: 'NEW1', SENT: false,
     SENT_GROUPS: '', MISSING_COUNT: 0, FORCED: false, FORCED_REASON: ''
   }, row)]);

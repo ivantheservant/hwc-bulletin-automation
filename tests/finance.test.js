@@ -122,7 +122,7 @@ test('F-4 apiRunQuarterContentImport：報告標題、附註、銀行結餘匯�
   const sb = env.sandbox;
   const imp = sb.apiRunQuarterContentImport(contentEnv.QUARTER_ID);
   assert.strictEqual(imp.data.ok, true, JSON.stringify(imp.data));
-  const rows = sb.readSheet('Finance').filter(function (r) { return r.ACTIVE === true; });
+  const rows = sb.readSheet_('Finance').filter(function (r) { return r.ACTIVE === true; });
   assert.strictEqual(rows.length, 3, '「有效」留空當作 TRUE');
   assert.strictEqual(rows[0].REPORT_NOTE, '*收入: 常費');
   assert.strictEqual(rows[0].REPORT_BALANCE, '截至9月份 銀行結餘：$123,456。');
@@ -193,7 +193,7 @@ function wordEnvWithFinance(financeRows) {
       { SERVICE_DATE: D_NEXT, QUARTER_ID: '2027T4', WEEK_OF_MONTH: 2, STATUS: 'DRAFT', SERMON_TITLE: '講題二' }
     ]
   });
-  env.sandbox.writeSheet('Finance', financeRows);
+  env.sandbox.writeSheet_('Finance', financeRows);
   return env;
 }
 

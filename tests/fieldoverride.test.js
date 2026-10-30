@@ -211,7 +211,7 @@ function makeEnv(options) {
 }
 
 function rows(env, sheetId) {
-  return env.sandbox.readSheet(env.sandbox.SHEETS[sheetId]);
+  return env.sandbox.readSheet_(env.sandbox.SHEETS[sheetId]);
 }
 
 /** 讀某一張內容表分頁的資料列（第 3 行起）。 */

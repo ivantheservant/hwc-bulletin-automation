@@ -192,7 +192,7 @@ function rowBelongsToQuarter_(row, isoDateSet) {
  *     fellowships:Object[], finance:Object[]}}
  */
 function readQuarterDataForBackup_(quarterId) {
-  var weekRows = readSheet(SHEETS.BULLETIN_WEEKS).filter(function (r) {
+  var weekRows = readSheet_(SHEETS.BULLETIN_WEEKS).filter(function (r) {
     return String(r.QUARTER_ID || '') === quarterId;
   });
 
@@ -203,7 +203,7 @@ function readQuarterDataForBackup_(quarterId) {
   });
 
   function listRows(sheetName) {
-    return readSheet(sheetName).filter(function (r) { return rowBelongsToQuarter_(r, isoDateSet); });
+    return readSheet_(sheetName).filter(function (r) { return rowBelongsToQuarter_(r, isoDateSet); });
   }
 
   return {
@@ -229,7 +229,7 @@ function createFillBackup_(quarterId, reason) {
   var data = readQuarterDataForBackup_(quarterId);
   var payload = buildBackupPayload_(Object.assign({ quarterId: quarterId }, data));
 
-  var timezone = getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland');
+  var timezone = getConfig_(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland');
   var now = new Date();
   // ⚠️ 要把**全部**季度的既有編號都傳進去避開撞名，不只本季——編號本身
   // 已經含季度，理論上不會跨季撞，但多比一次沒有成本。
@@ -253,7 +253,7 @@ function createFillBackup_(quarterId, reason) {
     };
   });
 
-  writeSheet(SHEETS.FILL_BACKUP, rows);
+  writeSheet_(SHEETS.FILL_BACKUP, rows);
 
   appendAuditLog_({
     action: 'FILL_BACKUP_CREATE', sheetName: SHEETS.FILL_BACKUP,
@@ -336,7 +336,7 @@ function listFillBackups_(quarterId) {
  */
 function readFillBackupRowsSafe_() {
   try {
-    return readSheet(SHEETS.FILL_BACKUP);
+    return readSheet_(SHEETS.FILL_BACKUP);
   } catch (err) {
     return [];
   }
@@ -367,7 +367,7 @@ function backupIdsToPrune_(groups, keep) {
  *   {number} 刪除的**備份數**（不是行數）。
  */
 function pruneOldBackups_(quarterId) {
-  var keep = normalizeInt_(getConfig(CONFIG_KEYS.FILL_BACKUP_KEEP, '20'));
+  var keep = normalizeInt_(getConfig_(CONFIG_KEYS.FILL_BACKUP_KEEP, '20'));
   var groups = listFillBackups_(quarterId);
   var doomed = backupIdsToPrune_(groups, keep);
   if (doomed.length === 0) return 0;
@@ -384,7 +384,7 @@ function pruneOldBackups_(quarterId) {
   if (lastRow > 2) {
     sheet.getRange(3, 1, lastRow - 2, COLUMNS.FILL_BACKUP.keys.length).clearContent();
   }
-  if (kept.length > 0) writeSheet(SHEETS.FILL_BACKUP, kept);
+  if (kept.length > 0) writeSheet_(SHEETS.FILL_BACKUP, kept);
 
   appendAuditLog_({
     action: 'FILL_BACKUP_PRUNE', sheetName: SHEETS.FILL_BACKUP,

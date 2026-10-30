@@ -258,7 +258,7 @@ function backfillRosterForQuarter_(quarterId) {
   }
 
   var def = COLUMNS.BULLETIN_WEEKS;
-  var allRows = readSheet(SHEETS.BULLETIN_WEEKS);
+  var allRows = readSheet_(SHEETS.BULLETIN_WEEKS);
   var targets = [];
   allRows.forEach(function (row, index) {
     if (String(row.QUARTER_ID || '').trim() !== qid) return;
@@ -342,7 +342,7 @@ function backfillRosterForQuarter_(quarterId) {
     }
   });
 
-  var afterRows = readSheet(SHEETS.BULLETIN_WEEKS).filter(function (r) {
+  var afterRows = readSheet_(SHEETS.BULLETIN_WEEKS).filter(function (r) {
     return String(r.QUARTER_ID || '').trim() === qid;
   });
   var statusAfter = countRosterStatuses_(afterRows);
@@ -486,7 +486,7 @@ function buildRosterBackfillMessage_(input) {
  */
 function listQuartersWithRosterGaps_() {
   var byQuarter = {};
-  regularWeekRows_(readSheet(SHEETS.BULLETIN_WEEKS)).forEach(function (row) {
+  regularWeekRows_(readSheet_(SHEETS.BULLETIN_WEEKS)).forEach(function (row) {
     var qid = String(row.QUARTER_ID || '').trim();
     if (!qid) return;
     if (!byQuarter[qid]) {
@@ -518,7 +518,7 @@ function listQuartersWithRosterGaps_() {
  */
 function rosterGapBannerForQuarter_(quarterId) {
   var qid = String(quarterId || '').trim();
-  var counts = countRosterStatuses_(regularWeekRows_(readSheet(SHEETS.BULLETIN_WEEKS)).filter(function (row) {
+  var counts = countRosterStatuses_(regularWeekRows_(readSheet_(SHEETS.BULLETIN_WEEKS)).filter(function (row) {
     return String(row.QUARTER_ID || '').trim() === qid;
   }));
   var notFound = counts.NOT_FOUND || 0;

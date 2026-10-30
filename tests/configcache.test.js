@@ -4,7 +4,7 @@
  *
  * src/ConfigService.gs 移除跨執行快取層之後的回歸測試（見
  * docs/已知bug類型.md 事故三）：
- *   1. getConfig() 在同一次執行內只讀 Config 工作表一次（記憶體快取有效）。
+ *   1. getConfig_() 在同一次執行內只讀 Config 工作表一次（記憶體快取有效）。
  *   2. 原始碼內不再出現任何跨執行快取服務的呼叫。
  *
  * 執行方式：node tests/configcache.test.js
@@ -43,10 +43,10 @@ function test(name, fn) {
 }
 
 // =====================================================================
-// 1. getConfig() 在同一次執行內只讀 Config 工作表一次
+// 1. getConfig_() 在同一次執行內只讀 Config 工作表一次
 // =====================================================================
 
-test('getConfig()：同一次執行內只會真正讀一次 Config 工作表（記憶體快取有效）', function () {
+test('getConfig_()：同一次執行內只會真正讀一次 Config 工作表（記憶體快取有效）', function () {
   const sandbox = loadAllSrcFilesInOrder(GAS_STUBS);
   const configSheet = makeFakeSheet(
     sandbox.COLUMNS.CONFIG.headers, sandbox.COLUMNS.CONFIG.keys,
@@ -65,20 +65,20 @@ test('getConfig()：同一次執行內只會真正讀一次 Config 工作表（�
   };
   const s = loadAllSrcFilesInOrder(Object.assign({}, GAS_STUBS, { SpreadsheetApp: FakeApp }));
 
-  assert.strictEqual(s.getConfig('DRY_RUN'), 'TRUE');
+  assert.strictEqual(s.getConfig_('DRY_RUN'), 'TRUE');
   const countAfterFirst = getRangeCallCount;
   assert.ok(countAfterFirst > 0, '第一次呼叫應該真的讀了 Config 工作表');
 
-  s.getConfig('DRY_RUN');
-  s.getConfig('SOME_OTHER_KEY', 'fallback');
-  s.getConfig('DRY_RUN');
+  s.getConfig_('DRY_RUN');
+  s.getConfig_('SOME_OTHER_KEY', 'fallback');
+  s.getConfig_('DRY_RUN');
   assert.strictEqual(
     getRangeCallCount, countAfterFirst,
-    '同一次執行內，第二次以後呼叫 getConfig() 不應該再讀 Config 工作表（次數：' + getRangeCallCount + '，第一次之後應該保持 ' + countAfterFirst + '）'
+    '同一次執行內，第二次以後呼叫 getConfig_() 不應該再讀 Config 工作表（次數：' + getRangeCallCount + '，第一次之後應該保持 ' + countAfterFirst + '）'
   );
 });
 
-test('clearConfigCache_()：清快取之後，下一次 getConfig() 會重新讀一次工作表', function () {
+test('clearConfigCache_()：清快取之後，下一次 getConfig_() 會重新讀一次工作表', function () {
   const sandbox = loadAllSrcFilesInOrder(GAS_STUBS);
   const configSheet = makeFakeSheet(
     sandbox.COLUMNS.CONFIG.headers, sandbox.COLUMNS.CONFIG.keys,
@@ -95,13 +95,13 @@ test('clearConfigCache_()：清快取之後，下一次 getConfig() 會重新讀
   };
   const s = loadAllSrcFilesInOrder(Object.assign({}, GAS_STUBS, { SpreadsheetApp: FakeApp }));
 
-  s.getConfig('DRY_RUN');
+  s.getConfig_('DRY_RUN');
   const countAfterFirst = getRangeCallCount;
-  s.getConfig('DRY_RUN');
+  s.getConfig_('DRY_RUN');
   assert.strictEqual(getRangeCallCount, countAfterFirst, '清快取之前不應該重讀');
 
   s.clearConfigCache_();
-  s.getConfig('DRY_RUN');
+  s.getConfig_('DRY_RUN');
   assert.ok(getRangeCallCount > countAfterFirst, 'clearConfigCache_() 之後應該重新讀一次工作表');
 });
 

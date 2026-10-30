@@ -104,7 +104,7 @@ function basicPayload(overrides) {
 
 /** 跑一次儲存，回報「有沒有被拒、錯誤碼、寫了多少筆 AuditLog」。 */
 function attemptSave(env, payload) {
-  const auditBefore = env.sandbox.readSheet(env.sandbox.SHEETS.AUDIT_LOG).length;
+  const auditBefore = env.sandbox.readSheet_(env.sandbox.SHEETS.AUDIT_LOG).length;
   let rejected = false;
   let code = '';
   let message = '';
@@ -115,7 +115,7 @@ function attemptSave(env, payload) {
     code = (err && err.code) || '';
     message = (err && err.message) || String(err);
   }
-  const auditAfter = env.sandbox.readSheet(env.sandbox.SHEETS.AUDIT_LOG).length;
+  const auditAfter = env.sandbox.readSheet_(env.sandbox.SHEETS.AUDIT_LOG).length;
   return { rejected: rejected, code: code, message: message, auditWritten: auditAfter - auditBefore };
 }
 
@@ -381,10 +381,10 @@ test('4d. 內容表 v4（2026-10-30）：宣召兩欄、序樂、詩歌頌讚、
   };
   const r = attemptSave(env, basicPayload({ week: week }));
   assert.strictEqual(r.rejected, false, r.message);
-  const saved = env.sandbox.readSheet('BulletinWeeks')[0];
+  const saved = env.sandbox.readSheet_('BulletinWeeks')[0];
   Object.keys(week).forEach(function (k) { assert.strictEqual(saved[k], week[k], k); });
   assert.ok(r.auditWritten >= 6, '逐格 AuditLog：' + r.auditWritten);
-  assert.strictEqual(env.sandbox.readSheet('FieldOverride').length, 0);
+  assert.strictEqual(env.sandbox.readSheet_('FieldOverride').length, 0);
 });
 
 // =====================================================================

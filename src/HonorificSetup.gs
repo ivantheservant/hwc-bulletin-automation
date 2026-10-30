@@ -70,7 +70,7 @@ function normalizeNameForMatch_(name) {
  *   nameMappingRows {Object[]} `readRosterNameMappingRows_()` 的輸出，
  *     每個元素是 `{PersonID, NameTC, Active}`。
  *   existingPersonDisplayRows {Object[]} `PersonDisplay` 工作表現有的
- *     資料列（`readSheet()` 的輸出）。
+ *     資料列（`readSheet_()` 的輸出）。
  * Returns:
  *   {{appends:{PERSON_ID:string, NAME_TC:string, ACTIVE:boolean}[],
  *     addedCount:number, skippedExistingCount:number,
@@ -120,7 +120,7 @@ function buildPersonDisplaySkeletonPlan_(nameMappingRows, existingPersonDisplayR
  *       **不套用**，記進 `conflicts`，交由 Ivan 自己決定；出現多次但
  *       尊稱**相同** → 當一筆處理，正常收進索引。
  * Args:
- *   lookupRows {Object[]} `HonorificLookup` 工作表的資料列（`readSheet()`
+ *   lookupRows {Object[]} `HonorificLookup` 工作表的資料列（`readSheet_()`
  *     的輸出）。
  * Returns:
  *   {{index:Object<string,string>, conflicts:{name:string,honorifics:string[]}[],
@@ -231,7 +231,7 @@ function buildApplyHonorificPlan_(personDisplayRowsWithRowNo, lookupResult) {
  */
 function buildPersonDisplaySkeletonFromRoster_() {
   var nameMappingRows = readRosterNameMappingRows_();
-  var existingRows = readSheet(SHEETS.PERSON_DISPLAY);
+  var existingRows = readSheet_(SHEETS.PERSON_DISPLAY);
   var plan = buildPersonDisplaySkeletonPlan_(nameMappingRows, existingRows);
 
   if (plan.appends.length > 0) {
@@ -242,7 +242,7 @@ function buildPersonDisplaySkeletonFromRoster_() {
         ACTIVE: row.ACTIVE
       };
     });
-    writeSheet(SHEETS.PERSON_DISPLAY, rows);
+    writeSheet_(SHEETS.PERSON_DISPLAY, rows);
 
     plan.appends.forEach(function (row) {
       appendAuditLog_({
@@ -276,7 +276,7 @@ function buildPersonDisplaySkeletonFromRoster_() {
  *     「初始化工作表」）。
  */
 function applyHonorificLookupToPersonDisplay_() {
-  var lookupRows = readSheet(SHEETS.HONORIFIC_LOOKUP);
+  var lookupRows = readSheet_(SHEETS.HONORIFIC_LOOKUP);
   var lookupResult = buildHonorificLookupIndex_(lookupRows);
 
   var personDisplayRows = readRowsWithRowNo_(SHEETS.PERSON_DISPLAY);
@@ -390,7 +390,7 @@ function buildApplyHonorificReportLines_(plan, lookupResult) {
  *   quarterPersons {{personId:string, nameTC:string}[]}
  *     `listRosterQuarterAssignedPersons_()` 回傳的 `persons`。
  *   personDisplayRows {Object[]} `PersonDisplay` 工作表的資料列
- *     （`readSheet()` 的輸出）。
+ *     （`readSheet_()` 的輸出）。
  * Returns:
  *   {{personId:string, nameTC:string}[]} `PersonDisplay` 完全沒有這個
  *     `PersonID`、或者有但 `HONORIFIC` 空白的人，都算「尊稱未設定」。
@@ -425,7 +425,7 @@ function buildHonorificMissingList_(quarterPersons, personDisplayRows) {
  */
 function buildHonorificMissingReport_(isoDate) {
   var quarterInfo = listRosterQuarterAssignedPersons_(isoDate);
-  var personDisplayRows = readSheet(SHEETS.PERSON_DISPLAY);
+  var personDisplayRows = readSheet_(SHEETS.PERSON_DISPLAY);
   var missing = buildHonorificMissingList_(quarterInfo.persons, personDisplayRows);
 
   var lines = [];
@@ -529,7 +529,7 @@ function menuApplyHonorificLookup_() {
 function menuHonorificMissingReport_() {
   var ui = SpreadsheetApp.getUi();
   try {
-    var defaultDate = getConfig(CONFIG_KEYS.ROSTER_TEST_DATE, '2027-10-03');
+    var defaultDate = getConfig_(CONFIG_KEYS.ROSTER_TEST_DATE, '2027-10-03');
     var resp = ui.prompt(
       '尊稱未設定報告',
       '請輸入主日日期，格式 yyyy-MM-dd（例如 ' + defaultDate + '），用來判斷要檢查哪一季：',

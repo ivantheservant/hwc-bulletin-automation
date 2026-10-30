@@ -41,7 +41,7 @@
 /**
  * 用途：把 `SERVICE_DATE` 那一格轉成 `yyyy-MM-dd`。**純函式。**
  *
- *   ⚠️ 要同時食得落 `Date` 與字串：`readSheet()` 多數回 `Date`，但工作表
+ *   ⚠️ 要同時食得落 `Date` 與字串：`readSheet_()` 多數回 `Date`，但工作表
  *   那一格如果被人手打成文字就會係字串。`formatIsoDate_()` 只食 `Date`，
  *   直接餵字串會拋 `d.getFullYear is not a function`——而拋喺呢度就等於
  *   整個載入死掉。
@@ -126,7 +126,7 @@ function applyFieldOverrides_(weekValues, isoDate, overrideIndex) {
  *   一張新表未建立而整條死掉。
  *
  *   ⚠️ **匯入那條路刻意不用這一支**（見 `previewContentImport_()` 直接
- *   `readSheet(SHEETS.FIELD_OVERRIDE)`）：讀不到覆寫而照樣匯入，等於把
+ *   `readSheet_(SHEETS.FIELD_OVERRIDE)`）：讀不到覆寫而照樣匯入，等於把
  *   幹事改過的值靜靜蓋走。讀的路可以容忍，**寫的路一定要拋錯**。
  * Args:
  *   isoDate {string} 主日日期。
@@ -215,7 +215,7 @@ function fieldOverrideNormalize_(value) {
  * 用途：把一批覆寫寫入 `FieldOverride`（upsert，**不刪行**）。
  *
  *   ⚠️ 寫法照抄 `applyDutyOverridePlan_()`：逐格 `setValue()` 改既有行、
- *   新行才 `writeSheet()`。稽核記錄由呼叫方統一寫出去（累積在
+ *   新行才 `writeSheet_()`。稽核記錄由呼叫方統一寫出去（累積在
  *   `auditEntriesOut`），與事奉覆寫同一條路。
  * Args:
  *   plan {Object} `computeFieldOverridePlan_()` 的輸出。
@@ -244,7 +244,7 @@ function applyFieldOverridePlan_(plan, targetDate, isoDate, actorEmail, auditEnt
   // 既有行的索引：同一個主日＋欄位鍵只可以有一行（包括已停用那些——
   // 停用之後再覆寫，應該改返原本那一行，不是再開一行）。
   //
-  // ⚠️ 一定要用 `readRowsWithRowNo_()`，**不可以**用 `readSheet()`：
+  // ⚠️ 一定要用 `readRowsWithRowNo_()`，**不可以**用 `readSheet_()`：
   //    後者不帶 `__rowNo`，`setCell()` 就會寫去 `undefined` 那一行——
   //    而假替身與真 Apps Script 的報錯完全不同樣，很難查。
   var existingByKey = {};
@@ -304,6 +304,6 @@ function applyFieldOverridePlan_(plan, targetDate, isoDate, actorEmail, auditEnt
     });
   });
 
-  if (appends.length > 0) writeSheet(SHEETS.FIELD_OVERRIDE, appends);
+  if (appends.length > 0) writeSheet_(SHEETS.FIELD_OVERRIDE, appends);
   return { upserted: upserts.length, deactivated: deactivations.length };
 }

@@ -178,18 +178,18 @@ function formatDaylightSavingDate_(isoDate, pattern, timezone) {
  *     endTemplate:string, datePattern:string, timezone:string}}
  */
 function daylightSavingConfig_() {
-  var seq = normalizeInt_(getConfig(CONFIG_KEYS.DST_ANNOUNCEMENT_SEQ, '5'));
+  var seq = normalizeInt_(getConfig_(CONFIG_KEYS.DST_ANNOUNCEMENT_SEQ, '5'));
   return {
-    autoInsert: normalizeBoolean_(getConfig(CONFIG_KEYS.DST_AUTO_INSERT, 'TRUE')) === true,
+    autoInsert: normalizeBoolean_(getConfig_(CONFIG_KEYS.DST_AUTO_INSERT, 'TRUE')) === true,
     seqNo: (seq === null || seq <= 0) ? 5 : seq,
-    startTemplate: String(getConfig(CONFIG_KEYS.DST_START_ANNOUNCEMENT, '') || ''),
-    endTemplate: String(getConfig(CONFIG_KEYS.DST_END_ANNOUNCEMENT, '') || ''),
+    startTemplate: String(getConfig_(CONFIG_KEYS.DST_START_ANNOUNCEMENT, '') || ''),
+    endTemplate: String(getConfig_(CONFIG_KEYS.DST_END_ANNOUNCEMENT, '') || ''),
     // ⚠️ 跟隨**現有**的日期格式設定（`DATE_FORMAT_INLINE`，人數表與下週事奉
     //    標題括號內用的那一個）。實際週報寫過 `28/9` 與 `4月5日` 兩種，
     //    兩種都不等於這個設定的預設值 `dd/MM/yyyy`——見 docs/待確認事項.md
     //    U-3。要改樣式就改那一個 Config 鍵，不要在這裡寫死。
-    datePattern: String(getConfig(CONFIG_KEYS.DATE_FORMAT_INLINE, 'dd/MM/yyyy') || 'dd/MM/yyyy'),
-    timezone: getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland')
+    datePattern: String(getConfig_(CONFIG_KEYS.DATE_FORMAT_INLINE, 'dd/MM/yyyy') || 'dd/MM/yyyy'),
+    timezone: getConfig_(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland')
   };
 }
 

@@ -752,18 +752,56 @@ test('11c. 樣本只喺新建立嗰陣寫；刷新唔會再加多一次', functi
   assert.strictEqual(sheet.getLastRow(), before, '刷新唔可以再加一次樣本');
 });
 
-test('12. 分享權限係網域（唔係任何人）；2026-10-30 起預設 CONTENT_SHEET_LINK_ACCESS=VIEW：Recipients 有編輯者就網域只可以看', function () {
-  const env = makeEnv({});
+function fakeDriveAdvanced(env, opts) {
+  const o = opts || {};
+  const calls = { created: [] };
+  env.sandbox.Drive = {
+    Permissions: {
+      list: function (fileId, params) {
+        if (o.listFails) throw new Error('假的：讀不到權限');
+        if (!params.pageToken) return { permissions: [{ emailAddress: 'already@x.com', role: 'writer', type: 'user' }], nextPageToken: 'P2' };
+        return { permissions: [{ emailAddress: 'org@x.com', role: 'organizer', type: 'user' }] };
+      },
+      create: function (resource, fileId, params) {
+        if (o.createFails) throw new Error('假的：加不到');
+        calls.created.push({ email: resource.emailAddress, role: resource.role, notify: params.sendNotificationEmail, allDrives: params.supportsAllDrives });
+      }
+    }
+  };
+  return calls;
+}
+
+test('12. 分享權限係網域（唔係任何人）；2026-10-30 起預設 VIEW：先逐個加編輯者（不寄通知信、逐頁讀現有權限），全部成功先改網域只可以看', function () {
+  const env = makeEnv({ recipients: [
+    { GROUP_NAME: 'CC', EMAIL: 'a@x.com', NAME: '甲', ACTIVE: true },
+    { GROUP_NAME: 'DB', EMAIL: 'already@x.com', NAME: '乙', ACTIVE: true },
+    { GROUP_NAME: 'ADMIN', EMAIL: 'org@x.com', NAME: '丙', ACTIVE: true }
+  ] });
+  const calls = fakeDriveAdvanced(env);
   const result = env.sandbox.buildOrRefreshContentSheet_(QUARTER_ID);
   const rec = env.driveFiles[result.fileId];
-  const plan = env.sandbox.previewContentSheetSharing_();
 
   assert.ok(rec, '應該對嗰個檔案設過權限');
   assert.strictEqual(rec.sharing.access, 'DOMAIN', '一定要係 DOMAIN，唔可以係 ANYONE_WITH_LINK');
-  assert.strictEqual(rec.sharing.permission, plan.access, '最後設的權限與計畫一致');
-  assert.strictEqual(plan.access, plan.editors.length > 0 ? 'VIEW' : 'EDIT');
+  assert.strictEqual(rec.sharing.permission, 'VIEW');
+  assert.deepStrictEqual(calls.created.map(function (c) { return c.email; }), ['a@x.com'], '已經是編輯者／管理員（第二頁）的不再加');
+  assert.strictEqual(calls.created[0].notify, false);
+  assert.strictEqual(calls.created[0].allDrives, true);
   assert.strictEqual(rec.movedTo, FAKE_FOLDER_ID, '要搬入指定資料夾');
   assert.strictEqual(result.sharingApplied, true);
+  const lines = env.sandbox.buildContentSheetResultLines_(result).join('\n');
+  assert.ok(lines.indexOf('教會網域內只可以看') !== -1, lines);
+});
+
+test('12d. 獨立審查第 5 項：加不到編輯者 → 網域保持任何人都可以修改，講出來（不可以先改成只可以看）', function () {
+  const env = makeEnv({ recipients: [{ GROUP_NAME: 'CC', EMAIL: 'a@x.com', NAME: '甲', ACTIVE: true }] });
+  fakeDriveAdvanced(env, { createFails: true });
+  const result = env.sandbox.buildOrRefreshContentSheet_(QUARTER_ID);
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(env.driveFiles[result.fileId].sharing.permission, 'EDIT');
+  const lines = env.sandbox.buildContentSheetResultLines_(result).join('\n');
+  assert.ok(lines.indexOf('暫時保持「網域內任何人都可以修改」') !== -1, lines);
+  assert.ok(lines.indexOf('加編輯者 a@x.com') !== -1, lines);
 });
 
 test('12a. 權限計畫（純函式 planContentSheetSharing_）：VIEW＋組別電郵；沒有編輯者就保持 EDIT 並講出來；EDIT；財政報告組別', function () {
@@ -820,14 +858,14 @@ test('12c. 分享失敗唔會令成個建立流程失敗（避免留低孤兒檔
   assert.strictEqual(result.ok, true, '檔案已經建立好，唔可以因為權限設唔到就當成失敗');
   assert.strictEqual(result.sharingApplied, false);
   assert.ok(result.sharingError.length > 0);
-  assert.strictEqual(env.sandbox.readSheet('ContentSheets').length, 1, '照樣要登記，否則會變孤兒檔案');
+  assert.strictEqual(env.sandbox.readSheet_('ContentSheets').length, 1, '照樣要登記，否則會變孤兒檔案');
 });
 
 test('13. ContentSheets 有新增一行，FILE_URL 可用', function () {
   const env = makeEnv({});
   const result = env.sandbox.buildOrRefreshContentSheet_(QUARTER_ID);
 
-  const rows = env.sandbox.readSheet('ContentSheets');
+  const rows = env.sandbox.readSheet_('ContentSheets');
   assert.strictEqual(rows.length, 1);
   assert.strictEqual(rows[0].QUARTER_ID, QUARTER_ID);
   assert.strictEqual(rows[0].FILE_ID, result.fileId);
@@ -839,7 +877,7 @@ test('13. ContentSheets 有新增一行，FILE_URL 可用', function () {
 test('13b. 建立會寫一筆 AuditLog，而且唔會記低完整檔案 ID', function () {
   const env = makeEnv({});
   const result = env.sandbox.buildOrRefreshContentSheet_(QUARTER_ID);
-  const audit = env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'CONTENT_SHEET_CREATE'; });
+  const audit = env.sandbox.readSheet_('AuditLog').filter(function (r) { return r.ACTION === 'CONTENT_SHEET_CREATE'; });
   assert.strictEqual(audit.length, 1);
   assert.strictEqual(audit[0].NEW_VALUE.indexOf(result.fileId), -1, '完整檔案 ID 唔應該散落喺 AuditLog');
 });
@@ -855,7 +893,7 @@ test('14. 寄連結：未建立 → 提示先建立，唔寄', function () {
   assert.strictEqual(result.reason, 'NO_CONTENT_SHEET');
   assert.ok(result.message.indexOf('建立本季內容表') !== -1, result.message);
   assert.strictEqual(env.mail.calls.length, 0);
-  assert.strictEqual(env.sandbox.readSheet('SendLog').length, 0);
+  assert.strictEqual(env.sandbox.readSheet_('SendLog').length, 0);
 });
 
 test('15. 寄連結：DRY_RUN=TRUE → SendLog 有記錄、冇真係寄', function () {
@@ -868,7 +906,7 @@ test('15. 寄連結：DRY_RUN=TRUE → SendLog 有記錄、冇真係寄', functi
   assert.strictEqual(result.recipientCount, 2);
   assert.strictEqual(env.mail.calls.length, 0, 'DRY_RUN 一封都唔可以真係寄');
 
-  const log = env.sandbox.readSheet('SendLog');
+  const log = env.sandbox.readSheet_('SendLog');
   assert.strictEqual(log.length, 2);
   log.forEach(function (r) {
     assert.strictEqual(r.STATUS, 'CONTENT_SHEET_INVITE');
@@ -894,10 +932,10 @@ test('15b. 寄連結：DRY_RUN=FALSE → 真係寄，信入面有連結同三條
 test('16. 寄連結：更新 INVITE_SENT_AT', function () {
   const env = makeEnv({});
   env.sandbox.buildOrRefreshContentSheet_(QUARTER_ID);
-  assert.strictEqual(env.sandbox.readSheet('ContentSheets')[0].INVITE_SENT_AT, null);
+  assert.strictEqual(env.sandbox.readSheet_('ContentSheets')[0].INVITE_SENT_AT, null);
 
   env.sandbox.sendContentSheetInvite_(QUARTER_ID);
-  const after = env.sandbox.readSheet('ContentSheets')[0];
+  const after = env.sandbox.readSheet_('ContentSheets')[0];
   assert.ok(isDate(after.INVITE_SENT_AT), '寄完要更新 INVITE_SENT_AT，實際：' + after.INVITE_SENT_AT);
 });
 
@@ -931,7 +969,7 @@ test('17b. 自動提前寄：DRY_RUN 唔會消耗指紋（試行之後仍然寄�
   const env = makeEnv({ todayIso: '2027-11-01', config: { DRY_RUN: 'TRUE' } });
   env.sandbox.autoCreateContentSheetsForUpcomingQuarters_();
 
-  const fingerprints = env.sandbox.readSheet('ConflictNoticeLog');
+  const fingerprints = env.sandbox.readSheet_('ConflictNoticeLog');
   assert.strictEqual(fingerprints.length, 0, '試行唔可以記指紋——指紋係狀態');
 
   const second = env.sandbox.autoCreateContentSheetsForUpcomingQuarters_();
@@ -974,8 +1012,8 @@ test('19. 由真正入口（選單函式）跑一次建立同一次寄出，唔�
   assert.doesNotThrow(function () { env.sandbox.menuSendContentSheetInvite_(); });
 
   assert.strictEqual(Object.keys(env.createdSpreadsheets).length, 1);
-  assert.strictEqual(env.sandbox.readSheet('SendLog').length, 2);
-  assert.strictEqual(env.sandbox.readSheet('ErrorLog').length, 0, '唔應該有任何錯誤記錄');
+  assert.strictEqual(env.sandbox.readSheet_('SendLog').length, 2);
+  assert.strictEqual(env.sandbox.readSheet_('ErrorLog').length, 0, '唔應該有任何錯誤記錄');
 
   const titles = env.uiAlerts.map(function (a) { return a.title; });
   assert.ok(titles.indexOf('已建立內容表') !== -1, JSON.stringify(titles));
@@ -991,7 +1029,7 @@ test('20. 週報試算表嘅五張舊表完全冇被改動', function () {
   const env = makeEnv({});
   const watched = ['Announcements', 'Prayers', 'Fellowships', 'Finance', 'BulletinWeeks'];
   const before = {};
-  watched.forEach(function (name) { before[name] = JSON.stringify(env.sheets[name].__data || env.sandbox.readSheet(name)); });
+  watched.forEach(function (name) { before[name] = JSON.stringify(env.sheets[name].__data || env.sandbox.readSheet_(name)); });
 
   env.sandbox.buildOrRefreshContentSheet_(QUARTER_ID);
   env.sandbox.sendContentSheetInvite_(QUARTER_ID);
@@ -999,7 +1037,7 @@ test('20. 週報試算表嘅五張舊表完全冇被改動', function () {
 
   watched.forEach(function (name) {
     assert.strictEqual(
-      JSON.stringify(env.sheets[name].__data || env.sandbox.readSheet(name)), before[name],
+      JSON.stringify(env.sheets[name].__data || env.sandbox.readSheet_(name)), before[name],
       name + ' 呢一輪一格都唔應該郁——匯入係下一輪先做'
     );
   });

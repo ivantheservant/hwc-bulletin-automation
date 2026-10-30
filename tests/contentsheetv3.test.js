@@ -74,7 +74,7 @@ function makeV2Env(extra) {
 }
 
 function seedOverrides(env) {
-  env.sandbox.writeSheet('FieldOverride', [
+  env.sandbox.writeSheet_('FieldOverride', [
     overrideRow(env, D2, 'SERMON_TITLE', '介面的講題', ''),
     overrideRow(env, D3, 'RESPONSE_HYMN', '介面的詩', '內容表舊的詩'),
     overrideRow(env, D4, 'BAPTISM_MEMBERS', '介面的名單', '內容表的名單')
@@ -102,7 +102,7 @@ function worshipRows(env) {
 function rowOf(env, iso) { return worshipRows(env).filter(function (r) { return String(r.SERVICE_DATE) === iso; })[0]; }
 
 function weekOf(env, iso) {
-  return env.sandbox.readSheet('BulletinWeeks').filter(function (r) { return env.sandbox.formatIsoDate_(r.SERVICE_DATE) === iso; })[0];
+  return env.sandbox.readSheet_('BulletinWeeks').filter(function (r) { return env.sandbox.formatIsoDate_(r.SERVICE_DATE) === iso; })[0];
 }
 
 function contentSnapshot(env) {
@@ -154,11 +154,11 @@ test('V3-1 真入口 apiRunContentSheetBuild：浸禮六欄搬入週報（覆寫
   // 第 3 步：覆寫
   assert.strictEqual(rowOf(env, D2).SERMON_TITLE, '介面的講題', '內容表空白 → 寫入介面的值（印出來的不變）');
   assert.strictEqual(rowOf(env, D3).RESPONSE_HYMN, '內容表的詩', '內容表有不同的值 → 保留內容表');
-  const ov = env.sandbox.readSheet('FieldOverride');
+  const ov = env.sandbox.readSheet_('FieldOverride');
   assert.strictEqual(ov.length, 3, '不刪行');
   assert.ok(ov.every(function (r) { return r.ACTIVE === false; }), '全部停用：' + JSON.stringify(plain(ov)));
 
-  const audit = env.sandbox.readSheet('AuditLog');
+  const audit = env.sandbox.readSheet_('AuditLog');
   assert.strictEqual(audit.filter(function (r) { return r.ACTION === 'CONTENT_SHEET_UPGRADE_V3'; }).length, 2, '週報兩格逐格記錄（D1 兩格）');
   assert.strictEqual(audit.filter(function (r) { return r.ACTION === 'FIELD_OVERRIDE_RETIRE_V3'; }).length, 3);
   assert.ok(audit.some(function (r) { return r.ACTION === 'CONTENT_SHEET_MIGRATE_V3' && String(r.NEW_VALUE).indexOf('刪欄 6') === 0; }));
@@ -174,12 +174,12 @@ test('V3-2 預覽（apiPreviewContentSheetBuild）唯讀，講的數字與實際
   const env = makeV2Env();
   seedOverrides(env);
   const before = contentSnapshot(env);
-  const weeksBefore = JSON.stringify(env.sandbox.readSheet('BulletinWeeks'));
+  const weeksBefore = JSON.stringify(env.sandbox.readSheet_('BulletinWeeks'));
   const preview = env.sandbox.apiPreviewContentSheetBuild(QUARTER_ID);
   assert.strictEqual(preview.ok, true, JSON.stringify(preview));
   assert.strictEqual(preview.data.summary.needsMigration, true);
   assert.strictEqual(contentSnapshot(env), before, '預覽一格都不寫');
-  assert.strictEqual(JSON.stringify(env.sandbox.readSheet('BulletinWeeks')), weeksBefore);
+  assert.strictEqual(JSON.stringify(env.sandbox.readSheet_('BulletinWeeks')), weeksBefore);
   const text = preview.data.lines.join('\n');
   ['浸禮副框：會把 1 個主日共 2 格搬入週報', '第 L 至 Q 欄（浸禮六欄）共 3 格有字', '然後會刪走這六欄', '以前在填寫介面改過的 3 格會停用'].forEach(function (piece) {
     assert.ok(text.indexOf(piece) !== -1, '預覽缺少：' + piece + '\n' + text);
@@ -193,12 +193,12 @@ test('V3-3 冪等：做完再按一次，內容表與週報每一格相同，沒
   seedOverrides(env);
   run(env);
   const once = contentSnapshot(env);
-  const weeks = JSON.stringify(env.sandbox.readSheet('BulletinWeeks').map(function (r) { const c = Object.assign({}, r); delete c.LAST_SAVED_AT; return c; }));
+  const weeks = JSON.stringify(env.sandbox.readSheet_('BulletinWeeks').map(function (r) { const c = Object.assign({}, r); delete c.LAST_SAVED_AT; return c; }));
   const preview = env.sandbox.apiPreviewContentSheetBuild(QUARTER_ID).data;
   assert.strictEqual(preview.summary.needsMigration, false, preview.lines.join('\n'));
   run(env);
   assert.strictEqual(contentSnapshot(env), once);
-  assert.strictEqual(JSON.stringify(env.sandbox.readSheet('BulletinWeeks').map(function (r) { const c = Object.assign({}, r); delete c.LAST_SAVED_AT; return c; })), weeks);
+  assert.strictEqual(JSON.stringify(env.sandbox.readSheet_('BulletinWeeks').map(function (r) { const c = Object.assign({}, r); delete c.LAST_SAVED_AT; return c; })), weeks);
 });
 
 test('V3-4 中途失敗（刪欄那一步）之後重跑：結果與一次做完相同；週報那幾格不會重複寫', function () {
@@ -207,7 +207,7 @@ test('V3-4 中途失敗（刪欄那一步）之後重跑：結果與一次做完
   const failed = env.sandbox.apiRunContentSheetBuild(QUARTER_ID);
   assert.ok(failed.ok === false || (failed.data && failed.data.ok === false), JSON.stringify(failed));
   assert.strictEqual(weekOf(env, D1).BAPTISM_OFFICIANT, '張牧師', '第 1 步已經做了');
-  assert.strictEqual(env.sandbox.readSheet('FieldOverride').filter(function (r) { return r.ACTIVE === true; }).length, 3,
+  assert.strictEqual(env.sandbox.readSheet_('FieldOverride').filter(function (r) { return r.ACTIVE === true; }).length, 3,
     '第 3 步未做：覆寫仍然生效（重跑時算出同一個值）');
   env.contentFaults.failOnDeleteColumns = null;
   run(env);
@@ -215,7 +215,7 @@ test('V3-4 中途失敗（刪欄那一步）之後重跑：結果與一次做完
   seedOverrides(reference);
   run(reference);
   assert.strictEqual(contentSnapshot(env), contentSnapshot(reference), '內容表與一次做完的一樣');
-  assert.strictEqual(env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'CONTENT_SHEET_UPGRADE_V3'; }).length, 2,
+  assert.strictEqual(env.sandbox.readSheet_('AuditLog').filter(function (r) { return r.ACTION === 'CONTENT_SHEET_UPGRADE_V3'; }).length, 2,
     '週報兩格只寫一次');
 });
 
@@ -226,13 +226,13 @@ test('V3-5 v2 第 17 欄之後（刪欄之後變成「詩班項目名稱」）�
   while (tab.__data[2].length < 18) tab.__data[2].push('');
   tab.__data[2][17] = '人手備忘';
   const before = contentSnapshot(env);
-  const weeksBefore = JSON.stringify(env.sandbox.readSheet('BulletinWeeks'));
+  const weeksBefore = JSON.stringify(env.sandbox.readSheet_('BulletinWeeks'));
   assert.strictEqual(env.sandbox.apiPreviewContentSheetBuild(QUARTER_ID).data.reason, 'NEW_COLUMNS_NOT_EMPTY');
   const resp = env.sandbox.apiRunContentSheetBuild(QUARTER_ID);
   assert.strictEqual(resp.data.reason, 'NEW_COLUMNS_NOT_EMPTY', JSON.stringify(resp));
   assert.strictEqual(contentSnapshot(env), before);
-  assert.strictEqual(JSON.stringify(env.sandbox.readSheet('BulletinWeeks')), weeksBefore);
-  assert.strictEqual(env.sandbox.readSheet('FieldOverride').filter(function (r) { return r.ACTIVE === true; }).length, 3);
+  assert.strictEqual(JSON.stringify(env.sandbox.readSheet_('BulletinWeeks')), weeksBefore);
+  assert.strictEqual(env.sandbox.readSheet_('FieldOverride').filter(function (r) { return r.ACTIVE === true; }).length, 3);
 });
 
 test('V3-6 更新之前：匯入（apiRunContentImport）整次拒絕並講出要按「更新本季內容表…」；apiLoadWeek 的內容表狀態是 OUTDATED；更新之後照常匯入', function () {
@@ -257,15 +257,15 @@ test('V3-7 星期一自動流程（weeklyBulletinSendTrigger_）遇到 v2 內容
   const before = contentSnapshot(env);
   env.sandbox.weeklyBulletinSendTrigger_();
   assert.strictEqual(contentSnapshot(env), before);
-  const errs = env.sandbox.readSheet('ErrorLog').filter(function (r) { return r.ERROR_CODE === 'CONTENT_SHEET_NEEDS_MIGRATION'; });
-  assert.strictEqual(errs.length, 1, JSON.stringify(env.sandbox.readSheet('ErrorLog').map(function (r) { return r.ERROR_CODE + ' ' + r.MESSAGE; })));
+  const errs = env.sandbox.readSheet_('ErrorLog').filter(function (r) { return r.ERROR_CODE === 'CONTENT_SHEET_NEEDS_MIGRATION'; });
+  assert.strictEqual(errs.length, 1, JSON.stringify(env.sandbox.readSheet_('ErrorLog').map(function (r) { return r.ERROR_CODE + ' ' + r.MESSAGE; })));
 });
 
 test('V3-8 版本記錄：搬入週報之前替受影響的主日各存一個「更新內容表之前」版本', function () {
   const env = makeV2Env();
   seedOverrides(env);
   run(env);
-  const snaps = env.sandbox.readSheet('WeekSnapshots').filter(function (r) { return r.REASON === 'CONTENT_SHEET_UPGRADE'; });
+  const snaps = env.sandbox.readSheet_('WeekSnapshots').filter(function (r) { return r.REASON === 'CONTENT_SHEET_UPGRADE'; });
   const dates = Array.from(new Set(snaps.map(function (r) { return env.sandbox.formatIsoDate_(r.SERVICE_DATE); }))).sort();
   assert.deepStrictEqual(dates, [D1], '只有真的改到週報的主日（D4 週報已經是覆寫值）');
 });
@@ -311,7 +311,7 @@ test('V3-9 刪走浸禮六欄之前整張備份：季度以外、同一主日的
   assert.strictEqual(JSON.stringify(env.contentTabs['崇拜程序'].__data).indexOf('牧師'), -1, '崇拜程序已經沒有浸禮六欄');
   const lines = data.lines.join('\n');
   assert.ok(lines.indexOf('已複製到隱藏分頁「' + BACKUP + '」') !== -1, lines);
-  assert.ok(env.sandbox.readSheet('AuditLog').some(function (r) { return String(r.NEW_VALUE).indexOf('備份') === 0; }));
+  assert.ok(env.sandbox.readSheet_('AuditLog').some(function (r) { return String(r.NEW_VALUE).indexOf('備份') === 0; }));
   assertWrittenChinese(assert, 'V3-9', [pl, lines]);
 
   // 再按一次：已經是 v3，不再備份、不再刪欄；備份分頁原封不動。

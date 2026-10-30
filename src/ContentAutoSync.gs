@@ -109,11 +109,11 @@ function contentAutoSyncTrigger_() {
 function runContentAutoSync_(options) {
   var opts = options || {};
   var todayIso = opts.todayIso || webAppTodayIso_().todayIso;
-  var sandbox = String(getConfig(CONFIG_KEYS.SELFTEST_QUARTER_ID, '') || '').trim();
-  var weekRows = readSheet(SHEETS.BULLETIN_WEEKS);
+  var sandbox = String(getConfig_(CONFIG_KEYS.SELFTEST_QUARTER_ID, '') || '').trim();
+  var weekRows = readSheet_(SHEETS.BULLETIN_WEEKS);
   var out = { quarters: [] };
 
-  var contentRows = readSheet(SHEETS.CONTENT_SHEETS);
+  var contentRows = readSheet_(SHEETS.CONTENT_SHEETS);
   var activeFileIdByQuarter = {};
   contentRows.forEach(function (row) {
     if (row.ACTIVE !== true) return;

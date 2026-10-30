@@ -187,7 +187,7 @@ function runInvariantI01_() {
 function runInvariantI02_() {
   var label = 'I02　BulletinWeeks 的（季度＋主日日期）唯一';
   return runInvariantSafely_('I02', label, function () {
-    var rows = readSheet(SHEETS.BULLETIN_WEEKS);
+    var rows = readSheet_(SHEETS.BULLETIN_WEEKS);
     var seen = {};
     var duplicates = [];
 
@@ -280,7 +280,7 @@ function numberRegistryProbes_(ctx) {
               + '驗了等於沒驗，所以報不適用。'
           };
         }
-        var rowCount = readSheet(SHEETS.BULLETIN_WEEKS).filter(function (r) {
+        var rowCount = readSheet_(SHEETS.BULLETIN_WEEKS).filter(function (r) {
           return String(r.QUARTER_ID || '').trim() === quarterId;
         }).length;
         if (rowCount === 0) {
@@ -296,7 +296,7 @@ function numberRegistryProbes_(ctx) {
       reported: function () { return resolveQuarterServiceDateEntries_(quarterId).dates.length; },
       recount: function () {
         // 2026-10-30：特別崇拜（非主日）不是這一季的主日。
-        return regularWeekRows_(readSheet(SHEETS.BULLETIN_WEEKS)).filter(function (r) {
+        return regularWeekRows_(readSheet_(SHEETS.BULLETIN_WEEKS)).filter(function (r) {
           return String(r.QUARTER_ID || '').trim() === quarterId;
         }).length;
       }
@@ -308,7 +308,7 @@ function numberRegistryProbes_(ctx) {
       recountRule: '數 Announcements 內 SERVICE_DATE = 本主日 且 ACTIVE = TRUE 的行數',
       independence: '完全獨立：reported 走 pickWebAppListItems_（日期比對走 rosterDateMatchesYMD_），recount 走字串日期比對',
       reported: function () {
-        return pickWebAppListItems_(readSheet(SHEETS.ANNOUNCEMENTS), isoDate, ['TEXT']).length;
+        return pickWebAppListItems_(readSheet_(SHEETS.ANNOUNCEMENTS), isoDate, ['TEXT']).length;
       },
       recount: function () { return invariantCountActiveRowsForDate_(SHEETS.ANNOUNCEMENTS, isoDate); }
     },
@@ -319,7 +319,7 @@ function numberRegistryProbes_(ctx) {
       recountRule: '數 Prayers 內 SERVICE_DATE = 本主日 且 ACTIVE = TRUE 的行數',
       independence: '完全獨立（同 N02）',
       reported: function () {
-        return pickWebAppListItems_(readSheet(SHEETS.PRAYERS), isoDate, ['TEXT']).length;
+        return pickWebAppListItems_(readSheet_(SHEETS.PRAYERS), isoDate, ['TEXT']).length;
       },
       recount: function () { return invariantCountActiveRowsForDate_(SHEETS.PRAYERS, isoDate); }
     },
@@ -330,7 +330,7 @@ function numberRegistryProbes_(ctx) {
       recountRule: '數 Fellowships 內 SERVICE_DATE = 本主日 且 ACTIVE = TRUE 的行數',
       independence: '完全獨立（同 N02）',
       reported: function () {
-        return pickWebAppListItems_(readSheet(SHEETS.FELLOWSHIPS), isoDate,
+        return pickWebAppListItems_(readSheet_(SHEETS.FELLOWSHIPS), isoDate,
           ['FELLOWSHIP_NAME', 'MEETING_DATE', 'MEETING_TIME', 'CONTENT']).length;
       },
       recount: function () { return invariantCountActiveRowsForDate_(SHEETS.FELLOWSHIPS, isoDate); }
@@ -342,14 +342,14 @@ function numberRegistryProbes_(ctx) {
       recountRule: '數 Recipients 內 ACTIVE = TRUE 且 GROUP_NAME 屬於 SEND_GROUPS 的行數（電郵格式合法、去重）',
       independence: '部分獨立：共用「合法電郵」與「去重」兩條規則定義，但不共用 buildRecipientList_ 的篩選流程',
       reported: function () {
-        return buildRecipientList_(readSheet(SHEETS.RECIPIENTS),
+        return buildRecipientList_(readSheet_(SHEETS.RECIPIENTS),
           getConfigTextList_(CONFIG_KEYS.SEND_GROUPS, 'CC,DB,ADMIN'), null).recipients.length;
       },
       recount: function () {
         var groups = getConfigTextList_(CONFIG_KEYS.SEND_GROUPS, 'CC,DB,ADMIN');
         var seen = {};
         var count = 0;
-        readSheet(SHEETS.RECIPIENTS).forEach(function (r) {
+        readSheet_(SHEETS.RECIPIENTS).forEach(function (r) {
           if (r.ACTIVE !== true) return;
           if (groups.indexOf(r.GROUP_NAME) === -1) return;
           var email = String(r.EMAIL || '').trim().toLowerCase();
@@ -367,11 +367,11 @@ function numberRegistryProbes_(ctx) {
       recountRule: '取 PublishLog 內該主日的最大 VERSION_NO',
       independence: '完全獨立：reported 走 latestPublishLogRow_（按 PUBLISHED_AT 排序），recount 走「該主日的最大版本號」',
       reported: function () {
-        var latest = latestPublishLogRow_(readSheet(SHEETS.PUBLISH_LOG));
+        var latest = latestPublishLogRow_(readSheet_(SHEETS.PUBLISH_LOG));
         return latest ? Number(latest.VERSION_NO || 0) : 0;
       },
       recount: function () {
-        var rows = readSheet(SHEETS.PUBLISH_LOG);
+        var rows = readSheet_(SHEETS.PUBLISH_LOG);
         var latest = latestPublishLogRow_(rows);
         if (!latest) return 0;
         var targetIso = publishRowIsoDate_(latest);
@@ -436,7 +436,7 @@ function invariantCountActiveRowsForDate_(sheetName, isoDate) {
   var target = String(isoDate || '').trim();
   if (!target) return 0;
 
-  return readSheet(sheetName).filter(function (r) {
+  return readSheet_(sheetName).filter(function (r) {
     if (r.ACTIVE !== true) return false;
     var v = r.SERVICE_DATE;
     var iso = (Object.prototype.toString.call(v) === '[object Date]')
@@ -473,7 +473,7 @@ function runInvariantI03_(ctx) {
     probes.forEach(function (p) { probeById[p.id] = p; });
 
     // ---- 登記表與實作有沒有對齊 ----
-    var registryRows = readSheet(SHEETS.NUMBER_REGISTRY).filter(function (r) { return r.ACTIVE === true; });
+    var registryRows = readSheet_(SHEETS.NUMBER_REGISTRY).filter(function (r) { return r.ACTIVE === true; });
     var registeredIds = registryRows.map(function (r) { return String(r.REGISTRY_ID || '').trim(); });
     var missingImpl = registeredIds.filter(function (id) { return id && !probeById[id]; });
     var missingRegistration = probes.map(function (p) { return p.id; })
@@ -584,7 +584,7 @@ function invariantDefaultContext_() {
     if (!resolution.ok) return empty;
 
     var quarterId = resolution.quarterId;
-    var isoDates = regularWeekRows_(readSheet(SHEETS.BULLETIN_WEEKS))
+    var isoDates = regularWeekRows_(readSheet_(SHEETS.BULLETIN_WEEKS))
       .filter(function (r) { return String(r.QUARTER_ID || '').trim() === quarterId; })
       .map(function (r) {
         return (Object.prototype.toString.call(r.SERVICE_DATE) === '[object Date]')
@@ -609,7 +609,7 @@ function invariantDefaultContext_() {
  *
  *   ⚠️ 只看**最近一批**：`SendLog` 是累積的，整張表的行數跟任何一次
  *   preview 都對不上。「一批」的定義是同一個 `TIMESTAMP` 分鐘、同一個
- *   `STATUS` 的連續行——寄出是一次過寫入的（`writeSheet()` 一次
+ *   `STATUS` 的連續行——寄出是一次過寫入的（`writeSheet_()` 一次
  *   `setValues()`），所以同一批的時間戳記一定極接近。
  * Args:
  *   options {{sinceMs:number=}=} 選填，只看這個時間之後的 `SendLog` 行；
@@ -621,7 +621,7 @@ function runInvariantI04_(options) {
   var label = 'I04　寄出前預覽的收件人數 === 實際寄出（或試行記錄）的封數';
   return runInvariantSafely_('I04', label, function () {
     var opts = options || {};
-    var rows = readSheet(SHEETS.SEND_LOG);
+    var rows = readSheet_(SHEETS.SEND_LOG);
     if (rows.length === 0) {
       return invariantResult_('I04', label, null, '有一批寄出記錄可以對', '尚未寄出過（含試行）',
         'SendLog 一行都沒有，沒有東西可以對——這不是「沒問題」，是「未驗過」。');
@@ -637,7 +637,7 @@ function runInvariantI04_(options) {
     // ⚠️ 這裡刻意共用：I04 要驗的是「預覽講的跟實際做的是不是同一件事」，
     // 不是「收件人篩選規則對不對」（那是 I03 的 N05）。
     var groups = invariantSendGroupsForStatus_(batch[0].STATUS);
-    var previewCount = buildRecipientList_(readSheet(SHEETS.RECIPIENTS), groups, null).recipients.length;
+    var previewCount = buildRecipientList_(readSheet_(SHEETS.RECIPIENTS), groups, null).recipients.length;
     var loggedCount = batch.length;
 
     var evidence = '最近一批：狀態 ' + batch[0].STATUS + '、' + loggedCount + ' 行；'
@@ -659,7 +659,7 @@ function runInvariantI04_(options) {
  *   判斷方式：由最後一行往前推，時間戳記相差在 `INVARIANT_SEND_BATCH_MS_`
  *   之內、而且 `STATUS` 相同的，算同一批。
  * Args:
- *   rows {Object[]} `readSheet(SHEETS.SEND_LOG)` 的輸出。
+ *   rows {Object[]} `readSheet_(SHEETS.SEND_LOG)` 的輸出。
  *   sinceMs {number=} 選填，只取這個時間之後的行。
  * Returns:
  *   {Object[]} 由舊到新。
@@ -718,7 +718,7 @@ function invariantSendBatchSource_(batch) {
 /**
  * 同一次寄出寫入的幾行，時間戳記最多相差幾多毫秒。
  *
- * ⚠️ 一次 `writeSheet()` 是一次 `setValues()`，全部行同一刻寫入，理論上
+ * ⚠️ 一次 `writeSheet_()` 是一次 `setValues()`，全部行同一刻寫入，理論上
  * 時間戳記完全相同；放寬到 90 秒是為了容納「逐個 `MailApp.sendEmail()`
  * 期間 `new Date()` 各自求值」那段落差（收件人多的時候真的會跨秒）。
  */
@@ -771,13 +771,13 @@ function runInvariantI05_(options) {
   var label = 'I05　DRY_RUN=TRUE 時，SendLog 不可以有任何真實寄出紀錄';
   return runInvariantSafely_('I05', label, function () {
     var opts = options || {};
-    var dryRun = normalizeBoolean_(getConfig(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
+    var dryRun = normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
     if (!dryRun) {
       return invariantResult_('I05', label, null, 'DRY_RUN=TRUE 時才驗得到', 'DRY_RUN 目前是 FALSE',
         '現在是真實寄送模式，這一條不適用——不是「沒問題」，是「這一刻驗不到」。');
     }
 
-    var rows = readSheet(SHEETS.SEND_LOG);
+    var rows = readSheet_(SHEETS.SEND_LOG);
     var scoped = opts.sinceMs
       ? rows.filter(function (r) {
         return Object.prototype.toString.call(r.TIMESTAMP) === '[object Date]'
@@ -832,7 +832,7 @@ function runInvariantI05_(options) {
 function runInvariantI06_() {
   var label = 'I06　PublishLog 每一條發佈通道最新一行的版本，對得上該通道 master 檔案目前的內容';
   return runInvariantSafely_('I06', label, function () {
-    var rows = readSheet(SHEETS.PUBLISH_LOG);
+    var rows = readSheet_(SHEETS.PUBLISH_LOG);
     if (rows.length === 0) {
       return invariantResult_('I06', label, null, '有發佈記錄可以對', '尚未發佈過任何一期',
         'PublishLog 一行都沒有，沒有東西可以對。');
@@ -923,7 +923,7 @@ function checkPublishChannelFingerprint_(channel) {
   var fileId = String(row.MASTER_FILE_ID || '').trim();
   var source = '記錄';
   if (!fileId) {
-    fileId = String(getConfig(channel.configKey, '') || '').trim();
+    fileId = String(getConfig_(channel.configKey, '') || '').trim();
     source = 'Config ' + channel.configKey;
   }
   if (!fileId) {
@@ -1088,7 +1088,7 @@ function runInvariantI07_(options) {
     var fileId = String(opts.fileId || '').trim();
 
     if (!fileId) {
-      var candidates = readSheet(SHEETS.BULLETIN_WEEKS)
+      var candidates = readSheet_(SHEETS.BULLETIN_WEEKS)
         .filter(function (r) {
           return String(r.DOC_ID || '').trim()
             && Object.prototype.toString.call(r.LAST_GENERATED_AT) === '[object Date]';
@@ -1200,10 +1200,10 @@ function runInvariantI08_(options) {
 function runInvariantI09_() {
   var label = 'I09　Diagnostics 行數不超過上限，自我檢測報告不超過自己的上限';
   return runInvariantSafely_('I09', label, function () {
-    var diagnosticsMax = normalizeInt_(getConfig(CONFIG_KEYS.DIAGNOSTICS_MAX_ROWS, '380'));
+    var diagnosticsMax = normalizeInt_(getConfig_(CONFIG_KEYS.DIAGNOSTICS_MAX_ROWS, '380'));
     if (!diagnosticsMax || diagnosticsMax < 1) diagnosticsMax = 380;
 
-    var rows = readSheet(SHEETS.DIAGNOSTICS);
+    var rows = readSheet_(SHEETS.DIAGNOSTICS);
     var selfCheckRows = rows.filter(function (r) { return String(r.REPORT_NAME || '') === '完成度自我檢測'; });
     var selfCheckMax = selfCheckResolveMaxRows_().maxRows;
 
@@ -1246,7 +1246,7 @@ function runInvariantI09_() {
 function runInvariantI10_(baselineCount) {
   var label = 'I10　職事表試算表的版本記錄行數，與自測開始時相同（零寫入）';
   return runInvariantSafely_('I10', label, function () {
-    var rosterId = getConfig(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, '');
+    var rosterId = getConfig_(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, '');
     if (!rosterId) {
       return invariantResult_('I10', label, null, '與開始時相同', '職事表未設定',
         'Config 的 ROSTER_SPREADSHEET_ID 是空的。');
@@ -1359,13 +1359,13 @@ function runInvariantI11_(ctx) {
   return runInvariantSafely_('I11', label, function () {
     var scopeQuarter = String((ctx && ctx.quarterId) || '').trim();
 
-    if (!getConfig(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, '')) {
+    if (!getConfig_(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, '')) {
       return invariantResult_('I11', label, null, '每一行的來源季度都對得上', '職事表未設定',
         'Config 的 ROSTER_SPREADSHEET_ID 是空的，無法核對職事表講的季度。');
     }
 
     // 2026-10-30：特別崇拜（非主日）職事表本來就沒有，不核對（src/SpecialService.gs）。
-    var rows = regularWeekRows_(readSheet(SHEETS.BULLETIN_WEEKS)).filter(function (r) {
+    var rows = regularWeekRows_(readSheet_(SHEETS.BULLETIN_WEEKS)).filter(function (r) {
       if (!scopeQuarter) return true;
       return String(r.QUARTER_ID || '').trim() === scopeQuarter;
     });
@@ -1445,7 +1445,7 @@ function runInvariantI11_(ctx) {
  *   {string} 未產生過時回空字串。
  */
 function invariantLastDocxFileId_(isoDate) {
-  var row = findBulletinWeekRow_(readSheet(SHEETS.BULLETIN_WEEKS), isoDate);
+  var row = findBulletinWeekRow_(readSheet_(SHEETS.BULLETIN_WEEKS), isoDate);
   return row ? String(row.DOC_ID || '').trim() : '';
 }
 

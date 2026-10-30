@@ -1,11 +1,11 @@
 /**
  * ConfigService.gs
  *
- * Config 工作表的讀寫與快取。getConfig()／setConfig() 是全系統讀寫設定的
+ * Config 工作表的讀寫與快取。getConfig_()／setConfig_() 是全系統讀寫設定的
  * 唯一入口，其他檔案一律不可以直接用 SpreadsheetApp 讀 Config 工作表。
  *
  * ⚠️ 設計上的重要限制：本檔案內讀取 Config 原始值一律用 coerceConfigRawValue_()，
- * 不可以用 SheetUtils.gs 的 normalizeText_()／readSheet()。原因是
+ * 不可以用 SheetUtils.gs 的 normalizeText_()／readSheet_()。原因是
  * normalizeText_() 在「文字欄位拿到 Date 物件」時會呼叫
  * Session.getScriptTimeZone()——這個呼叫本身不依賴 Config，是安全的；
  * 但如果將來有人把 normalizeText_() 改成依 Config 的 SYS_TIMEZONE 取時區，
@@ -26,7 +26,7 @@
 
 'use strict';
 
-/** 執行期記憶體快取（同一次執行內重複呼叫 getConfig() 不用重讀工作表）。 */
+/** 執行期記憶體快取（同一次執行內重複呼叫 getConfig_() 不用重讀工作表）。 */
 var CONFIG_CACHE_ = null;
 
 /**
@@ -42,7 +42,7 @@ var CONFIG_CACHE_ = null;
  *   Error 如果 key 不存在，而呼叫方沒有提供 defaultValue——缺失不可以靜靜
  *     變成 undefined 繼續往下傳。
  */
-function getConfig(key, defaultValue) {
+function getConfig_(key, defaultValue) {
   var all = loadConfigCache_();
   if (Object.prototype.hasOwnProperty.call(all, key)) {
     return all[key];
@@ -50,7 +50,7 @@ function getConfig(key, defaultValue) {
   if (arguments.length >= 2) {
     return defaultValue;
   }
-  throw new Error('getConfig：Config 工作表沒有設定鍵「' + key + '」，呼叫方也沒有提供預設值。');
+  throw new Error('getConfig_：Config 工作表沒有設定鍵「' + key + '」，呼叫方也沒有提供預設值。');
 }
 
 /**
@@ -68,7 +68,7 @@ function getConfig(key, defaultValue) {
  *     要嚴格；靜靜略過會讓「2,x,4」變成「2,4」而沒有人發現。
  */
 function getConfigIntList_(key, defaultValue) {
-  var raw = getConfig(key, defaultValue);
+  var raw = getConfig_(key, defaultValue);
   return parseConfigIntList_(raw, key);
 }
 
@@ -108,7 +108,7 @@ function parseConfigIntList_(raw, keyForMessage) {
  *   {string[]} 空字串回空陣列。
  */
 function getConfigTextList_(key, defaultValue) {
-  var raw = getConfig(key, defaultValue);
+  var raw = getConfig_(key, defaultValue);
   return parseConfigTextList_(raw);
 }
 
@@ -150,9 +150,9 @@ function parseConfigTextList_(raw) {
  * Raises:
  *   Error 如果 key 是空字串。
  */
-function setConfig(key, value, source) {
+function setConfig_(key, value, source) {
   if (!key) {
-    throw new Error('setConfig：key 不可以是空字串。');
+    throw new Error('setConfig_：key 不可以是空字串。');
   }
   var writtenBy = String(source || '').trim() || '（未標明來源）';
 
@@ -188,7 +188,7 @@ function setConfig(key, value, source) {
   });
 
   if (targetRow === -1) {
-    writeSheet(SHEETS.CONFIG, [{ KEY: key, VALUE: value, NOTE: '', EDITABLE: true }]);
+    writeSheet_(SHEETS.CONFIG, [{ KEY: key, VALUE: value, NOTE: '', EDITABLE: true }]);
   } else {
     sheet.getRange(targetRow, 2).setValue(value);
   }
@@ -223,13 +223,13 @@ function seedConfigDefaults_() {
   var rows = missing.map(function (d) {
     return { KEY: d.key, VALUE: d.value, NOTE: d.note || '', EDITABLE: true };
   });
-  writeSheet(SHEETS.CONFIG, rows);
+  writeSheet_(SHEETS.CONFIG, rows);
   clearConfigCache_();
   return rows.length;
 }
 
 /**
- * 用途：清除 Config 記憶體快取。下一次 getConfig() 會重新從工作表讀取。
+ * 用途：清除 Config 記憶體快取。下一次 getConfig_() 會重新從工作表讀取。
  *   選單「重新載入設定（唯讀）」會呼叫這個函式，現在的作用純粹是「顯示
  *   目前設定值」——因為記憶體快取只在單次執行內存在，本來就不會跨執行
  *   殘留陳舊資料，這個函式主要是給同一次執行內想強制重讀的情境用。

@@ -47,7 +47,7 @@ function shouldStopBulletinBatchForTime_(startMs, nowMs, budgetMs) {
  * 用途：判斷一行 `BulletinWeeks` 資料列是不是已經產生過 Word——
  *   `LAST_GENERATED_AT` 有值就算已經做過，這次批次會跳過它，不重做。
  * Args:
- *   weekRow {?Object} `readSheet(SHEETS.BULLETIN_WEEKS)` 的其中一行；
+ *   weekRow {?Object} `readSheet_(SHEETS.BULLETIN_WEEKS)` 的其中一行；
  *     那個主日在 `BulletinWeeks` 完全沒有資料列時傳 `null`／`undefined`。
  * Returns:
  *   {boolean}

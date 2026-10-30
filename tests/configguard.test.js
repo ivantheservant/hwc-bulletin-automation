@@ -117,13 +117,13 @@ function makeEnv(options) {
 
   // ⚠️ 造測試資料用的 Date 一定要在 sandbox 那個 realm 裏造：vm context 有
   //    自己一套內建物件，在測試這一邊 new Date() 造的物件過不到
-  //    readSheet() 的正規化。
+  //    readSheet_() 的正規化。
   vm.runInContext('function __mkDate(y, m, d, hh, mi, ss) { return new Date(y, m, d, hh, mi, ss); }', sandbox);
 
   // PublishLog 一定要喺 sandbox 造好之後先寫，原因同上。
   (o.publishRowSpecs || []).forEach(function (spec) {
     const at = spec.at || [2027, 10, 7, 10, 0, 0];
-    sandbox.writeSheet(sandbox.SHEETS.PUBLISH_LOG, [{
+    sandbox.writeSheet_(sandbox.SHEETS.PUBLISH_LOG, [{
       SERVICE_DATE: spec.isoDate,
       VERSION_NO: 1,
       PUBLISHED_AT: sandbox.__mkDate(at[0], at[1], at[2], at[3], at[4], at[5]),
@@ -157,15 +157,15 @@ function editEvent(sheet, row, col, numRows, numCols, oldValue) {
   return e;
 }
 
-/** 直接由工作表讀那一格，不經 getConfig 的快取。 */
+/** 直接由工作表讀那一格，不經 getConfig_ 的快取。 */
 function readConfigCell(env, key) {
-  const rows = env.sandbox.readSheet(env.sandbox.SHEETS.CONFIG);
+  const rows = env.sandbox.readSheet_(env.sandbox.SHEETS.CONFIG);
   const found = rows.filter(function (r) { return String(r.KEY) === key; })[0];
   return found ? String(found.VALUE) : null;
 }
 
 function auditRows(env, action) {
-  return env.sandbox.readSheet(env.sandbox.SHEETS.AUDIT_LOG)
+  return env.sandbox.readSheet_(env.sandbox.SHEETS.AUDIT_LOG)
     .filter(function (r) { return String(r.ACTION) === action; });
 }
 
@@ -270,7 +270,7 @@ test('全 src 只剩「建立 master 發佈檔案」會寫 PUBLISHED_PDF_FILE_ID
   fs.readdirSync(srcDir).filter(function (f) { return f.endsWith('.gs'); }).forEach(function (f) {
     const lines = fs.readFileSync(path.join(srcDir, f), 'utf8').split(/\r?\n/);
     lines.forEach(function (line, i) {
-      if (line.indexOf('setConfig(CONFIG_KEYS.PUBLISHED_PDF_FILE_ID') !== -1) {
+      if (line.indexOf('setConfig_(CONFIG_KEYS.PUBLISHED_PDF_FILE_ID') !== -1) {
         writers.push(f + ':' + (i + 1));
       }
     });
@@ -286,9 +286,9 @@ test('全 src 只剩「建立 master 發佈檔案」會寫 PUBLISHED_PDF_FILE_ID
 
 console.log('\n第 2 組：Config 的改動要記帳');
 
-test('setConfig 會記 AuditLog，而且標明來源', function () {
+test('setConfig_ 會記 AuditLog，而且標明來源', function () {
   const env = makeEnv({});
-  env.sandbox.setConfig('CHURCH_NAME', '測試教會', '測試用的來源');
+  env.sandbox.setConfig_('CHURCH_NAME', '測試教會', '測試用的來源');
 
   const rows = auditRows(env, 'SET_CONFIG');
   assert.strictEqual(rows.length, 1);
@@ -298,9 +298,9 @@ test('setConfig 會記 AuditLog，而且標明來源', function () {
     '要標明來源：' + rows[0].NOTES);
 });
 
-test('setConfig 沒有傳來源 → 記「（未標明來源）」，不是靜靜留白', function () {
+test('setConfig_ 沒有傳來源 → 記「（未標明來源）」，不是靜靜留白', function () {
   const env = makeEnv({});
-  env.sandbox.setConfig('CHURCH_NAME', '測試教會');
+  env.sandbox.setConfig_('CHURCH_NAME', '測試教會');
   const rows = auditRows(env, 'SET_CONFIG');
   assert.ok(String(rows[0].NOTES).indexOf('未標明來源') !== -1, rows[0].NOTES);
 });
@@ -320,7 +320,7 @@ test('稽核在寫值之前先寫（硬中斷時寧可多一筆，也不要無�
 
   let threw = false;
   try {
-    env.sandbox.setConfig('CHURCH_NAME', '寫唔入去的值', '測試：中斷');
+    env.sandbox.setConfig_('CHURCH_NAME', '寫唔入去的值', '測試：中斷');
   } catch (err) {
     threw = true;
   }
@@ -333,13 +333,13 @@ test('稽核在寫值之前先寫（硬中斷時寧可多一筆，也不要無�
 });
 
 test('人手在試算表改 Config 一格 → 記 CONFIG_MANUAL_EDIT，來源標明是人手', function () {
-  // ⚠️ 這是最要緊的一條：setConfig() 會記帳，但在試算表介面直接打字改一格
+  // ⚠️ 這是最要緊的一條：setConfig_() 會記帳，但在試算表介面直接打字改一格
   //    **不會經過它**。全系統最敏感的一張表，人手改動反而完全沒有紀錄。
   const env = makeEnv({});
   const configSheet = env.sheets.Config;
 
   // 找出 PUBLISHED_PDF_FILE_ID 在第幾行。
-  const rows = env.sandbox.readSheet(env.sandbox.SHEETS.CONFIG);
+  const rows = env.sandbox.readSheet_(env.sandbox.SHEETS.CONFIG);
   let rowNo = -1;
   rows.forEach(function (r, i) {
     if (String(r.KEY) === 'PUBLISHED_PDF_FILE_ID') rowNo = i + 3;
@@ -423,7 +423,7 @@ test('白名單內的鍵更新時，AuditLog 有紀錄而且對話框列得出',
   '要列出「哪個鍵、由什麼變成什麼」：' + r.lines[0]);
 
   assert.strictEqual(auditRows(env, 'CONFIG_UPGRADE_DEFAULT').length, 1);
-  // setConfig 那一筆也要有，而且標明是初始化寫的。
+  // setConfig_ 那一筆也要有，而且標明是初始化寫的。
   const setRows = auditRows(env, 'SET_CONFIG');
   assert.strictEqual(setRows.length, 1);
   assert.ok(String(setRows[0].NOTES).indexOf('初始化') !== -1, setRows[0].NOTES);
@@ -561,7 +561,7 @@ test('「建立 master 發佈檔案」寫 Config 時會記 AuditLog 並標明來
   const fs = require('fs');
   const path = require('path');
   const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'Publish.gs'), 'utf8');
-  assert.ok(src.indexOf("setConfig(CONFIG_KEYS.PUBLISHED_PDF_FILE_ID, created.fileId, '選單「建立 master 發佈檔案」')") !== -1,
+  assert.ok(src.indexOf("setConfig_(CONFIG_KEYS.PUBLISHED_PDF_FILE_ID, created.fileId, '選單「建立 master 發佈檔案」')") !== -1,
     '那一行要傳來源，否則 AuditLog 會記「（未標明來源）」');
 });
 

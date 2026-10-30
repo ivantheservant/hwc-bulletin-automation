@@ -171,7 +171,7 @@ function buildFillSyncPlan_(input) {
  */
 function readFillSnapshotRows_() {
   try {
-    return readSheet(SHEETS.FILL_SNAPSHOT);
+    return readSheet_(SHEETS.FILL_SNAPSHOT);
   } catch (err) {
     return [];
   }
@@ -237,7 +237,7 @@ function writeFillSnapshotEntries_(quarterId, entries) {
     };
   }).concat(fresh);
 
-  if (all.length > 0) writeSheet(SHEETS.FILL_SNAPSHOT, all);
+  if (all.length > 0) writeSheet_(SHEETS.FILL_SNAPSHOT, all);
   return fresh.length;
 }
 
@@ -292,7 +292,7 @@ function updateFillSnapshotCell_(isoDate, fieldKey, value, quarterId) {
  *   {?string} 查不到回 `null`。
  */
 function lookupQuarterIdForIsoDate_(isoDate) {
-  var row = findBulletinWeekRow_(readSheet(SHEETS.BULLETIN_WEEKS), isoDate);
+  var row = findBulletinWeekRow_(readSheet_(SHEETS.BULLETIN_WEEKS), isoDate);
   if (row && row.QUARTER_ID) return String(row.QUARTER_ID);
   return null;
 }
@@ -310,7 +310,7 @@ function lookupQuarterIdForIsoDate_(isoDate) {
  */
 function readBulletinWeekRowsByIso_(quarterId) {
   var out = {};
-  readSheet(SHEETS.BULLETIN_WEEKS).forEach(function (row) {
+  readSheet_(SHEETS.BULLETIN_WEEKS).forEach(function (row) {
     if (quarterId && String(row.QUARTER_ID || '') !== quarterId) return;
     var iso = fillGridCellText_(row.SERVICE_DATE);
     if (iso) out[iso] = row;
@@ -560,7 +560,7 @@ function onFillGridEdit_(e) {
  * 用途：把 `Config` 的**人手**改動記進 `AuditLog`。
  *
  *   ⚠️ 為什麼要特別做這一支（docs/已知bug類型.md 事故四十三）：
- *   `setConfig()` 會寫稽核，但**在試算表介面直接打字改一格是不經過它的**。
+ *   `setConfig_()` 會寫稽核，但**在試算表介面直接打字改一格是不經過它的**。
  *   於是全系統最敏感的一張表，人手改動反而完全沒有紀錄——`Config` 一格
  *   被改就足以令正式輸出指向錯的地方，而外表完全看不出分別。
  *

@@ -45,7 +45,7 @@ function readProgramTemplateConfig_() {
     baptismKeywords: getConfigTextList_(CONFIG_KEYS.TEMPLATE_KEYWORDS_BAPTISM, '浸禮,Baptism,baptism'),
     anniversaryKeywords: getConfigTextList_(CONFIG_KEYS.TEMPLATE_KEYWORDS_ANNIVERSARY, '堂慶,週年,Anniversary,anniversary'),
     combinedKeywords: getConfigTextList_(CONFIG_KEYS.TEMPLATE_KEYWORDS_COMBINED, '合堂,聯合,Combined,combined'),
-    templateDefault: getConfig(CONFIG_KEYS.TEMPLATE_DEFAULT, 'TPL_NORMAL'),
+    templateDefault: getConfig_(CONFIG_KEYS.TEMPLATE_DEFAULT, 'TPL_NORMAL'),
     // 2026-10-30：職事表合堂種類 → 範本（src/CombinedService.gs）。
     combinedKindTemplates: readCombinedServiceConfig_().kindTemplates
   };
@@ -97,23 +97,23 @@ function buildProgramTable_(week, snapshot) {
   var resolved = resolveProgramTemplateId_(week, snapshot, templateConfig);
 
   var recitationGroups = parseRecitationMonthGroups_(
-    getConfig(CONFIG_KEYS.RECITATION_MONTH_GROUPS, '1-4:RECITATION_JAN_APR,5-8:RECITATION_MAY_AUG,9-12:RECITATION_SEP_DEC')
+    getConfig_(CONFIG_KEYS.RECITATION_MONTH_GROUPS, '1-4:RECITATION_JAN_APR,5-8:RECITATION_MAY_AUG,9-12:RECITATION_SEP_DEC')
   );
   // 分組指向哪些 Config 鍵完全由設定決定，所以逐一讀出來傳進純函式層，
   // 而不是在純函式層寫死 RECITATION_JAN_APR 這類鍵名。
   var recitationValues = {};
   recitationGroups.forEach(function (g) {
-    recitationValues[g.configKey] = getConfig(g.configKey, '');
+    recitationValues[g.configKey] = getConfig_(g.configKey, '');
   });
 
   var rows = buildProgramTableRows_({
     week: week || {},
     snapshot: snapshot,
-    templateRows: readSheet(SHEETS.PROGRAM_TEMPLATES),
+    templateRows: readSheet_(SHEETS.PROGRAM_TEMPLATES),
     templateId: resolved.templateId,
     recitationGroups: recitationGroups,
     recitationValues: recitationValues,
-    callFormat: getConfig(CONFIG_KEYS.CALL_TO_WORSHIP_FORMAT, '{{text}}（{{ref}}）')
+    callFormat: getConfig_(CONFIG_KEYS.CALL_TO_WORSHIP_FORMAT, '{{text}}（{{ref}}）')
   });
 
   // v3（Ivan 測試結果 A 第 11 項）：這一週的程序增刪（拿走範本某幾項、加幾項）。全系統只在這裏套用一次，

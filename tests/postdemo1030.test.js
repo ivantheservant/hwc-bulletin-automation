@@ -127,7 +127,7 @@ test('applyContentImport_（真正入口）：同一主日有填次序與留空 
   });
   const result = env.sandbox.applyContentImport_(contentEnv.QUARTER_ID, { isoDate: '2027-10-03' });
   assert.strictEqual(result.ok, true, JSON.stringify(result));
-  const rows = env.sandbox.readSheet('Announcements')
+  const rows = env.sandbox.readSheet_('Announcements')
     .filter(function (r) { return r.ACTIVE === true; })
     .sort(function (a, b) { return Number(a.SEQ_NO) - Number(b.SEQ_NO); })
     .map(function (r) { return r.TEXT; });
@@ -178,7 +178,7 @@ function activeTexts(env, iso) {
   return plainTexts(env, iso);
 }
 function plainTexts(env, iso) {
-  return plain(env.sandbox.readSheet('Announcements').filter(function (r) {
+  return plain(env.sandbox.readSheet_('Announcements').filter(function (r) {
     return r.ACTIVE === true && env.sandbox.formatIsoDate_(env.sandbox.normalizeDate_(r.SERVICE_DATE)) === iso;
   }).map(function (r) { return String(r.TEXT); }));
 }
@@ -188,9 +188,9 @@ test('只匯入今日及之後的主日；已經過去的主日不動；AuditLog
   env.sandbox.contentAutoSyncTrigger_();
   assert.deepStrictEqual(activeTexts(env, '2027-10-17'), ['下一個主日的報告']);
   assert.deepStrictEqual(activeTexts(env, '2027-10-10'), [], '今日（模擬）是 2027-10-15，10-10 已經過去，不匯入');
-  const audit = env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'CONTENT_AUTO_SYNC'; });
+  const audit = env.sandbox.readSheet_('AuditLog').filter(function (r) { return r.ACTION === 'CONTENT_AUTO_SYNC'; });
   assert.strictEqual(audit.length, 1);
-  assert.strictEqual(env.sandbox.readSheet('ErrorLog').length, 0, JSON.stringify(env.sandbox.readSheet('ErrorLog')));
+  assert.strictEqual(env.sandbox.readSheet_('ErrorLog').length, 0, JSON.stringify(env.sandbox.readSheet_('ErrorLog')));
 });
 
 test('內容表修改時間沒有變 → 不開檔、不寫；改了之後下一次就匯入', function () {
@@ -214,14 +214,14 @@ test('有改動但匯入的結果相同 → NO_CHANGE，不寫 AuditLog', functi
   env.setMtime(3000);
   const r = plain(env.sandbox.runContentAutoSync_({ source: 'TEST' }));
   assert.strictEqual(r.quarters[0].status, 'NO_CHANGE');
-  assert.strictEqual(env.sandbox.readSheet('AuditLog').filter(function (x) { return x.ACTION === 'CONTENT_AUTO_SYNC'; }).length, 1);
+  assert.strictEqual(env.sandbox.readSheet_('AuditLog').filter(function (x) { return x.ACTION === 'CONTENT_AUTO_SYNC'; }).length, 1);
 });
 
 test('匯入失敗（內容表開不到）→ ErrorLog 只記一次；內容表再有改動之前不再試', function () {
   const env = syncEnv({ env: { contentFileMissing: true } });
   env.sandbox.contentAutoSyncTrigger_();
   env.sandbox.contentAutoSyncTrigger_();
-  const errors = env.sandbox.readSheet('ErrorLog').filter(function (r) { return r.FUNCTION_NAME === 'runContentAutoSync_'; });
+  const errors = env.sandbox.readSheet_('ErrorLog').filter(function (r) { return r.FUNCTION_NAME === 'runContentAutoSync_'; });
   assert.strictEqual(errors.length, 1, JSON.stringify(errors));
   assert.ok(errors[0].MESSAGE.indexOf('2027T4') !== -1 && errors[0].MESSAGE.indexOf('不會再試') !== -1, errors[0].MESSAGE);
 });

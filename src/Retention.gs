@@ -49,12 +49,12 @@ var RETENTION_EMPTY_HINT_ = '目前沒有未封存的季度，請按「顯示已
  *   {{visibleQuarters:number, archiveFolderId:string, sandboxQuarterId:string}}
  */
 function retentionConfig_() {
-  var visible = normalizeInt_(getConfig(CONFIG_KEYS.RETENTION_QUARTERS_VISIBLE, '2'));
+  var visible = normalizeInt_(getConfig_(CONFIG_KEYS.RETENTION_QUARTERS_VISIBLE, '2'));
   if (visible === null || visible < 1) visible = 2;
   return {
     visibleQuarters: visible,
-    archiveFolderId: String(getConfig(CONFIG_KEYS.CONTENT_SHEET_ARCHIVE_FOLDER_ID, '') || '').trim(),
-    sandboxQuarterId: String(getConfig(CONFIG_KEYS.SELFTEST_QUARTER_ID, '') || '').trim()
+    archiveFolderId: String(getConfig_(CONFIG_KEYS.CONTENT_SHEET_ARCHIVE_FOLDER_ID, '') || '').trim(),
+    sandboxQuarterId: String(getConfig_(CONFIG_KEYS.SELFTEST_QUARTER_ID, '') || '').trim()
   };
 }
 
@@ -119,7 +119,7 @@ function findUnpublishedWorkInQuarter_(quarterId) {
   if (!qid) return [];
 
   var publishedIso = {};
-  readSheet(SHEETS.PUBLISH_LOG).forEach(function (r) {
+  readSheet_(SHEETS.PUBLISH_LOG).forEach(function (r) {
     if (r.IS_SELFTEST === true) return;
     var iso = publishRowIsoDate_(r);
     if (iso) publishedIso[iso] = true;
@@ -133,7 +133,7 @@ function findUnpublishedWorkInQuarter_(quarterId) {
   ];
 
   var out = [];
-  readSheet(SHEETS.BULLETIN_WEEKS).forEach(function (row) {
+  readSheet_(SHEETS.BULLETIN_WEEKS).forEach(function (row) {
     if (String(row.QUARTER_ID || '').trim() !== qid) return;
 
     var iso = (Object.prototype.toString.call(row.SERVICE_DATE) === '[object Date]')
@@ -179,7 +179,7 @@ function setQuarterArchivedFlag_(quarterId, archived) {
   var col = def.keys.indexOf('ARCHIVED') + 1;
   if (col <= 0) return 0;
 
-  var rows = readSheet(SHEETS.BULLETIN_WEEKS);
+  var rows = readSheet_(SHEETS.BULLETIN_WEEKS);
   var touched = 0;
   rows.forEach(function (row, index) {
     if (String(row.QUARTER_ID || '').trim() !== qid) return;
@@ -400,7 +400,7 @@ function runQuarterRetention_(options) {
   var opts = options || {};
   var config = retentionConfig_();
 
-  var quarterIds = readSheet(SHEETS.BULLETIN_WEEKS).map(function (r) {
+  var quarterIds = readSheet_(SHEETS.BULLETIN_WEEKS).map(function (r) {
     return String(r.QUARTER_ID || '').trim();
   });
   var plan = planQuarterRetention_(quarterIds, config.visibleQuarters, config.sandboxQuarterId);

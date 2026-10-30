@@ -4,8 +4,8 @@
  *
  * src/SheetUtils.gs 的型別正規化層回歸測試。不依賴 SpreadsheetApp——只測試
  * normalizeBoolean_／normalizeText_／normalizeDate_／normalizeInt_／
- * normalizeByType_ 這些不需要真正試算表的純函式。ensureSheet_／readSheet／
- * writeSheet 需要 SpreadsheetApp，只能由 Ivan 在試算表內手動驗收
+ * normalizeByType_ 這些不需要真正試算表的純函式。ensureSheet_／readSheet_／
+ * writeSheet_ 需要 SpreadsheetApp，只能由 Ivan 在試算表內手動驗收
  * （見 prompt1.md 的驗收條件）。
  *
  * 執行方式：node tests/sheetutils.test.js
@@ -21,8 +21,8 @@ const { loadAllSrcFilesInOrder } = require('./helpers/loadGas');
 // Utilities.formatDate() 與 Session.getScriptTimeZone()——這兩個是 Apps
 // Script 全域服務，Node 沒有，所以在載入前先放兩個最小 stub 進 context。
 // SpreadsheetApp／CacheService 只是空物件：本檔案只測試 SheetUtils.gs 的
-// 純函式，不會真的呼叫任何用到它們的函式（ensureSheet_／readSheet／
-// getConfig 之類），放空物件只是保險——萬一哪個檔案的頂層陳述式不小心
+// 純函式，不會真的呼叫任何用到它們的函式（ensureSheet_／readSheet_／
+// getConfig_ 之類），放空物件只是保險——萬一哪個檔案的頂層陳述式不小心
 // 用到，寧可在載入階段就報錯，也不要用 undefined 靜靜過。
 const FAKE_TIMEZONE = 'Pacific/Auckland';
 const GAS_STUBS = {

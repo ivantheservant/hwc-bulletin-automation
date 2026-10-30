@@ -150,7 +150,7 @@ function planRetireOwnersChange_(ownersRaw) {
  *   Error 讀 Config 失敗時原樣拋出。
  */
 function readConfigOrNull_(key) {
-  var value = getConfig(key, null);
+  var value = getConfig_(key, null);
   return value === null || value === undefined ? null : String(value);
 }
 
@@ -158,7 +158,7 @@ function readConfigOrNull_(key) {
  * 用途：之前「停用舊功能」已經成功移轉過的 Config 鍵（AuditLog `RETIRE_LEGACY_FEATURES`、工作表
  *   Config、欄位 VALUE）。純函式。
  * Args:
- *   auditRows {Object[]} `readSheet(SHEETS.AUDIT_LOG)` 的輸出。
+ *   auditRows {Object[]} `readSheet_(SHEETS.AUDIT_LOG)` 的輸出。
  * Returns:
  *   {Object<string,boolean>} 設定鍵 → true。
  * Raises:
@@ -227,7 +227,7 @@ function planRetireLegacy_() {
     return s.needsNote || s.needsHide || s.needsProtect;
   });
 
-  var formId = String(getConfig(CONFIG_KEYS.SPEAKER_FORM_ID, '') || '').trim();
+  var formId = String(getConfig_(CONFIG_KEYS.SPEAKER_FORM_ID, '') || '').trim();
   var speakerForm = null;
   if (formId) {
     var accepting = isSpeakerFormAcceptingResponses_(formId);
@@ -236,7 +236,7 @@ function planRetireLegacy_() {
 
   // 審查 F7：Config 移轉只做一次。AuditLog 已經有這一項（之前按過「停用舊功能」並成功）就不再做——
   //    否則幹事之後刻意從邀請組別拿走 WORSHIP，再因為別的原因按一次，又會被加回去。
-  var doneConfigKeys = retireLegacyDoneConfigKeys_(readSheet(SHEETS.AUDIT_LOG));
+  var doneConfigKeys = retireLegacyDoneConfigKeys_(readSheet_(SHEETS.AUDIT_LOG));
   var configChanges = [
     planRetireInviteGroupsChange_(readConfigOrNull_(CONFIG_KEYS.CONTENT_SHEET_INVITE_GROUPS),
       readConfigOrNull_(CONFIG_KEYS.FILL_INVITE_GROUPS)),
@@ -361,7 +361,7 @@ function applyRetireLegacy_() {
     plan.configChanges.forEach(function (c) {
       step('Config ' + c.key + '：' + c.summary,
         { sheetName: SHEETS.CONFIG, rowKey: c.key, field: 'VALUE', oldValue: c.oldValue, newValue: c.newValue },
-        function () { setConfig(c.key, c.newValue, '停用舊功能：' + c.summary); });
+        function () { setConfig_(c.key, c.newValue, '停用舊功能：' + c.summary); });
     });
 
     return { ok: failed.length === 0, message: '', done: done, failed: failed };

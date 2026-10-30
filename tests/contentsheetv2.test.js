@@ -105,7 +105,7 @@ function rowOf(env, iso) {
 }
 
 function weekOf(env, iso) {
-  return env.sandbox.readSheet('BulletinWeeks').filter(function (r) { return env.sandbox.formatIsoDate_(r.SERVICE_DATE) === iso; })[0];
+  return env.sandbox.readSheet_('BulletinWeeks').filter(function (r) { return env.sandbox.formatIsoDate_(r.SERVICE_DATE) === iso; })[0];
 }
 
 /** 內容表全部分頁的名稱、隱藏與否、資料（比較「兩次結果完全相同」用）。 */
@@ -129,7 +129,7 @@ console.log('\n移轉');
 
 test('M1 v1 → v2（真入口 apiRunContentSheetBuild）：第 2 行等於 v2；宣召、浸禮搬入對的行與欄；只有舊分頁或週報有的主日新增一行並帶齊週報；舊分頁改名、隱藏、有註解、警告式保護、沒有刪；檔案 ID 不變', function () {
   const env = makeV1Env();
-  const fileIdBefore = env.sandbox.readSheet('ContentSheets')[0].FILE_ID;
+  const fileIdBefore = env.sandbox.readSheet_('ContentSheets')[0].FILE_ID;
   const callBefore = JSON.stringify(env.contentTabs['宣召'].__data);
   const data = run(env);
   assert.strictEqual(data.ok, true, JSON.stringify(data));
@@ -166,10 +166,10 @@ test('M1 v1 → v2（真入口 apiRunContentSheetBuild）：第 2 行等於 v2�
   assert.ok(retired.getRange(1, 1).getNote().indexOf('已停用') !== -1);
   assert.ok(retired.__protections.length === 1 && retired.__protections[0].warningOnly === true, '警告式保護');
   assert.ok(ss.getSheetByName('浸禮合堂（已停用）'));
-  assert.strictEqual(env.sandbox.readSheet('ContentSheets')[0].FILE_ID, fileIdBefore);
-  assert.strictEqual(env.sandbox.readSheet('ContentSheets').length, 1);
+  assert.strictEqual(env.sandbox.readSheet_('ContentSheets')[0].FILE_ID, fileIdBefore);
+  assert.strictEqual(env.sandbox.readSheet_('ContentSheets').length, 1);
 
-  const audit = env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'CONTENT_SHEET_MIGRATE_V2'; });
+  const audit = env.sandbox.readSheet_('AuditLog').filter(function (r) { return r.ACTION === 'CONTENT_SHEET_MIGRATE_V2'; });
   assert.strictEqual(audit.length, 3, '崇拜程序一行、兩張舊分頁各一行');
   const text = data.lines.join('\n');
   ['內容表移轉成新版', '由舊「宣召」搬入 3 個主日', '「浸禮合堂」的資料搬入週報', '新增 3 行'].forEach(function (piece) {
@@ -300,13 +300,13 @@ test('M4 週報回填只填新欄的空白格；原有欄（讀經經文、講�
 test('M5 移轉之後經真入口 apiRunQuarterContentImport 整季匯入 → 週報一格不變（移轉欄位 0 改動）', function () {
   const env = makeV1Env();
   run(env);
-  const before = JSON.stringify(env.sandbox.readSheet('BulletinWeeks'));
+  const before = JSON.stringify(env.sandbox.readSheet_('BulletinWeeks'));
   const preview = env.sandbox.apiPreviewQuarterContentImport(QUARTER_ID);
   assert.strictEqual(preview.data.ok, true, JSON.stringify(preview));
   const resp = env.sandbox.apiRunQuarterContentImport(QUARTER_ID);
   assert.strictEqual(resp.data.ok, true, JSON.stringify(resp));
-  assert.strictEqual(JSON.stringify(env.sandbox.readSheet('BulletinWeeks')), before);
-  assert.strictEqual(env.sandbox.readSheet('AuditLog').filter(function (r) {
+  assert.strictEqual(JSON.stringify(env.sandbox.readSheet_('BulletinWeeks')), before);
+  assert.strictEqual(env.sandbox.readSheet_('AuditLog').filter(function (r) {
     return r.ACTION === 'CONTENT_SHEET_IMPORT' && r.SHEET_NAME === 'BulletinWeeks';
   }).length, 0, '一格都沒有寫');
 });
@@ -435,8 +435,8 @@ test('M9 星期一自動流程（weeklyBulletinSendTrigger_）遇到要移轉的
   const before = contentSnapshot(env);
   env.sandbox.weeklyBulletinSendTrigger_();
   assert.strictEqual(contentSnapshot(env), before);
-  const errs = env.sandbox.readSheet('ErrorLog').filter(function (r) { return r.ERROR_CODE === 'CONTENT_SHEET_NEEDS_MIGRATION'; });
-  assert.strictEqual(errs.length, 1, JSON.stringify(env.sandbox.readSheet('ErrorLog').map(function (r) { return r.ERROR_CODE + ' ' + r.MESSAGE; })));
+  const errs = env.sandbox.readSheet_('ErrorLog').filter(function (r) { return r.ERROR_CODE === 'CONTENT_SHEET_NEEDS_MIGRATION'; });
+  assert.strictEqual(errs.length, 1, JSON.stringify(env.sandbox.readSheet_('ErrorLog').map(function (r) { return r.ERROR_CODE + ' ' + r.MESSAGE; })));
   assert.ok(errs[0].MESSAGE.indexOf('更新本季內容表…') !== -1, errs[0].MESSAGE);
 });
 
@@ -493,7 +493,7 @@ test('（審查 C5）序樂留空：填寫介面的程序預覽（真入口 apiP
   const env = makeV1Env({ config: { PRELUDE_DEFAULT: '預設序樂' } });
   run(env);
   const sb = env.sandbox;
-  sb.writeSheet('ProgramTemplates', sb.seedProgramTemplatesRows_());
+  sb.writeSheet_('ProgramTemplates', sb.seedProgramTemplatesRows_());
   const prev = sb.apiPreviewProgram(D1, { PRELUDE: '' });
   assert.strictEqual(prev.ok, true, JSON.stringify(prev));
   const row = (prev.data.rows || []).filter(function (x) { return x.itemName === '序樂'; })[0];
@@ -537,7 +537,7 @@ test('（審查 D1，v4）選單「季度工具 ▸ 還原到某個備份」（�
   assert.strictEqual(weekOf(env, D1).FLOWER_THIS_WEEK, '備份時的獻花', '介面欄照常還原');
   assert.strictEqual(weekOf(env, D1).PRELUDE, '備份時的序樂', 'v4：序樂改在介面填，照常還原');
   assert.strictEqual(weekOf(env, D1).SERMON_TITLE, '之後的講題', '內容表的欄不還原');
-  assert.strictEqual(sb.readSheet('FieldOverride').filter(function (o) { return o.ACTIVE === true; }).length, 0,
+  assert.strictEqual(sb.readSheet_('FieldOverride').filter(function (o) { return o.ACTIVE === true; }).length, 0,
     '不寫 FieldOverride');
   assert.strictEqual(sb.apiRunQuarterContentImport(QUARTER_ID).data.ok, true);
   assert.strictEqual(weekOf(env, D1).SERMON_TITLE, '之後的講題', '匯入照用內容表');
@@ -788,7 +788,7 @@ test('R2-A6c 第一次因為新欄位置有字被拒絕（一格未寫）→ 不
   while (tab.__data[2].length <= col) tab.__data[2].push('');
   tab.__data[2][col] = '備忘';
   assert.strictEqual(env.sandbox.apiRunContentSheetBuild(QUARTER_ID).data.reason, 'NEW_COLUMNS_NOT_EMPTY');
-  assert.strictEqual(env.sandbox.readSheet('AuditLog').filter(function (r) { return /^CONTENT_SHEET_MIGRATE_V[23]_START$/.test(r.ACTION); }).length, 0);
+  assert.strictEqual(env.sandbox.readSheet_('AuditLog').filter(function (r) { return /^CONTENT_SHEET_MIGRATE_V[23]_START$/.test(r.ACTION); }).length, 0);
   assert.strictEqual(env.sandbox.apiRunContentSheetBuild(QUARTER_ID).data.reason, 'NEW_COLUMNS_NOT_EMPTY');
 });
 
@@ -799,7 +799,7 @@ test('R2-B2a 改名成功、hideSheet 失敗 → AuditLog 已有「宣召 → �
   let fired = false;
   call.hideSheet = function () { if (!fired) { fired = true; throw new Error('注入'); } return real.apply(call, arguments); };
   assert.strictEqual(env.sandbox.apiRunContentSheetBuild(QUARTER_ID).ok, false);
-  const audits = function () { return env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'CONTENT_SHEET_MIGRATE_V2'; }); };
+  const audits = function () { return env.sandbox.readSheet_('AuditLog').filter(function (r) { return r.ACTION === 'CONTENT_SHEET_MIGRATE_V2'; }); };
   assert.ok(audits().some(function (a) { return a.FIELD === '宣召' && a.NEW_VALUE === '宣召（已停用）'; }), '改名一成功就記');
   assert.ok(audits().some(function (a) { return a.FIELD === '崇拜程序'; }), '格子摘要已記');
   run(env);
@@ -822,8 +822,8 @@ test('R2-F6 凍結 A 欄失敗（例如合併了跨欄的格）→ 其餘版面�
   env.contentTabs['崇拜程序'].setFrozenColumns = function () { throw new Error('You cannot freeze columns that contain only part of a merged cell.'); };
   const data = run(env);
   assert.strictEqual(data.ok, true);
-  const errs = env.sandbox.readSheet('ErrorLog').filter(function (r) { return r.ERROR_CODE === 'CONTENT_SHEET_FREEZE_FAILED'; });
-  assert.strictEqual(errs.length, 1, JSON.stringify(plain(env.sandbox.readSheet('ErrorLog'))));
+  const errs = env.sandbox.readSheet_('ErrorLog').filter(function (r) { return r.ERROR_CODE === 'CONTENT_SHEET_FREEZE_FAILED'; });
+  assert.strictEqual(errs.length, 1, JSON.stringify(plain(env.sandbox.readSheet_('ErrorLog'))));
   assert.ok(String(env.contentSpreadsheet.getSheetByName('_說明').__data.map(function (r) { return r[0]; }).join('\n')).indexOf('崇拜程序') !== -1);
 });
 

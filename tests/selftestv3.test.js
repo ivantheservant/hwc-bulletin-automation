@@ -86,7 +86,7 @@ test('亂行機「經填寫介面改幾格」（真動作）：改最多格數�
   });
   assert.ok(JSON.stringify(result).indexOf('改了') !== -1, JSON.stringify(result));
   const editable = plain(sb.webAppEditableWeekFieldKeys_());
-  const touched = sb.readSheet('AuditLog').filter(function (r) { return r.SHEET_NAME === 'BulletinWeeks'; })
+  const touched = sb.readSheet_('AuditLog').filter(function (r) { return r.SHEET_NAME === 'BulletinWeeks'; })
     .map(function (r) { return r.FIELD; });
   assert.ok(touched.length >= 2, '前提：改了幾格：' + touched.join('、'));
   touched.forEach(function (key) { assert.ok(editable.indexOf(key) !== -1, key + ' 不是介面可以編輯的欄位'); });

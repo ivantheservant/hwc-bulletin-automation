@@ -600,7 +600,7 @@ test('續跑：沿用同一個 RUN_ID 與種子，STEP_NO 接上去', function (
   const first = env.sandbox.runMonkey_({ steps: 6, seed: 555 });
 
   // 人手把狀態改成「只走了 2 步」，模擬中途停低。
-  const stateRows = env.sandbox.readSheet(env.sandbox.SHEETS.MONKEY_STATE);
+  const stateRows = env.sandbox.readSheet_(env.sandbox.SHEETS.MONKEY_STATE);
   assert.ok(stateRows.length >= 1, '跑完要寫一行 MonkeyState');
 
   const env2 = makeResumableEnv({
@@ -636,7 +636,7 @@ test('跑滿目標步數 → MonkeyState 記 DONE，之後撳續跑會被拒絕'
   const summary = env.sandbox.runMonkey_({ steps: 5, seed: 321 });
   assert.strictEqual(summary.status, 'DONE');
 
-  const rows = env.sandbox.readSheet(env.sandbox.SHEETS.MONKEY_STATE);
+  const rows = env.sandbox.readSheet_(env.sandbox.SHEETS.MONKEY_STATE);
   assert.strictEqual(String(rows[rows.length - 1].STATUS), 'DONE');
 
   const again = env.sandbox.runMonkey_({ resume: true });
@@ -647,9 +647,9 @@ test('跑滿目標步數 → MonkeyState 記 DONE，之後撳續跑會被拒絕'
 test('MonkeyState：每一批新增一行，不刪行', function () {
   const env = makeResumableEnv();
   env.sandbox.runMonkey_({ steps: 3, seed: 111 });
-  const after1 = env.sandbox.readSheet(env.sandbox.SHEETS.MONKEY_STATE).length;
+  const after1 = env.sandbox.readSheet_(env.sandbox.SHEETS.MONKEY_STATE).length;
   env.sandbox.runMonkey_({ steps: 3, seed: 222 });
-  const after2 = env.sandbox.readSheet(env.sandbox.SHEETS.MONKEY_STATE).length;
+  const after2 = env.sandbox.readSheet_(env.sandbox.SHEETS.MONKEY_STATE).length;
   assert.strictEqual(after2, after1 + 1, '每一批新增一行');
 });
 
@@ -712,7 +712,7 @@ test('走過的路：寫入 MonkeyState 的是精簡格式，讀回來解得出'
   const env = makeResumableEnv();
   const summary = env.sandbox.runMonkey_({ steps: 3, seed: 77 });
 
-  const rows = env.sandbox.readSheet(env.sandbox.SHEETS.MONKEY_STATE);
+  const rows = env.sandbox.readSheet_(env.sandbox.SHEETS.MONKEY_STATE);
   const stored = String(rows[rows.length - 1].PATH_SO_FAR || '');
   assert.ok(stored.indexOf('1:') === 0, '精簡格式要由 1: 開始：' + stored);
 
@@ -862,7 +862,7 @@ test('PUBLISH 一定經 selfTestRunPublish_，不會直接叫 runPublishFlow_', 
   assert.ok(src.indexOf('runPublishFlow_(') === -1,
     '亂行機不可以直接叫 runPublishFlow_——那會覆寫正式 master 檔案');
   assert.ok(src.indexOf('PUBLISHED_PDF_FILE_ID') !== -1
-    && src.indexOf('setConfig') === -1,
+    && src.indexOf('setConfig_') === -1,
     '亂行機自己不可以改 Config（改指沙盒那一步在 selfTestRunPublish_ 裡面做）');
 });
 
@@ -989,7 +989,7 @@ test('動作拋錯 → 記入紀錄並繼續，覆蓋統計照樣算它被揀中
   const publish = summary.coverage.filter(function (c) { return c.id === 'ALWAYS_THROWS'; })[0];
   assert.ok(publish.chosen >= 1, '拋錯照樣算被揀中過，不可以扮無揀過');
 
-  const logged = env.sandbox.readSheet(env.sandbox.SHEETS.MONKEY_LOG);
+  const logged = env.sandbox.readSheet_(env.sandbox.SHEETS.MONKEY_LOG);
   assert.ok(logged.length >= 1, '拋錯那一步要寫入 MonkeyLog');
   assert.ok(String(logged[0].RESULT).indexOf('故意拋的錯') !== -1, String(logged[0].RESULT));
 });

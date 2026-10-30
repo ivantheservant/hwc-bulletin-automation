@@ -291,7 +291,7 @@ test('6. 一次性補寫：用存檔副本的指紋補上，且不覆寫已有�
   assert.strictEqual(result.filled, 1, '只有第二行需要補');
   assert.strictEqual(result.skipped, 0);
 
-  const rows = env.sandbox.readSheet(env.sandbox.SHEETS.PUBLISH_LOG);
+  const rows = env.sandbox.readSheet_(env.sandbox.SHEETS.PUBLISH_LOG);
   assert.strictEqual(String(rows[0].CONTENT_MD5), 'keepme', '已經有值的不可以被覆寫');
   assert.strictEqual(String(rows[1].CONTENT_MD5), md5Fingerprint(bytes).split(':')[1]);
 
@@ -311,7 +311,7 @@ test('6b. 補寫：存檔副本讀不到 → 留空並報「補寫不到」，�
   assert.strictEqual(result.skipped, 1);
   assert.ok(result.skipReasons[0].indexOf('讀不到') !== -1, result.skipReasons[0]);
 
-  const row = env.sandbox.readSheet(env.sandbox.SHEETS.PUBLISH_LOG)[0];
+  const row = env.sandbox.readSheet_(env.sandbox.SHEETS.PUBLISH_LOG)[0];
   assert.strictEqual(String(row.CONTENT_MD5 || ''), '', '猜不到就要留空');
 });
 
@@ -388,7 +388,7 @@ test('8. 「發佈版本記錄」列得出版本，而且講得出還原步驟',
     fileId: MASTER_ID,
     fileName: 'master.pdf',
     revisions: env.sandbox.driveListRevisions_(MASTER_ID, 20),
-    publishRows: env.sandbox.readSheet(env.sandbox.SHEETS.PUBLISH_LOG)
+    publishRows: env.sandbox.readSheet_(env.sandbox.SHEETS.PUBLISH_LOG)
   });
   const text = lines.join('\n');
 
@@ -541,14 +541,14 @@ test('11c. 圈法要講出來：有編號講編號，退回時間視窗要講明
   assert.ok(withoutId.indexOf('併成一批') !== -1, '要講明這條路的弱點：' + withoutId);
 });
 
-test('11d. 全部 SendLog 寫入都經 writeSendLogRows_（不可以直接 writeSheet）', function () {
+test('11d. 全部 SendLog 寫入都經 writeSendLogRows_（不可以直接 writeSheet_）', function () {
   const srcDir = path.join(__dirname, '..', 'src');
   const offenders = [];
   fs.readdirSync(srcDir).filter(function (n) { return String(n).slice(-3) === '.gs'; })
     .forEach(function (fileName) {
       if (fileName === 'Mailer.gs') return; // 共用函式本身在這裡
       readSrc(fileName).split(String.fromCharCode(10)).forEach(function (line, i) {
-        if (line.indexOf('writeSheet(SHEETS.SEND_LOG') !== -1) {
+        if (line.indexOf('writeSheet_(SHEETS.SEND_LOG') !== -1) {
           offenders.push(fileName + ':' + (i + 1));
         }
       });

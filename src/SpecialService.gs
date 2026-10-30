@@ -69,6 +69,21 @@ function serviceKindOf_(row) {
 }
 
 /**
+ * 用途：寫入類動作（儲存、還原、重設、由職事表取數）之前核對這一期沒有被取消。IO 層。
+ *   獨立審查 2026-10-30 第 6 項：另一個分頁仍然開着已取消的特別崇拜，按儲存不可以寫入那一行。
+ * Args:
+ *   isoDate {string}
+ * Returns:
+ *   {void}
+ * Raises:
+ *   Error（`code:'SPECIAL_SERVICE_CANCELLED'`）那一期已經取消。
+ */
+function assertWeekNotCancelled_(isoDate) {
+  var row = findBulletinWeekRow_(readSheet_(SHEETS.BULLETIN_WEEKS), String(isoDate || '').trim());
+  if (isCancelledSpecialServiceRow_(row)) throw cancelledSpecialServiceError_(String(isoDate || '').trim(), row);
+}
+
+/**
  * 用途：已取消的特別崇拜被載入（填寫介面、預覽、Word）時拋出的錯誤。純函式。
  * Args:
  *   isoDate {string}　row {Object} 那一行 BulletinWeeks。
@@ -144,7 +159,7 @@ function specialServiceUiWorshipKeys_() {
  *   Error 讀工作表失敗時原樣拋出。
  */
 function isSpecialServiceIsoDate_(isoDate) {
-  return isSpecialServiceRow_(findBulletinWeekRow_(readSheet(SHEETS.BULLETIN_WEEKS), isoDate));
+  return isSpecialServiceRow_(findBulletinWeekRow_(readSheet_(SHEETS.BULLETIN_WEEKS), isoDate));
 }
 
 /**
@@ -187,7 +202,7 @@ function specialServiceRosterSnapshot_(snapshot, rosterOptions) {
  */
 function readRosterSnapshotForWeek_(isoDate, weekRow) {
   var snapshot = readRosterSnapshot_(isoDate);
-  var row = weekRow === undefined ? findBulletinWeekRow_(readSheet(SHEETS.BULLETIN_WEEKS), isoDate) : weekRow;
+  var row = weekRow === undefined ? findBulletinWeekRow_(readSheet_(SHEETS.BULLETIN_WEEKS), isoDate) : weekRow;
   if (!isSpecialServiceRow_(row) || snapshot.notConfigured) return snapshot;
   return specialServiceRosterSnapshot_(snapshot, readRosterSnapshotOptions_());
 }
@@ -330,8 +345,8 @@ function previewSpecialServiceCreate_(isoDate, title) {
 function specialServicePlanInput_(isoDate, title) {
   return {
     isoDate: isoDate, title: title,
-    weekRows: readSheet(SHEETS.BULLETIN_WEEKS),
-    templateId: getConfig(CONFIG_KEYS.SPECIAL_SERVICE_TEMPLATE_DEFAULT, 'TPL_NORMAL'),
+    weekRows: readSheet_(SHEETS.BULLETIN_WEEKS),
+    templateId: getConfig_(CONFIG_KEYS.SPECIAL_SERVICE_TEMPLATE_DEFAULT, 'TPL_NORMAL'),
     defaults: readBlankWeekSettings_().defaults
   };
 }
@@ -352,9 +367,10 @@ function createSpecialService_(isoDate, title) {
     if (plan.restore) {
       writeSpecialServiceRowCells_(plan.isoDate, plan.row, 'RESTORE_SPECIAL_SERVICE',
         '恢復已取消的特別崇拜「' + plan.title + '」（季度 ' + plan.quarterId + '）。');
+      touchWeeksLastSavedAt_([plan.isoDate], new Date());
       return Object.assign({}, plan, { row: null, created: true });
     }
-    writeSheet(SHEETS.BULLETIN_WEEKS, [plan.row]);
+    writeSheet_(SHEETS.BULLETIN_WEEKS, [plan.row]);
     appendAuditLog_({
       action: 'CREATE_SPECIAL_SERVICE', sheetName: SHEETS.BULLETIN_WEEKS, rowKey: plan.isoDate,
       newValue: plan.title,
@@ -426,8 +442,8 @@ function planSpecialServiceCancel_(input) {
 function specialServiceCancelInput_(isoDate) {
   return {
     isoDate: isoDate,
-    weekRows: readSheet(SHEETS.BULLETIN_WEEKS),
-    publishIndex: weekSelectorPublishIndex_(readSheet(SHEETS.PUBLISH_LOG))
+    weekRows: readSheet_(SHEETS.BULLETIN_WEEKS),
+    publishIndex: weekSelectorPublishIndex_(readSheet_(SHEETS.PUBLISH_LOG))
   };
 }
 
@@ -457,6 +473,8 @@ function cancelSpecialService_(isoDate) {
     if (!plan.ok) return Object.assign({}, plan, { cancelled: false });
     writeSpecialServiceRowCells_(plan.isoDate, { SERVICE_KIND: SERVICE_KIND_SPECIAL_CANCELLED_ }, 'CANCEL_SPECIAL_SERVICE',
       '取消特別崇拜「' + plan.title + '」（不刪行；同一日再建立會恢復）。');
+    // 獨立審查第 6 項：更新最後儲存時間——另一個分頁仍然開着這一期的話，儲存會被樂觀鎖擋下。
+    touchWeeksLastSavedAt_([plan.isoDate], new Date());
     return Object.assign({}, plan, { cancelled: true });
   }, function () {
     throw buildLockTimeoutError_(SAVE_LOCK_WAIT_MS_, '請稍等再按一次「取消這個特別崇拜」。');

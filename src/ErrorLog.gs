@@ -45,7 +45,7 @@ function appendErrorLog_(entry) {
       }
     }
 
-    writeSheet(SHEETS.ERROR_LOG, [{
+    writeSheet_(SHEETS.ERROR_LOG, [{
       TIMESTAMP: new Date(),
       ACTOR: sanitizeCellText_(actor),
       SOURCE: sanitizeCellText_(entry.source),

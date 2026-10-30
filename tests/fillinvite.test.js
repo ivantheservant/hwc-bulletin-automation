@@ -130,7 +130,7 @@ test('2. DRY_RUN=TRUE：完全沒有呼叫 MailApp，但 SendLog 有記錄', fun
   assert.strictEqual(result.dryRun, true);
   assert.strictEqual(env.mail.calls.length, 0, 'DRY_RUN 時絕對不可以呼叫 MailApp');
 
-  const sendLog = env.sandbox.readSheet('SendLog');
+  const sendLog = env.sandbox.readSheet_('SendLog');
   assert.ok(sendLog.length > 0);
   assert.strictEqual(sendLog[0].STATUS, 'FILL_INVITE');
   assert.strictEqual(sendLog[0].DRY_RUN, true);
@@ -141,7 +141,7 @@ test('2b. DRY_RUN=FALSE：真的寄出，SendLog 的 DRY_RUN 欄是 false', func
   env.sandbox.sendFillInvite_(QUARTER_ID);
 
   assert.ok(env.mail.calls.length > 0);
-  const sendLog = env.sandbox.readSheet('SendLog');
+  const sendLog = env.sandbox.readSheet_('SendLog');
   assert.strictEqual(sendLog[0].STATUS, 'FILL_INVITE');
   assert.strictEqual(sendLog[0].DRY_RUN, false);
 });
@@ -195,9 +195,9 @@ test('3. 內容表 v2：autoCreateNextQuarterFillGrids_() 不建立 Fill_、不�
   assert.strictEqual(result.invited.length, 0);
   assert.strictEqual(env.mail.calls.length, 0, '一封填寫邀請都不可以寄');
   assert.strictEqual(env.sandbox.listExistingFillGridQuarters_().length, 0, '試算表內不可以多了 Fill_ 分頁');
-  const log = env.sandbox.readSheet('ConflictNoticeLog');
+  const log = env.sandbox.readSheet_('ConflictNoticeLog');
   assert.strictEqual(log.filter(function (r) { return r.POST_ID === 'FILL_INVITE'; }).length, 0);
-  assert.strictEqual(env.sandbox.readSheet('SendLog').filter(function (r) { return r.STATUS === 'FILL_INVITE'; }).length, 0);
+  assert.strictEqual(env.sandbox.readSheet_('SendLog').filter(function (r) { return r.STATUS === 'FILL_INVITE'; }).length, 0);
 });
 
 test('3f. findQuartersWithoutFillGrid_：已建立的季度不會再列出', function () {
@@ -270,7 +270,7 @@ test('applySheetProtection_：回報保護了幾多張表，並記 AuditLog', fu
   const result = env.sandbox.applySheetProtection_();
 
   assert.ok(result.protectedCount > 0);
-  assert.ok(env.sandbox.readSheet('AuditLog').some(function (r) { return r.ACTION === 'APPLY_SHEET_PROTECTION'; }));
+  assert.ok(env.sandbox.readSheet_('AuditLog').some(function (r) { return r.ACTION === 'APPLY_SHEET_PROTECTION'; }));
 });
 
 test('applySheetProtection_：PROTECTION_EDITOR_EMAILS 的例外編輯者會被套用', function () {
@@ -331,7 +331,7 @@ test('衝突提醒信：DRY_RUN=TRUE 不呼叫 MailApp，但寫 SendLog', functi
 
   assert.strictEqual(notice.sent, true);
   assert.strictEqual(env.mail.calls.length, 0);
-  assert.ok(env.sandbox.readSheet('SendLog').some(function (r) { return r.STATUS === 'FILL_CONFLICT_NOTICE'; }));
+  assert.ok(env.sandbox.readSheet_('SendLog').some(function (r) { return r.STATUS === 'FILL_CONFLICT_NOTICE'; }));
 });
 
 test('衝突提醒信：同一個衝突不重複寄（指紋去重）', function () {
@@ -463,7 +463,7 @@ test('G8-1 經選單「初始化工作表」（menuInitializeAllSheets_）建立
     protectedNames: ['WeekSnapshots'], failed: [{ name: 'SpeakerFormSubmissions', message: 'x' }]
   }));
 
-  const audit = env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'APPLY_SHEET_PROTECTION'; });
+  const audit = env.sandbox.readSheet_('AuditLog').filter(function (r) { return r.ACTION === 'APPLY_SHEET_PROTECTION'; });
   assert.strictEqual(audit.length, 1);
   assert.ok(audit[0].NOTES.indexOf('WeekSnapshots、SpeakerFormSubmissions') !== -1, audit[0].NOTES);
 
@@ -474,7 +474,7 @@ test('G8-1 經選單「初始化工作表」（menuInitializeAllSheets_）建立
 test('G8-2 只對新建的表：既有的受保護清單內的表（例如 Config）不動；新建但要人手填的表（Recipients）不加保護', function () {
   const env = makeInitEnv({ removeNames: ['Recipients'] });
   const configBefore = env.sheets.Config.__protections.length;
-  const summary = env.sandbox.initializeAllSheets();
+  const summary = env.sandbox.initializeAllSheets_();
 
   assert.ok(env.inserted.indexOf('Recipients') !== -1, '前提：Recipients 這一次新建');
   assert.strictEqual(env.sheets.Recipients.__protections.length, 0, 'Recipients 是幹事要維護的表，不可以受保護');
@@ -489,7 +489,7 @@ test('G8-3 第二次初始化（沒有新建任何表）→ 不再動保護，�
   env.sandbox.menuInitializeAllSheets_();
   assert.strictEqual(env.sheets.WeekSnapshots.__protections.length, 1, '不會疊加第二個保護');
   assert.strictEqual(env.alerts[1].body.indexOf('即時設定保護'), -1, env.alerts[1].body);
-  assert.strictEqual(env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'APPLY_SHEET_PROTECTION'; }).length, 1);
+  assert.strictEqual(env.sandbox.readSheet_('AuditLog').filter(function (r) { return r.ACTION === 'APPLY_SHEET_PROTECTION'; }).length, 1);
 });
 
 test('G8-4 某一張設定保護失敗 → 初始化照樣完成，另一張照樣受保護；對話框講明要補設，ErrorLog 有記錄', function () {
@@ -500,7 +500,7 @@ test('G8-4 某一張設定保護失敗 → 初始化照樣完成，另一張照�
   assert.strictEqual(env.sheets.WeekSnapshots.__protections.length, 1);
   assert.ok(env.alerts[0].body.indexOf('⚠️ 以下新建的工作表未能設定保護：SpeakerFormSubmissions（') !== -1, env.alerts[0].body);
   assert.ok(env.alerts[0].body.indexOf('設定工作表保護」補設') !== -1, env.alerts[0].body);
-  const errors = env.sandbox.readSheet('ErrorLog').filter(function (r) { return r.ERROR_CODE === 'SHEET_PROTECTION_FAILED'; });
+  const errors = env.sandbox.readSheet_('ErrorLog').filter(function (r) { return r.ERROR_CODE === 'SHEET_PROTECTION_FAILED'; });
   assert.strictEqual(errors.length, 1);
   assert.ok(errors[0].MESSAGE.indexOf('SpeakerFormSubmissions') !== -1);
 });

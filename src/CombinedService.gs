@@ -93,8 +93,8 @@ function buildRosterCombinedUrl_(baseUrl, quarterId) {
  */
 function readCombinedServiceConfig_() {
   return {
-    kindTemplates: parseCodeValueList_(getConfig(CONFIG_KEYS.COMBINED_KIND_TEMPLATES,
+    kindTemplates: parseCodeValueList_(getConfig_(CONFIG_KEYS.COMBINED_KIND_TEMPLATES,
       'COMBINED=TPL_COMBINED,BAPTISM=TPL_COMBINED_BAPTISM,ANNIVERSARY=TPL_ANNIVERSARY')),
-    kindNames: parseCodeValueList_(getConfig(CONFIG_KEYS.COMBINED_KIND_NAMES, 'COMBINED=合堂,BAPTISM=浸禮,ANNIVERSARY=堂慶'))
+    kindNames: parseCodeValueList_(getConfig_(CONFIG_KEYS.COMBINED_KIND_NAMES, 'COMBINED=合堂,BAPTISM=浸禮,ANNIVERSARY=堂慶'))
   };
 }

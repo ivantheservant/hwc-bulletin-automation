@@ -88,17 +88,17 @@ function payloadOf(env, iso, snapshotId) {
 }
 
 function auditCount(env, action) {
-  return env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === action; }).length;
+  return env.sandbox.readSheet_('AuditLog').filter(function (r) { return r.ACTION === action; }).length;
 }
 
 function rowOf(env, iso) {
-  return env.sandbox.readSheet('BulletinWeeks').filter(function (r) {
+  return env.sandbox.readSheet_('BulletinWeeks').filter(function (r) {
     return env.sandbox.fillGridCellText_(r.SERVICE_DATE) === iso;
   })[0];
 }
 
-function dutyRows(env) { return env.sandbox.readSheet('DutyOverride'); }
-function fieldOverrideRows(env) { return env.sandbox.readSheet('FieldOverride'); }
+function dutyRows(env) { return env.sandbox.readSheet_('DutyOverride'); }
+function fieldOverrideRows(env) { return env.sandbox.readSheet_('FieldOverride'); }
 
 /** 沙盒裏出來的陣列／物件和測試這邊不同 realm，deepStrictEqual 會誤判，先轉成純資料。 */
 function plain(value) {
@@ -130,8 +130,8 @@ const CHAIR_EDIT = function (name) { return [{ postId: 'CHAIR', slotIndex: 1, na
  * 這裏直接寫一筆那樣的舊覆寫（以及週報那一格），驗 v3 怎樣對待它。
  */
 function injectLegacyFieldOverride(env, iso, key, overrideValue, sourceValue, active) {
-  // writeSheet() 是在尾端加行。
-  env.sandbox.writeSheet('FieldOverride', [{
+  // writeSheet_() 是在尾端加行。
+  env.sandbox.writeSheet_('FieldOverride', [{
     SERVICE_DATE: env.sandbox.normalizeDate_(iso), FIELD_KEY: key, OVERRIDE_VALUE: overrideValue,
     SOURCE_VALUE_AT_OVERRIDE: sourceValue, OVERRIDE_AT: new Date(), OVERRIDE_BY: 'x', REASON: '',
     ACTIVE: active !== false, NOTES: ''
@@ -143,9 +143,9 @@ function injectLegacyFieldOverride(env, iso, key, overrideValue, sourceValue, ac
 function deactivateAllFieldOverrides(env) {
   const sheet = env.sheets.FieldOverride;
   const col = env.sandbox.COLUMNS.FIELD_OVERRIDE.keys.indexOf('ACTIVE') + 1;
-  const count = env.sandbox.readSheet('FieldOverride').length;
+  const count = env.sandbox.readSheet_('FieldOverride').length;
   for (let r = sheet.getLastRow(); r > sheet.getLastRow() - count; r--) sheet.getRange(r, col).setValue(false);
-  assert.ok(env.sandbox.readSheet('FieldOverride').every(function (r) { return r.ACTIVE === false; }), '前提：全部停用');
+  assert.ok(env.sandbox.readSheet_('FieldOverride').every(function (r) { return r.ACTIVE === false; }), '前提：全部停用');
 }
 
 // =====================================================================
@@ -344,7 +344,7 @@ test('版本存不到（WeekSnapshots 工作表不見了）：儲存照樣成功
   assert.strictEqual(result.message.type, 'error');
   assert.ok(result.message.text.indexOf('已儲存') === 0, result.message.text);
   assert.ok(result.message.text.indexOf('版本記錄未能存好') !== -1, result.message.text);
-  const errors = env.sandbox.readSheet('ErrorLog').filter(function (r) { return r.ERROR_CODE === 'WEEK_SNAPSHOT_FAILED'; });
+  const errors = env.sandbox.readSheet_('ErrorLog').filter(function (r) { return r.ERROR_CODE === 'WEEK_SNAPSHOT_FAILED'; });
   assert.strictEqual(errors.length, 1);
   assertWrittenChinese(assert, '儲存警告', [result.message.text]);
 });
@@ -361,7 +361,7 @@ test('長內容分成多段存：串回來仍然是合法 JSON，段落開頭是
   const longText = '=' + 'x'.repeat(120000);
   const env = makeEnv({ week: { SERMON_TITLE: longText } });
   save(env, D, { PAGE_TITLE: '改' });
-  const rows = env.sandbox.readSheet('WeekSnapshots');
+  const rows = env.sandbox.readSheet_('WeekSnapshots');
   assert.ok(rows.length >= 3, '應該分成多段：' + rows.length);
   assert.ok(rows.some(function (r, i) { return i > 0 && String(r.PAYLOAD_JSON).charAt(0) === '='; }) || true);
   const version = versionsOf(env, D)[0];
@@ -484,7 +484,7 @@ test('由職事表重新取數（真入口 fetchFromRosterForWebApp_）：有覆
   const listed = JSON.parse(JSON.stringify(env.sandbox.listWeekSnapshotsForWebApp_(D))).versions
     .filter(function (v) { return v.reason === 'ROSTER_FETCH'; })[0];
   assert.strictEqual(listed.reasonLabel, '以職事表覆寫');
-  const audit = env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'FETCH_FROM_ROSTER'; });
+  const audit = env.sandbox.readSheet_('AuditLog').filter(function (r) { return r.ACTION === 'FETCH_FROM_ROSTER'; });
   assert.ok(audit.length === 1 && audit[0].NOTES.indexOf('以職事表覆寫：') === 0, JSON.stringify(audit));
 });
 
@@ -505,7 +505,7 @@ test('補抓空白的事奉欄位（真入口 backfillRosterForQuarter_）：有
 // ---- 內容表匯入 ----
 
 function contentWeekOf(env, iso) {
-  return env.sandbox.readSheet('BulletinWeeks').filter(function (r) { return env.sandbox.formatIsoDate_(r.SERVICE_DATE) === iso; })[0];
+  return env.sandbox.readSheet_('BulletinWeeks').filter(function (r) { return env.sandbox.formatIsoDate_(r.SERVICE_DATE) === iso; })[0];
 }
 
 function makeImportEnv() {
@@ -597,13 +597,13 @@ test('apiListWeekSnapshots：只列最新 SNAPSHOT_LIST_LIMIT 個，舊的不刪
   const ids = plain(resp.data.versions.map(function (v) { return v.snapshotId; }));
   assert.deepStrictEqual(ids, ids.slice().sort().reverse(), '由新到舊');
   assert.strictEqual(new Set(ids).size, 5, '同一秒內存多個也不撞編號');
-  assert.strictEqual(env.sandbox.readSheet('WeekSnapshots').length, 8, '一行都沒有刪');
+  assert.strictEqual(env.sandbox.readSheet_('WeekSnapshots').length, 8, '一行都沒有刪');
 });
 
 test('apiListWeekSnapshots：預設上限 20；同時列出這個主日的發佈記錄（不含自測），標明版本、時間、存檔副本連結', function () {
   const env = makeEnv();
   for (let i = 0; i < 22; i++) env.sandbox.createWeekSnapshot_(D, 'WEBAPP_SAVE');
-  env.sandbox.writeSheet('PublishLog', [
+  env.sandbox.writeSheet_('PublishLog', [
     { SERVICE_DATE: env.sandbox.normalizeDate_(D), VERSION_NO: 1, PUBLISHED_AT: new Date(), PUBLISHED_BY: 'a', ARCHIVE_FILE_ID: 'ARCHIVE_ONE', IS_SELFTEST: false, FORCED: false },
     { SERVICE_DATE: env.sandbox.normalizeDate_(D), VERSION_NO: 2, PUBLISHED_AT: new Date(), PUBLISHED_BY: 'a', ARCHIVE_FILE_ID: 'ARCHIVE_TWO', IS_SELFTEST: false, FORCED: true },
     { SERVICE_DATE: env.sandbox.normalizeDate_(D), VERSION_NO: 3, PUBLISHED_AT: new Date(), PUBLISHED_BY: 'a', ARCHIVE_FILE_ID: 'SELFTEST_ARCHIVE', IS_SELFTEST: true, FORCED: false },
@@ -690,7 +690,7 @@ test('v3 看差異與還原：v3 之前在介面改過講題留下的舊覆寫�
   injectLegacyFieldOverride(env2, D, 'SERMON_TITLE', '自己改的', '內容表講題');
   env2.sandbox.restoreWeekSnapshotFromWebApp_({ isoDate: D, snapshotId: versionsOf(env2, D)[0].snapshotId });
   assert.strictEqual(fieldOverrideRows(env2)[0].ACTIVE, true);
-  assert.strictEqual(env2.sandbox.readSheet('AuditLog').filter(function (r) {
+  assert.strictEqual(env2.sandbox.readSheet_('AuditLog').filter(function (r) {
     return r.ACTION === 'WEEK_RESTORE' && r.SHEET_NAME === 'FieldOverride';
   }).length, 0);
 });
@@ -712,7 +712,7 @@ test('還原機制保留：假設某一欄日後重新設為可覆寫，停用�
   assert.strictEqual(fieldOverrideRows(env).length, 1, '重新啟用原本那一行');
   assert.strictEqual(fieldOverrideRows(env)[0].ACTIVE, true);
   assert.strictEqual(fieldOverrideRows(env)[0].OVERRIDE_VALUE, '自己改的');
-  assert.ok(env.sandbox.readSheet('AuditLog').some(function (r) { return r.ACTION === 'WEEK_RESTORE' && r.SHEET_NAME === 'FieldOverride'; }));
+  assert.ok(env.sandbox.readSheet_('AuditLog').some(function (r) { return r.ACTION === 'WEEK_RESTORE' && r.SHEET_NAME === 'FieldOverride'; }));
 });
 
 test('看差異：找不到的版本編號 → SNAPSHOT_NOT_FOUND；內容被改壞 → 錯誤，不用殘缺資料', function () {
@@ -770,7 +770,7 @@ test('還原（真入口 restoreWeekSnapshotFromWebApp_）：欄位只寫有差�
   assert.strictEqual(payloadOf(env, D, safety[0].snapshotId).week.NEXT_WEEK_HEADING, 'P2', '安全版本記的是還原之前的現況');
 
   // AuditLog
-  const restoreAudit = env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'WEEK_RESTORE'; });
+  const restoreAudit = env.sandbox.readSheet_('AuditLog').filter(function (r) { return r.ACTION === 'WEEK_RESTORE'; });
   const keys = restoreAudit.map(function (r) { return r.SHEET_NAME + '|' + r.FIELD; });
   assert.ok(keys.indexOf('BulletinWeeks|NEXT_WEEK_HEADING') !== -1, keys.join(','));
   assert.ok(keys.indexOf('BulletinWeeks|SERMON_TITLE') === -1, '內容表的欄位不還原');
@@ -884,7 +884,7 @@ function makeResetEnv() {
   // v3 之前在介面改過講題留下的舊覆寫：重設照樣停用（重設＝只剩職事表與內容表）。
   injectLegacyFieldOverride(env, D, 'SERMON_TITLE', '自己改的', '內容表講題');
   // 上一週「下週事奉」改到這一週的那一筆，也是這一週的覆寫
-  env.sandbox.writeSheet('DutyOverride', [{
+  env.sandbox.writeSheet_('DutyOverride', [{
     SERVICE_DATE: env.sandbox.normalizeDate_(D), POST_ID: 'FLOWER', SLOT_INDEX: 1, OVERRIDE_NAME: '來自上週',
     ROSTER_VALUE_AT_OVERRIDE: '', ROSTER_VERSION_AT_OVERRIDE: 3, OVERRIDE_AT: new Date(), OVERRIDE_BY: 'x', REASON: '', ACTIVE: true, NOTES: ''
   }]);
@@ -925,7 +925,7 @@ test('重設（真入口 resetWeekFromWebApp_）：欄位改回預設值、覆�
   assert.strictEqual(payloadOf(env, D, safety[0].snapshotId).week.PAGE_TITLE, '手填標題');
   assert.strictEqual(payloadOf(env, D, safety[0].snapshotId).dutyOverrides.length, 2);
 
-  const audit = env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'WEEK_RESET'; });
+  const audit = env.sandbox.readSheet_('AuditLog').filter(function (r) { return r.ACTION === 'WEEK_RESET'; });
   assert.ok(audit.some(function (r) { return r.FIELD === 'PAGE_TITLE' && r.OLD_VALUE === '手填標題'; }));
   assert.ok(audit.some(function (r) { return r.FIELD === 'PRELUDE' && r.OLD_VALUE === '手填序樂'; }), '內容表 v4：序樂由重設改回預設');
   assert.ok(audit.some(function (r) { return r.SHEET_NAME === 'DutyOverride'; }));
@@ -1008,7 +1008,7 @@ test('重設（本季已有內容表）：由內容表重新匯入這一週，�
     },
     config: { PRELUDE_DEFAULT: '預設序樂' }
   });
-  env.sandbox.writeSheet('FieldOverride', [{
+  env.sandbox.writeSheet_('FieldOverride', [{
     SERVICE_DATE: env.sandbox.normalizeDate_('2027-10-03'), FIELD_KEY: 'SERMON_TITLE', OVERRIDE_VALUE: '自己改的',
     SOURCE_VALUE_AT_OVERRIDE: '舊內容', OVERRIDE_AT: new Date(), OVERRIDE_BY: 'x', REASON: '', ACTIVE: true, NOTES: ''
   }]);
@@ -1025,7 +1025,7 @@ test('重設（本季已有內容表）：由內容表重新匯入這一週，�
   assert.strictEqual(row.CALL_REF, '', '宣召由重設清空');
   assert.strictEqual(contentWeekOf(env, '2027-10-10').SERMON_TITLE, '另一週不可以動', '只重設這一週');
   assert.deepStrictEqual(reasonsOf(env, '2027-10-03'), ['BEFORE_RESET'], '匯入不另外存版本');
-  assert.ok(env.sandbox.readSheet('FieldOverride').every(function (r) { return r.ACTIVE === false; }));
+  assert.ok(env.sandbox.readSheet_('FieldOverride').every(function (r) { return r.ACTIVE === false; }));
 });
 
 // =====================================================================
@@ -1388,7 +1388,7 @@ test('G5-1 還原（真入口 restoreWeekSnapshotFromWebApp_）：完成訊息�
   assert.strictEqual(text.indexOf(result.safetySnapshotId), -1, '安全版本的 ID 也不可以出現');
   assertWrittenChinese(assert, '還原完成訊息', text);
 
-  const audit = env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'WEEK_RESTORE'; });
+  const audit = env.sandbox.readSheet_('AuditLog').filter(function (r) { return r.ACTION === 'WEEK_RESTORE'; });
   assert.ok(audit.length > 0);
   audit.forEach(function (r) { assert.ok(String(r.NOTES).indexOf(target.snapshotId) !== -1, 'AuditLog 仍要記 ID：' + r.NOTES); });
 });
@@ -1454,7 +1454,7 @@ test('G11-1 還原（真入口 restoreWeekSnapshotFromWebApp_）：顯示時間�
   assert.strictEqual(rowOf(env, D).NEXT_WEEK_HEADING, 'P1', '還原真的做完了');
   assert.ok(result.safetySnapshotId, '安全版本照存');
 
-  const errors = env.sandbox.readSheet('ErrorLog').filter(function (r) { return r.ERROR_CODE === 'SNAPSHOT_LABEL_FAILED'; });
+  const errors = env.sandbox.readSheet_('ErrorLog').filter(function (r) { return r.ERROR_CODE === 'SNAPSHOT_LABEL_FAILED'; });
   assert.strictEqual(errors.length, 1, '退回不可以靜靜吞掉');
   assert.ok(errors[0].MESSAGE.indexOf('Invalid argument: timeZone') !== -1, errors[0].MESSAGE);
 });

@@ -58,7 +58,7 @@ function makeEnv(extra) {
     }).concat(o.extraWeekRows || []),
     config: Object.assign({ WEBAPP_SIMULATED_TODAY: '2027-11-17' }, o.config || {})
   });
-  env.sandbox.writeSheet('Announcements', [
+  env.sandbox.writeSheet_('Announcements', [
     { SERVICE_DATE: new Date(2027, 10, 14), SEQ_NO: 10, TEXT: '十四日的報告', ACTIVE: true },
     { SERVICE_DATE: new Date(2027, 10, 21), SEQ_NO: 10, TEXT: '廿一日的報告', ACTIVE: true }
   ]);
@@ -66,7 +66,7 @@ function makeEnv(extra) {
 }
 
 function weekOf(env, iso) {
-  return env.sandbox.readSheet('BulletinWeeks').filter(function (r) { return env.sandbox.formatIsoDate_(r.SERVICE_DATE) === iso; });
+  return env.sandbox.readSheet_('BulletinWeeks').filter(function (r) { return env.sandbox.formatIsoDate_(r.SERVICE_DATE) === iso; });
 }
 
 function create(env, iso, title) {
@@ -80,14 +80,14 @@ console.log('\n建立特別崇拜');
 test('S-1 預覽講明會做甚麼（一格不寫）；拒絕：主日、沒有名稱、名稱太長、已經有一期、上一個主日未有週報、那一季未有主日', function () {
   const env = makeEnv();
   const sb = env.sandbox;
-  const before = JSON.stringify(sb.readSheet('BulletinWeeks'));
+  const before = JSON.stringify(sb.readSheet_('BulletinWeeks'));
   const p = sb.apiPreviewCreateSpecialService(FRI, '受苦節崇拜').data;
   assert.strictEqual(p.ok, true, JSON.stringify(p));
   const text = p.lines.join('\n');
   ['2027-11-19（星期五）', '受苦節崇拜', 'TPL_NORMAL', '跟上一個主日（2027-11-14）', '下一個主日（2027-11-21）的職事表', '不會自動寄出'].forEach(function (s) {
     assert.ok(text.indexOf(s) !== -1, '缺少：' + s + '\n' + text);
   });
-  assert.strictEqual(JSON.stringify(sb.readSheet('BulletinWeeks')), before, '預覽一格不寫');
+  assert.strictEqual(JSON.stringify(sb.readSheet_('BulletinWeeks')), before, '預覽一格不寫');
   assertWrittenChinese(assert, '預覽', p.lines);
   const reasons = [
     [SOURCE, '受苦節崇拜', 'IS_SUNDAY'], [FRI, ' ', 'NO_TITLE'], [FRI, '長'.repeat(41), 'TITLE_TOO_LONG'],
@@ -114,7 +114,7 @@ test('S-2 建立：一行 SERVICE_KIND=SPECIAL、名稱、大標題、程序範�
   const r = rows[0];
   assert.deepStrictEqual([r.SERVICE_KIND, r.SPECIAL_TYPE, r.PAGE_TITLE, r.PROGRAM_TEMPLATE_ID, r.QUARTER_ID, r.STATUS],
     ['SPECIAL', '受苦節崇拜', '受苦節崇拜', 'TPL_NORMAL', Q, 'DRAFT']);
-  assert.strictEqual(env.sandbox.readSheet('AuditLog').filter(function (a) { return a.ACTION === 'CREATE_SPECIAL_SERVICE'; }).length, 1);
+  assert.strictEqual(env.sandbox.readSheet_('AuditLog').filter(function (a) { return a.ACTION === 'CREATE_SPECIAL_SERVICE'; }).length, 1);
   const again = env.sandbox.apiCreateSpecialService(FRI, '受苦節崇拜').data;
   assert.strictEqual(again.created, false);
   assert.strictEqual(weekOf(env, FRI).length, 1);
@@ -206,10 +206,10 @@ test('S-7 季度的主日清單（BulletinWeeks 後備）、內容表自動同�
   });
   const sb = env.sandbox;
   assert.strictEqual(sb.quarterEntriesFromBulletinWeeks_(contentEnv.QUARTER_ID).map(function (e) { return e.isoDate; }).indexOf('2027-10-08'), -1);
-  assert.strictEqual(plain(sb.planContentAutoSyncDates_(sb.readSheet('BulletinWeeks'), contentEnv.QUARTER_ID, '2027-10-01')).indexOf('2027-10-08'), -1);
+  assert.strictEqual(plain(sb.planContentAutoSyncDates_(sb.readSheet_('BulletinWeeks'), contentEnv.QUARTER_ID, '2027-10-01')).indexOf('2027-10-08'), -1);
   assert.strictEqual(sb.apiRunContentSheetBuild(contentEnv.QUARTER_ID).data.ok, true);
   assert.strictEqual(sb.apiRunQuarterContentImport(contentEnv.QUARTER_ID).data.ok, true);
-  const row = sb.readSheet('BulletinWeeks').filter(function (r) { return sb.formatIsoDate_(r.SERVICE_DATE) === '2027-10-08'; })[0];
+  const row = sb.readSheet_('BulletinWeeks').filter(function (r) { return sb.formatIsoDate_(r.SERVICE_DATE) === '2027-10-08'; })[0];
   assert.strictEqual(row.SERMON_TITLE, '自己填的');
   const worship = env.contentSpreadsheet.getSheetByName('崇拜程序').__data.slice(2).map(function (r) { return r[0]; });
   assert.strictEqual(worship.indexOf('2027-10-08'), -1, '內容表不為特別崇拜開行');
@@ -269,7 +269,7 @@ test('S-10 清單次序：特別崇拜自己沒有安排時顯示跟上一個主
 test('S-11 財政報告：特別崇拜印上一個主日的財政行，標題月份與期間跟那一個主日（不是崇拜日期）', function () {
   const env = makeEnv({ extraWeekRows: [{ SERVICE_DATE: '2027-12-05', QUARTER_ID: Q, WEEK_OF_MONTH: 1, STATUS: 'DRAFT' }] });
   const sb = env.sandbox;
-  sb.writeSheet('Finance', [{
+  sb.writeSheet_('Finance', [{
     SERVICE_DATE: new Date(2027, 10, 28), SEQ_NO: 10, ROW_LABEL: '總收入', COL_SPECIAL_OVERSEAS: '100', COL_HARDSHIP: '200',
     COL3: '300', COL4: '400', COL5: '', ACTIVE: true, REPORT_TITLE: '', REPORT_NOTE: '', REPORT_BALANCE: ''
   }]);
@@ -331,22 +331,22 @@ test('S-14 真入口 apiPreviewCancelSpecialService／apiCancelSpecialService：
   const env = makeEnv();
   const sb = env.sandbox;
   create(env, FRI, '受苦節崇拜');
-  const before = JSON.stringify(sb.readSheet('BulletinWeeks'));
+  const before = JSON.stringify(sb.readSheet_('BulletinWeeks'));
   const p = sb.apiPreviewCancelSpecialService(FRI).data;
   assert.strictEqual(p.ok, true, JSON.stringify(p));
-  assert.strictEqual(JSON.stringify(sb.readSheet('BulletinWeeks')), before, '預覽一格不寫');
+  assert.strictEqual(JSON.stringify(sb.readSheet_('BulletinWeeks')), before, '預覽一格不寫');
   assert.ok(p.lines.join('\n').indexOf('不會刪除') !== -1);
   assert.strictEqual(p.sourceIso, SOURCE);
   assertWrittenChinese(assert, '取消預覽', p.lines);
-  const countBefore = sb.readSheet('BulletinWeeks').length;
+  const countBefore = sb.readSheet_('BulletinWeeks').length;
   const r = sb.apiCancelSpecialService(FRI);
   assert.strictEqual(r.ok, true, JSON.stringify(r.error));
   assert.strictEqual(r.data.cancelled, true);
-  assert.strictEqual(sb.readSheet('BulletinWeeks').length, countBefore, '不刪行');
+  assert.strictEqual(sb.readSheet_('BulletinWeeks').length, countBefore, '不刪行');
   const row = weekOf(env, FRI)[0];
   assert.strictEqual(row.SERVICE_KIND, 'SPECIAL_CANCELLED');
   assert.strictEqual(row.SPECIAL_TYPE, '受苦節崇拜', '其餘內容保留');
-  const audit = sb.readSheet('AuditLog').filter(function (a) { return a.ACTION === 'CANCEL_SPECIAL_SERVICE'; });
+  const audit = sb.readSheet_('AuditLog').filter(function (a) { return a.ACTION === 'CANCEL_SPECIAL_SERVICE'; });
   assert.strictEqual(audit.length, 1);
   assert.deepStrictEqual([audit[0].FIELD, audit[0].OLD_VALUE, audit[0].NEW_VALUE], ['SERVICE_KIND', 'SPECIAL', 'SPECIAL_CANCELLED']);
   // 下拉
@@ -354,18 +354,18 @@ test('S-14 真入口 apiPreviewCancelSpecialService／apiCancelSpecialService：
   assert.strictEqual(list.filter(function (w) { return w.isoDate === FRI; }).length, 0, '下拉不再顯示');
   assert.strictEqual(list.filter(function (w) { return w.specialService; }).length, 0, '季度標籤不再算它');
   // 載入：講明已取消，不寫 ErrorLog（預期中的情況）
-  const errBefore = sb.readSheet('ErrorLog').length;
+  const errBefore = sb.readSheet_('ErrorLog').length;
   const load = sb.apiLoadWeek(FRI);
   assert.strictEqual(load.ok, false);
   assert.strictEqual(load.error.code, 'SPECIAL_SERVICE_CANCELLED');
   assert.ok(load.error.message.indexOf('已經取消') !== -1, load.error.message);
-  assert.strictEqual(sb.readSheet('ErrorLog').length, errBefore);
+  assert.strictEqual(sb.readSheet_('ErrorLog').length, errBefore);
   // 預覽頁
   const page = sb.buildPreviewPage_(FRI);
   assert.strictEqual(page.ok, false);
   assert.ok(page.html.indexOf('已經取消') !== -1);
   // 平常的流程照舊不理它：主日清單、自動同步
-  assert.strictEqual(sb.planContentAutoSyncDates_(sb.readSheet('BulletinWeeks'), Q, '2027-11-01').indexOf(FRI), -1);
+  assert.strictEqual(sb.planContentAutoSyncDates_(sb.readSheet_('BulletinWeeks'), Q, '2027-11-01').indexOf(FRI), -1);
 });
 
 test('S-15 取消：拒絕主日、沒有那一期、已經取消、已經發佈；重複按不會再寫', function () {
@@ -379,7 +379,7 @@ test('S-15 取消：拒絕主日、沒有那一期、已經取消、已經發佈
   const again = sb.apiCancelSpecialService(FRI).data;
   assert.strictEqual(again.cancelled, false);
   assert.strictEqual(again.reason, 'ALREADY_CANCELLED');
-  assert.strictEqual(sb.readSheet('AuditLog').filter(function (a) { return a.ACTION === 'CANCEL_SPECIAL_SERVICE'; }).length, 1);
+  assert.strictEqual(sb.readSheet_('AuditLog').filter(function (a) { return a.ACTION === 'CANCEL_SPECIAL_SERVICE'; }).length, 1);
   // 已經發佈 → 拒絕
   const plan = sb.planSpecialServiceCancel_({
     isoDate: FRI, publishIndex: { [FRI]: 1 },
@@ -415,11 +415,34 @@ test('S-16 同一日再建立＝恢復那一行（不加第二行）：名稱用
   assert.strictEqual(rows.length, 1, '同一日只有一行');
   assert.deepStrictEqual([rows[0].SERVICE_KIND, rows[0].SPECIAL_TYPE, rows[0].PAGE_TITLE, rows[0].SERMON_TITLE],
     ['SPECIAL', '受難節崇拜', '受難節崇拜', '十架七言']);
-  assert.strictEqual(sb.readSheet('AuditLog').filter(function (a) { return a.ACTION === 'RESTORE_SPECIAL_SERVICE'; }).length, 3);
+  assert.strictEqual(sb.readSheet_('AuditLog').filter(function (a) { return a.ACTION === 'RESTORE_SPECIAL_SERVICE'; }).length, 3);
   assert.strictEqual(plain(sb.apiListWeeks(false).data.weeks).filter(function (w) { return w.isoDate === FRI; }).length, 1);
   assert.strictEqual(sb.apiLoadWeek(FRI).ok, true);
   // 恢復之後再建立 → EXISTS
   assert.strictEqual(sb.apiPreviewCreateSpecialService(FRI, '另一個').data.reason, 'EXISTS');
+});
+
+test('S-17 獨立審查第 6 項：另一個分頁仍然開着，那一期被取消之後按儲存 → 擋住，一格不寫', function () {
+  const env = makeEnv();
+  const sb = env.sandbox;
+  create(env, FRI, '受苦節崇拜');
+  const load = sb.apiLoadWeek(FRI).data;
+  sb.apiCancelSpecialService(FRI);
+  const before = JSON.stringify(sb.readSheet_('BulletinWeeks'));
+  const saved = sb.apiSaveWeek({
+    isoDate: FRI, lastSavedAt: load.lastSavedAt, payloadVersion: 2,
+    week: { SERMON_TITLE: '十架七言' }, baseWeek: { SERMON_TITLE: '' },
+    announcements: [], prayers: [], fellowships: [], finance: []
+  });
+  assert.strictEqual(saved.ok, false);
+  assert.strictEqual(saved.error.code, 'SPECIAL_SERVICE_CANCELLED');
+  assert.strictEqual(JSON.stringify(sb.readSheet_('BulletinWeeks')), before);
+  ['apiResetWeek', 'apiRestoreWeekSnapshot'].forEach(function (n) {
+    const r = sb[n]({ isoDate: FRI, lastSavedAt: load.lastSavedAt, snapshotId: 'X' });
+    assert.strictEqual(r.error && r.error.code, 'SPECIAL_SERVICE_CANCELLED', n);
+  });
+  assert.strictEqual(sb.apiFetchFromRoster(FRI, []).error.code, 'SPECIAL_SERVICE_CANCELLED');
+  assert.ok(String(weekOf(env, FRI)[0].LAST_SAVED_AT || '') !== '', '取消時更新了最後儲存時間（樂觀鎖）');
 });
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');

@@ -390,7 +390,7 @@ function formatThousands_(n) {
  *   {number}
  */
 function docxDuplicateMinChars_() {
-  var n = normalizeInt_(getConfig(CONFIG_KEYS.DUPLICATE_PARAGRAPH_MIN_CHARS, '25'));
+  var n = normalizeInt_(getConfig_(CONFIG_KEYS.DUPLICATE_PARAGRAPH_MIN_CHARS, '25'));
   return (n === null || n < 1) ? 25 : n;
 }
 
@@ -798,6 +798,6 @@ function scanDocxContentSize_(blob) {
  *   {number}
  */
 function docxContentWarnChars_() {
-  var n = normalizeInt_(getConfig(CONFIG_KEYS.BULLETIN_CONTENT_WARN_CHARS, '5600'));
+  var n = normalizeInt_(getConfig_(CONFIG_KEYS.BULLETIN_CONTENT_WARN_CHARS, '5600'));
   return (n === null || n < 1) ? 5600 : n;
 }

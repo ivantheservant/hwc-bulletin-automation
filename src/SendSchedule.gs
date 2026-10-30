@@ -108,7 +108,7 @@ function computeNextSendSundayIso_(todayIso, sentIsoList, maxWeeks) {
 function readSentBulletinSundays_() {
   var rows = [];
   try {
-    rows = readSheet(SHEETS.SEND_LOG);
+    rows = readSheet_(SHEETS.SEND_LOG);
   } catch (err) {
     return [];
   }
@@ -145,7 +145,7 @@ function resolveNextSendSundayIso_(options) {
 
   if (!todayIso) {
     try {
-      var timezone = getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland');
+      var timezone = getConfig_(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland');
       todayIso = Utilities.formatDate(new Date(), timezone, 'yyyy-MM-dd');
     } catch (err) {
       return {

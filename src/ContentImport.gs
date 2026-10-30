@@ -146,7 +146,7 @@ function attendanceImportFieldMap_() {
  * 用途：把內容表某一張分頁的原始格值，轉成一批以機器鍵為 key 的資料列。
  *   純函式。
  *
- *   ⚠️ 整行皆空白的一律略過（同 `readSheet()` 的規則一致）；
+ *   ⚠️ 整行皆空白的一律略過（同 `readSheet_()` 的規則一致）；
  *   `ACTIVE` **留空當作 `TRUE`**——內容表那 200 行預留空白行刻意沒有
  *   預先填 `TRUE`（填了就會變成 200 行幽靈資料，見 docs/待確認事項.md J-4）。
  * Args:
@@ -321,9 +321,15 @@ function buildContentImportTargets_(contentData, serviceDates, carryOver) {
     var carriedRows = (def.kind === 'LIST' && def.repeatUntil === true && carry.rowsByTab)
       ? (carry.rowsByTab[def.tabName] || []) : [];
 
+    // 2026-10-30：上一季有行（有效或已停用）連到本季＝這張分頁的週報可能有上一季帶過來的行，本季空白亦要比對
+    //    （至那些行最遲的「連續到」為止；之後的主日照安全規則 1 不動）。
+    var carryManagedUntil = (def.kind === 'LIST' && def.repeatUntil === true && carry.managedTabs)
+      ? String(carry.managedTabs[def.tabName] || '') : '';
+    var carryManaged = carriedRows.length > 0 || carryManagedUntil !== '';
+
     // ---- 安全規則 1：整張空白就完全不動 ----
-    //    （本季這張分頁空白、但上一季有帶過來的行：只匯入那幾個主日，其餘主日不動，見下面。）
-    if (rows.length === 0 && carriedRows.length === 0) {
+    //    （本季這張分頁空白、但上一季有連到本季的行：只比對那幾個主日，見下面。）
+    if (rows.length === 0 && !carryManaged) {
       skippedTabs.push(def.tabName);
       return;
     }
@@ -425,19 +431,30 @@ function buildContentImportTargets_(contentData, serviceDates, carryOver) {
       });
 
       // 2026-10-30：上一季帶過來的行（行號屬於上一季的內容表，不可以跟本季的 skipRowNos 混在一起）。
-      var carriedDates = {};
       expandContentCarryOverRows_(carriedRows, serviceDates).forEach(function (row) {
         if (!byDate[row.__isoDate]) byDate[row.__isoDate] = [];
         byDate[row.__isoDate].push(row);
-        carriedDates[row.__isoDate] = true;
       });
       if (rows.length === 0) {
-        // 本季這張分頁整張空白（安全規則 1）：只動上一季帶過來的那幾個主日，其餘主日週報原有的行不動。
+        // 本季這張分頁整張空白（安全規則 1）：只比對上一季連到本季的那幾個主日（包括已停用的行，停用之後要拿走），
+        //    其餘主日週報原有的行不動。
         (serviceDates || []).forEach(function (iso) {
-          if (carriedDates[iso]) return;
+          if (carryManagedUntil && iso <= carryManagedUntil) return;
+          if (byDate[iso]) return;
           if (!skipListDates[def.tabName]) skipListDates[def.tabName] = {};
           skipListDates[def.tabName][iso] = true;
         });
+      }
+      // 獨立審查第 2 項：上一季讀不到、或者那邊有格被轉了——那幾個主日這一次不匯入（週報保留原有的內容）。
+      if (def.kind === 'LIST' && def.repeatUntil === true) {
+        var skipUntil = carry.unreadable === true ? 'ALL' : ((carry.skipThrough || {})[def.tabName] || '');
+        if (skipUntil) {
+          (serviceDates || []).forEach(function (iso) {
+            if (skipUntil !== 'ALL' && iso > skipUntil) return;
+            if (!skipListDates[def.tabName]) skipListDates[def.tabName] = {};
+            skipListDates[def.tabName][iso] = true;
+          });
+        }
       }
 
       // 同一個主日內按「次序」排先後；次序相同就按內容表上的行號。
@@ -1321,7 +1338,7 @@ function writeContentImportPlan_(plan) {
         });
         return out;
       });
-      writeSheet(sheetName, rows);
+      writeSheet_(sheetName, rows);
       listPlan.appends.forEach(function (row) {
         appendContentImportAudit_(sheetName, row.SERVICE_DATE,
           { field: '（整行）', oldValue: '', newValue: '新增一行' });
@@ -1627,7 +1644,7 @@ function autoImportContentForWeek_(isoDate, source) {
     var quarterId = lookupQuarterIdForIsoDate_(iso);
     if (!quarterId) return { ran: false, changed: 0, reason: 'NO_QUARTER', message: '' };
     if (!findContentSheetRow_(quarterId)) return { ran: false, changed: 0, reason: 'NO_CONTENT_SHEET', message: '' };
-    var weekRow = findBulletinWeekRow_(readSheet(SHEETS.BULLETIN_WEEKS), iso);
+    var weekRow = findBulletinWeekRow_(readSheet_(SHEETS.BULLETIN_WEEKS), iso);
     if (weekRow && weekRow.ARCHIVED === true) return { ran: false, changed: 0, reason: 'ARCHIVED', message: '' };
     // 2026-10-30：特別崇拜沒有內容表的行（src/SpecialService.gs）。
     if (isSpecialServiceRow_(weekRow)) return { ran: false, changed: 0, reason: 'SPECIAL_SERVICE', message: '' };

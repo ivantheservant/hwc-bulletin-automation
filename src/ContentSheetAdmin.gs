@@ -25,15 +25,15 @@
  *     inviteGroups:string[], leadDays:number}}
  */
 function contentSheetConfig_() {
-  var leadDays = normalizeInt_(getConfig(CONFIG_KEYS.CONTENT_SHEET_INVITE_LEAD_DAYS, '21'));
+  var leadDays = normalizeInt_(getConfig_(CONFIG_KEYS.CONTENT_SHEET_INVITE_LEAD_DAYS, '21'));
   return {
-    folderId: getConfig(CONFIG_KEYS.CONTENT_SHEET_FOLDER_ID, ''),
-    namePattern: getConfig(CONFIG_KEYS.CONTENT_SHEET_NAME_PATTERN, '週報內容_{{QUARTER_ID}}'),
-    domain: getConfig(CONFIG_KEYS.CONTENT_SHEET_DOMAIN, ''),
-    owners: parseContentSheetOwners_(getConfig(CONFIG_KEYS.CONTENT_SHEET_OWNERS, '')),
-    deadlineNote: getConfig(CONFIG_KEYS.CONTENT_SHEET_DEADLINE_NOTE, ''),
-    seedSample: normalizeBoolean_(getConfig(CONFIG_KEYS.CONTENT_SHEET_SEED_SAMPLE, 'TRUE')) === true,
-    adminContact: getConfig(CONFIG_KEYS.CONTENT_SHEET_ADMIN_CONTACT, ''),
+    folderId: getConfig_(CONFIG_KEYS.CONTENT_SHEET_FOLDER_ID, ''),
+    namePattern: getConfig_(CONFIG_KEYS.CONTENT_SHEET_NAME_PATTERN, '週報內容_{{QUARTER_ID}}'),
+    domain: getConfig_(CONFIG_KEYS.CONTENT_SHEET_DOMAIN, ''),
+    owners: parseContentSheetOwners_(getConfig_(CONFIG_KEYS.CONTENT_SHEET_OWNERS, '')),
+    deadlineNote: getConfig_(CONFIG_KEYS.CONTENT_SHEET_DEADLINE_NOTE, ''),
+    seedSample: normalizeBoolean_(getConfig_(CONFIG_KEYS.CONTENT_SHEET_SEED_SAMPLE, 'TRUE')) === true,
+    adminContact: getConfig_(CONFIG_KEYS.CONTENT_SHEET_ADMIN_CONTACT, ''),
     inviteGroups: getConfigTextList_(CONFIG_KEYS.CONTENT_SHEET_INVITE_GROUPS, 'CC,DB,ADMIN,IT,WORSHIP'),
     leadDays: (leadDays === null || leadDays < 0) ? 21 : leadDays
   };
@@ -428,7 +428,7 @@ function buildOrRefreshContentSheetLocked_(quarterId, options) {
     // 內容表 v2：已停用（已改名）的舊分頁，_說明 講明不要再填。
     retiredTabs: listRetiredContentTabNames_(spreadsheet),
     // 2026-10-30：自動同步的間隔（Config 不是允許的值就當沒有，與觸發器安裝一致）。
-    autoSyncMinutes: parseContentAutoSyncMinutes_(getConfig(CONFIG_KEYS.CONTENT_AUTO_SYNC_MINUTES, '30')).minutes
+    autoSyncMinutes: parseContentAutoSyncMinutes_(getConfig_(CONFIG_KEYS.CONTENT_AUTO_SYNC_MINUTES, '30')).minutes
   }));
 
   // ---- R-030：夏令時間轉換提示 ----
@@ -635,7 +635,7 @@ function maskContentFileId_(fileId) {
  */
 function sendContentSheetInvite_(quarterId) {
   var qid = String(quarterId || '').trim();
-  var dryRun = normalizeBoolean_(getConfig(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
+  var dryRun = normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
 
   var row = findContentSheetRow_(qid);
   if (!row) {
@@ -646,7 +646,7 @@ function sendContentSheetInvite_(quarterId) {
   }
 
   var config = contentSheetConfig_();
-  var recipientsResult = buildRecipientList_(readSheet(SHEETS.RECIPIENTS), config.inviteGroups, null);
+  var recipientsResult = buildRecipientList_(readSheet_(SHEETS.RECIPIENTS), config.inviteGroups, null);
   if (recipientsResult.recipients.length === 0) {
     return {
       sent: false, dryRun: dryRun, recipientCount: 0, reason: 'NO_RECIPIENTS',
@@ -663,7 +663,7 @@ function sendContentSheetInvite_(quarterId) {
     serviceDates = [];
   }
 
-  var churchName = getConfig(CHURCH_NAME_KEY_FOR_CONTENT_SHEET_(), '');
+  var churchName = getConfig_(CHURCH_NAME_KEY_FOR_CONTENT_SHEET_(), '');
   var htmlBody = buildContentSheetInviteHtml_({
     quarterId: qid,
     fileUrl: String(row.FILE_URL || ''),
@@ -789,7 +789,7 @@ function autoCreateContentSheetsForUpcomingQuarters_() {
   // 未設定資料夾就乜都唔好做——自動流程唔應該喺背景不停拋錯。
   if (!checkContentSheetFolderConfigured_(config.folderId).ok) return result;
 
-  var timezone = getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland');
+  var timezone = getConfig_(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland');
   var todayIso = Utilities.formatDate(new Date(), timezone, 'yyyy-MM-dd');
 
   var notified = {};
@@ -802,13 +802,13 @@ function autoCreateContentSheetsForUpcomingQuarters_() {
   //    buildOrRefreshContentSheet_() 找不到就每星期一另建一份新的。
   var quarterIds = {};
   var archivedQuarter = {};
-  readSheet(SHEETS.BULLETIN_WEEKS).forEach(function (r) {
+  readSheet_(SHEETS.BULLETIN_WEEKS).forEach(function (r) {
     var qid = String(r.QUARTER_ID || '').trim();
     if (!qid) return;
     quarterIds[qid] = true;
     if (r.ARCHIVED === true) archivedQuarter[qid] = true;
   });
-  var selfTestQuarterId = String(getConfig(CONFIG_KEYS.SELFTEST_QUARTER_ID, '') || '').trim();
+  var selfTestQuarterId = String(getConfig_(CONFIG_KEYS.SELFTEST_QUARTER_ID, '') || '').trim();
 
   Object.keys(quarterIds).sort().forEach(function (qid) {
     var fingerprint = contentSheetInviteFingerprint_(qid);
@@ -868,7 +868,7 @@ function autoCreateContentSheetsForUpcomingQuarters_() {
  *   {void}
  */
 function recordContentSheetInviteFingerprint_(quarterId, fingerprint) {
-  writeSheet(SHEETS.CONFLICT_NOTICE_LOG, [{
+  writeSheet_(SHEETS.CONFLICT_NOTICE_LOG, [{
     TIMESTAMP: new Date(),
     SERVICE_DATE: '',
     POST_ID: 'CONTENT_SHEET_INVITE',
@@ -1049,7 +1049,7 @@ function menuImportFromContentSheet_() {
     // 完整明細一律寫入 Diagnostics，對話框只放前 20 行。
     writeDiagnosticsReport_('內容表匯入預覽', buildContentImportReportLines_(preview));
 
-    var dryRun = normalizeBoolean_(getConfig(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
+    var dryRun = normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
     var previewLines = buildContentImportDialogLines_(preview, { dryRun: dryRun, applied: false });
     previewLines.push('');
     previewLines.push('確定要寫入嗎？');

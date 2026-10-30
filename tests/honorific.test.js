@@ -346,7 +346,7 @@ test('真正入口 buildPersonDisplaySkeletonFromRoster_()：第一次執行新�
   assert.strictEqual(result.skippedExisting, 0);
   assert.strictEqual(result.blankHonorific, 2);
 
-  const rows = env.sandbox.readSheet('PersonDisplay');
+  const rows = env.sandbox.readSheet_('PersonDisplay');
   assert.strictEqual(rows.length, 2);
   assert.ok(rows.some(function (r) { return r.PERSON_ID === 'P9001' && r.NAME_TC === '陳大文'; }));
 });
@@ -358,14 +358,14 @@ test('1／9. 真正入口：跑兩次，第二次新增 0 行（冪等），第�
 
   const first = env.sandbox.buildPersonDisplaySkeletonFromRoster_();
   assert.strictEqual(first.added, 1);
-  const auditAfterFirst = env.sandbox.readSheet('AuditLog')
+  const auditAfterFirst = env.sandbox.readSheet_('AuditLog')
     .filter(function (r) { return r.ACTION === 'PERSON_DISPLAY_SKELETON_ADD'; }).length;
   assert.strictEqual(auditAfterFirst, 1, '第一次應該恰好一筆 AuditLog（新增一行）');
 
   const second = env.sandbox.buildPersonDisplaySkeletonFromRoster_();
   assert.strictEqual(second.added, 0, '第二次執行不應該再新增行');
 
-  const auditAfterSecond = env.sandbox.readSheet('AuditLog')
+  const auditAfterSecond = env.sandbox.readSheet_('AuditLog')
     .filter(function (r) { return r.ACTION === 'PERSON_DISPLAY_SKELETON_ADD'; }).length;
   assert.strictEqual(auditAfterSecond, 1, '第二次不應該再產生新的 AuditLog（真正入口的冪等）');
 });
@@ -393,13 +393,13 @@ test('2／9. 真正入口 applyHonorificLookupToPersonDisplay_()：已有值的�
   assert.strictEqual(result.notMatched, 0);
   assert.strictEqual(result.conflicts, 0);
 
-  const rows = env.sandbox.readSheet('PersonDisplay');
+  const rows = env.sandbox.readSheet_('PersonDisplay');
   const chen = rows.filter(function (r) { return r.PERSON_ID === 'P9001'; })[0];
   const li = rows.filter(function (r) { return r.PERSON_ID === 'P9002'; })[0];
   assert.strictEqual(chen.HONORIFIC, '弟兄', '空白的被填入');
   assert.strictEqual(li.HONORIFIC, '姊妹', '已有值的沒有被覆蓋成「傳道」');
 
-  const auditRows = env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'HONORIFIC_FILL'; });
+  const auditRows = env.sandbox.readSheet_('AuditLog').filter(function (r) { return r.ACTION === 'HONORIFIC_FILL'; });
   assert.strictEqual(auditRows.length, 1, '只有真正填入的那一格才有 AuditLog');
   assert.strictEqual(auditRows[0].ROW_KEY, 'P9001');
 });
@@ -411,7 +411,7 @@ test('真正入口 applyHonorificLookupToPersonDisplay_()：沒有任何一格�
   });
   const result = env.sandbox.applyHonorificLookupToPersonDisplay_();
   assert.strictEqual(result.filled, 0);
-  assert.strictEqual(env.sandbox.readSheet('AuditLog').length, 0);
+  assert.strictEqual(env.sandbox.readSheet_('AuditLog').length, 0);
 });
 
 test('真正入口 applyHonorificLookupToPersonDisplay_()：完整結果寫入 Diagnostics，三段都在（已填入／對不上／衝突）', function () {
@@ -428,7 +428,7 @@ test('真正入口 applyHonorificLookupToPersonDisplay_()：完整結果寫入 D
   });
   env.sandbox.applyHonorificLookupToPersonDisplay_();
 
-  const diag = env.sandbox.readSheet('Diagnostics');
+  const diag = env.sandbox.readSheet_('Diagnostics');
   const text = diag.map(function (r) { return r.CONTENT; }).join('\n');
   assert.ok(text.indexOf('已填入') !== -1);
   assert.ok(text.indexOf('對不上') !== -1);
@@ -446,15 +446,15 @@ test('真正入口 buildHonorificMissingReport_()：唯讀，不寫入 PersonDis
     }]
   });
 
-  const before = env.sandbox.readSheet('PersonDisplay');
+  const before = env.sandbox.readSheet_('PersonDisplay');
   const result = env.sandbox.buildHonorificMissingReport_('2027-10-03');
 
   assert.strictEqual(result.quarterId, '2027T4');
   assert.strictEqual(result.missingCount, 1);
-  assert.strictEqual(env.sandbox.readSheet('AuditLog').length, 0, '唯讀，不應該有 AuditLog');
-  assert.strictEqual(JSON.stringify(env.sandbox.readSheet('PersonDisplay')), JSON.stringify(before), '不應該修改 PersonDisplay');
+  assert.strictEqual(env.sandbox.readSheet_('AuditLog').length, 0, '唯讀，不應該有 AuditLog');
+  assert.strictEqual(JSON.stringify(env.sandbox.readSheet_('PersonDisplay')), JSON.stringify(before), '不應該修改 PersonDisplay');
 
-  const diag = env.sandbox.readSheet('Diagnostics');
+  const diag = env.sandbox.readSheet_('Diagnostics');
   assert.ok(diag.length > 0);
 });
 

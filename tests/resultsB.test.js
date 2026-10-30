@@ -48,7 +48,7 @@ function readSrc(rel) { return fs.readFileSync(path.join(__dirname, '..', rel), 
 
 function weekOf(env, iso) {
   const sb = env.sandbox;
-  return sb.readSheet('BulletinWeeks').filter(function (r) {
+  return sb.readSheet_('BulletinWeeks').filter(function (r) {
     return sb.formatIsoDate_(sb.normalizeDate_(r.SERVICE_DATE)) === iso;
   })[0];
 }
@@ -80,21 +80,21 @@ test('RB1-1 apiLoadWeek：內容表改了講題 → 載入時自動匯入這一�
   assert.strictEqual(String(weekOf(env, D1).SERMON_TITLE), '內容表的講題');
   assert.strictEqual(String(weekOf(env, D2).SERMON_TITLE || ''), '', '別的一週不動');
   assert.strictEqual(String(resp.data.week.SERMON_TITLE), '內容表的講題', '同一次載入已經見到新內容');
-  const audits = sb.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'CONTENT_AUTO_IMPORT_WEEK'; });
-  assert.strictEqual(audits.length, 1, JSON.stringify(sb.readSheet('AuditLog').map(function (r) { return r.ACTION; })));
+  const audits = sb.readSheet_('AuditLog').filter(function (r) { return r.ACTION === 'CONTENT_AUTO_IMPORT_WEEK'; });
+  assert.strictEqual(audits.length, 1, JSON.stringify(sb.readSheet_('AuditLog').map(function (r) { return r.ACTION; })));
 });
 
 test('RB1-2 再載入一次（內容表沒有再改）→ 不寫任何東西（週報、AuditLog 不變），changed 是 0', function () {
   const env = makeContentEnv();
   const sb = env.sandbox;
   sb.apiLoadWeek(D1);
-  const weeks = JSON.stringify(sb.readSheet('BulletinWeeks'));
-  const audit = sb.readSheet('AuditLog').length;
+  const weeks = JSON.stringify(sb.readSheet_('BulletinWeeks'));
+  const audit = sb.readSheet_('AuditLog').length;
   const again = sb.apiLoadWeek(D1);
   assert.strictEqual(again.ok, true);
   assert.strictEqual(again.data.autoImport.changed, 0);
-  assert.strictEqual(JSON.stringify(sb.readSheet('BulletinWeeks')), weeks);
-  assert.strictEqual(sb.readSheet('AuditLog').length, audit);
+  assert.strictEqual(JSON.stringify(sb.readSheet_('BulletinWeeks')), weeks);
+  assert.strictEqual(sb.readSheet_('AuditLog').length, audit);
 });
 
 test('RB1-3 這一季沒有內容表 → 照常載入，autoImport 安靜（NO_CONTENT_SHEET），不寫 ErrorLog', function () {
@@ -103,7 +103,7 @@ test('RB1-3 這一季沒有內容表 → 照常載入，autoImport 安靜（NO_C
   assert.strictEqual(resp.ok, true, JSON.stringify(resp.error));
   assert.strictEqual(resp.data.autoImport.ran, false);
   assert.strictEqual(resp.data.autoImport.reason, 'NO_CONTENT_SHEET');
-  assert.strictEqual(env.sandbox.readSheet('ErrorLog').length, 0);
+  assert.strictEqual(env.sandbox.readSheet_('ErrorLog').length, 0);
 });
 
 test('RB1-4 內容表開不到（被刪了／沒有權限）→ 照常載入週報現有的內容，autoImport 有原因與訊息，畫面講一句', function () {
@@ -262,7 +262,7 @@ test('RB4-1 apiOpenWordPreview（已儲存）：產生 Word、更新這一期的
   const second = sb.apiOpenWordPreview(WD, {});
   assert.strictEqual(second.ok, true);
   assert.strictEqual(String(weekOf(env, WD).DOC_ID), docId, '同一個檔');
-  assert.ok(sb.readSheet('AuditLog').some(function (r) { return r.ACTION === 'BULLETIN_DOCX_WEBAPP_PREVIEW'; }));
+  assert.ok(sb.readSheet_('AuditLog').some(function (r) { return r.ACTION === 'BULLETIN_DOCX_WEBAPP_PREVIEW'; }));
 });
 
 test('RB4-2 apiOpenWordPreview（草稿）：另存「（草稿預覽）」在「版本預覽」子資料夾，不碰最新 Word、不寫週報；再按一次覆寫同一個檔', function () {

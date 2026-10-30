@@ -166,10 +166,10 @@ function runAutoCreateQuarters_(options) {
  *   Error 職事表讀不到（由呼叫方決定怎樣講）。
  */
 function buildAutoCreateQuartersPlanNow_() {
-  if (normalizeBoolean_(getConfig(CONFIG_KEYS.AUTO_CREATE_QUARTERS, 'TRUE')) !== true) {
+  if (normalizeBoolean_(getConfig_(CONFIG_KEYS.AUTO_CREATE_QUARTERS, 'TRUE')) !== true) {
     return { enabled: false, disabledReason: 'Config 的 ' + CONFIG_KEYS.AUTO_CREATE_QUARTERS + ' 是 FALSE，沒有自動建立。', plan: [] };
   }
-  if (!getConfig(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, '')) {
+  if (!getConfig_(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, '')) {
     return { enabled: false, disabledReason: '職事表未設定，沒有自動建立。', plan: [] };
   }
   // v3 重測（2026-10-27）：「今日」與填寫介面同一個（webAppTodayIso_()）：測試時 Config WEBAPP_SIMULATED_TODAY
@@ -177,13 +177,13 @@ function buildAutoCreateQuartersPlanNow_() {
   //    自動寄送（星期一）不受影響。
   var today = webAppTodayIso_();
   var weekQuarterIds = {};
-  readSheet(SHEETS.BULLETIN_WEEKS).forEach(function (r) {
+  readSheet_(SHEETS.BULLETIN_WEEKS).forEach(function (r) {
     var qid = String(r.QUARTER_ID || '').trim();
     if (qid) weekQuarterIds[qid] = true;
   });
   // ⚠️ 與 findContentSheetRow_() 同一個準則（ACTIVE === true），兩處講的「已經有內容表」一樣（獨立審查）。
   var contentSheetQuarterIds = {};
-  readSheet(SHEETS.CONTENT_SHEETS).forEach(function (r) {
+  readSheet_(SHEETS.CONTENT_SHEETS).forEach(function (r) {
     var qid = String(r.QUARTER_ID || '').trim();
     if (qid && r.ACTIVE === true) contentSheetQuarterIds[qid] = true;
   });
@@ -195,7 +195,7 @@ function buildAutoCreateQuartersPlanNow_() {
       weekQuarterIds: weekQuarterIds,
       contentSheetQuarterIds: contentSheetQuarterIds,
       todayIso: today.todayIso,
-      excludedQuarterIds: [getConfig(CONFIG_KEYS.SELFTEST_QUARTER_ID, '')],
+      excludedQuarterIds: [getConfig_(CONFIG_KEYS.SELFTEST_QUARTER_ID, '')],
       leadDays: autoCreateLeadDays_()
     })
   };
@@ -208,7 +208,7 @@ function buildAutoCreateQuartersPlanNow_() {
  *   {number} 0＝不限。
  */
 function autoCreateLeadDays_() {
-  var raw = String(getConfig(CONFIG_KEYS.AUTO_CREATE_QUARTERS_LEAD_DAYS, '90') || '').trim();
+  var raw = String(getConfig_(CONFIG_KEYS.AUTO_CREATE_QUARTERS_LEAD_DAYS, '90') || '').trim();
   if (!/^\d+$/.test(raw)) return 90;
   return Number(raw);
 }

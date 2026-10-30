@@ -219,7 +219,7 @@ test('lint() 會捉到 DocxIo.gs 內引用 ROSTER_SPREADSHEET_ID', function () {
     'DocxIo.gs': [
       "'use strict';",
       'function bad_() {',
-      '  var id = getConfig(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, String(1));',
+      '  var id = getConfig_(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, String(1));',
       '  return DriveApp.getFileById(id);',
       '}',
       ''
@@ -234,7 +234,7 @@ test('lint() 會捉到 DocxIo.gs 內引用 ROSTER_SPREADSHEET_ID', function () {
 
 test('lint() 只在高權限檔案檢查職事表 ID，其他檔案照舊可以引用它', function () {
   withFixture({
-    'RosterRead.gs': "'use strict';\nfunction ok_() {\n  return getConfig(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, String(1));\n}\n"
+    'RosterRead.gs': "'use strict';\nfunction ok_() {\n  return getConfig_(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, String(1));\n}\n"
   }, function (tmpDir) {
     const result = lint(tmpDir);
     const hit = result.violations.filter(function (v) { return v.rule === 'ROSTER_ID_IN_PRIVILEGED_FILE'; });
@@ -272,7 +272,7 @@ test('lint() 會捉到 ContentSheetIo.gs 內引用 ROSTER_SPREADSHEET_ID（它�
     'ContentSheetIo.gs': [
       "'use strict';",
       'function bad_() {',
-      '  var id = getConfig(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, String(1));',
+      '  var id = getConfig_(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, String(1));',
       '  return SpreadsheetApp.openById(id);',
       '}',
       ''
@@ -343,7 +343,7 @@ test('lint() 會捉到 PublishIo.gs 內引用 ROSTER_SPREADSHEET_ID（它同樣�
     'PublishIo.gs': [
       "'use strict';",
       'function bad_() {',
-      '  var id = getConfig(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, "");',
+      '  var id = getConfig_(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, "");',
       '  return DriveApp.getFileById(id);',
       '}'
     ].join('\n')
@@ -382,7 +382,7 @@ test('lint() 會捉到 SpeakerFormIo.gs 內引用 ROSTER_SPREADSHEET_ID（它同
     'SpeakerFormIo.gs': [
       "'use strict';",
       'function bad_() {',
-      '  var id = getConfig(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, "");',
+      '  var id = getConfig_(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, "");',
       '  return FormApp.openById(id);',
       '}'
     ].join('\n')

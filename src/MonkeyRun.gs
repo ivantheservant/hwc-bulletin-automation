@@ -359,7 +359,7 @@ function monkeyStepResult_(ok, detail) {
  */
 function monkeyAssertDryRun_() {
   clearConfigCache_();
-  if (normalizeBoolean_(getConfig(CONFIG_KEYS.DRY_RUN, 'TRUE')) !== true) {
+  if (normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) !== true) {
     throw new Error('亂行機中止：DRY_RUN 已經不是 TRUE。'
       + '亂行機會真的走寄出流程，DRY_RUN=FALSE 之下那些信會真的寄出去。');
   }
@@ -377,7 +377,7 @@ function monkeyAssertDryRun_() {
 function monkeyCurrentState_(config) {
   var sandboxDates = selfTestSandboxDates_(config);
 
-  var weekCount = readSheet(SHEETS.BULLETIN_WEEKS).filter(function (r) {
+  var weekCount = readSheet_(SHEETS.BULLETIN_WEEKS).filter(function (r) {
     return String(r.QUARTER_ID || '').trim() === config.quarterId;
   }).length;
 
@@ -396,7 +396,7 @@ function monkeyCurrentState_(config) {
   var hasRecipients = false;
   var recipientsReason = '';
   try {
-    hasRecipients = buildRecipientList_(readSheet(SHEETS.RECIPIENTS),
+    hasRecipients = buildRecipientList_(readSheet_(SHEETS.RECIPIENTS),
       getConfigTextList_(CONFIG_KEYS.SEND_GROUPS, 'CC,DB,ADMIN'), null).recipients.length > 0;
     if (!hasRecipients) recipientsReason = 'Recipients 沒有任何符合 SEND_GROUPS 的有效收件人';
   } catch (err2) {
@@ -411,8 +411,8 @@ function monkeyCurrentState_(config) {
     hasContentSheet: hasContentSheet,
     contentSheetReason: contentSheetReason,
     hasSandboxMaster: Boolean(config.masterFileId),
-    canRenderDocx: Boolean(getConfig(CONFIG_KEYS.TEMPLATE_FILE_ID_NORMAL, ''))
-      && Boolean(getConfig(CONFIG_KEYS.BULLETIN_OUTPUT_FOLDER_ID, '')),
+    canRenderDocx: Boolean(getConfig_(CONFIG_KEYS.TEMPLATE_FILE_ID_NORMAL, ''))
+      && Boolean(getConfig_(CONFIG_KEYS.BULLETIN_OUTPUT_FOLDER_ID, '')),
     hasRecipients: hasRecipients,
     recipientsReason: recipientsReason
   };
@@ -435,7 +435,7 @@ var MONKEY_RUN_STATUS_ = Object.freeze({ PAUSED: 'PAUSED', DONE: 'DONE' });
  *   {void}
  */
 function monkeyWriteStateRow_(state) {
-  writeSheet(SHEETS.MONKEY_STATE, [{
+  writeSheet_(SHEETS.MONKEY_STATE, [{
     RUN_ID: sanitizeCellText_(state.runId),
     SEED: sanitizeCellText_(String(state.seed)),
     TARGET_STEPS: Number(state.targetSteps),
@@ -465,7 +465,7 @@ function monkeyWriteStateRow_(state) {
  *      rngState:number, startedAt:*}} 沒有未完成的執行回 `null`。
  */
 function monkeyLatestPausedState_() {
-  var rows = readSheet(SHEETS.MONKEY_STATE);
+  var rows = readSheet_(SHEETS.MONKEY_STATE);
   if (rows.length === 0) return null;
 
   var last = rows[rows.length - 1];
@@ -608,16 +608,16 @@ function monkeyActionLabelMap_(actions) {
 function monkeyStateFingerprint_(config) {
   var dates = selfTestSandboxDates_(config);
   var parts = [
-    'weeks=' + readSheet(SHEETS.BULLETIN_WEEKS).filter(function (r) {
+    'weeks=' + readSheet_(SHEETS.BULLETIN_WEEKS).filter(function (r) {
       return String(r.QUARTER_ID || '').trim() === config.quarterId;
     }).length,
     'ann=' + selfTestCountActive_(SHEETS.ANNOUNCEMENTS, dates),
     'pray=' + selfTestCountActive_(SHEETS.PRAYERS, dates),
     'fel=' + selfTestCountActive_(SHEETS.FELLOWSHIPS, dates),
     'fin=' + selfTestCountActive_(SHEETS.FINANCE, dates),
-    'audit=' + readSheet(SHEETS.AUDIT_LOG).length,
-    'send=' + readSheet(SHEETS.SEND_LOG).length,
-    'publish=' + readSheet(SHEETS.PUBLISH_LOG).length
+    'audit=' + readSheet_(SHEETS.AUDIT_LOG).length,
+    'send=' + readSheet_(SHEETS.SEND_LOG).length,
+    'publish=' + readSheet_(SHEETS.PUBLISH_LOG).length
   ];
   return parts.join('|');
 }
@@ -683,7 +683,7 @@ function runMonkey_(options) {
     }
   } else {
     var requested = Number(opts.steps) > 0 ? Math.floor(Number(opts.steps)) : 50;
-    var timezone = getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland');
+    var timezone = getConfig_(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland');
     runId = 'MK' + Utilities.formatDate(startedAt, timezone, 'yyyyMMddHHmmss');
     seed = Number(opts.seed) > 0 ? Math.floor(Number(opts.seed)) : (startedAt.getTime() % 4294967296);
     targetSteps = requested;
@@ -695,12 +695,12 @@ function runMonkey_(options) {
     config: config,
     runId: runId,
     random: random,
-    rosterRevisionBaseline: driveCountRevisions_(getConfig(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, '')),
+    rosterRevisionBaseline: driveCountRevisions_(getConfig_(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, '')),
     startMs: new Date().getTime(),
     stepNo: stepsDoneBefore
   };
 
-  var noProgressLimit = normalizeInt_(getConfig(CONFIG_KEYS.MONKEY_NO_PROGRESS_LIMIT, '5'));
+  var noProgressLimit = normalizeInt_(getConfig_(CONFIG_KEYS.MONKEY_NO_PROGRESS_LIMIT, '5'));
   if (!noProgressLimit || noProgressLimit < 1) noProgressLimit = 5;
 
   // ⚠️ 由上一批接住，不是由空開始（事故三十八）。
@@ -977,7 +977,7 @@ function monkeyInvariantFailureText_(failures) {
  *   {void}
  */
 function monkeyWriteLogRow_(runId, seed, record) {
-  writeSheet(SHEETS.MONKEY_LOG, [{
+  writeSheet_(SHEETS.MONKEY_LOG, [{
     RUN_ID: sanitizeCellText_(runId),
     SEED: sanitizeCellText_(String(seed)),
     STEP_NO: Number(record.stepNo),
@@ -1259,7 +1259,7 @@ function menuResumeMonkey_() {
  *   {string} 沒有記錄回空字串。
  */
 function monkeyLatestSeed_() {
-  var rows = readSheet(SHEETS.MONKEY_LOG);
+  var rows = readSheet_(SHEETS.MONKEY_LOG);
   if (rows.length === 0) return '';
   return String(rows[rows.length - 1].SEED || '');
 }

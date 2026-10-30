@@ -75,7 +75,7 @@ function flattenMenu(menu) {
 function snapshotSheets(env) {
   const out = {};
   ['BulletinWeeks', 'FillSnapshot', 'AuditLog', 'SendLog', 'ConflictNoticeLog', 'WeekSnapshots', 'FieldOverride', 'DutyOverride']
-    .forEach(function (n) { out[n] = JSON.stringify(env.sandbox.readSheet(n)); });
+    .forEach(function (n) { out[n] = JSON.stringify(env.sandbox.readSheet_(n)); });
   const grid = env.sheets['Fill_' + QUARTER_ID];
   out.grid = grid ? JSON.stringify(grid.__data) : '';
   out.sheetNames = JSON.stringify(Object.keys(env.sheets).sort());
@@ -151,8 +151,8 @@ test('R2-3 星期一觸發器（weeklyBulletinSendTrigger_）：不建立 Fill_�
   env.sandbox.weeklyBulletinSendTrigger_();
 
   assert.strictEqual(Object.keys(env.sheets).filter(function (n) { return /^Fill_/.test(n); }).length, 0, '不可以建立 Fill_');
-  assert.strictEqual(env.sandbox.readSheet('SendLog').filter(function (r) { return r.STATUS === 'FILL_INVITE'; }).length, 0);
-  assert.strictEqual(env.sandbox.readSheet('ConflictNoticeLog').filter(function (r) { return r.POST_ID === 'FILL_INVITE'; }).length, 0);
+  assert.strictEqual(env.sandbox.readSheet_('SendLog').filter(function (r) { return r.STATUS === 'FILL_INVITE'; }).length, 0);
+  assert.strictEqual(env.sandbox.readSheet_('ConflictNoticeLog').filter(function (r) { return r.POST_ID === 'FILL_INVITE'; }).length, 0);
   assert.strictEqual(contentStepCalls, 1, '內容表的自動建立與邀請那一步要照舊執行');
 });
 
@@ -174,7 +174,7 @@ test('R2-5 fillReconcileTrigger_（觸發器拆之前仍然會觸發）：一格
   const before = snapshotSheets(env);
   env.sandbox.fillReconcileTrigger_();
   assertSame(before, snapshotSheets(env), 'fillReconcileTrigger_');
-  assert.strictEqual(env.sandbox.readSheet('ErrorLog').length, 0);
+  assert.strictEqual(env.sandbox.readSheet_('ErrorLog').length, 0);
   assert.strictEqual(env.mail.calls.length, 0);
 });
 
@@ -198,14 +198,14 @@ test('R2-7 取消封存（unarchiveQuarter_）：Fill_ 維持隱藏，訊息講�
 test('R2-8 儲存（saveWeekFromWebApp_）與重設（resetWeekFromWebApp_）：Fill_ 與 FillSnapshot 一格都不變', function () {
   const env = makeFillEnv({});
   const gridBefore = JSON.stringify(env.sheets['Fill_' + QUARTER_ID].__data);
-  const snapBefore = JSON.stringify(env.sandbox.readSheet('FillSnapshot'));
+  const snapBefore = JSON.stringify(env.sandbox.readSheet_('FillSnapshot'));
   env.sandbox.saveWeekFromWebApp_({
     isoDate: SERVICE_DATES[0], lastSavedAt: '', baseWeek: { PAGE_TITLE: '' }, week: { PAGE_TITLE: '介面改的序樂' }
   });
   const token = env.sandbox.canonicalSaveToken_(env.sandbox.readBulletinWeekRowWithRowNo_(SERVICE_DATES[0]).LAST_SAVED_AT);
   env.sandbox.resetWeekFromWebApp_(SERVICE_DATES[0], token);
   assert.strictEqual(JSON.stringify(env.sheets['Fill_' + QUARTER_ID].__data), gridBefore, 'Fill_ 不可以被改');
-  assert.strictEqual(JSON.stringify(env.sandbox.readSheet('FillSnapshot')), snapBefore, 'FillSnapshot 不可以被改');
+  assert.strictEqual(JSON.stringify(env.sandbox.readSheet_('FillSnapshot')), snapBefore, 'FillSnapshot 不可以被改');
 });
 
 test('R2-9 填寫介面：apiLoadWeek 不再送 fillGridUrl；Index.html、Script.html 沒有「開啟本季填寫表」', function () {
@@ -236,7 +236,7 @@ test('R2-10 onFillGridEdit_：Config 那一格照舊記 CONFIG_MANUAL_EDIT（同
       getNumColumns: function () { return 1; }
     }
   });
-  const audit = env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'CONFIG_MANUAL_EDIT'; });
+  const audit = env.sandbox.readSheet_('AuditLog').filter(function (r) { return r.ACTION === 'CONFIG_MANUAL_EDIT'; });
   assert.strictEqual(audit.length, 1, 'Config 稽核要照舊運作');
 });
 
@@ -267,13 +267,13 @@ test('R3-2 三個講員表格 api（不帶底線的公開函式）：回 SPEAKER
   SPEAKER_FORM_APIS.forEach(function (api) {
     const env = makeFillEnv({ withGrid: false, config: { SPEAKER_FORM_FOLDER_ID: 'FOLDER' } });
     const before = snapshotSheets(env);
-    const configBefore = JSON.stringify(env.sandbox.readSheet('Config'));
+    const configBefore = JSON.stringify(env.sandbox.readSheet_('Config'));
     const resp = env.sandbox[api]();
     assert.strictEqual(resp.ok, false, api);
     assert.strictEqual(resp.error.code, 'SPEAKER_FORM_RETIRED', api);
     assert.ok(resp.error.message.indexOf('講員表格已停用') !== -1, resp.error.message);
     assertSame(before, snapshotSheets(env), api);
-    assert.strictEqual(JSON.stringify(env.sandbox.readSheet('Config')), configBefore, api + '：Config 不可以變');
+    assert.strictEqual(JSON.stringify(env.sandbox.readSheet_('Config')), configBefore, api + '：Config 不可以變');
   });
 });
 
@@ -281,7 +281,7 @@ test('R3-3 週報資料模型（buildBulletinModel_）不再呼叫講員核對�
   const model = readSrc('src/BulletinModel.gs').split('\n').filter(function (l) { return !/^\s*(\/\/|\*|\/\*)/.test(l); }).join('\n');
   assert.strictEqual(model.indexOf('speakerMismatchWarningForModel_('), -1);
   const env = makeFillEnv({ withGrid: false });
-  env.sandbox.writeSheet('SpeakerFormSubmissions', [{
+  env.sandbox.writeSheet_('SpeakerFormSubmissions', [{
     TIMESTAMP: new Date(), SERVICE_DATE: env.sandbox.normalizeDate_(SERVICE_DATES[0]), RESPONDENT_EMAIL: 'a@x.com',
     SPEAKER_NAME: '完全不同的名字', SCRIPTURE_REF: '', SERMON_TITLE: '', NOTES: '', RESULT: 'APPLIED', DETAIL: '', ACTIVE: true
   }]);
@@ -345,17 +345,17 @@ function grid(env) {
 }
 
 function retireAudit(env) {
-  return env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'RETIRE_LEGACY_FEATURES'; });
+  return env.sandbox.readSheet_('AuditLog').filter(function (r) { return r.ACTION === 'RETIRE_LEGACY_FEATURES'; });
 }
 
 /** 停用動作會碰到的一切（比較「一格都沒有寫」）。 */
 function retireSnapshot(env) {
   const g = grid(env);
   return {
-    config: JSON.stringify(env.sandbox.readSheet('Config')),
-    audit: JSON.stringify(env.sandbox.readSheet('AuditLog')),
-    errors: JSON.stringify(env.sandbox.readSheet('ErrorLog')),
-    weeks: JSON.stringify(env.sandbox.readSheet('BulletinWeeks')),
+    config: JSON.stringify(env.sandbox.readSheet_('Config')),
+    audit: JSON.stringify(env.sandbox.readSheet_('AuditLog')),
+    errors: JSON.stringify(env.sandbox.readSheet_('ErrorLog')),
+    weeks: JSON.stringify(env.sandbox.readSheet_('BulletinWeeks')),
     grid: JSON.stringify(g.__data) + JSON.stringify(g.__notes) + g.__hidden + JSON.stringify(g.__protections),
     triggers: JSON.stringify(handlersOf(env)),
     form: JSON.stringify(env.form.__settings)
@@ -419,7 +419,7 @@ test('R4-2 清單以外的觸發器、讀不到清單：兩個檢測與對話框
 
 test('R4-3 停用舊功能（選單，答「是」）：只拆兩個舊觸發器；Fill_ 內容不改、加註解、隱藏、設系統保護；講員表格停止收件；Config 移轉；逐步 AuditLog；預覽項數等於實際', function () {
   const env = makeLegacyEnv({});
-  const weeksBefore = JSON.stringify(env.sandbox.readSheet('BulletinWeeks'));
+  const weeksBefore = JSON.stringify(env.sandbox.readSheet_('BulletinWeeks'));
   const gridBefore = JSON.stringify(grid(env).__data);
   env.sandbox.menuRetireLegacyFeatures_();
 
@@ -443,16 +443,16 @@ test('R4-3 停用舊功能（選單，答「是」）：只拆兩個舊觸發器
   assert.strictEqual(env.form.__settings.acceptingResponses, false);
   assert.strictEqual(env.form.__settings.closedMessage, '講員資料改為在內容表「崇拜程序」填寫，請聯絡幹事。');
   assert.strictEqual(env.forms.forms.length, 1, '不刪表格、不建新表格');
-  assert.strictEqual(env.sandbox.getConfig('CONTENT_SHEET_INVITE_GROUPS'), 'CC,DB,ADMIN,IT,WORSHIP');
-  assert.strictEqual(env.sandbox.getConfig('CONTENT_SHEET_OWNERS'), '崇拜程序=講員、領詩、幹事,家事報告=幹事,代禱事項=堂委,團契聚會=堂委,財政報告=執事,崇拜人數=幹事');
-  assert.strictEqual(JSON.stringify(env.sandbox.readSheet('BulletinWeeks')), weeksBefore, '週報一格都不寫');
+  assert.strictEqual(env.sandbox.getConfig_('CONTENT_SHEET_INVITE_GROUPS'), 'CC,DB,ADMIN,IT,WORSHIP');
+  assert.strictEqual(env.sandbox.getConfig_('CONTENT_SHEET_OWNERS'), '崇拜程序=講員、領詩、幹事,家事報告=幹事,代禱事項=堂委,團契聚會=堂委,財政報告=執事,崇拜人數=幹事');
+  assert.strictEqual(JSON.stringify(env.sandbox.readSheet_('BulletinWeeks')), weeksBefore, '週報一格都不寫');
 
   const audit = retireAudit(env);
   assert.strictEqual(audit.length, 6, '預覽講 6 項，AuditLog 亦是 6 行');
   const result = env.store.alerts[1];
   assert.ok(result.message.indexOf('已完成 6 項') !== -1, result.message);
   assert.strictEqual(result.message.indexOf('失敗'), -1);
-  assert.strictEqual(env.sandbox.readSheet('ErrorLog').length, 0);
+  assert.strictEqual(env.sandbox.readSheet_('ErrorLog').length, 0);
   assertWrittenChinese(assert, '停用舊功能結果', [result.message]);
 });
 
@@ -484,7 +484,7 @@ test('R4-6 其中一步失敗（表格開不到）→ 其餘步驟照做、Error
   assert.ok(preview.indexOf('現時查不到表格狀態') !== -1, preview);
   assert.deepStrictEqual(handlersOf(env), ['contentAutoSyncTrigger_', 'dailyQuarterAutoCreateTrigger_', 'onFillGridEdit_', 'weeklyBulletinSendTrigger_'], '其餘步驟照做');
   assert.strictEqual(grid(env).isSheetHidden(), true);
-  const errors = env.sandbox.readSheet('ErrorLog').filter(function (r) { return r.ERROR_CODE === 'RETIRE_LEGACY_STEP_FAILED'; });
+  const errors = env.sandbox.readSheet_('ErrorLog').filter(function (r) { return r.ERROR_CODE === 'RETIRE_LEGACY_STEP_FAILED'; });
   assert.strictEqual(errors.length, 1);
   assert.ok(errors[0].MESSAGE.indexOf('講員表格停止收件') !== -1, errors[0].MESSAGE);
   const result = env.store.alerts[1].message;
@@ -535,15 +535,15 @@ test('R4-9 Fill_ 的 A1 本來已有註解 → 停用註解加在前面，原有
 test('R4-11（審查 F7）Config 移轉只做一次：之後幹事刻意拿走 WORSHIP，再因為別的原因（Fill_ 被取消隱藏）按一次 → 只補隱藏，WORSHIP 不會被加回去', function () {
   const env = makeLegacyEnv({ answers: ['YES', 'YES'] });
   env.sandbox.menuRetireLegacyFeatures_();
-  assert.ok(String(env.sandbox.getConfig('CONTENT_SHEET_INVITE_GROUPS')).indexOf('WORSHIP') !== -1, '第一次照常移轉');
-  env.sandbox.setConfig('CONTENT_SHEET_INVITE_GROUPS', OLD_DEFAULT_INVITE_GROUPS, '人手拿走 WORSHIP');
+  assert.ok(String(env.sandbox.getConfig_('CONTENT_SHEET_INVITE_GROUPS')).indexOf('WORSHIP') !== -1, '第一次照常移轉');
+  env.sandbox.setConfig_('CONTENT_SHEET_INVITE_GROUPS', OLD_DEFAULT_INVITE_GROUPS, '人手拿走 WORSHIP');
   grid(env).showSheet();
   env.store.alerts = [];
   env.sandbox.menuRetireLegacyFeatures_();
   const preview = env.store.alerts[0].message;
   assert.strictEqual(preview.indexOf('【Config】'), -1, preview);
   assert.ok(preview.indexOf('隱藏') !== -1, preview);
-  assert.strictEqual(env.sandbox.getConfig('CONTENT_SHEET_INVITE_GROUPS'), OLD_DEFAULT_INVITE_GROUPS, '人手的改動保留');
+  assert.strictEqual(env.sandbox.getConfig_('CONTENT_SHEET_INVITE_GROUPS'), OLD_DEFAULT_INVITE_GROUPS, '人手的改動保留');
   assert.strictEqual(grid(env).isSheetHidden(), true);
 });
 

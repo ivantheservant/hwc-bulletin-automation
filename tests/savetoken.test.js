@@ -178,7 +178,7 @@ test('真正入口：首次儲存（BulletinWeeks 那一行從未有過 LAST_SAV
   });
   var result = sb.saveWeekFromWebApp_(basicPayload({ lastSavedAt: null, week: { FLOWER_THIS_WEEK: '恩典夠用' } }));
   assert.ok(result.lastSavedAt, '應該有新的 lastSavedAt');
-  assert.strictEqual(sb.readSheet('BulletinWeeks')[0].FLOWER_THIS_WEEK, '恩典夠用');
+  assert.strictEqual(sb.readSheet_('BulletinWeeks')[0].FLOWER_THIS_WEEK, '恩典夠用');
 });
 
 test('真正入口：已儲存過、token 相符 → 允許儲存', function () {
@@ -189,9 +189,9 @@ test('真正入口：已儲存過、token 相符 → 允許儲存', function () 
 
   // 用重新讀出來的 lastSavedAt（而不是第一次呼叫的回傳值）送第二次儲存，
   // 理由同上一個測試的註解：假工作表把 Date 存成 'yyyy-MM-dd' 字串。
-  var reloadedLastSavedAt = sb.readSheet('BulletinWeeks')[0].LAST_SAVED_AT;
+  var reloadedLastSavedAt = sb.readSheet_('BulletinWeeks')[0].LAST_SAVED_AT;
   var second = sb.saveWeekFromWebApp_(basicPayload({ lastSavedAt: reloadedLastSavedAt, week: { FLOWER_THIS_WEEK: '第二次' }, baseWeek: { FLOWER_THIS_WEEK: '第一次' } }));
-  assert.strictEqual(sb.readSheet('BulletinWeeks')[0].FLOWER_THIS_WEEK, '第二次');
+  assert.strictEqual(sb.readSheet_('BulletinWeeks')[0].FLOWER_THIS_WEEK, '第二次');
   assert.ok(second.lastSavedAt);
 });
 
@@ -206,10 +206,10 @@ test('真正入口：已儲存過、token 不符 → STALE，錯誤訊息同時�
   // 的 toRealmSafeCellValue()），所以不能直接拿 saveWeekFromWebApp_() 回傳的
   // 高精度 lastSavedAt 跟訊息比對；要重新讀一次工作表現有的值，跟
   // buildSaveOperations_() 組訊息時看到的是同一份資料。
-  var currentToken = sb.canonicalSaveToken_(sb.readSheet('BulletinWeeks')[0].LAST_SAVED_AT);
+  var currentToken = sb.canonicalSaveToken_(sb.readSheet_('BulletinWeeks')[0].LAST_SAVED_AT);
 
-  var beforeWeek = JSON.stringify(sb.readSheet('BulletinWeeks'));
-  var beforeAudit = JSON.stringify(sb.readSheet('AuditLog'));
+  var beforeWeek = JSON.stringify(sb.readSheet_('BulletinWeeks'));
+  var beforeAudit = JSON.stringify(sb.readSheet_('AuditLog'));
 
   var thrown = null;
   try {
@@ -226,8 +226,8 @@ test('真正入口：已儲存過、token 不符 → STALE，錯誤訊息同時�
   assert.ok(thrown.message.indexOf(currentToken) !== -1, '訊息要包含工作表上目前的最後儲存時間：' + thrown.message);
   assert.ok(thrown.message.indexOf('（尚未儲存）') !== -1, '訊息要包含你載入時的版本時間（此例是「尚未儲存」）：' + thrown.message);
 
-  var afterWeek = JSON.stringify(sb.readSheet('BulletinWeeks'));
-  var afterAudit = JSON.stringify(sb.readSheet('AuditLog'));
+  var afterWeek = JSON.stringify(sb.readSheet_('BulletinWeeks'));
+  var afterAudit = JSON.stringify(sb.readSheet_('AuditLog'));
   assert.strictEqual(afterWeek, beforeWeek, 'STALE 時 BulletinWeeks 不應該有任何變動');
   assert.strictEqual(afterAudit, beforeAudit, 'STALE 時 AuditLog 不應該有任何新記錄');
 });

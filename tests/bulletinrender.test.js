@@ -884,7 +884,7 @@ test('10c. 真正入口：有殘留時對話框用警告措辭、列出頭三個
   assert.ok(text.indexOf('⚠️') !== -1, '一定要用警告措辭：' + text);
   assert.ok(text.indexOf('{{#EACHP:NOT_A_REAL_LIST}}') !== -1, '要列出實際殘留的內容：' + text);
 
-  const errors = env.sandbox.readSheet('ErrorLog')
+  const errors = env.sandbox.readSheet_('ErrorLog')
     .filter(function (r) { return r.ERROR_CODE === 'RESIDUAL_PLACEHOLDER'; });
   assert.strictEqual(errors.length, 1, '殘留一定要留低痕跡，不可以只喺對話框講一次');
 

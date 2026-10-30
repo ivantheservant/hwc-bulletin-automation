@@ -193,7 +193,7 @@ function findQuartersWithoutFillGrid_() {
   listExistingFillGridQuarters_().forEach(function (q) { existing[q] = true; });
 
   var known = {};
-  readSheet(SHEETS.BULLETIN_WEEKS).forEach(function (row) {
+  readSheet_(SHEETS.BULLETIN_WEEKS).forEach(function (row) {
     var qid = String(row.QUARTER_ID || '').trim();
     if (qid && !existing[qid]) known[qid] = true;
   });
@@ -219,7 +219,7 @@ function autoCreateNextQuarterFillGrids_() {
   // 新一季建立 Fill_ 或寄出填寫邀請（內容表的自動建立與邀請在 autoCreateContentSheetsForUpcomingQuarters_()）。
   if (FILL_GRID_RETIRED_ === true) return result;
 
-  if (normalizeBoolean_(getConfig(CONFIG_KEYS.FILL_AUTO_CREATE_NEXT_QUARTER, 'TRUE')) !== true) {
+  if (normalizeBoolean_(getConfig_(CONFIG_KEYS.FILL_AUTO_CREATE_NEXT_QUARTER, 'TRUE')) !== true) {
     return result;
   }
 
@@ -259,7 +259,7 @@ function autoCreateNextQuarterFillGrids_() {
  *   {void}
  */
 function recordFillInviteFingerprint_(quarterId, fingerprint) {
-  writeSheet(SHEETS.CONFLICT_NOTICE_LOG, [{
+  writeSheet_(SHEETS.CONFLICT_NOTICE_LOG, [{
     TIMESTAMP: new Date(),
     SERVICE_DATE: '',
     POST_ID: 'FILL_INVITE',
@@ -392,7 +392,7 @@ function buildFillInviteHtml_(input) {
  *     reason:(string|undefined), message:(string|undefined)}}
  */
 function sendFillInvite_(quarterId) {
-  var dryRun = normalizeBoolean_(getConfig(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
+  var dryRun = normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
 
   var gridRows = readFillGridRows_(quarterId);
   if (gridRows.length === 0) {
@@ -401,13 +401,13 @@ function sendFillInvite_(quarterId) {
   }
 
   var allowedGroups = getConfigTextList_(CONFIG_KEYS.FILL_INVITE_GROUPS, 'ADMIN,CC,DB,IT,WORSHIP');
-  var recipientsResult = buildRecipientList_(readSheet(SHEETS.RECIPIENTS), allowedGroups, null);
+  var recipientsResult = buildRecipientList_(readSheet_(SHEETS.RECIPIENTS), allowedGroups, null);
   if (recipientsResult.recipients.length === 0) {
     return { sent: false, dryRun: dryRun, recipientCount: 0, reason: 'NO_RECIPIENTS',
       message: 'Recipients 內找不到屬於 ' + allowedGroups.join('／') + ' 的有效收件人。' };
   }
 
-  var churchName = getConfig(CONFIG_KEYS.CHURCH_NAME, '');
+  var churchName = getConfig_(CONFIG_KEYS.CHURCH_NAME, '');
   var htmlBody = buildFillInviteHtml_({
     quarterId: quarterId,
     serviceDates: gridRows.map(function (r) { return r.isoDate; }),
@@ -417,9 +417,9 @@ function sendFillInvite_(quarterId) {
       announcements: buildSheetDeepLink_(SHEETS.ANNOUNCEMENTS),
       prayers: buildSheetDeepLink_(SHEETS.PRAYERS),
       finance: buildSheetDeepLink_(SHEETS.FINANCE),
-      webApp: getConfig(CONFIG_KEYS.WEBAPP_URL, '')
+      webApp: getConfig_(CONFIG_KEYS.WEBAPP_URL, '')
     },
-    responsibilityNote: getConfig(CONFIG_KEYS.FILL_RESPONSIBILITY_NOTE, ''),
+    responsibilityNote: getConfig_(CONFIG_KEYS.FILL_RESPONSIBILITY_NOTE, ''),
     churchName: churchName
   });
 
@@ -749,7 +749,7 @@ function fillReconcileTrigger_() {
  *   {{sent:boolean, reason:(string|undefined), notifiedCount:number}}
  */
 function sendFillConflictNotice_(result) {
-  var dryRun = normalizeBoolean_(getConfig(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
+  var dryRun = normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
 
   var notified = {};
   readNotifiedFingerprints_().forEach(function (fp) { notified[fp] = true; });
@@ -767,11 +767,11 @@ function sendFillConflictNotice_(result) {
   if (fresh.length === 0) return { sent: false, reason: 'ALREADY_NOTIFIED', notifiedCount: 0 };
 
   var allowedGroups = getConfigTextList_(CONFIG_KEYS.FILL_CONFLICT_GROUPS, 'ADMIN');
-  var recipientsResult = buildRecipientList_(readSheet(SHEETS.RECIPIENTS), allowedGroups, null);
+  var recipientsResult = buildRecipientList_(readSheet_(SHEETS.RECIPIENTS), allowedGroups, null);
   if (recipientsResult.recipients.length === 0) return { sent: false, reason: 'NO_RECIPIENTS', notifiedCount: 0 };
 
   var esc = escapeHtmlEmail_;
-  var churchName = getConfig(CONFIG_KEYS.CHURCH_NAME, '');
+  var churchName = getConfig_(CONFIG_KEYS.CHURCH_NAME, '');
   var subject = churchName + '粵語堂週報：季度填寫表有 ' + fresh.length + ' 格衝突';
   var htmlBody = [
     '<h2 style="margin:0 0 0.6em;">季度填寫表衝突提醒</h2>',
@@ -826,7 +826,7 @@ function sendFillConflictNotice_(result) {
 
   // 指紋是**狀態**，試行模式不可以消耗它（同 src/ConflictNotice.gs）。
   if (!dryRun) {
-    writeSheet(SHEETS.CONFLICT_NOTICE_LOG, fresh.map(function (c) {
+    writeSheet_(SHEETS.CONFLICT_NOTICE_LOG, fresh.map(function (c) {
       return {
         TIMESTAMP: new Date(), SERVICE_DATE: normalizeDate_(c.isoDate),
         POST_ID: 'FILL_CONFLICT', SLOT_INDEX: '',

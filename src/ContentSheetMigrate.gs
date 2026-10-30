@@ -133,14 +133,14 @@ function readContentSheetV2Inputs_(spreadsheet) {
     weeks: readRowsWithRowNo_(SHEETS.BULLETIN_WEEKS),
     // v3：生效中的欄位覆寫（帶行號）——九欄改為只在內容表填、浸禮六欄改為只在介面填，舊覆寫要停用。
     fieldOverrides: readRowsWithRowNo_(SHEETS.FIELD_OVERRIDE).filter(function (r) { return r.ACTIVE === true; }),
-    migrationStarted: contentSheetMigrationStarted_(readSheet(SHEETS.AUDIT_LOG), String(spreadsheet.getId()))
+    migrationStarted: contentSheetMigrationStarted_(readSheet_(SHEETS.AUDIT_LOG), String(spreadsheet.getId()))
   };
 }
 
 /**
  * 用途：AuditLog 有沒有這一份內容表「移轉已開始」的記錄（`CONTENT_SHEET_MIGRATE_V2_START`，欄位＝檔案 ID）。純函式。
  * Args:
- *   auditRows {Object[]} `readSheet(SHEETS.AUDIT_LOG)` 的輸出。
+ *   auditRows {Object[]} `readSheet_(SHEETS.AUDIT_LOG)` 的輸出。
  *   fileId {string} 內容表檔案 ID。
  * Returns:
  *   {boolean}

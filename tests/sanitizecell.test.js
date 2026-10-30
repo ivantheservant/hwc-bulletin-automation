@@ -160,7 +160,7 @@ test('真正入口：writeDiagnosticsReport_() 寫入以 = 開頭的行 → 工�
   var env = makeEnv();
   env.writeDiagnosticsReport_('週報資料模型預覽', ['=== 基本資料 ===', '正常的一行']);
 
-  var rows = env.readSheet('Diagnostics');
+  var rows = env.readSheet_('Diagnostics');
   var titleRow = rows.filter(function (r) { return r.CONTENT.indexOf('基本資料') !== -1; })[0];
   assert.ok(titleRow, '應該找得到那一行');
   assert.strictEqual(titleRow.CONTENT, '=== 基本資料 ===', '讀回來應該是原文（真實 Sheets 會把格式標記吃掉）');
@@ -174,7 +174,7 @@ test('真正入口：writeDiagnosticsReport_() 寫入以 = 開頭的行 → 工�
 test('真正入口：writeDiagnosticsReport_() 的 reportName 若以 = 開頭同樣被保護', function () {
   var env = makeEnv();
   env.writeDiagnosticsReport_('=惡意報告名稱', ['內容']);
-  var rows = env.readSheet('Diagnostics');
+  var rows = env.readSheet_('Diagnostics');
   assert.strictEqual(rows[0].REPORT_NAME, '=惡意報告名稱');
   assertWasEscaped(env, 'Diagnostics', '=惡意報告名稱');
 });
@@ -190,7 +190,7 @@ test('真正入口：appendAuditLog_() 的 OLD_VALUE／NEW_VALUE 若以 = 開頭
     newValue: '=HYPERLINK("http://example.invalid")'
   });
 
-  var rows = env.readSheet('AuditLog');
+  var rows = env.readSheet_('AuditLog');
   assert.strictEqual(rows.length, 1);
   assert.strictEqual(rows[0].NEW_VALUE, '=HYPERLINK("http://example.invalid")');
   assertWasEscaped(env, 'AuditLog', '=HYPERLINK("http://example.invalid")');
@@ -199,7 +199,7 @@ test('真正入口：appendAuditLog_() 的 OLD_VALUE／NEW_VALUE 若以 = 開頭
 test('真正入口：appendAuditLog_() 的 ACTION／NOTES 等一般欄位一樣經過 sanitizeCellText_（正常內容不受影響）', function () {
   var env = makeEnv();
   env.appendAuditLog_({ action: 'NORMAL_ACTION', notes: '沒有特殊字元的備註' });
-  var rows = env.readSheet('AuditLog');
+  var rows = env.readSheet_('AuditLog');
   assert.strictEqual(rows[0].ACTION, 'NORMAL_ACTION');
   assert.strictEqual(rows[0].NOTES, '沒有特殊字元的備註');
 });

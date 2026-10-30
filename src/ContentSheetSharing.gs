@@ -24,7 +24,7 @@ var CONTENT_SHEET_FINANCE_LOCK_DESCRIPTION_ = '週報系統：「財政報告」
  *   {{access:string, accessRaw:string, editorGroups:string[], financeGroups:string[]}}
  */
 function readContentSheetSharingConfig_() {
-  var raw = String(getConfig(CONFIG_KEYS.CONTENT_SHEET_LINK_ACCESS, 'VIEW') || '').trim().toUpperCase();
+  var raw = String(getConfig_(CONFIG_KEYS.CONTENT_SHEET_LINK_ACCESS, 'VIEW') || '').trim().toUpperCase();
   return {
     access: raw === 'EDIT' ? 'EDIT' : 'VIEW',
     accessRaw: raw,
@@ -47,9 +47,13 @@ function planContentSheetSharing_(input) {
   var o = input || {};
   var config = o.config || { access: 'VIEW', editorGroups: [], financeGroups: [] };
   var out = { access: config.access, editors: [], financeEditors: [], financeLocked: false, warnings: [], lines: [] };
+  var recipientWarnings = {};
   function emails(groups) {
     if (!groups || groups.length === 0) return [];
-    var list = buildRecipientList_(o.recipientRows || [], groups, o.today || new Date()).recipients || [];
+    var built = buildRecipientList_(o.recipientRows || [], groups, o.today || new Date());
+    // 獨立審查第 8 項：電郵格式不對等被略過的，要講出來（同一句只講一次）。
+    (built.warnings || []).forEach(function (w) { recipientWarnings[w.message] = true; });
+    var list = built.recipients || [];
     var seen = {};
     return list.map(function (r) { return String(r.email || '').trim().toLowerCase(); })
       .filter(function (e) { if (!e || seen[e]) return false; seen[e] = true; return true; });
@@ -69,6 +73,15 @@ function planContentSheetSharing_(input) {
     out.warnings.push('「財政報告」可以修改的組別（' + config.financeGroups.join('、') + '）在 Recipients 一個有效的電郵都沒有，'
       + '保護之後只有週報系統的帳戶可以修改。');
   }
+  // 獨立審查第 8 項：分頁保護不會給人打開檔案的權限——財政組別的人不在可以修改的組別，網域又只可以看，他就改不到。
+  if (out.access === 'VIEW') {
+    var notEditor = out.financeEditors.filter(function (e) { return out.editors.indexOf(e) === -1; });
+    if (out.financeLocked && notEditor.length > 0) {
+      out.warnings.push('「財政報告」可以修改的組別有 ' + notEditor.length + ' 人不在可以修改內容表的組別內，他們打開內容表只可以看、'
+        + '改不到財政報告。請把那幾組加入 CONTENT_SHEET_EDITOR_GROUPS。');
+    }
+  }
+  Object.keys(recipientWarnings).forEach(function (m) { out.warnings.push('Recipients：' + m); });
   out.lines.push(out.access === 'VIEW'
     ? '內容表權限：教會網域內只可以看；可以修改的是 ' + (config.editorGroups || []).join('、') + ' 組（' + out.editors.length + ' 人）。'
     : '內容表權限：教會網域內任何人都可以修改。');
@@ -87,7 +100,7 @@ function planContentSheetSharing_(input) {
 function previewContentSheetSharing_() {
   return planContentSheetSharing_({
     config: readContentSheetSharingConfig_(),
-    recipientRows: readSheet(SHEETS.RECIPIENTS),
+    recipientRows: readSheet_(SHEETS.RECIPIENTS),
     today: new Date()
   });
 }
@@ -107,33 +120,41 @@ function applyContentSheetSharing_(fileId, spreadsheet, plan, domain) {
     out.errors.push(step + '：' + ((err && err.message) ? err.message : String(err)));
   }
   // Drive 的讀寫集中在 src/ContentSheetIo.gs（lint：雲端硬碟的服務只准在那幾個 IO 檔案）。
-  var domainSet = String(domain || '').trim() !== '';
-  if (domainSet) {
-    try {
-      setContentSheetDomainAccess_(fileId, plan.access);
-    } catch (err) {
-      failed('設定網域連結權限', err);
-    }
-  }
-
+  // 獨立審查第 5 項：**先加編輯者，全部成功才把網域改成只可以看**——否則加不到編輯者時，同工連填都填不到。
+  var targetAccess = plan.access;
   if (plan.access === 'VIEW') {
-    var current = {};
+    var current = null;
     try {
       current = listContentSheetUserRoles_(fileId);
     } catch (err) {
       failed('讀取現有編輯者', err);
     }
-    plan.editors.forEach(function (email) {
-      var role = current[email];
-      if (role === 'writer' || role === 'fileOrganizer' || role === 'organizer' || role === 'owner') return;
-      try {
-        addContentSheetEditorQuietly_(fileId, email);
-        out.added.push(email);
-      } catch (err) {
-        failed('加編輯者 ' + email, err);
-      }
-    });
+    if (current) {
+      plan.editors.forEach(function (email) {
+        var role = current[email];
+        if (role === 'writer' || role === 'fileOrganizer' || role === 'organizer' || role === 'owner') return;
+        try {
+          addContentSheetEditorQuietly_(fileId, email);
+          out.added.push(email);
+        } catch (err) {
+          failed('加編輯者 ' + email, err);
+        }
+      });
+    }
+    if (!out.ok) {
+      targetAccess = 'EDIT';
+      out.lines.push('⚠️ 有編輯者加不到，所以內容表暫時保持「網域內任何人都可以修改」，修好之後再按一次「更新本季內容表」。');
+    }
   }
+  var domainSet = String(domain || '').trim() !== '';
+  if (domainSet) {
+    try {
+      setContentSheetDomainAccess_(fileId, targetAccess);
+    } catch (err) {
+      failed('設定網域連結權限', err);
+    }
+  }
+  out.access = targetAccess;
 
   try {
     applyContentSheetFinanceLock_(spreadsheet, plan);
@@ -141,7 +162,7 @@ function applyContentSheetSharing_(fileId, spreadsheet, plan, domain) {
     failed('「財政報告」分頁保護', err);
   }
 
-  out.lines = plan.lines.slice();
+  out.lines = plan.lines.slice().concat(out.lines);
   if (!domainSet) {
     out.lines.push('⚠️ 未設定 ' + CONFIG_KEYS.CONTENT_SHEET_DOMAIN + '，網域連結權限沒有自動設定，請人手在「共用」設定。');
   }

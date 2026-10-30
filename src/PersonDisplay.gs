@@ -46,7 +46,7 @@ function isTitleHonorific_(honorific) {
  *   `EFFECTIVE_FROM`～`EFFECTIVE_TO` 之內（兩欄留空代表不限）。
  * Args:
  *   personId {string} 要查的 PersonID。
- *   rows {Object[]} `PersonDisplay` 工作表的資料列（readSheet 的輸出）。
+ *   rows {Object[]} `PersonDisplay` 工作表的資料列（readSheet_ 的輸出）。
  *   targetDate {?Date} 目標主日日期；`null` 代表不做生效日期篩選。
  * Returns:
  *   {?Object} 找到的資料列；找不到回 `null`。同時符合多行時取**第一行**

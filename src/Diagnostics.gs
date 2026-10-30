@@ -31,7 +31,7 @@ function writeDiagnosticsReport_(reportName, contentLines) {
   var lines = (contentLines || []).slice();
   var totalLines = lines.length;
 
-  var maxRows = normalizeInt_(getConfig(CONFIG_KEYS.DIAGNOSTICS_MAX_ROWS, '380'));
+  var maxRows = normalizeInt_(getConfig_(CONFIG_KEYS.DIAGNOSTICS_MAX_ROWS, '380'));
   if (!maxRows || maxRows < 1) maxRows = 380;
 
   var truncated = false;
@@ -66,7 +66,7 @@ function writeDiagnosticsReport_(reportName, contentLines) {
   }
 
   if (rows.length > 0) {
-    writeSheet(SHEETS.DIAGNOSTICS, rows);
+    writeSheet_(SHEETS.DIAGNOSTICS, rows);
   }
   return rows.length;
 }

@@ -61,7 +61,7 @@ function makeConflictEnv(isoDate, fieldKey, gridValue, systemValue) {
 }
 
 function findRunRecord(env) {
-  return env.sandbox.readSheet('AuditLog').filter(function (r) {
+  return env.sandbox.readSheet_('AuditLog').filter(function (r) {
     return r.ACTION === 'FILL_CONFLICT_RESOLVE_RUN';
   });
 }
@@ -144,8 +144,8 @@ test('3. decisions 之中有一部分對不上目前的衝突 → unmatched 計�
 
 test('3b. decisions 全部對不上目前的衝突（例如季度 ID 傳壞了）→ 拋 NO_MATCHING_CONFLICT，而且沒有任何寫入', function () {
   const env = makeConflictEnv('2027-11-07', 'FLOWER_THIS_WEEK', '格子表的講題', '系統的講題');
-  const beforeWeeks = JSON.stringify(env.sandbox.readSheet('BulletinWeeks'));
-  const beforeAuditCount = env.sandbox.readSheet('AuditLog').length;
+  const beforeWeeks = JSON.stringify(env.sandbox.readSheet_('BulletinWeeks'));
+  const beforeAuditCount = env.sandbox.readSheet_('AuditLog').length;
 
   assert.throws(function () {
     env.sandbox.resolveFillConflicts_(QUARTER_ID, [
@@ -157,9 +157,9 @@ test('3b. decisions 全部對不上目前的衝突（例如季度 ID 傳壞了�
     return true;
   });
 
-  assert.strictEqual(JSON.stringify(env.sandbox.readSheet('BulletinWeeks')), beforeWeeks,
+  assert.strictEqual(JSON.stringify(env.sandbox.readSheet_('BulletinWeeks')), beforeWeeks,
     'BulletinWeeks 不可以有任何改動');
-  assert.strictEqual(env.sandbox.readSheet('AuditLog').length, beforeAuditCount,
+  assert.strictEqual(env.sandbox.readSheet_('AuditLog').length, beforeAuditCount,
     '連 FILL_CONFLICT_RESOLVE_RUN 總結記錄都不可以寫——這不是使用者的選擇，是系統性的鍵值不符');
 });
 
@@ -175,12 +175,12 @@ test('4. 選 GRID → BulletinWeeks 被寫入、快照更新、逐格 AuditLog',
   ]);
   assert.strictEqual(result.appliedGrid, 1);
 
-  const week = env.sandbox.readSheet('BulletinWeeks').filter(function (r) {
+  const week = env.sandbox.readSheet_('BulletinWeeks').filter(function (r) {
     return env.sandbox.fillGridCellText_(r.SERVICE_DATE) === '2027-11-07';
   })[0];
   assert.strictEqual(week.FLOWER_THIS_WEEK, '格子表的講題');
 
-  assert.ok(env.sandbox.readSheet('AuditLog').some(function (r) {
+  assert.ok(env.sandbox.readSheet_('AuditLog').some(function (r) {
     return r.ACTION === 'FILL_CONFLICT_RESOLVE' && r.NEW_VALUE === '格子表的講題';
   }), '要有逐格的 FILL_CONFLICT_RESOLVE 記錄');
 

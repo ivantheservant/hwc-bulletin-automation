@@ -23,7 +23,7 @@
  *     missingColumns:{sheet:string, keys:string[]}[]}}
  *     `missingSheets` 是完全找不到的工作表名稱；`missingColumns` 只列出
  *     「工作表存在，但第 2 行機器鍵在該欄位置對不上程式定義」的表（跟
- *     `readSheet()` 本身判斷「工作表結構跑位」的規則一致），找不到的
+ *     `readSheet_()` 本身判斷「工作表結構跑位」的規則一致），找不到的
  *     工作表不會同時出現在這裡（已經在 `missingSheets`）。
  */
 function checkSheetSchema_() {
@@ -57,9 +57,9 @@ function checkSheetSchema_() {
 
 /**
  * 用途：比對一張工作表第 2 行的機器鍵，跟 `COLUMNS` 定義在**同一個位置**
- *   是否相符——判斷方式刻意跟 `SheetUtils.gs` 的 `readSheet()` 一致
+ *   是否相符——判斷方式刻意跟 `SheetUtils.gs` 的 `readSheet_()` 一致
  *   （逐欄比對位置，不是「有沒有出現在某處」），這樣「結構落後」的定義
- *   在全專案只有一種，不會出現「schema 檢查說沒事、`readSheet()` 卻拋錯」
+ *   在全專案只有一種，不會出現「schema 檢查說沒事、`readSheet_()` 卻拋錯」
  *   這種兩邊各講各話的情況。
  * Args:
  *   sheet {Sheet} 已經確認存在的工作表物件。

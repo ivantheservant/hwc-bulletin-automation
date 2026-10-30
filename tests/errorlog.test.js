@@ -96,7 +96,7 @@ function assertWasEscaped(env, sheetName, value) {
 
 test('withApiResult_：fn() 拋錯 → ErrorLog 多一筆記錄，且回傳 {ok:false, error}', function () {
   var sb = makeEnv();
-  var before = sb.readSheet('ErrorLog').length;
+  var before = sb.readSheet_('ErrorLog').length;
 
   var resp = sb.withApiResult_(function () {
     var err = new Error('故意拋出的錯誤');
@@ -108,7 +108,7 @@ test('withApiResult_：fn() 拋錯 → ErrorLog 多一筆記錄，且回傳 {ok:
   assert.strictEqual(resp.error.code, 'BOOM');
   assert.strictEqual(resp.error.message, '故意拋出的錯誤');
 
-  var rows = sb.readSheet('ErrorLog');
+  var rows = sb.readSheet_('ErrorLog');
   assert.strictEqual(rows.length, before + 1);
   assert.strictEqual(rows[before].SOURCE, 'SERVER');
   assert.strictEqual(rows[before].FUNCTION_NAME, 'testFn');
@@ -118,12 +118,12 @@ test('withApiResult_：fn() 拋錯 → ErrorLog 多一筆記錄，且回傳 {ok:
 
 test('withApiResult_：fn() 成功 → ErrorLog 不會多一筆記錄', function () {
   var sb = makeEnv();
-  var before = sb.readSheet('ErrorLog').length;
+  var before = sb.readSheet_('ErrorLog').length;
 
   var resp = sb.withApiResult_(function () { return { hello: 'world' }; }, { functionName: 'testFn' });
 
   assert.strictEqual(resp.ok, true);
-  assert.strictEqual(sb.readSheet('ErrorLog').length, before, '成功時不應該寫入 ErrorLog');
+  assert.strictEqual(sb.readSheet_('ErrorLog').length, before, '成功時不應該寫入 ErrorLog');
 });
 
 test('withApiResult_：呼叫者沒有權限時也算「失敗」，一樣要記一筆 ErrorLog', function () {
@@ -147,8 +147,8 @@ test('withApiResult_：呼叫者沒有權限時也算「失敗」，一樣要記
   var resp = sb.withApiResult_(function () { return 'should not reach here'; }, { functionName: 'testFn' });
   assert.strictEqual(resp.ok, false);
   assert.strictEqual(resp.error.code, 'FORBIDDEN');
-  assert.strictEqual(sb.readSheet('ErrorLog').length, 1);
-  assert.strictEqual(sb.readSheet('ErrorLog')[0].ERROR_CODE, 'FORBIDDEN');
+  assert.strictEqual(sb.readSheet_('ErrorLog').length, 1);
+  assert.strictEqual(sb.readSheet_('ErrorLog')[0].ERROR_CODE, 'FORBIDDEN');
 });
 
 // =====================================================================
@@ -165,7 +165,7 @@ test('appendErrorLog_：MESSAGE／DETAIL 以 = 開頭 → 寫入時有前導單�
     detail: '=HYPERLINK("http://example.invalid")'
   });
 
-  var rows = sb.readSheet('ErrorLog');
+  var rows = sb.readSheet_('ErrorLog');
   var row = rows[rows.length - 1];
   assert.strictEqual(row.MESSAGE, '=1+1 這不是公式');
   assert.strictEqual(row.DETAIL, '=HYPERLINK("http://example.invalid")');
@@ -189,7 +189,7 @@ test('appendErrorLog_：ACTOR 沒有提供時用 Session.getActiveUser()，一�
   sb.__sheets = sheets;
 
   sb.appendErrorLog_({ source: sb.ERROR_LOG_SOURCE.MENU, functionName: 'f', errorCode: 'E', message: 'm' });
-  var row = sb.readSheet('ErrorLog')[0];
+  var row = sb.readSheet_('ErrorLog')[0];
   assert.strictEqual(row.ACTOR, '=actor@x.com');
   assertWasEscaped(sb, 'ErrorLog', '=actor@x.com');
 });

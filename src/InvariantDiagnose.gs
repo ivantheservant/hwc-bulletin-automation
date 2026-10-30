@@ -37,7 +37,7 @@ function collectI06Diagnosis_(options) {
     latestRowFields: [],
     // 2
     rowMasterFileId: '',
-    configMasterFileId: String(getConfig(CONFIG_KEYS.PUBLISHED_PDF_FILE_ID, '') || '').trim(),
+    configMasterFileId: String(getConfig_(CONFIG_KEYS.PUBLISHED_PDF_FILE_ID, '') || '').trim(),
     rowMasterMatchesConfig: null,
     // 3
     archive: null,
@@ -53,7 +53,7 @@ function collectI06Diagnosis_(options) {
   };
 
   // ---- 1. PublishLog 最新一行**非自測**紀錄 ----
-  var rows = readSheet(SHEETS.PUBLISH_LOG);
+  var rows = readSheet_(SHEETS.PUBLISH_LOG);
   var production = rows.filter(function (r) { return r.IS_SELFTEST !== true; });
   var latest = latestPublishLogRow_(production);
 
@@ -432,7 +432,7 @@ function realignI06Fingerprint_(options) {
   var o = options || {};
   var wantSelfTest = o.isSelfTest === true;
 
-  var rows = readSheet(SHEETS.PUBLISH_LOG);
+  var rows = readSheet_(SHEETS.PUBLISH_LOG);
   var scoped = rows.filter(function (r) {
     return wantSelfTest ? (r.IS_SELFTEST === true) : (r.IS_SELFTEST !== true);
   });
@@ -446,7 +446,7 @@ function realignI06Fingerprint_(options) {
 
   var fileId = String(latest.MASTER_FILE_ID || '').trim();
   if (!fileId) {
-    fileId = String(getConfig(
+    fileId = String(getConfig_(
       wantSelfTest ? CONFIG_KEYS.SELFTEST_MASTER_PDF_FILE_ID : CONFIG_KEYS.PUBLISHED_PDF_FILE_ID,
       '') || '').trim();
   }
@@ -471,7 +471,7 @@ function realignI06Fingerprint_(options) {
 
   var rowNo = Number(latest.__rowNo || 0);
   if (!rowNo) {
-    // readSheet() 不帶 __rowNo，所以要自己找返那一行。
+    // readSheet_() 不帶 __rowNo，所以要自己找返那一行。
     rowNo = findPublishLogRowNo_(latest);
   }
   if (!rowNo) {
@@ -518,7 +518,7 @@ function findPublishLogRowNo_(row) {
   var version = Number(row.VERSION_NO || 0);
   var isSelfTest = row.IS_SELFTEST === true;
 
-  var all = readSheet(SHEETS.PUBLISH_LOG);
+  var all = readSheet_(SHEETS.PUBLISH_LOG);
   for (var i = 0; i < all.length; i++) {
     var r = all[i];
     if (publishRowIsoDate_(r) !== target) continue;
@@ -677,7 +677,7 @@ function menuShowPublishRevisions_() {
  */
 function collectI04Diagnosis_(options) {
   var o = options || {};
-  var rows = readSheet(SHEETS.SEND_LOG);
+  var rows = readSheet_(SHEETS.SEND_LOG);
 
   var out = {
     totalRows: rows.length,
@@ -711,14 +711,14 @@ function collectI04Diagnosis_(options) {
   out.groups = invariantSendGroupsForStatus_(out.batchStatus);
 
   try {
-    out.previewCount = buildRecipientList_(readSheet(SHEETS.RECIPIENTS), out.groups, null).recipients.length;
+    out.previewCount = buildRecipientList_(readSheet_(SHEETS.RECIPIENTS), out.groups, null).recipients.length;
   } catch (err) {
     out.previewCount = null;
     out.notes.push('重新預覽收件人時拋錯：' + ((err && err.message) ? err.message : String(err)));
   }
 
   // ⚠️ 這一段是關鍵：同一「批」裡面到底有幾多個**不同的時間戳記**。
-  //    一次 writeSheet() 是一次 setValues()，全部行同一刻寫入，所以正常
+  //    一次 writeSheet_() 是一次 setValues()，全部行同一刻寫入，所以正常
   //    情況下只會有一兩個。多過那個數，就代表**兩次不同的寄出被併成一批**。
   var seenTimes = {};
   batch.forEach(function (row) {
@@ -743,7 +743,7 @@ function collectI04Diagnosis_(options) {
     out.mergedSendCount = out.loggedCount / out.previewCount;
   }
 
-  out.recipients = readSheet(SHEETS.RECIPIENTS)
+  out.recipients = readSheet_(SHEETS.RECIPIENTS)
     .filter(function (r) { return r.ACTIVE === true; })
     .map(function (r) { return String(r.GROUP_NAME || '（未分組）'); });
 
@@ -845,7 +845,7 @@ function i04DifferenceText_(d) {
       + '\n　　那不是系統寄錯，是 I04 圈「一批」的規則本身不準。';
   } else if (d.distinctTimestamps.length > 2) {
     text += '\n　⚠️ 這一批有 ' + d.distinctTimestamps.length + ' 個不同的時間戳記，'
-      + '一次 writeSheet() 正常只會有一兩個——很可能是多次寄出被併成一批。';
+      + '一次 writeSheet_() 正常只會有一兩個——很可能是多次寄出被併成一批。';
   } else {
     text += '\n　這一批的時間戳記只有 ' + d.distinctTimestamps.length + ' 個，'
       + '不像是多次寄出被合併。要查的是 Recipients 在那一次寄出之後有沒有改過。';
@@ -949,7 +949,7 @@ function collectI03Diagnosis_(options) {
   var probeById = {};
   probes.forEach(function (p) { probeById[p.id] = p; });
 
-  var registryRows = readSheet(SHEETS.NUMBER_REGISTRY).filter(function (r) { return r.ACTIVE === true; });
+  var registryRows = readSheet_(SHEETS.NUMBER_REGISTRY).filter(function (r) { return r.ACTIVE === true; });
   var registeredIds = registryRows.map(function (r) { return String(r.REGISTRY_ID || '').trim(); });
   out.registryOnly = registeredIds.filter(function (id) { return id && !probeById[id]; });
   out.implOnly = probes.map(function (p) { return p.id; })

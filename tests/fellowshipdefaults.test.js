@@ -300,7 +300,7 @@ test('3c. 冪等：幹事人手改過的內容不會被第二次產生蓋掉', f
   sheet.getRange(3, contentCol).setValue('那一週改成郊遊');
 
   env.sandbox.generateQuarterFellowships_(QUARTER_ID);
-  assert.strictEqual(env.sandbox.readSheet('Fellowships')[0].CONTENT, '那一週改成郊遊',
+  assert.strictEqual(env.sandbox.readSheet_('Fellowships')[0].CONTENT, '那一週改成郊遊',
     '人手改過的內容絕對不可以被自動產生蓋掉');
 });
 
@@ -332,7 +332,7 @@ test('真正入口：產生之前會先自動備份', function () {
   const env = makeFillEnv({ fellowshipDefaults: [defaultRow()] });
   const result = env.sandbox.generateQuarterFellowships_(QUARTER_ID);
   assert.ok(result.backupId.indexOf(QUARTER_ID) === 0, result.backupId);
-  assert.ok(env.sandbox.readSheet('FillBackup').some(function (r) {
+  assert.ok(env.sandbox.readSheet_('FillBackup').some(function (r) {
     return r.REASON === 'BEFORE_GENERATE_FELLOWSHIPS';
   }));
 });
@@ -346,7 +346,7 @@ test('真正入口：產生的行內容正確（日期格式、時間、預設�
   });
   env.sandbox.generateQuarterFellowships_(QUARTER_ID);
 
-  const rows = env.sandbox.readSheet('Fellowships');
+  const rows = env.sandbox.readSheet_('Fellowships');
   assert.strictEqual(rows.length, 1, '只有第 2 個主日');
   assert.strictEqual(rows[0].FELLOWSHIP_NAME, '喜樂團 (粵語長者)');
   assert.strictEqual(rows[0].MEETING_DATE, '19/11 星期五', '2027-11-14 ＋ 5 天 ＝ 11/19');
@@ -361,13 +361,13 @@ test('真正入口：FELLOWSHIP_DATE_PATTERN 改變時，產生的日期跟着�
     fellowshipDefaults: [defaultRow({ RECURRENCE: 'WEEK_IN:1', DAY_LABEL: '星期日', DAY_OFFSET: 0 })]
   });
   env.sandbox.generateQuarterFellowships_(QUARTER_ID);
-  assert.strictEqual(env.sandbox.readSheet('Fellowships')[0].MEETING_DATE, '11月7日 星期日');
+  assert.strictEqual(env.sandbox.readSheet_('Fellowships')[0].MEETING_DATE, '11月7日 星期日');
 });
 
 test('真正入口：每產生一行都記一筆 AuditLog', function () {
   const env = makeFillEnv({ fellowshipDefaults: [defaultRow({ RECURRENCE: 'WEEK_IN:1,2' })] });
   env.sandbox.generateQuarterFellowships_(QUARTER_ID);
-  const audit = env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'FELLOWSHIP_GENERATE'; });
+  const audit = env.sandbox.readSheet_('AuditLog').filter(function (r) { return r.ACTION === 'FELLOWSHIP_GENERATE'; });
   assert.strictEqual(audit.length, 2);
 });
 
@@ -436,14 +436,14 @@ test('整理次序（真正入口）：不刪行，只改 SEQ_NO，而且先備�
     ]
   });
 
-  const before = env.sandbox.readSheet('Fellowships').length;
+  const before = env.sandbox.readSheet_('Fellowships').length;
   const result = env.sandbox.resequenceQuarterLists_(QUARTER_ID);
 
-  assert.strictEqual(env.sandbox.readSheet('Fellowships').length, before, '不刪行');
+  assert.strictEqual(env.sandbox.readSheet_('Fellowships').length, before, '不刪行');
   assert.strictEqual(result.totalChanged, 2);
-  assert.ok(env.sandbox.readSheet('FillBackup').some(function (r) { return r.REASON === 'BEFORE_RESEQUENCE'; }));
+  assert.ok(env.sandbox.readSheet_('FillBackup').some(function (r) { return r.REASON === 'BEFORE_RESEQUENCE'; }));
 
-  const rows = env.sandbox.readSheet('Fellowships');
+  const rows = env.sandbox.readSheet_('Fellowships');
   const seqByName = {};
   rows.forEach(function (r) { seqByName[r.FELLOWSHIP_NAME] = r.SEQ_NO; });
   assert.strictEqual(seqByName['乙團'], 10, '原本 SEQ_NO 較小的排前面');

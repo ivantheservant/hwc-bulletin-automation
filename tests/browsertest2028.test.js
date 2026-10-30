@@ -230,7 +230,7 @@ test('F6-1 同一週的四個數字相同：頂部徽章、主日下拉、預覽
   assert.strictEqual(alerts.length, 1, JSON.stringify(alerts));
   const suffix = '（另有 ' + optionalCount + ' 項通常空白）';
   assert.ok(alerts[0].body.indexOf('待填項目數：' + expected + suffix) !== -1, alerts[0].body);
-  const report = sb.readSheet('Diagnostics').map(function (r) { return r.CONTENT; }).join('\n');
+  const report = sb.readSheet_('Diagnostics').map(function (r) { return r.CONTENT; }).join('\n');
   assert.ok(report.indexOf('【待填清單（' + expected + ' 項）】' + suffix) !== -1, report);
   assert.ok(report.indexOf('〔通常空白〕') !== -1, '通常空白的項目要在清單內標明');
 

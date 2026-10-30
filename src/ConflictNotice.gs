@@ -157,7 +157,7 @@ function buildConflictNoticePlainText_(isoDate, rows, options) {
  */
 function readNotifiedFingerprints_() {
   try {
-    return readSheet(SHEETS.CONFLICT_NOTICE_LOG).map(function (r) { return String(r.FINGERPRINT || ''); });
+    return readSheet_(SHEETS.CONFLICT_NOTICE_LOG).map(function (r) { return String(r.FINGERPRINT || ''); });
   } catch (err) {
     return [];
   }
@@ -193,7 +193,7 @@ function readNotifiedFingerprints_() {
  */
 function sendConflictNoticeIfNeeded_(isoDate) {
   var diff = computeRosterDiff_(isoDate);
-  var dryRun = normalizeBoolean_(getConfig(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
+  var dryRun = normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
 
   if (diff.conflictCount === 0) {
     return { sent: false, reason: 'NO_CONFLICT', dryRun: dryRun, conflictCount: 0, notifiedCount: 0, recipientCount: 0 };
@@ -208,7 +208,7 @@ function sendConflictNoticeIfNeeded_(isoDate) {
   }
 
   var allowedGroups = getConfigTextList_(CONFIG_KEYS.CONFLICT_NOTICE_GROUPS, 'ADMIN');
-  var recipientsResult = buildRecipientList_(readSheet(SHEETS.RECIPIENTS), allowedGroups, normalizeDate_(isoDate));
+  var recipientsResult = buildRecipientList_(readSheet_(SHEETS.RECIPIENTS), allowedGroups, normalizeDate_(isoDate));
   if (recipientsResult.recipients.length === 0) {
     return {
       sent: false, reason: 'NO_RECIPIENTS', dryRun: dryRun,
@@ -216,7 +216,7 @@ function sendConflictNoticeIfNeeded_(isoDate) {
     };
   }
 
-  var churchName = getConfig(CONFIG_KEYS.CHURCH_NAME, '');
+  var churchName = getConfig_(CONFIG_KEYS.CHURCH_NAME, '');
   var subject = churchName + '週報：職事表分歧提醒（' + isoDate + '，' + fresh.length + ' 項）';
   var htmlBody = buildConflictNoticeHtml_(isoDate, fresh, { churchName: churchName });
   var plainBody = buildConflictNoticePlainText_(isoDate, fresh, { churchName: churchName });
@@ -274,7 +274,7 @@ function recordNotifiedFingerprints_(isoDate, rows) {
   var now = new Date();
   var targetDate = normalizeDate_(isoDate);
 
-  writeSheet(SHEETS.CONFLICT_NOTICE_LOG, rows.map(function (r) {
+  writeSheet_(SHEETS.CONFLICT_NOTICE_LOG, rows.map(function (r) {
     return {
       TIMESTAMP: now,
       SERVICE_DATE: targetDate,

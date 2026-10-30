@@ -202,9 +202,9 @@ test('2. 職事表沒有今年資料（模擬 2026 現況）→ 退回 ROSTER_TE
   assert.strictEqual(result.quarterId, 'Q_TEST');
 });
 
-test('3. ROSTER_TEST_DATE 為 Date 物件 → coerceConfigRawValue_ 正確轉成 yyyy-MM-dd（getConfig() 的既有保證）', function () {
-  // resolveWorkingQuarter_() 透過 getConfig() 讀 ROSTER_TEST_DATE，而
-  // getConfig() 已經保證 Config 儲存格的 Date 物件會被 coerceConfigRawValue_()
+test('3. ROSTER_TEST_DATE 為 Date 物件 → coerceConfigRawValue_ 正確轉成 yyyy-MM-dd（getConfig_() 的既有保證）', function () {
+  // resolveWorkingQuarter_() 透過 getConfig_() 讀 ROSTER_TEST_DATE，而
+  // getConfig_() 已經保證 Config 儲存格的 Date 物件會被 coerceConfigRawValue_()
   // 正規化成 yyyy-MM-dd 字串（src/ConfigService.gs）——resolveWorkingQuarter_()
   // 本身不需要、也不應該再處理一次 Date 物件。這裡直接驗證那個既有保證，
   // 而不是把測試檔案自己 new 出來的 Date 物件（屬於外層 Node realm）硬塞進
@@ -349,7 +349,7 @@ test('12. 自我檢測報告寫入 Diagnostics 的行數不超過 DIAGNOSTICS_MA
   const env = makeFillEnv({ withGrid: false, config: { DIAGNOSTICS_MAX_ROWS: '10' } });
 
   assert.doesNotThrow(function () { env.sandbox.runSelfCheck_(); });
-  const diagnosticsRows = env.sandbox.readSheet('Diagnostics');
+  const diagnosticsRows = env.sandbox.readSheet_('Diagnostics');
   assert.ok(diagnosticsRows.length <= 10, '應該不超過 DIAGNOSTICS_MAX_ROWS（10），實際：' + diagnosticsRows.length);
 });
 

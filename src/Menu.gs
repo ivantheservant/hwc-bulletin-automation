@@ -132,7 +132,7 @@ function onOpen() {
 }
 
 /**
- * 用途：選單項目「初始化工作表」的處理函式。呼叫 initializeAllSheets()，
+ * 用途：選單項目「初始化工作表」的處理函式。呼叫 initializeAllSheets_()，
  *   用對話框回報結果；失敗時顯示錯誤訊息，不會讓例外靜靜消失。
  * Args: （無）
  * Returns:
@@ -143,7 +143,7 @@ function onOpen() {
 function menuInitializeAllSheets_() {
   var ui = SpreadsheetApp.getUi();
   try {
-    var summary = initializeAllSheets();
+    var summary = initializeAllSheets_();
     var seedRows = summary.seedRowsAdded;
     var lines = [
       '已建立／確認 ' + summary.sheetsEnsured + ' 張工作表。',

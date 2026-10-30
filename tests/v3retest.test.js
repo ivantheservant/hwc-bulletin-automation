@@ -108,7 +108,7 @@ test('真入口 weeklyBulletinSendTrigger_（2026-10-30 預設）：只寄草稿
   const calls = stubMondaySteps(env.sandbox);
   env.sandbox.weeklyBulletinSendTrigger_();
   assert.deepStrictEqual(calls, ['preview:2027-10-10']);
-  const audit = env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'WEEKLY_SEND_BULLETIN_SKIPPED'; });
+  const audit = env.sandbox.readSheet_('AuditLog').filter(function (r) { return r.ACTION === 'WEEKLY_SEND_BULLETIN_SKIPPED'; });
   assert.strictEqual(audit.length, 1);
   assert.ok(audit[0].NOTES.indexOf('WEEKLY_SEND_BULLETIN') !== -1, audit[0].NOTES);
 });
@@ -118,10 +118,10 @@ test('真入口 weeklyBulletinSendTrigger_：這一期已經真的寄過（同�
   const calls = stubMondaySteps(env.sandbox);
   env.sandbox.weeklyBulletinSendTrigger_();
   assert.deepStrictEqual(calls, [], '以前會寄 2027-10-17');
-  const audit = env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'WEEKLY_SEND_SKIPPED'; });
+  const audit = env.sandbox.readSheet_('AuditLog').filter(function (r) { return r.ACTION === 'WEEKLY_SEND_SKIPPED'; });
   assert.strictEqual(audit.length, 1);
   assert.ok(audit[0].NOTES.indexOf('2027-10-10') !== -1 && audit[0].NOTES.indexOf('不會提早改寄再下一期') !== -1, audit[0].NOTES);
-  assert.strictEqual(env.sandbox.readSheet('ErrorLog').length, 0, '不是錯誤');
+  assert.strictEqual(env.sandbox.readSheet_('ErrorLog').length, 0, '不是錯誤');
 });
 
 test('真入口 weeklyBulletinSendTrigger_：試寄（DRY_RUN）的紀錄不算寄過——照寄這一期', function () {
@@ -228,7 +228,7 @@ test('選單試寄草稿預覽信（真入口 menuTestSendPreviewNotice_）：�
   answer = '2027-11-14';
   env.sandbox.menuTestSendPreviewNotice_();
   assert.strictEqual(alerts[1][0], '真的寄出');
-  assert.strictEqual(env.sandbox.readSheet('SendLog').length, 0, '按「否」一封都不寄');
+  assert.strictEqual(env.sandbox.readSheet_('SendLog').length, 0, '按「否」一封都不寄');
   assert.strictEqual(env.mail.calls.length, 0);
 });
 

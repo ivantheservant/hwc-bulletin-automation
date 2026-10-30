@@ -36,7 +36,7 @@
  */
 function resolveRecipients_(isoDate) {
   var allowedGroups = getConfigTextList_(CONFIG_KEYS.SEND_GROUPS, 'CC,DB,ADMIN');
-  var rows = readSheet(SHEETS.RECIPIENTS);
+  var rows = readSheet_(SHEETS.RECIPIENTS);
   var targetDate = normalizeDate_(isoDate);
   return buildRecipientList_(rows, allowedGroups, targetDate);
 }
@@ -44,7 +44,7 @@ function resolveRecipients_(isoDate) {
 /**
  * 用途：收件人篩選的純函式層。完全不碰 Apps Script 服務。
  * Args:
- *   rows {Object[]} `readSheet(SHEETS.RECIPIENTS)` 的輸出。
+ *   rows {Object[]} `readSheet_(SHEETS.RECIPIENTS)` 的輸出。
  *   allowedGroups {string[]} Config `SEND_GROUPS` 解析後的組別清單。
  *   targetDate {Date} 目標主日日期，用來比對 `EFFECTIVE_FROM`／`EFFECTIVE_TO`。
  * Returns:

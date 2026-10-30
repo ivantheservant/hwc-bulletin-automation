@@ -112,7 +112,7 @@ function makeEnv(options) {
 
   (o.weekRowSpecs || []).forEach(function (spec) {
     const p = spec.isoDate.split('-').map(Number);
-    sandbox.writeSheet(sandbox.SHEETS.BULLETIN_WEEKS, [Object.assign({
+    sandbox.writeSheet_(sandbox.SHEETS.BULLETIN_WEEKS, [Object.assign({
       SERVICE_DATE: sandbox.__mkDate(p[0], p[1] - 1, p[2]),
       QUARTER_ID: spec.quarterId,
       WEEK_OF_MONTH: 1,
@@ -122,7 +122,7 @@ function makeEnv(options) {
 
   (o.publishRowSpecs || []).forEach(function (spec) {
     const p = spec.isoDate.split('-').map(Number);
-    sandbox.writeSheet(sandbox.SHEETS.PUBLISH_LOG, [{
+    sandbox.writeSheet_(sandbox.SHEETS.PUBLISH_LOG, [{
       SERVICE_DATE: sandbox.__mkDate(p[0], p[1] - 1, p[2]),
       VERSION_NO: spec.versionNo || 1,
       PUBLISHED_AT: sandbox.__mkDate(p[0], p[1] - 1, p[2]),
@@ -274,7 +274,7 @@ test('一季之內有一行未封存 → 整季當成未封存（睇得到才修
       { isoDate: '2029-01-14', quarterId: '2029T1' }
     ]
   });
-  const rows = env.sandbox.readSheet(env.sandbox.SHEETS.BULLETIN_WEEKS);
+  const rows = env.sandbox.readSheet_(env.sandbox.SHEETS.BULLETIN_WEEKS);
   const flags = env.sandbox.quarterArchivedFlags_(rows);
   assert.strictEqual(flags['2029T1'], false,
     '一半封存一半沒有，代表中途出過事——應該照樣顯示，不是靜靜收起');
@@ -295,13 +295,13 @@ test('封存的季度資料一格未刪，取消封存之後完全還原', funct
     publishRowSpecs: [{ isoDate: '2029-01-07' }]     // 已發佈，所以不會被 blocker 攔住
   });
 
-  const before = JSON.stringify(env.sandbox.readSheet(env.sandbox.SHEETS.BULLETIN_WEEKS));
+  const before = JSON.stringify(env.sandbox.readSheet_(env.sandbox.SHEETS.BULLETIN_WEEKS));
 
   const archived = env.sandbox.archiveQuarter_('2029T1', {});
   assert.strictEqual(archived.ok, true, archived.message);
   assert.strictEqual(archived.weekRows, 1);
 
-  const afterArchive = env.sandbox.readSheet(env.sandbox.SHEETS.BULLETIN_WEEKS);
+  const afterArchive = env.sandbox.readSheet_(env.sandbox.SHEETS.BULLETIN_WEEKS);
   assert.strictEqual(afterArchive.length, 1, '⚠️ 一行都不可以刪');
   assert.strictEqual(afterArchive[0].ARCHIVED, true);
   assert.strictEqual(String(afterArchive[0].SERMON_TITLE), '重要的講題', '內容一格都不可以動');
@@ -309,7 +309,7 @@ test('封存的季度資料一格未刪，取消封存之後完全還原', funct
 
   const restored = env.sandbox.unarchiveQuarter_('2029T1');
   assert.strictEqual(restored.ok, true, restored.message);
-  const afterRestore = env.sandbox.readSheet(env.sandbox.SHEETS.BULLETIN_WEEKS);
+  const afterRestore = env.sandbox.readSheet_(env.sandbox.SHEETS.BULLETIN_WEEKS);
   assert.strictEqual(afterRestore[0].ARCHIVED, false);
 
   // ⚠️ 逐欄比對，只放行 ARCHIVED 一欄。用整行字串化去比的話，要靠一個
@@ -346,7 +346,7 @@ test('有未發佈而且有內容的主日 → 不封存，而且列出是邊幾
   assert.strictEqual(result.blockers.length, 1);
   assert.strictEqual(result.blockers[0].isoDate, '2029-01-07');
   // 而且真的沒有動過那一行。
-  const rows = env.sandbox.readSheet(env.sandbox.SHEETS.BULLETIN_WEEKS);
+  const rows = env.sandbox.readSheet_(env.sandbox.SHEETS.BULLETIN_WEEKS);
   assert.notStrictEqual(rows[0].ARCHIVED, true, '被攔住就一格都不應該寫');
 });
 
@@ -359,7 +359,7 @@ test('force:true → 照樣封存，而且 AuditLog 講明使用者確認過', f
   const result = env.sandbox.archiveQuarter_('2029T1', { force: true });
   assert.strictEqual(result.ok, true, result.message);
 
-  const audit = env.sandbox.readSheet(env.sandbox.SHEETS.AUDIT_LOG)
+  const audit = env.sandbox.readSheet_(env.sandbox.SHEETS.AUDIT_LOG)
     .filter(function (a) { return String(a.ACTION) === 'ARCHIVE_QUARTER'; });
   assert.strictEqual(audit.length, 1);
   assert.ok(String(audit[0].NOTES).indexOf('用戶已確認') !== -1,
@@ -401,18 +401,18 @@ test('封存不會碰 Diagnostics／PublishLog／AuditLog／SendLog 的既有內
   });
   const S = env.sandbox.SHEETS;
   const before = {
-    diagnostics: env.sandbox.readSheet(S.DIAGNOSTICS).length,
-    publishLog: env.sandbox.readSheet(S.PUBLISH_LOG).length,
-    sendLog: env.sandbox.readSheet(S.SEND_LOG).length
+    diagnostics: env.sandbox.readSheet_(S.DIAGNOSTICS).length,
+    publishLog: env.sandbox.readSheet_(S.PUBLISH_LOG).length,
+    sendLog: env.sandbox.readSheet_(S.SEND_LOG).length
   };
 
   env.sandbox.archiveQuarter_('2029T1', {});
 
-  assert.strictEqual(env.sandbox.readSheet(S.DIAGNOSTICS).length, before.diagnostics);
-  assert.strictEqual(env.sandbox.readSheet(S.PUBLISH_LOG).length, before.publishLog);
-  assert.strictEqual(env.sandbox.readSheet(S.SEND_LOG).length, before.sendLog);
+  assert.strictEqual(env.sandbox.readSheet_(S.DIAGNOSTICS).length, before.diagnostics);
+  assert.strictEqual(env.sandbox.readSheet_(S.PUBLISH_LOG).length, before.publishLog);
+  assert.strictEqual(env.sandbox.readSheet_(S.SEND_LOG).length, before.sendLog);
   // AuditLog 一定會多一筆（封存本身要記帳），但**只可以多**，不可以少。
-  assert.ok(env.sandbox.readSheet(S.AUDIT_LOG).length >= 1, 'AuditLog 應該多一筆封存紀錄');
+  assert.ok(env.sandbox.readSheet_(S.AUDIT_LOG).length >= 1, 'AuditLog 應該多一筆封存紀錄');
 });
 
 test('⚠️ 靜態檢查：Retention.gs 沒有任何刪除操作', function () {
@@ -447,7 +447,7 @@ test('⚠️ 靜態檢查：Retention.gs 沒有碰那四張紀錄表', function 
     '那四張是紀錄，封存它們等於把稽核軌跡藏起來，實際：' + found.join('、'));
   // PublishLog 只准**讀**（findUnpublishedWorkInQuarter_ 要知道邊個發佈咗），
   // 不准寫。
-  assert.strictEqual(src.indexOf('writeSheet(SHEETS.PUBLISH_LOG'), -1);
+  assert.strictEqual(src.indexOf('writeSheet_(SHEETS.PUBLISH_LOG'), -1);
 });
 
 // =====================================================================
@@ -481,7 +481,7 @@ test('十三項齊備，一項都不可以少（第九項是階段 3 的講員�
 
 test('1. Recipients 缺 IT → 🟡 並講出缺邊一組', function () {
   const env = makeEnv({});
-  env.sandbox.writeSheet(env.sandbox.SHEETS.RECIPIENTS, [
+  env.sandbox.writeSheet_(env.sandbox.SHEETS.RECIPIENTS, [
     { GROUP_NAME: 'CC', NAME: '甲', EMAIL: 'cc@example.org', ACTIVE: true },
     { GROUP_NAME: 'DB', NAME: '乙', EMAIL: 'db@example.org', ACTIVE: true }
   ]);
@@ -492,7 +492,7 @@ test('1. Recipients 缺 IT → 🟡 並講出缺邊一組', function () {
 
 test('1. 三組齊備 → 🟢', function () {
   const env = makeEnv({});
-  env.sandbox.writeSheet(env.sandbox.SHEETS.RECIPIENTS, [
+  env.sandbox.writeSheet_(env.sandbox.SHEETS.RECIPIENTS, [
     { GROUP_NAME: 'CC', NAME: '甲', EMAIL: 'cc@example.org', ACTIVE: true },
     { GROUP_NAME: 'DB', NAME: '乙', EMAIL: 'db@example.org', ACTIVE: true },
     { GROUP_NAME: 'IT', NAME: '丙', EMAIL: 'it@example.org', ACTIVE: true }
@@ -552,7 +552,7 @@ test('5. 兩個 master ID 相同 → 🔴', function () {
 test('6. ErrorLog 最近 7 日有錯 → 🟡，並講出最新一筆', function () {
   const env = makeEnv({});
   const now = new Date();
-  env.sandbox.writeSheet(env.sandbox.SHEETS.ERROR_LOG, [{
+  env.sandbox.writeSheet_(env.sandbox.SHEETS.ERROR_LOG, [{
     TIMESTAMP: env.sandbox.__mkDate(now.getFullYear(), now.getMonth(), now.getDate()),
     SOURCE: 'MENU', FUNCTION_NAME: 'test', ERROR_CODE: 'TEST_CODE',
     MESSAGE: '測試錯誤訊息', DETAIL: ''
@@ -570,7 +570,7 @@ test('6. 沒有錯誤 → 🟢', function () {
 test('6. 舊過 7 日的錯誤不算', function () {
   const env = makeEnv({});
   const old = new Date(new Date().getTime() - (30 * 24 * 60 * 60 * 1000));
-  env.sandbox.writeSheet(env.sandbox.SHEETS.ERROR_LOG, [{
+  env.sandbox.writeSheet_(env.sandbox.SHEETS.ERROR_LOG, [{
     TIMESTAMP: env.sandbox.__mkDate(old.getFullYear(), old.getMonth(), old.getDate()),
     SOURCE: 'MENU', FUNCTION_NAME: 'test', ERROR_CODE: 'OLD', MESSAGE: '舊錯誤', DETAIL: ''
   }]);
@@ -608,7 +608,7 @@ test('readOfficialPublishLogRows_：自測的行一行都不會回', function ()
 
 test('IS_SELFTEST 空白當成「不是自測」（舊資料那一欄可能是空的）', function () {
   const env = makeEnv({});
-  env.sandbox.writeSheet(env.sandbox.SHEETS.PUBLISH_LOG, [{
+  env.sandbox.writeSheet_(env.sandbox.SHEETS.PUBLISH_LOG, [{
     SERVICE_DATE: env.sandbox.__mkDate(2027, 10, 7), VERSION_NO: 1,
     PUBLISHED_AT: env.sandbox.__mkDate(2027, 10, 7), PUBLISHED_BY: 'x',
     MASTER_FILE_ID: 'FAKE'
@@ -635,7 +635,7 @@ test('自我檢測「最近一次發佈」不會指住沙盒那一期', function
 });
 
 test('⚠️ 靜態檢查：正式報表那三處都經 readOfficialPublishLogRows_', function () {
-  // ⚠️ 逐處點名。將來有人加一個「直接 readSheet(PUBLISH_LOG)」的正式報表，
+  // ⚠️ 逐處點名。將來有人加一個「直接 readSheet_(PUBLISH_LOG)」的正式報表，
   //    這一條攔不到，但至少釘住現有那三處不會被改回去。
   //
   // ⚠️ 本來這一條連**版本號**都一併釘住，那是錯的——版本號問的是另一條
@@ -657,7 +657,7 @@ test('⚠️ 靜態檢查：版本號**不可以**用正式報表那一支（事
 
   assert.ok(pub.indexOf('nextPublishVersion_(readOfficialPublishLogRows_()') === -1,
     '版本號用正式濾網的話，自測發佈每次都算第 1 版，寫出兩行同樣的版本號');
-  assert.ok(pub.indexOf('publishLogRowsOfKind_(readSheet(SHEETS.PUBLISH_LOG), isSelfTestRun)') !== -1,
+  assert.ok(pub.indexOf('publishLogRowsOfKind_(readSheet_(SHEETS.PUBLISH_LOG), isSelfTestRun)') !== -1,
     '版本號要在同一類的行裏面數：正式的跟正式的比，自測的跟自測的比');
 });
 

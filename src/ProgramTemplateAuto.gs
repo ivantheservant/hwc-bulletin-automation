@@ -58,8 +58,8 @@ function programTemplateAuditRowKey_(value) {
  * 用途：算出「初始化工作表」要清空哪幾格 `PROGRAM_TEMPLATE_ID`。純函式。
  * Args:
  *   weekRows {Object[]} `readRowsWithRowNo_(SHEETS.BULLETIN_WEEKS)` 的輸出（每行帶 `__rowNo`；
- *     ⚠️ 不可以用陣列位置推行號——`readSheet()` 會略過整行空白的行，位置與行號會錯開）。
- *   auditRows {Object[]} `readSheet(SHEETS.AUDIT_LOG)` 的輸出（次序＝寫入次序）。
+ *     ⚠️ 不可以用陣列位置推行號——`readSheet_()` 會略過整行空白的行，位置與行號會錯開）。
+ *   auditRows {Object[]} `readSheet_(SHEETS.AUDIT_LOG)` 的輸出（次序＝寫入次序）。
  * Returns:
  *   {{alreadyDone:boolean, clear:{isoDate:string, rowNo:number, oldValue:string, lastAction:string}[],
  *     keep:{isoDate:string, value:string, reason:string}[]}}
@@ -136,12 +136,12 @@ function programTemplateAutoValueFor_(isoDate, templateConfig) {
  *     `ran` 為 false＝以前已經做過，這次甚麼都沒有寫。`changed`＝清空之後實際用的範本有變的主日。
  *     `lines` 是給對話框與報告的說明。
  * Raises:
- *   Error 讀寫工作表失敗、拿不到鎖時原樣拋出（由 initializeAllSheets() 的呼叫方呈現）；行號不合理時
+ *   Error 讀寫工作表失敗、拿不到鎖時原樣拋出（由 initializeAllSheets_() 的呼叫方呈現）；行號不合理時
  *     **在寫任何一格之前**拋出。
  */
 function migrateProgramTemplateToAuto_() {
   return withScriptLock_('migrateProgramTemplateToAuto_', 30000, function () {
-    var plan = planProgramTemplateAutoMigration_(readRowsWithRowNo_(SHEETS.BULLETIN_WEEKS), readSheet(SHEETS.AUDIT_LOG));
+    var plan = planProgramTemplateAutoMigration_(readRowsWithRowNo_(SHEETS.BULLETIN_WEEKS), readSheet_(SHEETS.AUDIT_LOG));
     if (plan.alreadyDone) return { ran: false, cleared: 0, kept: 0, changed: [], lines: [] };
 
     // 先核對全部行號，才寫第一格：中途才發現就會寫了一半。

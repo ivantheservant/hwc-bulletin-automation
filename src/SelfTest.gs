@@ -77,17 +77,17 @@ var SELF_TEST_CONTENT_SUFFIX_ = '_SELFTEST';
  *     contentFolderId:string}}
  */
 function selfTestConfig_() {
-  var budgetSec = normalizeInt_(getConfig(CONFIG_KEYS.SELFTEST_TIME_BUDGET_SEC, '240'));
+  var budgetSec = normalizeInt_(getConfig_(CONFIG_KEYS.SELFTEST_TIME_BUDGET_SEC, '240'));
   if (budgetSec === null || budgetSec <= 0) budgetSec = 240;
 
   return {
-    quarterId: String(getConfig(CONFIG_KEYS.SELFTEST_QUARTER_ID, '2030T1') || '').trim(),
-    rosterQuarterId: String(getConfig(CONFIG_KEYS.SELFTEST_ROSTER_QUARTER_ID, '2027T4') || '').trim(),
-    masterFileId: String(getConfig(CONFIG_KEYS.SELFTEST_MASTER_PDF_FILE_ID, '') || '').trim(),
-    publishedFileId: String(getConfig(CONFIG_KEYS.PUBLISHED_PDF_FILE_ID, '') || '').trim(),
-    contentFolderId: String(getConfig(CONFIG_KEYS.CONTENT_SHEET_FOLDER_ID, '') || '').trim(),
+    quarterId: String(getConfig_(CONFIG_KEYS.SELFTEST_QUARTER_ID, '2030T1') || '').trim(),
+    rosterQuarterId: String(getConfig_(CONFIG_KEYS.SELFTEST_ROSTER_QUARTER_ID, '2027T4') || '').trim(),
+    masterFileId: String(getConfig_(CONFIG_KEYS.SELFTEST_MASTER_PDF_FILE_ID, '') || '').trim(),
+    publishedFileId: String(getConfig_(CONFIG_KEYS.PUBLISHED_PDF_FILE_ID, '') || '').trim(),
+    contentFolderId: String(getConfig_(CONFIG_KEYS.CONTENT_SHEET_FOLDER_ID, '') || '').trim(),
     timeBudgetMs: budgetSec * 1000,
-    dryRun: normalizeBoolean_(getConfig(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true
+    dryRun: normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true
   };
 }
 
@@ -548,7 +548,7 @@ function selfTestS19_(ctx) {
 
   var result = createBlankBulletinWeeks_(config.quarterId);
 
-  var rows = readSheet(SHEETS.BULLETIN_WEEKS).filter(function (r) {
+  var rows = readSheet_(SHEETS.BULLETIN_WEEKS).filter(function (r) {
     return String(r.QUARTER_ID || '').trim() === config.quarterId;
   });
 
@@ -682,7 +682,7 @@ function selfTestS21_(ctx) {
 
   var result = backfillRosterForQuarter_(config.quarterId);
 
-  var row = findBulletinWeekRow_(readSheet(SHEETS.BULLETIN_WEEKS), isoDate) || {};
+  var row = findBulletinWeekRow_(readSheet_(SHEETS.BULLETIN_WEEKS), isoDate) || {};
   var kept = String(row[fieldKey] || '') === sentinel;
 
   return selfTestOutcome_(kept,
@@ -833,16 +833,16 @@ function selfTestS24_(ctx) {
   var tabDef = selfTestFindTabDef_('家事報告');
   selfTestClearContentTab_(opened.spreadsheet.getSheetByName(tabDef.tabName), tabDef);
 
-  var original = getConfig(CONFIG_KEYS.DST_AUTO_INSERT, 'TRUE');
+  var original = getConfig_(CONFIG_KEYS.DST_AUTO_INSERT, 'TRUE');
   var offCount = null;
   var onCount = null;
   try {
-    setConfig(CONFIG_KEYS.DST_AUTO_INSERT, 'FALSE', '自測機 S24：暫時關掉夏令時間自動加入');
+    setConfig_(CONFIG_KEYS.DST_AUTO_INSERT, 'FALSE', '自測機 S24：暫時關掉夏令時間自動加入');
     var off = selfTestRefreshSandboxContentSheet_(config);
     if (!off.ok) return off.outcome;
     offCount = selfTestReadDstRows_(off.spreadsheet).length;
   } finally {
-    setConfig(CONFIG_KEYS.DST_AUTO_INSERT, original, '自測機 S24：還原原值');
+    setConfig_(CONFIG_KEYS.DST_AUTO_INSERT, original, '自測機 S24：還原原值');
   }
 
   var on = selfTestRefreshSandboxContentSheet_(config);
@@ -1019,14 +1019,14 @@ function selfTestS29_(ctx) {
   var dates = selfTestSandboxDates_(config);
   if (dates.length === 0) return selfTestOutcome_(null, '沙盒季度有主日', '0 個', '請先跑 S19。');
 
-  var original = getConfig(CONFIG_KEYS.PREVIEW_ENABLED, 'TRUE');
+  var original = getConfig_(CONFIG_KEYS.PREVIEW_ENABLED, 'TRUE');
   var before = selfTestCountPreviewSendLogRows_();
   var offResult;
   try {
-    setConfig(CONFIG_KEYS.PREVIEW_ENABLED, 'FALSE', '自測機 S29：暫時關掉草稿預覽');
+    setConfig_(CONFIG_KEYS.PREVIEW_ENABLED, 'FALSE', '自測機 S29：暫時關掉草稿預覽');
     offResult = sendPreviewNotice_(dates[0]);
   } finally {
-    setConfig(CONFIG_KEYS.PREVIEW_ENABLED, original, '自測機 S29：還原原值');
+    setConfig_(CONFIG_KEYS.PREVIEW_ENABLED, original, '自測機 S29：還原原值');
   }
   var after = selfTestCountPreviewSendLogRows_();
 
@@ -1203,24 +1203,24 @@ function selfTestS34_(ctx) {
   // 封存只碰三樣：BulletinWeeks 的 ARCHIVED 一欄、Fill_* 的隱藏、
   // ContentSheets 的 ACTIVE（＋ Drive 搬檔案）。逐樣點名。
   var before = {
-    diagnostics: readSheet(SHEETS.DIAGNOSTICS).length,
-    publishLog: readSheet(SHEETS.PUBLISH_LOG).length,
-    auditLog: readSheet(SHEETS.AUDIT_LOG).length,
-    sendLog: readSheet(SHEETS.SEND_LOG).length
+    diagnostics: readSheet_(SHEETS.DIAGNOSTICS).length,
+    publishLog: readSheet_(SHEETS.PUBLISH_LOG).length,
+    auditLog: readSheet_(SHEETS.AUDIT_LOG).length,
+    sendLog: readSheet_(SHEETS.SEND_LOG).length
   };
 
   // 跑一次**只讀**的部分：算出封存計畫。這一步絕對不應該寫任何東西。
-  var quarterIds = readSheet(SHEETS.BULLETIN_WEEKS).map(function (r) {
+  var quarterIds = readSheet_(SHEETS.BULLETIN_WEEKS).map(function (r) {
     return String(r.QUARTER_ID || '').trim();
   });
   planQuarterRetention_(quarterIds, retentionConfig_().visibleQuarters, ctx.config.quarterId);
   findUnpublishedWorkInQuarter_(ctx.config.quarterId);
 
   var after = {
-    diagnostics: readSheet(SHEETS.DIAGNOSTICS).length,
-    publishLog: readSheet(SHEETS.PUBLISH_LOG).length,
-    auditLog: readSheet(SHEETS.AUDIT_LOG).length,
-    sendLog: readSheet(SHEETS.SEND_LOG).length
+    diagnostics: readSheet_(SHEETS.DIAGNOSTICS).length,
+    publishLog: readSheet_(SHEETS.PUBLISH_LOG).length,
+    auditLog: readSheet_(SHEETS.AUDIT_LOG).length,
+    sendLog: readSheet_(SHEETS.SEND_LOG).length
   };
 
   var changed = Object.keys(before).filter(function (k) { return before[k] !== after[k]; });
@@ -1363,7 +1363,7 @@ function selfTestS37_(ctx) {
  *   {{count:number, lastBodyPreview:string}}
  */
 function selfTestCountPreviewSendLogRows_() {
-  var rows = readSheet(SHEETS.SEND_LOG).filter(function (r) {
+  var rows = readSheet_(SHEETS.SEND_LOG).filter(function (r) {
     return String(r.STATUS || '') === 'PREVIEW';
   });
   return {
@@ -1516,7 +1516,7 @@ function selfTestIndependentDstChangeIso_(noticeIso) {
 function selfTestQuarterDutySnapshot_(quarterId) {
   var qid = String(quarterId || '').trim();
   var keys = rosterDerivedWeekFieldKeys_();
-  var rows = readSheet(SHEETS.BULLETIN_WEEKS).filter(function (r) {
+  var rows = readSheet_(SHEETS.BULLETIN_WEEKS).filter(function (r) {
     return String(r.QUARTER_ID || '').trim() === qid;
   });
 
@@ -1564,7 +1564,7 @@ function selfTestS01_(ctx) {
   }
 
   var expectedDates = selfTestSandboxDates_(config);
-  var actualRows = readSheet(SHEETS.BULLETIN_WEEKS).filter(function (r) {
+  var actualRows = readSheet_(SHEETS.BULLETIN_WEEKS).filter(function (r) {
     return String(r.QUARTER_ID || '').trim() === config.quarterId;
   });
 
@@ -1592,7 +1592,7 @@ function selfTestSeedSandboxWeeks_(config) {
   assertSelfTestWritableQuarter_(config.quarterId, config);
 
   var existing = {};
-  readSheet(SHEETS.BULLETIN_WEEKS).forEach(function (r) {
+  readSheet_(SHEETS.BULLETIN_WEEKS).forEach(function (r) {
     var iso = (Object.prototype.toString.call(r.SERVICE_DATE) === '[object Date]')
       ? formatIsoDate_(r.SERVICE_DATE) : String(r.SERVICE_DATE || '').trim();
     if (iso) existing[iso] = true;
@@ -1606,14 +1606,14 @@ function selfTestSeedSandboxWeeks_(config) {
       SERVICE_DATE: targetDate,
       QUARTER_ID: config.quarterId,
       WEEK_OF_MONTH: Math.floor((targetDate.getDate() - 1) / 7) + 1,
-      PAGE_TITLE: getConfig(CONFIG_KEYS.DEFAULT_PAGE_TITLE, '崇拜程序'),
+      PAGE_TITLE: getConfig_(CONFIG_KEYS.DEFAULT_PAGE_TITLE, '崇拜程序'),
       // 2026-10-27：留空＝自動跟每週標題（沙盒季度職事表沒有，自動值就是 TEMPLATE_DEFAULT）。
       PROGRAM_TEMPLATE_ID: '',
-      PRELUDE: getConfig(CONFIG_KEYS.PRELUDE_DEFAULT, ''),
-      ATTENDANCE_HEADING: getConfig(CONFIG_KEYS.DEFAULT_ATTENDANCE_HEADING, '上週主日崇拜人數'),
+      PRELUDE: getConfig_(CONFIG_KEYS.PRELUDE_DEFAULT, ''),
+      ATTENDANCE_HEADING: getConfig_(CONFIG_KEYS.DEFAULT_ATTENDANCE_HEADING, '上週主日崇拜人數'),
       ATTENDANCE_DATE: addDays_(targetDate, -7),
-      NEXT_WEEK_HEADING: getConfig(CONFIG_KEYS.DEFAULT_NEXT_WEEK_HEADING, '下週主日崇拜聚會事奉肢體'),
-      PRAYER_BLOCK_HEADING: getConfig(CONFIG_KEYS.DEFAULT_PRAYER_BLOCK_HEADING, '代禱事項'),
+      NEXT_WEEK_HEADING: getConfig_(CONFIG_KEYS.DEFAULT_NEXT_WEEK_HEADING, '下週主日崇拜聚會事奉肢體'),
+      PRAYER_BLOCK_HEADING: getConfig_(CONFIG_KEYS.DEFAULT_PRAYER_BLOCK_HEADING, '代禱事項'),
       STATUS: BULLETIN_WEEK_STATUS.DRAFT,
       // ⚠️ 一定要寫 ROSTER_STATUS。這一支只在「職事表沒有這一季」時才會
       //    被叫（見 selfTestS01_()），所以答案一定是 NOT_FOUND。
@@ -1625,7 +1625,7 @@ function selfTestSeedSandboxWeeks_(config) {
   });
 
   if (rows.length === 0) return 0;
-  writeSheet(SHEETS.BULLETIN_WEEKS, rows);
+  writeSheet_(SHEETS.BULLETIN_WEEKS, rows);
   return rows.length;
 }
 
@@ -1805,7 +1805,7 @@ function selfTestS05_(ctx) {
     return selfTestOutcome_(false, '匯入成功', '失敗：' + imported.reason, imported.message || '');
   }
 
-  var announcements = readSheet(SHEETS.ANNOUNCEMENTS).filter(function (r) {
+  var announcements = readSheet_(SHEETS.ANNOUNCEMENTS).filter(function (r) {
     if (r.ACTIVE !== true) return false;
     var iso = (Object.prototype.toString.call(r.SERVICE_DATE) === '[object Date]')
       ? formatIsoDate_(r.SERVICE_DATE) : String(r.SERVICE_DATE || '').trim();
@@ -1936,7 +1936,7 @@ function selfTestS08_(ctx) {
   var loaded = loadWeekForWebApp_(isoDate);
   // v3：講題只在內容表輸入，填寫介面不再收；改用介面仍然可以填的「程序表大標題」。
   var newTitle = '自測大標題 ' + ctx.runId;
-  var auditBefore = readSheet(SHEETS.AUDIT_LOG).length;
+  var auditBefore = readSheet_(SHEETS.AUDIT_LOG).length;
 
   var s08Week = { PAGE_TITLE: newTitle };
   var saved = saveWeekFromWebApp_({
@@ -1947,8 +1947,8 @@ function selfTestS08_(ctx) {
     dutyEdits: []
   });
 
-  var weekRow = findBulletinWeekRow_(readSheet(SHEETS.BULLETIN_WEEKS), isoDate) || {};
-  var auditAfter = readSheet(SHEETS.AUDIT_LOG).length;
+  var weekRow = findBulletinWeekRow_(readSheet_(SHEETS.BULLETIN_WEEKS), isoDate) || {};
+  var auditAfter = readSheet_(SHEETS.AUDIT_LOG).length;
 
   var ok = String(weekRow.PAGE_TITLE || '') === newTitle
     && saved.changedFieldCount >= 1
@@ -1973,7 +1973,7 @@ function selfTestS09_(ctx) {
   assertSelfTestWritableDate_(isoDate, config);
 
   var loaded = loadWeekForWebApp_(isoDate);
-  var auditBefore = readSheet(SHEETS.AUDIT_LOG).length;
+  var auditBefore = readSheet_(SHEETS.AUDIT_LOG).length;
   var announcementsBefore = selfTestCountActive_(SHEETS.ANNOUNCEMENTS, dates);
 
   // ⚠️ 這裡要送**真正的 payload 形狀**（四張清單在**頂層**，不是
@@ -2039,7 +2039,7 @@ function selfTestS09_(ctx) {
     });
   });
 
-  var auditAfter = readSheet(SHEETS.AUDIT_LOG).length;
+  var auditAfter = readSheet_(SHEETS.AUDIT_LOG).length;
   var announcementsAfter = selfTestCountActive_(SHEETS.ANNOUNCEMENTS, dates);
   var noWrite = auditAfter === auditBefore && announcementsAfter === announcementsBefore;
 
@@ -2068,11 +2068,11 @@ function selfTestS10_(ctx) {
   var config = ctx.config;
   var dates = selfTestSandboxDates_(config);
   if (dates.length === 0) return selfTestOutcome_(null, '沙盒季度有主日', '0 個', '請先跑 S01。');
-  if (!getConfig(CONFIG_KEYS.TEMPLATE_FILE_ID_NORMAL, '')) {
+  if (!getConfig_(CONFIG_KEYS.TEMPLATE_FILE_ID_NORMAL, '')) {
     return selfTestOutcome_(null, '已設定平常主日範本', '尚未設定',
       'Config 的 TEMPLATE_FILE_ID_NORMAL 是空的，略過。⚠️「略過」不等於「通過」。');
   }
-  if (!getConfig(CONFIG_KEYS.BULLETIN_OUTPUT_FOLDER_ID, '')) {
+  if (!getConfig_(CONFIG_KEYS.BULLETIN_OUTPUT_FOLDER_ID, '')) {
     return selfTestOutcome_(null, '已設定輸出資料夾', '尚未設定',
       'Config 的 BULLETIN_OUTPUT_FOLDER_ID 是空的，略過。');
   }
@@ -2153,12 +2153,12 @@ function selfTestBaptismScenario_(ctx, spec) {
   var dates = selfTestSandboxDates_(config);
   if (dates.length < 2) return selfTestOutcome_(null, '沙盒季度至少 2 個主日', dates.length + ' 個', '請先跑 S01。');
 
-  var templateId = getConfig(CONFIG_KEYS.TEMPLATE_FILE_ID_COMBINED_BAPTISM, '');
+  var templateId = getConfig_(CONFIG_KEYS.TEMPLATE_FILE_ID_COMBINED_BAPTISM, '');
   if (!templateId) {
     return selfTestOutcome_(null, '已設定浸禮合堂範本', '尚未設定',
       'Config 的 TEMPLATE_FILE_ID_COMBINED_BAPTISM 是空的，略過。⚠️「略過」不等於「通過」。');
   }
-  if (!getConfig(CONFIG_KEYS.BULLETIN_OUTPUT_FOLDER_ID, '')) {
+  if (!getConfig_(CONFIG_KEYS.BULLETIN_OUTPUT_FOLDER_ID, '')) {
     return selfTestOutcome_(null, '已設定輸出資料夾', '尚未設定', '略過。');
   }
 
@@ -2301,7 +2301,7 @@ function selfTestS14_(ctx) {
   var config = ctx.config;
 
   // ⚠️ 時間證據**先算**，而且連略過那一條路都要附上去。
-  var dedupSec = normalizeInt_(getConfig(CONFIG_KEYS.PUBLISH_DEDUP_SEC, '30'));
+  var dedupSec = normalizeInt_(getConfig_(CONFIG_KEYS.PUBLISH_DEDUP_SEC, '30'));
   var gapText = selfTestDescribePublishGap_(ctx, dedupSec);
 
   var guard = selfTestPublishGuard_(config);
@@ -2365,7 +2365,7 @@ function selfTestS14_(ctx) {
  */
 function selfTestS14b_(ctx) {
   var config = ctx.config;
-  var dedupSec = normalizeInt_(getConfig(CONFIG_KEYS.PUBLISH_DEDUP_SEC, '30'));
+  var dedupSec = normalizeInt_(getConfig_(CONFIG_KEYS.PUBLISH_DEDUP_SEC, '30'));
 
   var guard = selfTestPublishGuard_(config);
   if (guard) return guard;
@@ -2435,7 +2435,7 @@ function selfTestS14b_(ctx) {
  */
 function selfTestS14c_(ctx) {
   var config = ctx.config;
-  var dedupSec = normalizeInt_(getConfig(CONFIG_KEYS.PUBLISH_DEDUP_SEC, '30'));
+  var dedupSec = normalizeInt_(getConfig_(CONFIG_KEYS.PUBLISH_DEDUP_SEC, '30'));
 
   var guard = selfTestPublishGuard_(config);
   if (guard) return guard;
@@ -2690,7 +2690,7 @@ function selfTestPublishGuard_(config) {
  */
 function selfTestPublishVersion_(isoDate) {
   return nextPublishVersion_(
-    publishLogRowsOfKind_(readSheet(SHEETS.PUBLISH_LOG), true), isoDate) - 1;
+    publishLogRowsOfKind_(readSheet_(SHEETS.PUBLISH_LOG), true), isoDate) - 1;
 }
 
 /**
@@ -2760,7 +2760,7 @@ function selfTestS16_(ctx) {
   var sinceMs = new Date().getTime();
   var sent = sendBulletinForDate_(isoDate);
 
-  var newRows = readSheet(SHEETS.SEND_LOG).filter(function (r) {
+  var newRows = readSheet_(SHEETS.SEND_LOG).filter(function (r) {
     return Object.prototype.toString.call(r.TIMESTAMP) === '[object Date]'
       && r.TIMESTAMP.getTime() >= sinceMs;
   });
@@ -2796,7 +2796,7 @@ function selfTestS17_(ctx) {
 
   // ⚠️ 另一條路：直接由工作表逐格數。刻意**不呼叫** buildMissingList_()
   // ——它跟 model.missing 是同一支函式，兩邊會一齊錯、一齊報沒事。
-  var weekRow = findBulletinWeekRow_(readSheet(SHEETS.BULLETIN_WEEKS), isoDate) || {};
+  var weekRow = findBulletinWeekRow_(readSheet_(SHEETS.BULLETIN_WEEKS), isoDate) || {};
   var recounted = 0;
   var detail = [];
 
@@ -2845,7 +2845,7 @@ function selfTestS18_(ctx) {
   var todayIso = schedule.todayIso;
 
   var isSunday = schedule.ok && isIsoDateSunday_(targetIso);
-  var dryRun = normalizeBoolean_(getConfig(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
+  var dryRun = normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
 
   // ⚠️ 這裡刻意用一支**與被驗邏輯無關**的算法對答案：直接數星期幾。
   //    如果驗證方也叫 resolveNextSendSundayIso_()，兩邊會一齊錯、一齊
@@ -2935,7 +2935,7 @@ function selfTestCountActive_(sheetName, isoDates) {
   var wanted = {};
   (isoDates || []).forEach(function (iso) { wanted[iso] = true; });
 
-  return readSheet(sheetName).filter(function (r) {
+  return readSheet_(sheetName).filter(function (r) {
     if (r.ACTIVE !== true) return false;
     var iso = (Object.prototype.toString.call(r.SERVICE_DATE) === '[object Date]')
       ? formatIsoDate_(r.SERVICE_DATE) : String(r.SERVICE_DATE || '').trim();
@@ -2983,7 +2983,7 @@ function runSelfTest_(options) {
     runId = previous;
     selfTestFinishedScenarioIds_(runId).forEach(function (id) { doneIds[id] = true; });
   } else {
-    runId = 'ST' + Utilities.formatDate(new Date(), getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland'),
+    runId = 'ST' + Utilities.formatDate(new Date(), getConfig_(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland'),
       'yyyyMMddHHmmss');
     resetSelfTestSandbox_(config);
   }
@@ -2991,7 +2991,7 @@ function runSelfTest_(options) {
   var ctx = {
     config: config,
     runId: runId,
-    rosterRevisionBaseline: driveCountRevisions_(getConfig(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, '')),
+    rosterRevisionBaseline: driveCountRevisions_(getConfig_(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, '')),
     startMs: new Date().getTime()
   };
 
@@ -3093,7 +3093,7 @@ function runSelfTest_(options) {
  *   {void}
  */
 function selfTestWriteReportRow_(runId, record, at) {
-  writeSheet(SHEETS.SELF_TEST_REPORT, [{
+  writeSheet_(SHEETS.SELF_TEST_REPORT, [{
     RUN_ID: sanitizeCellText_(runId),
     SCENARIO_ID: sanitizeCellText_(record.id),
     SCENARIO_NAME: sanitizeCellText_(record.name),
@@ -3114,7 +3114,7 @@ function selfTestWriteReportRow_(runId, record, at) {
  *   {void}
  */
 function selfTestWriteStateRow_(runId, record, startedAt, finishedAt) {
-  writeSheet(SHEETS.SELF_TEST_STATE, [{
+  writeSheet_(SHEETS.SELF_TEST_STATE, [{
     RUN_ID: sanitizeCellText_(runId),
     SCENARIO_ID: sanitizeCellText_(record.id),
     STATUS: sanitizeCellText_(record.result),
@@ -3131,7 +3131,7 @@ function selfTestWriteStateRow_(runId, record, startedAt, finishedAt) {
  *   {string} 沒有跑過回空字串。
  */
 function selfTestLatestRunId_() {
-  var rows = readSheet(SHEETS.SELF_TEST_STATE);
+  var rows = readSheet_(SHEETS.SELF_TEST_STATE);
   if (rows.length === 0) return '';
   return String(rows[rows.length - 1].RUN_ID || '');
 }
@@ -3144,7 +3144,7 @@ function selfTestLatestRunId_() {
  *   {string[]}
  */
 function selfTestFinishedScenarioIds_(runId) {
-  return readSheet(SHEETS.SELF_TEST_STATE)
+  return readSheet_(SHEETS.SELF_TEST_STATE)
     .filter(function (r) {
       return String(r.RUN_ID || '') === String(runId)
         && String(r.STATUS || '') !== SELF_TEST_RESULT_.PENDING;
@@ -3407,7 +3407,7 @@ function menuShowSelfTestReport_() {
       return;
     }
 
-    var rows = readSheet(SHEETS.SELF_TEST_REPORT).filter(function (r) {
+    var rows = readSheet_(SHEETS.SELF_TEST_REPORT).filter(function (r) {
       return String(r.RUN_ID || '') === runId;
     });
     var results = rows.map(function (r) {

@@ -32,7 +32,7 @@ function prevSheet(content, extra) {
 }
 
 function activeTexts(env, sheetName, iso) {
-  return Array.from(env.sandbox.readSheet(sheetName)
+  return Array.from(env.sandbox.readSheet_(sheetName)
     .filter(function (r) { return r.ACTIVE === true && env.sandbox.formatIsoDate_(r.SERVICE_DATE) === iso; })
     .sort(function (a, b) { return Number(a.SEQ_NO) - Number(b.SEQ_NO); })
     .map(function (r) { return r.TEXT; }));
@@ -128,14 +128,18 @@ test('CO-6 本季這張分頁整張空白、只有上一季帶過來的：只動
   assert.deepStrictEqual(activeTexts(env, 'Announcements', '2027-10-24'), ['原有的']);
 });
 
-test('CO-7 上一季沒有內容表＝正常（沒有警告）；有登記但開不到、版面未更新 → 警告講明，本季照常匯入', function () {
+test('CO-7 上一季沒有內容表＝正常（沒有警告）；有登記但開不到、版面未更新 → 警告講明，家事報告、代禱事項這一次不匯入（週報保留原有的內容），其他分頁照常', function () {
   const none = makeEnv({ content: { 家事報告: [{ SERVICE_DATE: '2027-10-03', SEQ_NO: '10', TEXT: '本季', ACTIVE: 'TRUE' }] } });
   const p0 = none.sandbox.previewContentImport_(QUARTER_ID, {});
   assert.strictEqual(p0.ok, true);
   assert.strictEqual(p0.plan.warnings.filter(function (w) { return w.indexOf('上一季') !== -1; }).length, 0);
+  assert.strictEqual(p0.plan.added, 1);
 
   const missing = makeEnv({
-    content: { 家事報告: [{ SERVICE_DATE: '2027-10-03', SEQ_NO: '10', TEXT: '本季', ACTIVE: 'TRUE' }] },
+    content: {
+      家事報告: [{ SERVICE_DATE: '2027-10-03', SEQ_NO: '10', TEXT: '本季', ACTIVE: 'TRUE' }],
+      團契聚會: [{ SERVICE_DATE: '2027-10-03', SEQ_NO: '10', NAME: '以諾團', DATE_TEXT: '3/10', TIME_TEXT: '2pm', CONTENT: '查經', ACTIVE: 'TRUE' }]
+    },
     otherContentSheets: prevSheet({}, { missing: true })
   });
   const p1 = missing.sandbox.previewContentImport_(QUARTER_ID, {});
@@ -143,7 +147,7 @@ test('CO-7 上一季沒有內容表＝正常（沒有警告）；有登記但開
   const w1 = p1.plan.warnings.filter(function (w) { return w.indexOf('上一季（2027T3）的內容表開不到') !== -1; });
   assert.strictEqual(w1.length, 1, JSON.stringify(p1.plan.warnings));
   assertWrittenChinese(assert, '開不到', w1);
-  assert.strictEqual(p1.plan.added, 1, '本季照常');
+  assert.strictEqual(p1.plan.added, 1, '只有團契照常（家事報告這一次不匯入）');
 
   const old = makeEnv({
     content: { 家事報告: [{ SERVICE_DATE: '2027-10-03', SEQ_NO: '10', TEXT: '本季', ACTIVE: 'TRUE' }] },
@@ -153,6 +157,42 @@ test('CO-7 上一季沒有內容表＝正常（沒有警告）；有登記但開
   assert.strictEqual(p2.ok, true);
   assert.strictEqual(p2.plan.warnings.filter(function (w) { return w.indexOf('上一季（2027T3）的內容表版面未更新') !== -1; }).length, 1,
     JSON.stringify(p2.plan.warnings));
+});
+
+test('CO-7b 獨立審查第 2 項：已經帶入的報告，上一季內容表之後開不到 → 本季那一則不會被停用', function () {
+  const env = makeEnv({
+    content: { 家事報告: [{ SERVICE_DATE: '2027-10-17', SEQ_NO: '10', TEXT: '本季', ACTIVE: 'TRUE' }] },
+    otherContentSheets: prevSheet({
+      家事報告: [{ SERVICE_DATE: '2027-09-19', REPEAT_UNTIL: '2027-10-10', SEQ_NO: '10', TEXT: '跨季', ACTIVE: 'TRUE' }]
+    })
+  });
+  env.sandbox.applyContentImport_(QUARTER_ID, {});
+  assert.deepStrictEqual(activeTexts(env, 'Announcements', '2027-10-03'), ['跨季']);
+  const realOpen = env.sandbox.SpreadsheetApp.openById;
+  env.sandbox.SpreadsheetApp.openById = function (id) { if (id === PREV_FILE) throw new Error('開不到'); return realOpen(id); };
+  const p = env.sandbox.previewContentImport_(QUARTER_ID, {});
+  assert.strictEqual(p.plan.removed, 0, JSON.stringify(p.plan));
+  env.sandbox.applyContentImport_(QUARTER_ID, {});
+  assert.deepStrictEqual(activeTexts(env, 'Announcements', '2027-10-03'), ['跨季']);
+  assert.deepStrictEqual(activeTexts(env, 'Announcements', '2027-10-10'), ['跨季']);
+});
+
+test('CO-7c 獨立審查第 4 項：本季這張分頁空白、上一季那一行停用 → 本季帶入過的那幾個主日拿走；之後的主日不動', function () {
+  const env = makeEnv({
+    announcements: [{ SERVICE_DATE: '2027-10-24', SEQ_NO: 10, TEXT: '原有的', ACTIVE: true }],
+    otherContentSheets: prevSheet({
+      家事報告: [{ SERVICE_DATE: '2027-09-19', REPEAT_UNTIL: '2027-10-10', SEQ_NO: '10', TEXT: '跨季', ACTIVE: 'TRUE' }]
+    })
+  });
+  env.sandbox.applyContentImport_(QUARTER_ID, {});
+  assert.deepStrictEqual(activeTexts(env, 'Announcements', '2027-10-10'), ['跨季']);
+  const prev = env.sandbox.SpreadsheetApp.openById(PREV_FILE).getSheetByName('家事報告');
+  const keys = env.sandbox.contentSheetTabDefs_().filter(function (d) { return d.tabName === '家事報告'; })[0].keys;
+  prev.getRange(3, keys.indexOf('ACTIVE') + 1).setValue('FALSE');
+  env.sandbox.applyContentImport_(QUARTER_ID, {});
+  assert.deepStrictEqual(activeTexts(env, 'Announcements', '2027-10-03'), []);
+  assert.deepStrictEqual(activeTexts(env, 'Announcements', '2027-10-10'), []);
+  assert.deepStrictEqual(activeTexts(env, 'Announcements', '2027-10-24'), ['原有的']);
 });
 
 test('CO-8 selectContentCarryOverRows_：有格被轉成日期／時間的跨季行不帶，講出來；團契、財政不帶', function () {
@@ -168,6 +208,7 @@ test('CO-8 selectContentCarryOverRows_：有格被轉成日期／時間的跨季
   assert.deepStrictEqual(Array.from(out.rowsByTab['家事報告'].map(function (r) { return r.TEXT; })), ['好']);
   assert.strictEqual(out.warnings.length, 1);
   assert.ok(out.warnings[0].indexOf('第 4 行') !== -1, out.warnings[0]);
+  assert.strictEqual(out.skipThrough['家事報告'], '2027-10-10', '那幾個主日這一次不匯入（不可以當沒有）');
 });
 
 console.log('\n自動同步（真入口 runContentAutoSync_）');

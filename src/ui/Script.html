@@ -3082,7 +3082,7 @@
   function renderAutoImportNotice(autoImport) {
     var a = autoImport || {};
     // 特別崇拜沒有內容表的行（清單跟上一個主日），不是「未能匯入」。
-    var quietReasons = ['', 'NO_QUARTER', 'NO_CONTENT_SHEET', 'ARCHIVED', 'SPECIAL_SERVICE'];
+    var quietReasons = ['', 'NO_QUARTER', 'NO_CONTENT_SHEET', 'ARCHIVED', 'SPECIAL_SERVICE', 'VIEW_ONLY'];
     if (Number(a.changed || 0) > 0) {
       showMessage('info', '已自動由內容表更新這一週 ' + a.changed + ' 項（內容表最新的內容）。');
       return;

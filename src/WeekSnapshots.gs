@@ -219,7 +219,7 @@ function summarizeWeekSnapshotPayload_(payload) {
  * 用途：把 `WeekSnapshots` 的資料列依 `SNAPSHOT_ID` 分組，只收指定主日、
  *   `ACTIVE` 的版本，由新到舊。純函式。
  * Args:
- *   rows {Object[]} `readSheet(SHEETS.WEEK_SNAPSHOTS)` 的輸出。
+ *   rows {Object[]} `readSheet_(SHEETS.WEEK_SNAPSHOTS)` 的輸出。
  *   isoDate {string} 主日日期，yyyy-MM-dd。
  * Returns:
  *   {{snapshotId:string, isoDate:string, quarterId:string, createdAt:*, createdBy:string,
@@ -613,7 +613,7 @@ function readWeekStateForSnapshot_(isoDate) {
   var listCounts = {};
   var listDefs = webAppListDefs_();
   Object.keys(listDefs).forEach(function (type) {
-    listCounts[type] = pickWebAppListItems_(readSheet(listDefs[type].sheetName), isoDate, []).length;
+    listCounts[type] = pickWebAppListItems_(readSheet_(listDefs[type].sheetName), isoDate, []).length;
   });
 
   return {
@@ -658,12 +658,12 @@ function createWeekSnapshot_(isoDate, reason, options) {
   var state = readWeekStateForSnapshot_(isoDate);
   if (!state.weekRow) return { created: false, snapshotId: '', skipped: 'NO_WEEK', partCount: 0 };
 
-  var allRows = opts.snapshotRows || readSheet(SHEETS.WEEK_SNAPSHOTS);
+  var allRows = opts.snapshotRows || readSheet_(SHEETS.WEEK_SNAPSHOTS);
   var groups = groupWeekSnapshots_(allRows, isoDate);
   var now = new Date();
 
   if (opts.throttle === true) {
-    var minutes = normalizeInt_(getConfig(CONFIG_KEYS.SNAPSHOT_THROTTLE_MINUTES, '15'));
+    var minutes = normalizeInt_(getConfig_(CONFIG_KEYS.SNAPSHOT_THROTTLE_MINUTES, '15'));
     if (isWeekSnapshotThrottled_(groups, now.getTime(), minutes)) {
       return { created: false, snapshotId: '', skipped: 'THROTTLED', partCount: 0 };
     }
@@ -682,7 +682,7 @@ function createWeekSnapshot_(isoDate, reason, options) {
     }
   }
 
-  var timezone = getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland');
+  var timezone = getConfig_(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland');
   var existingIds = allRows.map(function (r) { return String(r.SNAPSHOT_ID || ''); });
   var snapshotId = buildBackupId_(isoDate, now, timezone, existingIds);
   var actor = opts.actor ? String(opts.actor) : currentUserEmailForBackup_();
@@ -707,7 +707,7 @@ function createWeekSnapshot_(isoDate, reason, options) {
       ACTIVE: true
     };
   });
-  writeSheet(SHEETS.WEEK_SNAPSHOTS, rows);
+  writeSheet_(SHEETS.WEEK_SNAPSHOTS, rows);
 
   appendAuditLog_({
     action: 'WEEK_SNAPSHOT_CREATE', sheetName: SHEETS.WEEK_SNAPSHOTS,
@@ -777,7 +777,7 @@ function snapshotWeeksBeforeWrite_(isoDates, reason, options) {
   // 讀不到就不傳，由每個主日自己去讀、自己報錯。
   if (dates.length > 1 && !shared.snapshotRows) {
     try {
-      shared.snapshotRows = readSheet(SHEETS.WEEK_SNAPSHOTS);
+      shared.snapshotRows = readSheet_(SHEETS.WEEK_SNAPSHOTS);
     } catch (err) {
       shared.snapshotRows = undefined;
     }
@@ -812,14 +812,14 @@ function listWeekSnapshotsForWebApp_(isoDate) {
   if (!normalizeDate_(isoDate)) {
     throw new Error('listWeekSnapshotsForWebApp_：isoDate 必須是 yyyy-MM-dd 格式，收到：' + JSON.stringify(isoDate));
   }
-  var timezone = getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland');
+  var timezone = getConfig_(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland');
   function stamp(date) {
     return weekSnapshotStampText_(date, timezone);
   }
 
-  var limit = normalizeInt_(getConfig(CONFIG_KEYS.SNAPSHOT_LIST_LIMIT, '20'));
+  var limit = normalizeInt_(getConfig_(CONFIG_KEYS.SNAPSHOT_LIST_LIMIT, '20'));
   if (!Number.isFinite(limit) || limit < 1) limit = 20;
-  var groups = groupWeekSnapshots_(readSheet(SHEETS.WEEK_SNAPSHOTS), isoDate);
+  var groups = groupWeekSnapshots_(readSheet_(SHEETS.WEEK_SNAPSHOTS), isoDate);
 
   var versions = groups.slice(0, limit).map(function (g) {
     return {
@@ -830,7 +830,7 @@ function listWeekSnapshotsForWebApp_(isoDate) {
     };
   });
 
-  var published = filterPublishedRowsForDate_(readSheet(SHEETS.PUBLISH_LOG), isoDate).sort(function (a, b) {
+  var published = filterPublishedRowsForDate_(readSheet_(SHEETS.PUBLISH_LOG), isoDate).sort(function (a, b) {
     return (Number(b.VERSION_NO) || 0) - (Number(a.VERSION_NO) || 0);
   }).map(function (r) {
     return {
@@ -860,7 +860,7 @@ function listWeekSnapshotsForWebApp_(isoDate) {
  *     `parseWeekSnapshotGroup_()` 的錯。
  */
 function loadWeekSnapshot_(isoDate, snapshotId) {
-  var group = groupWeekSnapshots_(readSheet(SHEETS.WEEK_SNAPSHOTS), isoDate).filter(function (g) {
+  var group = groupWeekSnapshots_(readSheet_(SHEETS.WEEK_SNAPSHOTS), isoDate).filter(function (g) {
     return g.snapshotId === String(snapshotId || '');
   })[0];
   if (!group) {
@@ -888,7 +888,7 @@ function loadWeekSnapshot_(isoDate, snapshotId) {
 function diffWeekSnapshotForWebApp_(isoDate, snapshotId) {
   var loaded = loadWeekSnapshot_(isoDate, snapshotId);
   var state = readWeekStateForSnapshot_(isoDate);
-  var timezone = getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland');
+  var timezone = getConfig_(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland');
   var created = loaded.group.createdAt;
 
   return {
@@ -896,7 +896,7 @@ function diffWeekSnapshotForWebApp_(isoDate, snapshotId) {
     createdAt: weekSnapshotStampText_(created, timezone),
     reasonLabel: weekSnapshotReasonLabel_(loaded.group.reason),
     lastSavedAt: canonicalSaveToken_(state.weekRow ? state.weekRow.LAST_SAVED_AT : null),
-    rows: diffWeekSnapshotState_(loaded.payload, state, readSheet(SHEETS.POST_DISPLAY)),
+    rows: diffWeekSnapshotState_(loaded.payload, state, readSheet_(SHEETS.POST_DISPLAY)),
     noteLine: weekSnapshotRestoreNote_()
   };
 }
@@ -1082,7 +1082,7 @@ function restoreWeekSnapshotLocked_(payload) {
  */
 function restoreVersionLabel_(group) {
   try {
-    return weekSnapshotDisplayName_(group, getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland'));
+    return weekSnapshotDisplayName_(group, getConfig_(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland'));
   } catch (err) {
     // appendErrorLog_() 自己不會拋錯（寫不到就回 false）。
     appendErrorLog_({
@@ -1151,11 +1151,11 @@ function readBlankWeekSettings_() {
   return {
     templateConfig: readProgramTemplateConfig_(),
     defaults: {
-      prelude: getConfig(CONFIG_KEYS.PRELUDE_DEFAULT, ''),
-      pageTitle: getConfig(CONFIG_KEYS.DEFAULT_PAGE_TITLE, '崇拜程序'),
-      attendanceHeading: getConfig(CONFIG_KEYS.DEFAULT_ATTENDANCE_HEADING, '上週主日崇拜人數'),
-      nextWeekHeading: getConfig(CONFIG_KEYS.DEFAULT_NEXT_WEEK_HEADING, '下週主日崇拜聚會事奉肢體'),
-      prayerBlockHeading: getConfig(CONFIG_KEYS.DEFAULT_PRAYER_BLOCK_HEADING, '代禱事項')
+      prelude: getConfig_(CONFIG_KEYS.PRELUDE_DEFAULT, ''),
+      pageTitle: getConfig_(CONFIG_KEYS.DEFAULT_PAGE_TITLE, '崇拜程序'),
+      attendanceHeading: getConfig_(CONFIG_KEYS.DEFAULT_ATTENDANCE_HEADING, '上週主日崇拜人數'),
+      nextWeekHeading: getConfig_(CONFIG_KEYS.DEFAULT_NEXT_WEEK_HEADING, '下週主日崇拜聚會事奉肢體'),
+      prayerBlockHeading: getConfig_(CONFIG_KEYS.DEFAULT_PRAYER_BLOCK_HEADING, '代禱事項')
     }
   };
 }
@@ -1274,7 +1274,7 @@ function resetWeekLocked_(isoDate, lastSavedAt) {
   var specialService = isSpecialServiceRow_(state.weekRow);
   if (specialService) {
     blankRow.PAGE_TITLE = String(state.weekRow.SPECIAL_TYPE || '');
-    blankRow.PROGRAM_TEMPLATE_ID = getConfig(CONFIG_KEYS.SPECIAL_SERVICE_TEMPLATE_DEFAULT, 'TPL_NORMAL');
+    blankRow.PROGRAM_TEMPLATE_ID = getConfig_(CONFIG_KEYS.SPECIAL_SERVICE_TEMPLATE_DEFAULT, 'TPL_NORMAL');
   }
   var plan = planWeekReset_(blankRow, state);
 

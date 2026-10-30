@@ -66,7 +66,7 @@ function contentRepeatUntilOptions_(serviceDates, extraWeeks) {
  *   {number}
  */
 function contentRepeatUntilExtraWeeks_() {
-  var n = normalizeInt_(getConfig(CONFIG_KEYS.CONTENT_REPEAT_UNTIL_NEXT_QUARTER_WEEKS, '13'));
+  var n = normalizeInt_(getConfig_(CONFIG_KEYS.CONTENT_REPEAT_UNTIL_NEXT_QUARTER_WEEKS, '13'));
   return (n === null || n < 0) ? 0 : n;
 }
 
@@ -77,36 +77,59 @@ function contentRepeatUntilExtraWeeks_() {
  *   firstIso {string} 本季第一個主日。
  *   sourceQuarterId {string} 上一季的季度 ID（只用來寫警告）。
  * Returns:
- *   {{rowsByTab:Object<string,Object[]>, warnings:string[]}} 只包括有「連續到」的清單分頁。
+ *   {{rowsByTab:Object<string,Object[]>, warnings:string[], skipThrough:Object<string,string>,
+ *     managedTabs:Object<string,string>}} 只包括有「連續到」的清單分頁；`managedTabs` 見 readContentCarryOver_()。
  * Raises:
  *   （無）
  */
 function selectContentCarryOverRows_(contentData, firstIso, sourceQuarterId) {
-  var out = { rowsByTab: {}, warnings: [] };
+  var out = { rowsByTab: {}, warnings: [], skipThrough: {}, managedTabs: {} };
   var first = String(firstIso || '').trim();
   if (!first) return out;
   contentImportTargets_().forEach(function (def) {
     if (def.kind !== 'LIST' || def.repeatUntil !== true) return;
     var picked = [];
     ((contentData || {})[def.tabName] || []).forEach(function (row) {
-      if (row.__active !== true) return;
       var start = String(row.SERVICE_DATE || '').trim();
       var until = String(row.REPEAT_UNTIL || '').trim();
       var issues = row.__typeIssues || [];
       if (issues.length > 0) {
-        // 結構欄被轉了就不知道這一行連到哪一日；其餘欄被轉了內容不可信。兩樣都不帶，講出來。
-        if (issues.indexOf('REPEAT_UNTIL') !== -1 || (until && until >= first)) {
+        // 獨立審查 2026-10-30 第 2 項：有格被轉了，這一行帶不帶都不可信——**不可以**當沒有（否則本季已經帶入的
+        //    那幾個主日會被停用）。那幾個主日這一次不匯入（週報保留原有的內容）：連續到讀得到就到那一日，
+        //    讀不到（連續到本身被轉了）就整季。
+        var structural = issues.indexOf('REPEAT_UNTIL') !== -1 || issues.indexOf('SERVICE_DATE') !== -1
+          || issues.indexOf('ACTIVE') !== -1;
+        if (structural || (until && until >= first)) {
+          out.skipThrough[def.tabName] = structural ? 'ALL'
+            : (out.skipThrough[def.tabName] === 'ALL' ? 'ALL' : maxIso_(out.skipThrough[def.tabName], until));
           out.warnings.push('上一季（' + sourceQuarterId + '）內容表「' + def.tabName + '」第 ' + row.__rowNo
-            + ' 行有格被試算表轉成日期／時間，這一次沒有帶入本季。請在上一季的內容表把那一格改回純文字，再重新輸入。');
+            + ' 行有格被試算表轉成日期／時間：本季「' + def.tabName + '」' + (structural ? '整季' : '至 ' + until)
+            + ' 的主日這一次不匯入（週報保留原有的內容）。請在上一季的內容表把那一格改回純文字，再重新輸入。');
         }
         return;
       }
       if (!start || !until || start >= first || until < first) return;
+      // 有效或者已停用都算：本季這張分頁空白時，用來知道至哪一日的週報要跟上一季比對（第 4 項）。
+      out.managedTabs[def.tabName] = maxIso_(out.managedTabs[def.tabName], until);
+      if (row.__active !== true) return;
       picked.push(Object.assign({}, row, { __carriedFromQuarter: sourceQuarterId }));
     });
     if (picked.length > 0) out.rowsByTab[def.tabName] = picked;
   });
   return out;
+}
+
+/**
+ * 用途：兩個 yyyy-MM-dd 取較遲的一個（空字串當最早）。純函式。
+ * Args:
+ *   a {string=}　b {string=}
+ * Returns:
+ *   {string}
+ */
+function maxIso_(a, b) {
+  var x = String(a || '');
+  var y = String(b || '');
+  return x > y ? x : y;
 }
 
 /**
@@ -139,7 +162,10 @@ function expandContentCarryOverRows_(rows, serviceDates) {
  *   quarterId {string} 本季。
  *   serviceDates {string[]} 本季全部主日，由舊到新。
  * Returns:
- *   {{rowsByTab:Object<string,Object[]>, warnings:string[], sourceQuarterId:string}}
+ *   {{rowsByTab:Object<string,Object[]>, warnings:string[], sourceQuarterId:string, unreadable:boolean=,
+ *     skipThrough:Object<string,string>=, managedTabs:Object<string,string>=}}
+ *   `unreadable`：上一季登記了內容表但讀不到；`skipThrough`：分頁 → 本季這一次不匯入至哪一日（`ALL`＝整季）；
+ *   `managedTabs`：分頁 → 上一季連到本季的行（有效或停用）最遲連到哪一日。
  * Raises:
  *   （無：讀不到就在 `warnings` 講明）
  */
@@ -150,20 +176,26 @@ function readContentCarryOver_(quarterId, serviceDates) {
   var row = findContentSheetRow_(prevQid);
   if (!row) return out; // 上一季沒有內容表：正常，沒有東西帶過來。
 
+  // 獨立審查 2026-10-30 第 2 項：上一季登記了內容表但讀不到——不知道有甚麼帶過來，**不可以**當沒有
+  //    （否則本季已經帶入的行會被停用）。家事報告、代禱事項這一次整季不匯入，週報保留原有的內容。
   var spreadsheet = openContentSpreadsheet_(row.FILE_ID);
   if (!spreadsheet) {
-    out.warnings.push('上一季（' + prevQid + '）的內容表開不到，由上一季「連續到」帶入本季的家事報告、代禱事項這一次沒有匯入。'
-      + '請在週報系統試算表的 ContentSheets 核對那一季的檔案。');
+    out.unreadable = true;
+    out.warnings.push('上一季（' + prevQid + '）的內容表開不到，所以本季的家事報告、代禱事項這一次不匯入（週報保留原有的內容）。'
+      + '如果那份內容表已經不用，請在週報系統試算表的 ContentSheets 把季度「' + prevQid + '」那一行的「有效」改為 FALSE。');
     return out;
   }
   var schema = checkContentSheetSchema_(spreadsheet);
   if (!schema.ok) {
-    out.warnings.push('上一季（' + prevQid + '）的內容表版面未更新，由上一季「連續到」帶入本季的家事報告、代禱事項這一次沒有匯入：'
+    out.unreadable = true;
+    out.warnings.push('上一季（' + prevQid + '）的內容表版面未更新，所以本季的家事報告、代禱事項這一次不匯入（週報保留原有的內容）：'
       + schema.message);
     return out;
   }
   var selected = selectContentCarryOverRows_(readContentSheetTabs_(spreadsheet), serviceDates[0], prevQid);
   out.rowsByTab = selected.rowsByTab;
   out.warnings = selected.warnings;
+  out.skipThrough = selected.skipThrough;
+  out.managedTabs = selected.managedTabs;
   return out;
 }

@@ -87,7 +87,7 @@ test('15b. DRY_RUN=TRUE 時同樣完全不會呼叫 MailApp.sendEmail', function
 test('15c. SendLog 工作表全程沒有任何新增的行（連 DRY_RUN 記錄都沒有——因為根本沒有走到寄送那條路徑）', function () {
   const env = makeRehearsalEnv({ config: { DRY_RUN: 'FALSE' } });
   env.sandbox.runQuarterRehearsal_(QUARTER_ID);
-  assert.strictEqual(env.sandbox.readSheet('SendLog').length, 0);
+  assert.strictEqual(env.sandbox.readSheet_('SendLog').length, 0);
 });
 
 // =====================================================================
@@ -104,7 +104,7 @@ test('16a. 範本未設定 → 「產生 Word」那一步失敗，但報告仍�
     '失敗步驟裡應該包含「產生 Word」：' + JSON.stringify(summary.failedSteps));
 
   // 報告仍然要寫進 Diagnostics，而且要看得到失敗這件事，不可以看起來像全部順利。
-  const diagnostics = env.sandbox.readSheet('Diagnostics');
+  const diagnostics = env.sandbox.readSheet_('Diagnostics');
   const reportRows = diagnostics.filter(function (r) { return r.REPORT_NAME === '全季流程演練'; });
   assert.ok(reportRows.length > 0);
   const reportText = reportRows.map(function (r) { return r.CONTENT; }).join('\n');
@@ -142,9 +142,9 @@ test('全部順利時：每個主日都有完整資訊，總數與逐日加總�
 
 test('唯讀為主：職事表分歧檢查不會寫 AuditLog、不會推進 BulletinWeeks 的快照版本', function () {
   const env = makeRehearsalEnv({});
-  const beforeAudit = env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'ROSTER_FOLLOW'; }).length;
+  const beforeAudit = env.sandbox.readSheet_('AuditLog').filter(function (r) { return r.ACTION === 'ROSTER_FOLLOW'; }).length;
   env.sandbox.runQuarterRehearsal_(QUARTER_ID);
-  const afterAudit = env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'ROSTER_FOLLOW'; }).length;
+  const afterAudit = env.sandbox.readSheet_('AuditLog').filter(function (r) { return r.ACTION === 'ROSTER_FOLLOW'; }).length;
   assert.strictEqual(afterAudit, beforeAudit, '演練用的是 computeRosterDiff_（唯讀），不應該寫 ROSTER_FOLLOW 記錄');
 });
 

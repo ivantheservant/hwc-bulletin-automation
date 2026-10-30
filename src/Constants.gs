@@ -38,7 +38,7 @@ var SEND_LOG_BODY_PREVIEW_CHARS = 2000;
 var ROSTER_REPO_URL = 'https://github.com/ivantheservant/hwc-roster-automation';
 
 // =====================================================================
-// 欄位型別列舉——readSheet() 依此決定用哪一個 normalize*_() 函式
+// 欄位型別列舉——readSheet_() 依此決定用哪一個 normalize*_() 函式
 // =====================================================================
 
 var COLUMN_TYPES = Object.freeze({
@@ -50,7 +50,7 @@ var COLUMN_TYPES = Object.freeze({
 
 // =====================================================================
 // SHEETS：工作表 key → 工作表名稱（分頁標籤文字）
-// 順序即為 initializeAllSheets() 建立分頁的順序。
+// 順序即為 initializeAllSheets_() 建立分頁的順序。
 // =====================================================================
 
 var SHEETS = Object.freeze({
@@ -267,7 +267,7 @@ var COLUMNS = Object.freeze({
   },
 
   // 第六b輪新增：Ivan 人手貼上的「姓名 → 尊稱」對照表，不是系統資料——
-  // 由 seed 零行（initializeAllSheets() 只建立標題兩行），讀取時要寬鬆
+  // 由 seed 零行（initializeAllSheets_() 只建立標題兩行），讀取時要寬鬆
   // （見 src/HonorificSetup.gs 的說明）。
   HONORIFIC_LOOKUP: {
     headers: ['姓名', '尊稱', '出現次數', '備註'],

@@ -465,14 +465,14 @@ test('17l. 「檢測季度」項一定存在，且職事表與 BulletinWeeks 都
 test('19a. 造 500 項待填（25 個主日 × 20 項）→ 報告總行數 ≤ SELFCHECK_MAX_ROWS', function () {
   const env = makeManySundaysEnv({ sundayCount: 25 });
   env.sandbox.runSelfCheck_();
-  const rows = env.sandbox.readSheet('Diagnostics').filter(function (r) { return r.REPORT_NAME === '完成度自我檢測'; });
+  const rows = env.sandbox.readSheet_('Diagnostics').filter(function (r) { return r.REPORT_NAME === '完成度自我檢測'; });
   assert.ok(rows.length <= 140, '應該不超過 SELFCHECK_MAX_ROWS 預設值 140，實際：' + rows.length);
 });
 
 test('19b. 同上情況下，最後三項紀錄類檢測（ErrorLog／SendLog／AuditLog）仍然存在於報告內', function () {
   const env = makeManySundaysEnv({ sundayCount: 25 });
   env.sandbox.runSelfCheck_();
-  const content = env.sandbox.readSheet('Diagnostics')
+  const content = env.sandbox.readSheet_('Diagnostics')
     .filter(function (r) { return r.REPORT_NAME === '完成度自我檢測'; })
     .map(function (r) { return r.CONTENT; }).join('\n');
 
@@ -545,7 +545,7 @@ test('19h. SELFCHECK_MAX_ROWS 填大過 DIAGNOSTICS_MAX_ROWS → 取較小值並
     config: { SELFCHECK_MAX_ROWS: '1000', DIAGNOSTICS_MAX_ROWS: '50' }
   });
   env.sandbox.runSelfCheck_();
-  const rows = env.sandbox.readSheet('Diagnostics').filter(function (r) { return r.REPORT_NAME === '完成度自我檢測'; });
+  const rows = env.sandbox.readSheet_('Diagnostics').filter(function (r) { return r.REPORT_NAME === '完成度自我檢測'; });
   const content = rows.map(function (r) { return r.CONTENT; }).join('\n');
 
   assert.ok(rows.length <= 50, '應該取較小值 50 為上限，實際：' + rows.length);
@@ -562,7 +562,7 @@ test('19i. 由真正入口（選單函式 menuShowQuarterMissingFieldsList_）�
   const env = makeManySundaysEnv({ sundayCount: 50, uiPromptButton: 'OK', uiPromptText: '' });
   assert.doesNotThrow(function () { env.sandbox.menuShowQuarterMissingFieldsList_(); });
 
-  const rows = env.sandbox.readSheet('Diagnostics').filter(function (r) { return r.REPORT_NAME === '本季待填清單'; });
+  const rows = env.sandbox.readSheet_('Diagnostics').filter(function (r) { return r.REPORT_NAME === '本季待填清單'; });
   assert.ok(rows.length > 0, '應該真的寫入了報告');
   assert.ok(rows.length <= 380, '應該遵守 DIAGNOSTICS_MAX_ROWS 預設值 380，實際：' + rows.length);
 
@@ -649,7 +649,7 @@ test('menuCheckAuthorizationScopes_：把結果寫進 Diagnostics（報告名稱
   const env = makeEnv({ rootAccessError: authErr });
   env.sandbox.menuCheckAuthorizationScopes_();
 
-  const diagnostics = env.sandbox.readSheet('Diagnostics');
+  const diagnostics = env.sandbox.readSheet_('Diagnostics');
   const rows = diagnostics.filter(function (r) { return r.REPORT_NAME === '檢查授權範圍'; });
   assert.ok(rows.length > 0);
   assert.ok(rows.some(function (r) { return r.CONTENT.indexOf('DriveApp') !== -1; }));
@@ -742,7 +742,7 @@ test('20i. 本季內容表：已建立且有最後匯入時間 → 🟢，顯示
   // 「有沒有真的呼叫 formatDate 並把結果放進訊息」，不是斷言某個具體
   // 日期字串本身。
   const env = makeEnv({});
-  env.sandbox.writeSheet(env.sandbox.SHEETS.CONTENT_SHEETS, [{
+  env.sandbox.writeSheet_(env.sandbox.SHEETS.CONTENT_SHEETS, [{
     QUARTER_ID: QUARTER_ID, FILE_ID: 'CS1', FILE_URL: 'https://example.invalid/cs1',
     CREATED_AT: '2027-09-01', LAST_IMPORTED_AT: '2027-10-05', INVITE_SENT_AT: '', ACTIVE: true
   }]);
@@ -754,7 +754,7 @@ test('20i. 本季內容表：已建立且有最後匯入時間 → 🟢，顯示
 
 test('20j. 本季內容表：已建立但從未匯入過 → 🟢，講明「尚未匯入過」', function () {
   const env = makeEnv({});
-  env.sandbox.writeSheet(env.sandbox.SHEETS.CONTENT_SHEETS, [{
+  env.sandbox.writeSheet_(env.sandbox.SHEETS.CONTENT_SHEETS, [{
     QUARTER_ID: QUARTER_ID, FILE_ID: 'CS1', FILE_URL: 'https://example.invalid/cs1',
     CREATED_AT: '2027-09-01', LAST_IMPORTED_AT: '', INVITE_SENT_AT: '', ACTIVE: true
   }]);
@@ -774,7 +774,7 @@ test('20k. 最近一次發佈：從未發佈過 → 🟡', function () {
 
 test('20l. 最近一次發佈：有記錄 → 🟢，顯示主日與版本號', function () {
   const env = makeEnv({});
-  env.sandbox.writeSheet(env.sandbox.SHEETS.PUBLISH_LOG, [{
+  env.sandbox.writeSheet_(env.sandbox.SHEETS.PUBLISH_LOG, [{
     SERVICE_DATE: '2027-11-07', VERSION_NO: 2, PUBLISHED_AT: '2027-11-06',
     PUBLISHED_BY: 'tester@x.com', ARCHIVE_FILE_ID: 'A1', SENT: true,
     SENT_GROUPS: 'CC', MISSING_COUNT: 0, FORCED: false, FORCED_REASON: ''
@@ -796,7 +796,7 @@ test('20m. 新增的六類檢測項目全部出現在報告內，且總行數不
     assert.ok(findItem(summary, label).length > 0, '找不到「' + label + '」這一項');
   });
 
-  const maxRows = Number(env.sandbox.getConfig(env.sandbox.CONFIG_KEYS.SELFCHECK_MAX_ROWS, '140'));
+  const maxRows = Number(env.sandbox.getConfig_(env.sandbox.CONFIG_KEYS.SELFCHECK_MAX_ROWS, '140'));
   const lines = env.sandbox.buildSelfCheckReportLines_(summary);
   assert.ok(lines.length <= maxRows, '報告行數 ' + lines.length + ' 超過上限 ' + maxRows);
 });
@@ -890,7 +890,7 @@ test('G1 menuAuthorizeAllScopes_：成功 → 呼叫 ScriptApp.requireAllScopes(
   assert.strictEqual(store.alerts.length, 1);
   assert.strictEqual(store.alerts[0].title, '重新授權');
   assert.strictEqual(store.alerts[0].message, '全部授權範圍已核准。請再按「檢查授權範圍」確認。');
-  assert.strictEqual(env.sandbox.readSheet('ErrorLog').length, 0);
+  assert.strictEqual(env.sandbox.readSheet_('ErrorLog').length, 0);
 });
 
 test('G1 menuAuthorizeAllScopes_：授權未完成（requireAllScopes 拋錯）→ 寫一筆 ErrorLog（MENU／menuAuthorizeAllScopes_），對話框顯示原因與指引，不會講「已核准」', function () {
@@ -909,7 +909,7 @@ test('G1 menuAuthorizeAllScopes_：授權未完成（requireAllScopes 拋錯）�
   assert.ok(store.alerts[0].message.indexOf('authorizeAllScopes') !== -1, store.alerts[0].message);
   assert.ok(store.alerts[0].message.indexOf('已核准') === -1, '失敗時不可以講已核准：' + store.alerts[0].message);
 
-  const errors = env.sandbox.readSheet('ErrorLog');
+  const errors = env.sandbox.readSheet_('ErrorLog');
   assert.strictEqual(errors.length, 1);
   assert.strictEqual(errors[0].SOURCE, 'MENU');
   assert.strictEqual(errors[0].FUNCTION_NAME, 'menuAuthorizeAllScopes_');

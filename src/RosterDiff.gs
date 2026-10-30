@@ -161,14 +161,14 @@ function buildRosterDiff_(isoDate, snapshot, overrides, lastSnapshotVersion, opt
  */
 function computeRosterDiff_(isoDate) {
   var overrides = readDutyOverrideRows_(isoDate);
-  var weekRow = findBulletinWeekRow_(readSheet(SHEETS.BULLETIN_WEEKS), isoDate) || {};
+  var weekRow = findBulletinWeekRow_(readSheet_(SHEETS.BULLETIN_WEEKS), isoDate) || {};
   // 特別崇拜：與資料模型同一個快照（按崗位清單開的空白格）。
   var snapshot = readRosterSnapshotForWeek_(isoDate, weekRow);
   var lastSnapshotVersion = (weekRow.ROSTER_SNAPSHOT_VERSION === undefined) ? null : weekRow.ROSTER_SNAPSHOT_VERSION;
 
   var postLabels = {};
   try {
-    readSheet(SHEETS.POST_DISPLAY).forEach(function (r) {
+    readSheet_(SHEETS.POST_DISPLAY).forEach(function (r) {
       if (r.ACTIVE === true) postLabels[r.POST_ID] = r.PAGE1_NAME;
     });
   } catch (err) {
@@ -380,7 +380,7 @@ function buildRosterDiffReportLines_(diff) {
 function menuCheckRosterDiff_() {
   var ui = SpreadsheetApp.getUi();
   try {
-    var defaultDate = getConfig(CONFIG_KEYS.ROSTER_TEST_DATE, '2027-10-03');
+    var defaultDate = getConfig_(CONFIG_KEYS.ROSTER_TEST_DATE, '2027-10-03');
     var resp = ui.prompt(
       '檢查職事表分歧',
       '請輸入主日日期，格式 yyyy-MM-dd（例如 ' + defaultDate + '）：',

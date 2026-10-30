@@ -568,10 +568,19 @@ function setContentSheetDomainAccess_(fileId, access) {
  */
 function listContentSheetUserRoles_(fileId) {
   var out = {};
-  var listed = Drive.Permissions.list(String(fileId), { supportsAllDrives: true, fields: 'permissions(emailAddress,role,type)' });
-  ((listed && listed.permissions) || []).forEach(function (p) {
-    if (p.emailAddress) out[String(p.emailAddress).toLowerCase()] = p.role;
-  });
+  var pageToken = null;
+  var guard = 0;
+  do {
+    // 獨立審查第 8 項：共用雲端硬碟的檔案每頁最多 100 個權限，要逐頁讀。
+    var params = { supportsAllDrives: true, fields: 'nextPageToken,permissions(emailAddress,role,type)', pageSize: 100 };
+    if (pageToken) params.pageToken = pageToken;
+    var listed = Drive.Permissions.list(String(fileId), params);
+    ((listed && listed.permissions) || []).forEach(function (p) {
+      if (p.emailAddress) out[String(p.emailAddress).toLowerCase()] = p.role;
+    });
+    pageToken = listed && listed.nextPageToken ? listed.nextPageToken : null;
+    guard++;
+  } while (pageToken && guard < 50);
   return out;
 }
 

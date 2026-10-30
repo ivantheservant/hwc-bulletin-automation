@@ -236,7 +236,7 @@ test('8. isFillGridSheetName_：只有 Fill_ 開頭的才算季度填寫表', fu
 
 test('8b. onFillGridEdit_：非 Fill_ 工作表的編輯直接 return，完全不動任何資料', function () {
   const env = makeFillEnv({});
-  const before = JSON.stringify(env.sandbox.readSheet('BulletinWeeks'));
+  const before = JSON.stringify(env.sandbox.readSheet_('BulletinWeeks'));
 
   env.sandbox.onFillGridEdit_({
     range: {
@@ -246,8 +246,8 @@ test('8b. onFillGridEdit_：非 Fill_ 工作表的編輯直接 return，完全�
     }
   });
 
-  assert.strictEqual(JSON.stringify(env.sandbox.readSheet('BulletinWeeks')), before);
-  assert.strictEqual(env.sandbox.readSheet('AuditLog').length, 0);
+  assert.strictEqual(JSON.stringify(env.sandbox.readSheet_('BulletinWeeks')), before);
+  assert.strictEqual(env.sandbox.readSheet_('AuditLog').length, 0);
 });
 
 test('8c. onFillGridEdit_：事件物件缺漏時不拋錯（onEdit 拋錯是靜默的，不可以讓它掛掉）', function () {
@@ -314,7 +314,7 @@ test('7f. 建立填寫表：會先做一次備份（還原點）', function () {
   const env = makeFillEnv({ withGrid: false });
   const result = env.sandbox.createOrRefreshFillGrid_(QUARTER_ID);
   assert.ok(result.backupId.indexOf(QUARTER_ID) === 0, '備份編號應該以季度開頭：' + result.backupId);
-  assert.ok(env.sandbox.readSheet('FillBackup').length > 0);
+  assert.ok(env.sandbox.readSheet_('FillBackup').length > 0);
 });
 
 // =====================================================================
@@ -350,12 +350,12 @@ test('同步 PUSH：只有格子表改過 → 寫回 BulletinWeeks 並記 AuditL
   assert.strictEqual(plan.pushCount, 1);
   assert.strictEqual(plan.conflictCount, 0);
 
-  const week = env.sandbox.readSheet('BulletinWeeks').filter(function (r) {
+  const week = env.sandbox.readSheet_('BulletinWeeks').filter(function (r) {
     return env.sandbox.fillGridCellText_(r.SERVICE_DATE) === '2027-11-07';
   })[0];
   assert.strictEqual(week.FLOWER_THIS_WEEK, '因信稱義');
 
-  assert.ok(env.sandbox.readSheet('AuditLog').some(function (r) { return r.ACTION === 'FILL_SYNC_PUSH'; }));
+  assert.ok(env.sandbox.readSheet_('AuditLog').some(function (r) { return r.ACTION === 'FILL_SYNC_PUSH'; }));
 });
 
 test('同步 PULL：只有系統改過 → 刷新格子表並記 AuditLog', function () {
@@ -370,7 +370,7 @@ test('同步 PULL：只有系統改過 → 刷新格子表並記 AuditLog', func
   const row = rows.filter(function (r) { return r.isoDate === '2027-11-07'; })[0];
   assert.strictEqual(row.values.FLOWER_THIS_WEEK, '由填寫介面改的');
 
-  assert.ok(env.sandbox.readSheet('AuditLog').some(function (r) { return r.ACTION === 'FILL_SYNC_PULL'; }));
+  assert.ok(env.sandbox.readSheet_('AuditLog').some(function (r) { return r.ACTION === 'FILL_SYNC_PULL'; }));
 });
 
 // =====================================================================
@@ -392,7 +392,7 @@ test('2. 衝突：兩邊都改過 → 一格都沒有被寫入，兩邊的值都
     .filter(function (r) { return r.isoDate === '2027-11-07'; })[0];
   assert.strictEqual(gridRow.values.FLOWER_THIS_WEEK, '格子表的講題', '格子表的值不可以被蓋掉');
 
-  const week = env.sandbox.readSheet('BulletinWeeks').filter(function (r) {
+  const week = env.sandbox.readSheet_('BulletinWeeks').filter(function (r) {
     return env.sandbox.fillGridCellText_(r.SERVICE_DATE) === '2027-11-07';
   })[0];
   assert.strictEqual(week.FLOWER_THIS_WEEK, '系統的講題', '系統的值不可以被蓋掉');
@@ -414,7 +414,7 @@ test('2c. 衝突：AuditLog 不會出現 PUSH／PULL 記錄', function () {
   setSystemCell(env, '2027-11-07', 'FLOWER_THIS_WEEK', 'B');
   env.sandbox.syncFillGrid_(QUARTER_ID);
 
-  const audit = env.sandbox.readSheet('AuditLog');
+  const audit = env.sandbox.readSheet_('AuditLog');
   assert.ok(!audit.some(function (r) { return r.ACTION === 'FILL_SYNC_PUSH' || r.ACTION === 'FILL_SYNC_PULL'; }));
 });
 
@@ -463,7 +463,7 @@ test('3. （內部函式）唯讀欄 _WEEK 被改 → applyFillGridEdit_ 還原�
   assert.strictEqual(String(sheet.getRange(rowNo, weekCol).getValue()), '1', '應該還原成職事表算出來的第 1 個主日');
   assert.strictEqual(sheet.getRange(rowNo, weekCol).getNote(), '', 'prompt8b：不應該再加永久儲存格註解');
   assert.ok(env.toasts.some(function (t) { return t.message.indexOf('唯讀欄') !== -1; }), '要顯示浮動提示');
-  assert.ok(env.sandbox.readSheet('AuditLog').some(function (r) { return r.ACTION === 'FILL_GRID_REVERT_READONLY'; }));
+  assert.ok(env.sandbox.readSheet_('AuditLog').some(function (r) { return r.ACTION === 'FILL_GRID_REVERT_READONLY'; }));
 });
 
 test('3b. （內部函式）唯讀欄 _DATE 被改 → 用那一行在格子表的位置反推真正日期，立即還原（不是打入的錯值）', function () {
@@ -482,7 +482,7 @@ test('3b. （內部函式）唯讀欄 _DATE 被改 → 用那一行在格子表�
   assert.strictEqual(String(sheet.getRange(4, dateCol).getValue()), '2027-11-07',
     '不需要等下一次刷新，applyFillGridEdit_ 當下就要還原成正確日期');
 
-  const revertRow = env.sandbox.readSheet('AuditLog').filter(function (r) {
+  const revertRow = env.sandbox.readSheet_('AuditLog').filter(function (r) {
     return r.ACTION === 'FILL_GRID_REVERT_READONLY';
   }).pop();
   assert.strictEqual(revertRow.ROW_KEY, '2027-11-07', 'ROW_KEY 要記那一行原本的主日日期，不是使用者剛打入的錯值');
@@ -496,7 +496,7 @@ test('3c. （內部函式）可編輯欄被改 → applyFillGridEdit_ 寫回 Bul
   sheet.getRange(4, col).setValue('新講題');
   env.sandbox.applyFillGridEdit_(sheet, editEvent(env, 4, col).range, QUARTER_ID);
 
-  const week = env.sandbox.readSheet('BulletinWeeks').filter(function (r) {
+  const week = env.sandbox.readSheet_('BulletinWeeks').filter(function (r) {
     return env.sandbox.fillGridCellText_(r.SERVICE_DATE) === '2027-11-07';
   })[0];
   assert.strictEqual(week.FLOWER_THIS_WEEK, '新講題');
@@ -507,9 +507,9 @@ test('3f. 內容表 v2：onFillGridEdit_ 在 Fill_ 改可編輯欄、唯讀欄�
   const env = makeSyncedEnv();
   const sheet = env.sheets['Fill_' + QUARTER_ID];
   const before = {
-    weeks: JSON.stringify(env.sandbox.readSheet('BulletinWeeks')),
-    snapshot: JSON.stringify(env.sandbox.readSheet('FillSnapshot')),
-    audit: env.sandbox.readSheet('AuditLog').length
+    weeks: JSON.stringify(env.sandbox.readSheet_('BulletinWeeks')),
+    snapshot: JSON.stringify(env.sandbox.readSheet_('FillSnapshot')),
+    audit: env.sandbox.readSheet_('AuditLog').length
   };
   const col = env.sandbox.fillGridColumnIndex_('FLOWER_THIS_WEEK');
   const weekCol = env.sandbox.fillGridColumnIndex_('_WEEK');
@@ -519,19 +519,19 @@ test('3f. 內容表 v2：onFillGridEdit_ 在 Fill_ 改可編輯欄、唯讀欄�
   env.sandbox.onFillGridEdit_(editEvent(env, 4, weekCol));
   env.sandbox.onFillGridEdit_(editEvent(env, 4, col, 2, 2));
 
-  assert.strictEqual(JSON.stringify(env.sandbox.readSheet('BulletinWeeks')), before.weeks, '週報一格都不可以變');
-  assert.strictEqual(JSON.stringify(env.sandbox.readSheet('FillSnapshot')), before.snapshot, '快照一格都不可以變');
-  assert.strictEqual(env.sandbox.readSheet('AuditLog').length, before.audit, '不寫 AuditLog（沒有寫任何東西）');
+  assert.strictEqual(JSON.stringify(env.sandbox.readSheet_('BulletinWeeks')), before.weeks, '週報一格都不可以變');
+  assert.strictEqual(JSON.stringify(env.sandbox.readSheet_('FillSnapshot')), before.snapshot, '快照一格都不可以變');
+  assert.strictEqual(env.sandbox.readSheet_('AuditLog').length, before.audit, '不寫 AuditLog（沒有寫任何東西）');
   assert.strictEqual(String(sheet.getRange(4, weekCol).getValue()), '999', '唯讀欄亦不再還原（一格都不寫）');
   assert.ok(env.toasts.some(function (t) { return t.message.indexOf('季度填寫表已停用') !== -1; }), '要顯示已停用的浮動提示');
-  assert.strictEqual(env.sandbox.readSheet('ErrorLog').length, 0, '不是錯誤，不寫 ErrorLog');
+  assert.strictEqual(env.sandbox.readSheet_('ErrorLog').length, 0, '不是錯誤，不寫 ErrorLog');
 });
 
 test('3d. onFillGridEdit_：標題三行被改不會影響資料', function () {
   const env = makeSyncedEnv();
-  const before = JSON.stringify(env.sandbox.readSheet('BulletinWeeks'));
+  const before = JSON.stringify(env.sandbox.readSheet_('BulletinWeeks'));
   env.sandbox.onFillGridEdit_(editEvent(env, 2, 5));
-  assert.strictEqual(JSON.stringify(env.sandbox.readSheet('BulletinWeeks')), before);
+  assert.strictEqual(JSON.stringify(env.sandbox.readSheet_('BulletinWeeks')), before);
 });
 
 test('3e.「建立／刷新季度填寫表」會清走唯讀三欄既有的殘留註解（舊版留下的垃圾）', function () {
@@ -567,7 +567,7 @@ test('4. （內部函式）多格貼上：applyFillGridEdit_ 一次貼 2 行 × 
   env.sandbox.applyFillGridEdit_(sheet, editEvent(env, 4, startCol, 2, 2).range, QUARTER_ID);
 
   const weeks = {};
-  env.sandbox.readSheet('BulletinWeeks').forEach(function (r) {
+  env.sandbox.readSheet_('BulletinWeeks').forEach(function (r) {
     weeks[env.sandbox.fillGridCellText_(r.SERVICE_DATE)] = r;
   });
 
@@ -608,7 +608,7 @@ test('4b. 多格貼上：橫跨唯讀欄與可編輯欄時，唯讀的還原、�
 test('5. 人數欄輸入 `--`：格子表原樣保存，但**不會**同步回 BulletinWeeks', function () {
   const env = makeSyncedEnv();
   setGridCell(env, '2027-11-07', 'ATT_CANN_WORSHIP', '--');
-  const before = env.sandbox.readSheet('BulletinWeeks').filter(function (r) {
+  const before = env.sandbox.readSheet_('BulletinWeeks').filter(function (r) {
     return env.sandbox.fillGridCellText_(r.SERVICE_DATE) === '2027-11-07';
   })[0].ATT_CANN_WORSHIP;
 
@@ -619,7 +619,7 @@ test('5. 人數欄輸入 `--`：格子表原樣保存，但**不會**同步回 B
   assert.strictEqual(gridRow.values.ATT_CANN_WORSHIP, '--',
     '格子表那一格要原樣保存（不會變成 0 或空白）');
 
-  const week = env.sandbox.readSheet('BulletinWeeks').filter(function (r) {
+  const week = env.sandbox.readSheet_('BulletinWeeks').filter(function (r) {
     return env.sandbox.fillGridCellText_(r.SERVICE_DATE) === '2027-11-07';
   })[0];
   assert.strictEqual(week.ATT_CANN_WORSHIP, before,
@@ -635,7 +635,7 @@ test('5b. 人數欄輸入 `前:5 / 後:120`：同樣原樣保存、同樣不會�
     .filter(function (r) { return r.isoDate === '2027-11-07'; })[0];
   assert.strictEqual(gridRow.values.ATT_CANE_WORSHIP, '前:5 / 後:120');
 
-  const week = env.sandbox.readSheet('BulletinWeeks').filter(function (r) {
+  const week = env.sandbox.readSheet_('BulletinWeeks').filter(function (r) {
     return env.sandbox.fillGridCellText_(r.SERVICE_DATE) === '2027-11-07';
   })[0];
   assert.strictEqual(env.sandbox.fillGridCellText_(week.ATT_CANE_WORSHIP), '');
@@ -704,7 +704,7 @@ test('6b. fillGridCellText_：Date 物件轉成 yyyy-MM-dd（比對一律在字�
 
 test('9. 內容表 v2：Web App 儲存之後，Fill_ 與 FillSnapshot 一格都不變', function () {
   const env = makeSyncedEnv();
-  const snapshotBefore = JSON.stringify(env.sandbox.readSheet('FillSnapshot'));
+  const snapshotBefore = JSON.stringify(env.sandbox.readSheet_('FillSnapshot'));
   const gridBefore = JSON.stringify(env.sandbox.readFillGridRows_(QUARTER_ID));
 
   env.sandbox.saveWeekFromWebApp_({
@@ -713,22 +713,22 @@ test('9. 內容表 v2：Web App 儲存之後，Fill_ 與 FillSnapshot 一格都�
     announcements: [], prayers: [], fellowships: [], finance: []
   });
 
-  const week = env.sandbox.readSheet('BulletinWeeks').filter(function (r) {
+  const week = env.sandbox.readSheet_('BulletinWeeks').filter(function (r) {
     return env.sandbox.fillGridCellText_(r.SERVICE_DATE) === '2027-11-07';
   })[0];
   assert.strictEqual(week.FLOWER_THIS_WEEK, '經填寫介面改的', '儲存本身照常寫入週報');
-  assert.strictEqual(JSON.stringify(env.sandbox.readSheet('FillSnapshot')), snapshotBefore, 'FillSnapshot 不可以變');
+  assert.strictEqual(JSON.stringify(env.sandbox.readSheet_('FillSnapshot')), snapshotBefore, 'FillSnapshot 不可以變');
   assert.strictEqual(JSON.stringify(env.sandbox.readFillGridRows_(QUARTER_ID)), gridBefore, 'Fill_ 不可以變');
 });
 
 test('9d. 內容表 v2：refreshFillSnapshotAfterSave_() 一開始就返回，Fill_ 與快照都不寫', function () {
   const env = makeSyncedEnv();
-  const snapshotBefore = JSON.stringify(env.sandbox.readSheet('FillSnapshot'));
+  const snapshotBefore = JSON.stringify(env.sandbox.readSheet_('FillSnapshot'));
   env.sandbox.refreshFillSnapshotAfterSave_('2027-11-07', [{ field: 'FLOWER_THIS_WEEK', newValue: 'A' }]);
   const gridRow = env.sandbox.readFillGridRows_(QUARTER_ID)
     .filter(function (r) { return r.isoDate === '2027-11-07'; })[0];
   assert.notStrictEqual(gridRow.values.FLOWER_THIS_WEEK, 'A', 'Fill_ 那一格不可以被刷新');
-  assert.strictEqual(JSON.stringify(env.sandbox.readSheet('FillSnapshot')), snapshotBefore);
+  assert.strictEqual(JSON.stringify(env.sandbox.readSheet_('FillSnapshot')), snapshotBefore);
 });
 
 test('9e. refreshFillSnapshotAfterSave_：快照寫入失敗不會令儲存失敗', function () {
@@ -869,13 +869,13 @@ test('浸禮六欄：格子表填了值 → 同步 PUSH 回 BulletinWeeks 並記
   assert.strictEqual(plan.conflictCount, 0);
   assert.strictEqual(plan.pushCount, 2);
 
-  const week = env.sandbox.readSheet('BulletinWeeks').filter(function (r) {
+  const week = env.sandbox.readSheet_('BulletinWeeks').filter(function (r) {
     return env.sandbox.fillGridCellText_(r.SERVICE_DATE) === '2027-11-07';
   })[0];
   assert.strictEqual(week.BAPTISM_OFFICIANT, '甲');
   assert.strictEqual(week.BAPTISM_MEMBERS, '乙 丙 丁', '多人欄位原樣存，不加尊稱、不重排');
 
-  const pushed = env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'FILL_SYNC_PUSH'; });
+  const pushed = env.sandbox.readSheet_('AuditLog').filter(function (r) { return r.ACTION === 'FILL_SYNC_PUSH'; });
   assert.ok(pushed.some(function (r) { return r.FIELD === 'BAPTISM_MEMBERS'; }), 'AuditLog 要逐格記錄');
 });
 

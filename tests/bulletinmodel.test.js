@@ -548,9 +548,9 @@ test('真正入口：每週標題（ServiceDates.Title）有「浸禮」→ 範�
   assert.strictEqual(model.templateAuto, 'TPL_COMBINED_BAPTISM', '自動值同一個');
 
   // 2026-10-27（Ivan 選 B）：不寫回——寫回之後那一格有值就會被當成人手揀過，標題再改範本就不跟。
-  var weekRows = env.sandbox.readSheet('BulletinWeeks');
+  var weekRows = env.sandbox.readSheet_('BulletinWeeks');
   assert.strictEqual(weekRows[0].PROGRAM_TEMPLATE_ID, '', '留空＝自動，一格都不寫');
-  var auditRows = env.sandbox.readSheet('AuditLog');
+  var auditRows = env.sandbox.readSheet_('AuditLog');
   assert.ok(!auditRows.some(function (r) { return r.ACTION === 'INFER_PROGRAM_TEMPLATE'; }), '不寫就不記 AuditLog');
 });
 
@@ -582,7 +582,7 @@ test('真正入口：BulletinWeeks 已人手揀範本 → 不跟每週標題、�
   var model = env.sandbox.buildBulletinModel_('2027-10-03');
   assert.strictEqual(model.templateId, 'TPL_NORMAL', '人手指定優先');
   assert.strictEqual(model.templateAuto, 'TPL_COMBINED_BAPTISM');
-  var auditRows = env.sandbox.readSheet('AuditLog');
+  var auditRows = env.sandbox.readSheet_('AuditLog');
   assert.ok(!auditRows.some(function (r) { return r.ACTION === 'INFER_PROGRAM_TEMPLATE'; }));
 });
 

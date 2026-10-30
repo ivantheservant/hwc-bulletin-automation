@@ -340,7 +340,7 @@ test('選單入口 menuGenerateBulletinDocx_：記下 DOC_ID、寫 AuditLog；�
   assert.strictEqual(env.drive.createdFiles.length, 1, '沒有第二份檔案');
   assert.ok(env.alerts[1].body.indexOf('已更新為最新版') !== -1, env.alerts[1].body);
 
-  const audit = env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'BULLETIN_DOCX_MENU_SAVE'; });
+  const audit = env.sandbox.readSheet_('AuditLog').filter(function (r) { return r.ACTION === 'BULLETIN_DOCX_MENU_SAVE'; });
   assert.strictEqual(audit.length, 2);
   assert.strictEqual(audit[0].FIELD, 'DOC_ID');
   assertWrittenChinese(assert, '對話框', [env.alerts[0].body, env.alerts[1].body]);
@@ -595,7 +595,7 @@ test('星期一寄出（真入口 sendBulletinForDate_，DRY_RUN=FALSE）：附�
   assert.strictEqual(result.attachment.ok, true);
   assert.strictEqual(env.drive.createdFiles.length, 1, '郵件附件走同一支存檔，雲端有最新版');
   assert.ok(String(weekRowOf(env, D).DOC_ID || '') !== '');
-  const audit = env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'BULLETIN_DOCX_EMAIL_SAVE'; });
+  const audit = env.sandbox.readSheet_('AuditLog').filter(function (r) { return r.ACTION === 'BULLETIN_DOCX_EMAIL_SAVE'; });
   assert.strictEqual(audit.length, 1);
   // 之後在填寫介面按「下載 Word」更新的是同一個檔案
   const dl = env.sandbox.apiDownloadBulletinDocx(D);
@@ -609,7 +609,7 @@ test('試行寄送（DRY_RUN=TRUE）：只寫 SendLog，不碰雲端硬碟、不
   assert.strictEqual(result.ok, true, JSON.stringify(result));
   assert.strictEqual(result.dryRun, true);
   assert.strictEqual(env.mail.calls.length, 0, 'DRY_RUN 不可以寄出任何郵件');
-  assert.ok(env.sandbox.readSheet('SendLog').length > 0, 'SendLog 有記錄');
+  assert.ok(env.sandbox.readSheet_('SendLog').length > 0, 'SendLog 有記錄');
   assert.strictEqual(env.drive.createdFiles.length, 0);
   assert.strictEqual(env.drive.createdFolders.length, 0);
   assert.strictEqual(String(weekRowOf(env, D).DOC_ID || ''), '');
@@ -623,7 +623,7 @@ test('寄出時存雲端失敗 → 郵件照寄、附件照附，ErrorLog 記下
   assert.ok(result.attachment.storeWarning, '要帶出警告');
   assert.strictEqual(result.attachment.storeWarning.code, 'WORD_STORE_FAILED');
   assert.ok(env.mail.calls.length > 0, '郵件照樣寄出');
-  const errors = env.sandbox.readSheet('ErrorLog').filter(function (r) { return r.ERROR_CODE === 'WORD_STORE_FAILED'; });
+  const errors = env.sandbox.readSheet_('ErrorLog').filter(function (r) { return r.ERROR_CODE === 'WORD_STORE_FAILED'; });
   assert.strictEqual(errors.length, 1);
   assert.strictEqual(String(weekRowOf(env, D).DOC_ID || ''), '');
 });

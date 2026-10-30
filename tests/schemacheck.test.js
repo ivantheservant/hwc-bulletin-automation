@@ -186,7 +186,7 @@ test('buildSchemaShortSummary_：落差時回一行含三個計數的摘要', fu
 test('真正入口：apiSaveWeek() 在工作表結構落後於程式碼時拒絕儲存，error.code 是 SCHEMA_OUTDATED，且完全沒有寫入', function () {
   var sb = makeFullEnv({ omitSheets: [] , corruptSheetKeys: { BulletinWeeks: ['SERVICE_DATE'] } });
   // BulletinWeeks 本身結構壞了，但 apiSaveWeek 應該在動任何工作表之前就先被 schema 檢查擋下。
-  var beforeAudit = JSON.stringify(sb.readSheet('AuditLog'));
+  var beforeAudit = JSON.stringify(sb.readSheet_('AuditLog'));
 
   var resp = sb.apiSaveWeek({
     isoDate: '2027-10-03',
@@ -202,7 +202,7 @@ test('真正入口：apiSaveWeek() 在工作表結構落後於程式碼時拒絕
   assert.ok(resp.error.message.indexOf('請先在試算表按「週報系統 ▸ 初始化工作表」。寧可拒絕儲存') !== -1, resp.error.message);
   assert.strictEqual(resp.error.message.indexOf('撳'), -1, resp.error.message);
 
-  var afterAudit = JSON.stringify(sb.readSheet('AuditLog'));
+  var afterAudit = JSON.stringify(sb.readSheet_('AuditLog'));
   assert.strictEqual(afterAudit, beforeAudit, 'AuditLog 不應該有任何新記錄');
 });
 

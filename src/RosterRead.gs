@@ -142,7 +142,7 @@ var ROSTER_TABLES_CACHE_KEY_ = null;
  *     readRosterTable_()）。其餘一律回傳快照物件並在 `warnings` 說明。
  */
 function readRosterSnapshot_(isoDate) {
-  var spreadsheetId = getConfig(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, '');
+  var spreadsheetId = getConfig_(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, '');
   if (!spreadsheetId) {
     return emptyRosterSnapshot_(isoDate, { ok: false, notConfigured: true });
   }
@@ -190,7 +190,7 @@ function readRosterSnapshotOptions_() {
  *     （見 fetchRosterTables_()）。
  */
 function listRosterServiceDatesForQuarter_(quarterId) {
-  var spreadsheetId = getConfig(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, '');
+  var spreadsheetId = getConfig_(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, '');
   if (!spreadsheetId) {
     throw new Error('listRosterServiceDatesForQuarter_：Config 的 ROSTER_SPREADSHEET_ID 未設定。');
   }
@@ -215,7 +215,7 @@ function listRosterServiceDatesForQuarter_(quarterId) {
  *   Error 如果 `ROSTER_SPREADSHEET_ID` 未設定，或底層讀取失敗（見 fetchRosterTables_()）。
  */
 function listRosterQuarterSummaries_() {
-  var spreadsheetId = getConfig(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, '');
+  var spreadsheetId = getConfig_(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, '');
   if (!spreadsheetId) {
     throw new Error('listRosterQuarterSummaries_：Config 的 ROSTER_SPREADSHEET_ID 未設定。');
   }
@@ -271,7 +271,7 @@ function buildRosterQuarterSummaries_(tables) {
  *     （見 fetchRosterTables_()）。
  */
 function readRosterNameMappingRows_() {
-  var spreadsheetId = getConfig(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, '');
+  var spreadsheetId = getConfig_(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, '');
   if (!spreadsheetId) {
     throw new Error('readRosterNameMappingRows_：Config 的 ROSTER_SPREADSHEET_ID 未設定。');
   }
@@ -302,7 +302,7 @@ function readRosterNameMappingRows_() {
  *     （見 buildRosterQuarterAssignedPersons_()）。
  */
 function listRosterQuarterAssignedPersons_(isoDate) {
-  var spreadsheetId = getConfig(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, '');
+  var spreadsheetId = getConfig_(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, '');
   if (!spreadsheetId) {
     throw new Error('listRosterQuarterAssignedPersons_：Config 的 ROSTER_SPREADSHEET_ID 未設定。');
   }
@@ -417,12 +417,12 @@ function emptyRosterSnapshot_(isoDate, overrides) {
  */
 function buildRosterSheetNames_() {
   return {
-    ASSIGNMENTS: getConfig(CONFIG_KEYS.ROSTER_SHEET_ASSIGNMENTS, 'RosterAssignments'),
-    VERSIONS: getConfig(CONFIG_KEYS.ROSTER_SHEET_VERSIONS, 'RosterVersions'),
-    QUARTERS: getConfig(CONFIG_KEYS.ROSTER_SHEET_QUARTERS, 'Quarters'),
-    SERVICE_DATES: getConfig(CONFIG_KEYS.ROSTER_SHEET_SERVICE_DATES, 'ServiceDates'),
-    NAME_MAPPING: getConfig(CONFIG_KEYS.ROSTER_SHEET_NAME_MAPPING, 'NameMapping'),
-    POSTS: getConfig(CONFIG_KEYS.ROSTER_SHEET_POSTS, 'Posts')
+    ASSIGNMENTS: getConfig_(CONFIG_KEYS.ROSTER_SHEET_ASSIGNMENTS, 'RosterAssignments'),
+    VERSIONS: getConfig_(CONFIG_KEYS.ROSTER_SHEET_VERSIONS, 'RosterVersions'),
+    QUARTERS: getConfig_(CONFIG_KEYS.ROSTER_SHEET_QUARTERS, 'Quarters'),
+    SERVICE_DATES: getConfig_(CONFIG_KEYS.ROSTER_SHEET_SERVICE_DATES, 'ServiceDates'),
+    NAME_MAPPING: getConfig_(CONFIG_KEYS.ROSTER_SHEET_NAME_MAPPING, 'NameMapping'),
+    POSTS: getConfig_(CONFIG_KEYS.ROSTER_SHEET_POSTS, 'Posts')
   };
 }
 

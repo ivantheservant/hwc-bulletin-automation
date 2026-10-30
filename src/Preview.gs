@@ -43,13 +43,13 @@ var PREVIEW_BLANK_TEXT_ = '（未填）';
  */
 function previewConfig_() {
   return {
-    enabled: normalizeBoolean_(getConfig(CONFIG_KEYS.PREVIEW_ENABLED, 'TRUE')) === true,
-    requireAllowlist: normalizeBoolean_(getConfig(CONFIG_KEYS.PREVIEW_REQUIRE_ALLOWLIST, 'FALSE')) === true,
-    notice: getConfig(CONFIG_KEYS.PREVIEW_NOTICE,
+    enabled: normalizeBoolean_(getConfig_(CONFIG_KEYS.PREVIEW_ENABLED, 'TRUE')) === true,
+    requireAllowlist: normalizeBoolean_(getConfig_(CONFIG_KEYS.PREVIEW_REQUIRE_ALLOWLIST, 'FALSE')) === true,
+    notice: getConfig_(CONFIG_KEYS.PREVIEW_NOTICE,
       '這是草稿預覽，只供核對內容。版面與正式印刷版不同，一切以正式發佈的週報為準。'),
     sendGroups: getConfigTextList_(CONFIG_KEYS.PREVIEW_SEND_GROUPS, 'CC,DB,ADMIN'),
-    webAppUrl: String(getConfig(CONFIG_KEYS.PREVIEW_WEBAPP_URL, '') || '').trim(),
-    timezone: getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland')
+    webAppUrl: String(getConfig_(CONFIG_KEYS.PREVIEW_WEBAPP_URL, '') || '').trim(),
+    timezone: getConfig_(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland')
   };
 }
 
@@ -66,7 +66,7 @@ function previewConfig_() {
  *   {string} 完全取不到網址時回空字串——呼叫方要自己處理，不可以當成有連結。
  */
 function buildPreviewUrl_(isoDate, snapshotId) {
-  var base = String(getConfig(CONFIG_KEYS.PREVIEW_WEBAPP_URL, '') || '').trim();
+  var base = String(getConfig_(CONFIG_KEYS.PREVIEW_WEBAPP_URL, '') || '').trim();
   if (!base) {
     try {
       base = String(ScriptApp.getService().getUrl() || '').trim();
@@ -466,7 +466,7 @@ function buildPreviewFooterLines_(isoDate, model, timezone) {
     return Utilities.formatDate(value, tz, 'yyyy-MM-dd HH:mm');
   }
 
-  var weekRow = findBulletinWeekRow_(readSheet(SHEETS.BULLETIN_WEEKS), isoDate) || {};
+  var weekRow = findBulletinWeekRow_(readSheet_(SHEETS.BULLETIN_WEEKS), isoDate) || {};
   var savedAt = fmt(weekRow.LAST_SAVED_AT);
   lines.push('資料最後更新：' + (savedAt || '（未有紀錄——這一期未經填寫介面儲存過）'));
 
@@ -484,7 +484,7 @@ function buildPreviewFooterLines_(isoDate, model, timezone) {
       + contentSourceIsoForWeek_(weekRow, isoDate) + ' 那一個主日。');
   }
 
-  var published = readSheet(SHEETS.PUBLISH_LOG).filter(function (r) {
+  var published = readSheet_(SHEETS.PUBLISH_LOG).filter(function (r) {
     return r.IS_SELFTEST !== true && publishRowIsoDate_(r) === isoDate;
   });
   if (published.length === 0) {
@@ -567,7 +567,7 @@ function buildPreviewPage_(requestedIso, options) {
   var pendingNote = '';
   // 特別崇拜：職事表本來就沒有這一日（事奉在填寫介面填），不是「事奉資料未定」。
   if (model.found !== true && model.specialService !== true) {
-    pendingNote = getConfig(CONFIG_KEYS.BULLETIN_ROSTER_PENDING_NOTE,
+    pendingNote = getConfig_(CONFIG_KEYS.BULLETIN_ROSTER_PENDING_NOTE,
       '本期事奉資料尚未確定，稍後另行通知。');
   }
 
@@ -610,7 +610,7 @@ function buildPreviewPage_(requestedIso, options) {
  */
 function sendPreviewNotice_(isoDate) {
   var config = previewConfig_();
-  var dryRun = normalizeBoolean_(getConfig(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
+  var dryRun = normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
   var out = {
     sent: false, reason: '', dryRun: dryRun, recipientCount: 0,
     previewUrl: '', message: ''
@@ -635,7 +635,7 @@ function sendPreviewNotice_(isoDate) {
   }
 
   var recipientsResult = buildRecipientList_(
-    readSheet(SHEETS.RECIPIENTS), config.sendGroups, normalizeDate_(isoDate));
+    readSheet_(SHEETS.RECIPIENTS), config.sendGroups, normalizeDate_(isoDate));
   if (recipientsResult.recipients.length === 0) {
     out.reason = 'NO_RECIPIENTS';
     out.message = 'Recipients 內沒有任何屬於 ' + config.sendGroups.join('、')
@@ -643,7 +643,7 @@ function sendPreviewNotice_(isoDate) {
     return out;
   }
 
-  var template = readSheet(SHEETS.EMAIL_TEMPLATES).filter(function (t) {
+  var template = readSheet_(SHEETS.EMAIL_TEMPLATES).filter(function (t) {
     return t.TEMPLATE_ID === PREVIEW_EMAIL_TEMPLATE_ID_ && t.ACTIVE === true;
   })[0];
   if (!template) {
@@ -658,7 +658,7 @@ function sendPreviewNotice_(isoDate) {
   try {
     var model = buildBulletinModel_(isoDate);
     if (model.found !== true && model.specialService !== true) {
-      pendingNote = getConfig(CONFIG_KEYS.BULLETIN_ROSTER_PENDING_NOTE,
+      pendingNote = getConfig_(CONFIG_KEYS.BULLETIN_ROSTER_PENDING_NOTE,
         '本期事奉資料尚未確定，稍後另行通知。');
     }
   } catch (modelErr) {
@@ -671,7 +671,7 @@ function sendPreviewNotice_(isoDate) {
   var contentSheet = contentSheetLinkForIsoDate_(isoDate);
   var contentSheetUrl = contentSheet.url;
   var vars = {
-    ChurchName: getConfig(CONFIG_KEYS.CHURCH_NAME, ''),
+    ChurchName: getConfig_(CONFIG_KEYS.CHURCH_NAME, ''),
     ServiceDate: isoDate,
     PreviewUrl: previewUrl,
     ContentSheetUrl: contentSheet.text,
@@ -762,7 +762,7 @@ function menuTestSendPreviewNotice_() {
       ui.alert('「' + isoDate + '」不是星期日，沒有寄。請輸入主日的日期。');
       return;
     }
-    if (normalizeBoolean_(getConfig(CONFIG_KEYS.DRY_RUN, 'TRUE')) !== true) {
+    if (normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) !== true) {
       var confirm = ui.alert('真的寄出',
         'Config 的 DRY_RUN 是 FALSE：會真的把 ' + isoDate + ' 的草稿預覽信寄給 Recipients 內的收件人。確定嗎？',
         ui.ButtonSet.YES_NO);

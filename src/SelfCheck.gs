@@ -130,12 +130,12 @@ function selfCheckConfigItems_() {
   var S = SELF_CHECK_STATUS_;
 
   // ---- ROSTER_SPREADSHEET_ID ----
-  var rosterId = getConfig(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, '');
+  var rosterId = getConfig_(CONFIG_KEYS.ROSTER_SPREADSHEET_ID, '');
   if (!rosterId) {
     items.push(selfCheckItem_('職事表試算表 ID', S.RED, '尚未設定 ROSTER_SPREADSHEET_ID。'));
   } else {
     try {
-      readRosterSnapshot_(getConfig(CONFIG_KEYS.ROSTER_TEST_DATE, '2027-10-03'));
+      readRosterSnapshot_(getConfig_(CONFIG_KEYS.ROSTER_TEST_DATE, '2027-10-03'));
       items.push(selfCheckItem_('職事表試算表 ID', S.GREEN, '已設定且讀得到。'));
     } catch (err) {
       items.push(selfCheckItem_('職事表試算表 ID', S.RED, '已設定但讀取失敗：' + ((err && err.message) ? err.message : String(err))));
@@ -149,7 +149,7 @@ function selfCheckConfigItems_() {
     { key: CONFIG_KEYS.TEMPLATE_FILE_ID_ANNIVERSARY, label: '堂慶三堂聯合崇拜 Word 範本', critical: false }
   ];
   templateChecks.forEach(function (t) {
-    var fileId = getConfig(t.key, '');
+    var fileId = getConfig_(t.key, '');
     if (!fileId) {
       items.push(selfCheckItem_(t.label, t.critical ? S.RED : S.YELLOW, '尚未設定 ' + t.key + '。'));
       return;
@@ -163,13 +163,13 @@ function selfCheckConfigItems_() {
   });
 
   // ---- BULLETIN_OUTPUT_FOLDER_ID ----
-  var folderId = getConfig(CONFIG_KEYS.BULLETIN_OUTPUT_FOLDER_ID, '');
+  var folderId = getConfig_(CONFIG_KEYS.BULLETIN_OUTPUT_FOLDER_ID, '');
   var folderCheck = checkOutputFolderAccessible_(folderId);
   items.push(selfCheckItem_('週報輸出資料夾', folderCheck.ok ? S.GREEN : (folderId ? S.RED : S.YELLOW), folderCheck.message));
 
   // ---- Recipients 各組別人數、DRY_RUN ----
   var recipientsByGroup = {};
-  readSheet(SHEETS.RECIPIENTS).forEach(function (r) {
+  readSheet_(SHEETS.RECIPIENTS).forEach(function (r) {
     if (r.ACTIVE !== true) return;
     var g = String(r.GROUP_NAME || '（未分組）');
     recipientsByGroup[g] = (recipientsByGroup[g] || 0) + 1;
@@ -184,7 +184,7 @@ function selfCheckConfigItems_() {
     recipientStatus.message + (groupSummary ? ('　目前：' + groupSummary) : '')
   ));
 
-  var dryRun = getConfig(CONFIG_KEYS.DRY_RUN, 'TRUE');
+  var dryRun = getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE');
   items.push(selfCheckItem_('DRY_RUN 目前值', S.GREEN, dryRun));
 
   // ---- WEBAPP_ALLOWED_EMAILS 有沒有包含部署者 ----
@@ -266,7 +266,7 @@ function selfCheckMissingSummaryByDate_(serviceDates) {
  *   {string[]} 明細行；被截斷時最後一行是提示句。
  */
 function selfCheckCapMissingSummary_(perDate) {
-  var maxRows = normalizeInt_(getConfig(CONFIG_KEYS.SELFCHECK_MISSING_DETAIL_ROWS, '20'));
+  var maxRows = normalizeInt_(getConfig_(CONFIG_KEYS.SELFCHECK_MISSING_DETAIL_ROWS, '20'));
   if (!maxRows || maxRows < 1) maxRows = 20;
 
   if (perDate.length <= maxRows) {
@@ -297,7 +297,7 @@ function selfCheckDataItems_(quarterResolution) {
   var items = [];
   var S = SELF_CHECK_STATUS_;
 
-  var weekRows = readSheet(SHEETS.BULLETIN_WEEKS);
+  var weekRows = readSheet_(SHEETS.BULLETIN_WEEKS);
   var quarterIds = {};
   weekRows.forEach(function (r) { if (r.QUARTER_ID) quarterIds[r.QUARTER_ID] = true; });
   items.push(selfCheckItem_(
@@ -309,7 +309,7 @@ function selfCheckDataItems_(quarterResolution) {
   var currentQuarterId = quarterResolution.ok ? quarterResolution.quarterId : null;
 
   if (currentQuarterId) {
-    var personDisplayRows = readSheet(SHEETS.PERSON_DISPLAY);
+    var personDisplayRows = readSheet_(SHEETS.PERSON_DISPLAY);
     try {
       // ⚠️ listRosterQuarterAssignedPersons_() 要的是一個「屬於這一季的
       // 主日日期」，不是季度 ID 本身——沿用 listRosterServiceDatesForQuarter_()
@@ -358,7 +358,7 @@ function selfCheckDataItems_(quarterResolution) {
     { sheetId: 'ANNOUNCEMENTS', label: 'Announcements（家事報告）' },
     { sheetId: 'PRAYERS', label: 'Prayers（代禱事項）' }
   ].forEach(function (s) {
-    var rows = readSheet(SHEETS[s.sheetId]);
+    var rows = readSheet_(SHEETS[s.sheetId]);
     items.push(selfCheckItem_(s.label + ' 有無資料', rows.length > 0 ? S.GREEN : S.YELLOW, rows.length + ' 行。'));
   });
 
@@ -528,7 +528,7 @@ function selfCheckFeatureItems_() {
   var unknownTriggers = buildUnknownTriggersVerdict_(triggerReport, S);
   if (unknownTriggers) items.push(selfCheckItem_('觸發器：不在預期清單內', unknownTriggers.status, unknownTriggers.message));
 
-  var webAppUrl = getConfig(CONFIG_KEYS.WEBAPP_URL, '');
+  var webAppUrl = getConfig_(CONFIG_KEYS.WEBAPP_URL, '');
   items.push(selfCheckItem_('Web App 部署', webAppUrl ? S.GREEN : S.YELLOW, webAppUrl ? '已部署（' + webAppUrl + '）。' : 'WEBAPP_URL 是空的，尚未填入部署後的網址。'));
 
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -600,7 +600,7 @@ function selfCheckPublishItems_(quarterResolution) {
     { key: CONFIG_KEYS.PUBLISHED_ARCHIVE_FOLDER_ID, label: '發佈存檔資料夾' },
     { key: CONFIG_KEYS.CONTENT_SHEET_FOLDER_ID, label: '內容表資料夾' }
   ].forEach(function (f) {
-    var value = String(getConfig(f.key, '') || '').trim();
+    var value = String(getConfig_(f.key, '') || '').trim();
     items.push(selfCheckItem_(
       'Config：' + f.label,
       value ? S.GREEN : S.YELLOW,
@@ -751,7 +751,7 @@ function selfCheckLogItems_() {
 
   var sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-  var recentErrors = readSheet(SHEETS.ERROR_LOG).filter(function (r) {
+  var recentErrors = readSheet_(SHEETS.ERROR_LOG).filter(function (r) {
     return r.TIMESTAMP instanceof Date && r.TIMESTAMP >= sevenDaysAgo;
   });
   items.push(selfCheckItem_(
@@ -760,7 +760,7 @@ function selfCheckLogItems_() {
     recentErrors.length + ' 筆。'
   ));
 
-  var sendLogRows = readSheet(SHEETS.SEND_LOG);
+  var sendLogRows = readSheet_(SHEETS.SEND_LOG);
   if (sendLogRows.length === 0) {
     items.push(selfCheckItem_('SendLog 最近一次寄送', S.YELLOW, '從未寄送過（或試寄過）。'));
   } else {
@@ -776,7 +776,7 @@ function selfCheckLogItems_() {
     ));
   }
 
-  items.push(selfCheckItem_('AuditLog 行數', S.GREEN, readSheet(SHEETS.AUDIT_LOG).length + ' 行。'));
+  items.push(selfCheckItem_('AuditLog 行數', S.GREEN, readSheet_(SHEETS.AUDIT_LOG).length + ' 行。'));
 
   return items;
 }
@@ -865,9 +865,9 @@ function runSelfCheck_() {
  *   時才有內容，否則是空字串。
  */
 function selfCheckResolveMaxRows_() {
-  var configured = normalizeInt_(getConfig(CONFIG_KEYS.SELFCHECK_MAX_ROWS, '140'));
+  var configured = normalizeInt_(getConfig_(CONFIG_KEYS.SELFCHECK_MAX_ROWS, '140'));
   if (!configured || configured < 1) configured = 140;
-  var diagnosticsMax = normalizeInt_(getConfig(CONFIG_KEYS.DIAGNOSTICS_MAX_ROWS, '380'));
+  var diagnosticsMax = normalizeInt_(getConfig_(CONFIG_KEYS.DIAGNOSTICS_MAX_ROWS, '380'));
   if (!diagnosticsMax || diagnosticsMax < 1) diagnosticsMax = 380;
 
   if (configured > diagnosticsMax) {
@@ -1041,7 +1041,7 @@ function buildQuarterMissingFieldsReportLines_(quarterId, sourceLabel) {
     return lines;
   }
 
-  var maxRows = normalizeInt_(getConfig(CONFIG_KEYS.DIAGNOSTICS_MAX_ROWS, '380'));
+  var maxRows = normalizeInt_(getConfig_(CONFIG_KEYS.DIAGNOSTICS_MAX_ROWS, '380'));
   if (!maxRows || maxRows < 1) maxRows = 380;
   var budget = maxRows - lines.length;
 

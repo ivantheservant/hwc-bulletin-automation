@@ -488,7 +488,7 @@ test('真正入口 checkRosterDiff_()：無覆寫、職事表版本比快照新 
   const diff = env.sandbox.checkRosterDiff_(env.isoDate);
 
   assert.strictEqual(diff.followedCount, 1);
-  const auditRows = env.sandbox.readSheet('AuditLog');
+  const auditRows = env.sandbox.readSheet_('AuditLog');
   assert.ok(auditRows.some(function (r) { return r.ACTION === 'ROSTER_FOLLOW'; }),
     '自動跟隨要留下 AuditLog，實際：' + JSON.stringify(auditRows.map(function (r) { return r.ACTION; })));
 });
@@ -505,13 +505,13 @@ test('真正入口 checkRosterDiff_()：記錄完 FOLLOW 之後會把快照版�
 
 test('真正入口 computeRosterDiff_()：唯讀，不會寫 AuditLog、也不會推快照版本', function () {
   const env = makeEnv({ rosterVersion: 12, snapshotVersion: 10 });
-  const before = JSON.stringify(env.sandbox.readSheet('AuditLog'));
+  const before = JSON.stringify(env.sandbox.readSheet_('AuditLog'));
 
   const diff = env.sandbox.computeRosterDiff_(env.isoDate);
   assert.strictEqual(diff.followedCount, 1, '照樣算得出 FOLLOW');
 
-  assert.strictEqual(JSON.stringify(env.sandbox.readSheet('AuditLog')), before, '不應該寫 AuditLog');
-  assert.strictEqual(env.sandbox.readSheet('BulletinWeeks')[0].ROSTER_SNAPSHOT_VERSION, 10, '快照版本不應該被推上去');
+  assert.strictEqual(JSON.stringify(env.sandbox.readSheet_('AuditLog')), before, '不應該寫 AuditLog');
+  assert.strictEqual(env.sandbox.readSheet_('BulletinWeeks')[0].ROSTER_SNAPSHOT_VERSION, 10, '快照版本不應該被推上去');
 });
 
 test('真正入口 computeRosterDiff_()：postLabel 用週報 PostDisplay 的名稱（不是職事表的名稱）', function () {
@@ -571,7 +571,7 @@ test('真正入口 saveWeekFromWebApp_()：改一格 → DutyOverride 出現一�
     dutyEdits: [{ postId: 'CHAIR', slotIndex: 1, name: '李小明', baseName: '陳大文' }]
   });
 
-  const rows = env.sandbox.readSheet('DutyOverride');
+  const rows = env.sandbox.readSheet_('DutyOverride');
   assert.strictEqual(rows.length, 1);
   assert.strictEqual(rows[0].OVERRIDE_NAME, '李小明');
   assert.strictEqual(rows[0].ROSTER_VALUE_AT_OVERRIDE, '陳大文');
@@ -589,7 +589,7 @@ test('真正入口 saveWeekFromWebApp_()：把該格改回與職事表相同 →
     announcements: [], prayers: [], fellowships: [], finance: [], payloadVersion: 2,
     dutyEdits: [{ postId: 'CHAIR', slotIndex: 1, name: '李小明', baseName: '陳大文' }]
   });
-  const afterFirst = env.sandbox.readSheet('BulletinWeeks')[0].LAST_SAVED_AT;
+  const afterFirst = env.sandbox.readSheet_('BulletinWeeks')[0].LAST_SAVED_AT;
 
   env.sandbox.saveWeekFromWebApp_({
     isoDate: env.isoDate, lastSavedAt: afterFirst, week: {}, baseWeek: {},
@@ -597,7 +597,7 @@ test('真正入口 saveWeekFromWebApp_()：把該格改回與職事表相同 →
     dutyEdits: [{ postId: 'CHAIR', slotIndex: 1, name: '陳大文', baseName: '李小明' }]
   });
 
-  const rows = env.sandbox.readSheet('DutyOverride');
+  const rows = env.sandbox.readSheet_('DutyOverride');
   assert.strictEqual(rows.length, 1, '整行仍然在，沒有被刪除');
   assert.strictEqual(rows[0].ACTIVE, false);
   assert.strictEqual(rows[0].OVERRIDE_NAME, '李小明', '內容保留，方便日後追查');
@@ -616,11 +616,11 @@ test('真正入口 fetchFromRosterForWebApp_()：勾選的欄位改回跟隨職�
   const result = env.sandbox.fetchFromRosterForWebApp_(env.isoDate, [{ postId: 'CHAIR', slotIndex: 1 }]);
   assert.strictEqual(result.clearedCount, 1);
 
-  const rows = env.sandbox.readSheet('DutyOverride');
+  const rows = env.sandbox.readSheet_('DutyOverride');
   assert.strictEqual(rows.length, 1, '不刪行');
   assert.strictEqual(rows[0].ACTIVE, false);
 
-  const auditRows = env.sandbox.readSheet('AuditLog');
+  const auditRows = env.sandbox.readSheet_('AuditLog');
   assert.ok(auditRows.some(function (r) { return r.ACTION === 'FETCH_FROM_ROSTER'; }));
 });
 
@@ -672,7 +672,7 @@ function g16SaveDuty(env, cells) {
 }
 
 function g16DutyAudit(env) {
-  return JSON.parse(JSON.stringify(env.sandbox.readSheet('AuditLog')
+  return JSON.parse(JSON.stringify(env.sandbox.readSheet_('AuditLog')
     .filter(function (r) { return r.ACTION.indexOf('DUTY_OVERRIDE_') === 0; })
     .map(function (r) { return r.ACTION + ' ' + r.FIELD; })));
 }

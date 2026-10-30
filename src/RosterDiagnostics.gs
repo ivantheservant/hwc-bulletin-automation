@@ -18,7 +18,7 @@
 function menuTestReadRoster_() {
   var ui = SpreadsheetApp.getUi();
   try {
-    var defaultDate = getConfig(CONFIG_KEYS.ROSTER_TEST_DATE, '2027-10-03');
+    var defaultDate = getConfig_(CONFIG_KEYS.ROSTER_TEST_DATE, '2027-10-03');
     var resp = ui.prompt(
       '測試讀取職事表',
       '請輸入要測試的主日日期，格式 yyyy-MM-dd（例如 ' + defaultDate + '）：',
@@ -201,7 +201,7 @@ function buildRosterQuarterReportLines_(quarterId, dates) {
     });
   });
 
-  var maxRows = normalizeInt_(getConfig(CONFIG_KEYS.DIAGNOSTICS_MAX_ROWS, '380'));
+  var maxRows = normalizeInt_(getConfig_(CONFIG_KEYS.DIAGNOSTICS_MAX_ROWS, '380'));
   if (!maxRows || maxRows < 1) maxRows = 380;
 
   if (lines.length > maxRows) {

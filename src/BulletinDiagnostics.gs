@@ -84,7 +84,7 @@ function createBlankBulletinWeeks_(quarterId) {
   //    見 docs/已知bug類型.md 事故四十。
   var resolution = resolveQuarterServiceDates_(quarterId);
   var dates = resolution.dates;
-  var existingRows = readSheet(SHEETS.BULLETIN_WEEKS);
+  var existingRows = readSheet_(SHEETS.BULLETIN_WEEKS);
 
   // 預設值與範本判斷設定跟「重設這一週」共用同一個定義（src/WeekSnapshots.gs）。
   var settings = readBlankWeekSettings_();
@@ -119,7 +119,7 @@ function createBlankBulletinWeeks_(quarterId) {
   });
 
   if (newRows.length > 0) {
-    writeSheet(SHEETS.BULLETIN_WEEKS, newRows);
+    writeSheet_(SHEETS.BULLETIN_WEEKS, newRows);
     addedDates.forEach(function (isoDate, idx) {
       appendAuditLog_({
         action: 'CREATE_BLANK_BULLETIN_WEEK',
@@ -135,7 +135,7 @@ function createBlankBulletinWeeks_(quarterId) {
   // ⚠️ 要數的是「這一季現在在表上的全部行」，不是「這一次新增的那幾行」。
   //    只數新增的話，全部主日都已經存在時 newRows 是空陣列，狀態分佈
   //    會全部是 0——看起來像「一切正常」，其實是「什麼都沒有數過」。
-  var quarterRows = regularWeekRows_(readSheet(SHEETS.BULLETIN_WEEKS)).filter(function (r) {
+  var quarterRows = regularWeekRows_(readSheet_(SHEETS.BULLETIN_WEEKS)).filter(function (r) {
     return String(r.QUARTER_ID || '').trim() === String(quarterId || '').trim();
   });
   var statusCounts = countRosterStatuses_(quarterRows);
@@ -224,7 +224,7 @@ function buildCreateWeeksMessage_(input) {
 function menuPreviewBulletinModel_() {
   var ui = SpreadsheetApp.getUi();
   try {
-    var defaultDate = getConfig(CONFIG_KEYS.ROSTER_TEST_DATE, '2027-10-03');
+    var defaultDate = getConfig_(CONFIG_KEYS.ROSTER_TEST_DATE, '2027-10-03');
     var resp = ui.prompt(
       '預覽本週週報資料',
       '請輸入主日日期，格式 yyyy-MM-dd（例如 ' + defaultDate + '）：',

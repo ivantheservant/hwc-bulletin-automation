@@ -690,7 +690,7 @@ function buildContentSheetFileName_(pattern, quarterId) {
 function findContentSheetRow_(quarterId) {
   var target = String(quarterId || '').trim();
   if (!target) return null;
-  var matches = readSheet(SHEETS.CONTENT_SHEETS).filter(function (r) {
+  var matches = readSheet_(SHEETS.CONTENT_SHEETS).filter(function (r) {
     return String(r.QUARTER_ID || '').trim() === target && r.ACTIVE === true;
   });
   return matches.length > 0 ? matches[matches.length - 1] : null;
@@ -704,7 +704,7 @@ function findContentSheetRow_(quarterId) {
  *   {void}
  */
 function appendContentSheetRow_(entry) {
-  writeSheet(SHEETS.CONTENT_SHEETS, [{
+  writeSheet_(SHEETS.CONTENT_SHEETS, [{
     QUARTER_ID: sanitizeCellText_(entry.quarterId),
     FILE_ID: sanitizeCellText_(entry.fileId),
     FILE_URL: sanitizeCellText_(entry.fileUrl),

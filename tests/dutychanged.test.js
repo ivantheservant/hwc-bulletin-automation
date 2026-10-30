@@ -109,7 +109,7 @@ function save(sb, iso, opts) {
 }
 
 function overrideRows(sb, iso) {
-  return plain(sb.readSheet('DutyOverride').filter(function (r) {
+  return plain(sb.readSheet_('DutyOverride').filter(function (r) {
     return r.POST_ID === 'CHAIR' && sb.formatIsoDate_(sb.normalizeDate_(r.SERVICE_DATE)) === iso;
   }));
 }
@@ -255,7 +255,7 @@ test('D9-7 職事表追上了覆寫（W 的主席覆寫是李小明，職事表�
   assert.strictEqual(activeChair(sb, W), null, '自動停用');
   assert.strictEqual(overrideRows(sb, W).length, 1, '不刪行');
   assert.ok(r.resp.data.message.text.indexOf('已儲存。欄位內容沒有改變，只更新了 1 筆覆寫記錄') === 0, r.resp.data.message.text);
-  const audit = sb.readSheet('AuditLog').filter(function (a) { return a.ACTION === 'DUTY_OVERRIDE_CLEAR'; });
+  const audit = sb.readSheet_('AuditLog').filter(function (a) { return a.ACTION === 'DUTY_OVERRIDE_CLEAR'; });
   assert.strictEqual(audit.length, 1);
   assert.ok(audit[0].NOTES.indexOf('職事表現在亦是「李小明」，與人手覆寫相同，儲存時自動改回跟隨職事表') !== -1, audit[0].NOTES);
   assert.strictEqual(chairSlot(load(sb, W), 'dutyBoxPage1').bulletinName, '李小明', '畫面名字不變');
@@ -347,7 +347,7 @@ console.log('\n舊分頁（D9 之前的前端）');
 test('D9-13 舊版前端（沒有 payloadVersion，照送全部事奉格）→ CLIENT_OUTDATED「介面版本已更新，請重新載入這一頁再儲存。」，一格都沒有寫；版本號是 1 或字串 "2" 亦一樣；不寫 ErrorLog', function () {
   const sb = makeConflictEnv();
   const tab = load(sb, W);
-  const snapshot = function () { return JSON.stringify([sb.readSheet('BulletinWeeks'), sb.readSheet('DutyOverride'), sb.readSheet('AuditLog')]); };
+  const snapshot = function () { return JSON.stringify([sb.readSheet_('BulletinWeeks'), sb.readSheet_('DutyOverride'), sb.readSheet_('AuditLog')]); };
   const before = snapshot();
   [undefined, 1, '2'].forEach(function (version) {
     const payload = { isoDate: W, lastSavedAt: tab.lastSavedAt, week: { PAGE_TITLE: '舊分頁的序樂' }, baseWeek: { PAGE_TITLE: tab.week.PAGE_TITLE || '' },
@@ -360,7 +360,7 @@ test('D9-13 舊版前端（沒有 payloadVersion，照送全部事奉格）→ C
   });
   assert.strictEqual(snapshot(), before, '一格都沒有寫');
   assert.strictEqual(conflictCount(sb, W), 1);
-  assert.strictEqual(sb.readSheet('ErrorLog').filter(function (r) { return r.ERROR_CODE === 'CLIENT_OUTDATED'; }).length, 0,
+  assert.strictEqual(sb.readSheet_('ErrorLog').filter(function (r) { return r.ERROR_CODE === 'CLIENT_OUTDATED'; }).length, 0,
     '預期情況，不寫 ErrorLog');
 });
 
@@ -851,7 +851,7 @@ test('RV1-2（審查重現 R3 改為通過）經 apiSaveWeek：同一情境帶 f
   assert.strictEqual(slot.hasOverride, false);
   assert.strictEqual(conflictCount(sb, W), 0);
   assert.strictEqual(r.resp.data.message.text, '已儲存，更新了 1 個欄位。');
-  const audit = sb.readSheet('AuditLog').filter(function (a) { return a.ACTION === 'DUTY_OVERRIDE_CLEAR'; });
+  const audit = sb.readSheet_('AuditLog').filter(function (a) { return a.ACTION === 'DUTY_OVERRIDE_CLEAR'; });
   assert.strictEqual(audit.length, 1);
   assert.strictEqual(audit[0].NOTES, '取消人手覆寫（原值：李小明），改回跟隨職事表。記錄保留，不刪行。');
 });
@@ -867,12 +867,12 @@ test('RV1-3 followRoster 只認布林 true：字串 "true" 當作沒有，照一
 
   const sb2 = makeEnv();
   const tab2 = load(sb2, W);
-  const before = JSON.stringify([sb2.readSheet('DutyOverride'), sb2.readSheet('AuditLog')]);
+  const before = JSON.stringify([sb2.readSheet_('DutyOverride'), sb2.readSheet_('AuditLog')]);
   const resp2 = sb2.apiSaveWeek(plain({ isoDate: W, lastSavedAt: tab2.lastSavedAt, payloadVersion: SAVE_PAYLOAD_VERSION,
     week: {}, baseWeek: {}, dutyEdits: [{ postId: 'CHAIR', slotIndex: 1, name: '陳大文', baseName: '陳大文', followRoster: true }] }));
   assert.strictEqual(resp2.ok, true, JSON.stringify(resp2.error));
   assert.ok(resp2.data.message.text.indexOf('沒有偵測到任何改動') !== -1, resp2.data.message.text);
-  assert.strictEqual(JSON.stringify([sb2.readSheet('DutyOverride'), sb2.readSheet('AuditLog')]), before, '一格都沒有寫');
+  assert.strictEqual(JSON.stringify([sb2.readSheet_('DutyOverride'), sb2.readSheet_('AuditLog')]), before, '一格都沒有寫');
 });
 
 test('RV1-4 computeDutyOverridePlan_()：followRoster 不看名字、不看職事表現值，那一格全部生效中的覆寫都停用（同一格兩行亦然）；不新增、不更新；與 keepOverride 同時是 true 以 followRoster 為準', function () {
@@ -992,11 +992,11 @@ const OUTSIDE_SANDBOX = '2027-12-05';   // 2027T4 最後一個主日的下一個
 
 /** 在某一個主日放一筆生效中、名字空白的覆寫（GG-3：任何一次碰到它的儲存都會自動停用）。 */
 function putBlankOverride(sb, iso) {
-  sb.writeSheet('DutyOverride', [{ SERVICE_DATE: sb.normalizeDate_(iso), POST_ID: 'CHAIR', SLOT_INDEX: 1, OVERRIDE_NAME: '',
+  sb.writeSheet_('DutyOverride', [{ SERVICE_DATE: sb.normalizeDate_(iso), POST_ID: 'CHAIR', SLOT_INDEX: 1, OVERRIDE_NAME: '',
     ROSTER_VALUE_AT_OVERRIDE: '陳大文', ROSTER_VERSION_AT_OVERRIDE: 1, ACTIVE: true }]);
 }
 function auditRowsFor(sb, iso) {
-  return sb.readSheet('AuditLog').filter(function (a) { return String(a.ROW_KEY || '').indexOf(iso) === 0; });
+  return sb.readSheet_('AuditLog').filter(function (a) { return String(a.ROW_KEY || '').indexOf(iso) === 0; });
 }
 
 test('RV5-1 經 apiSaveWeek：payload 沒有 nextWeekDutyEdits 這個鍵 → W+7 生效中的覆寫不動（連自動停用也不做）、W+7 沒有版本記錄與 AuditLog；帶空陣列（填寫介面）→ 照舊自動停用', function () {
@@ -1006,13 +1006,13 @@ test('RV5-1 經 apiSaveWeek：payload 沒有 nextWeekDutyEdits 這個鍵 → W+7
   rewindLastSavedAt(sb, W, '2026-10-02');
   const tab = load(sb, W);
   const auditBefore = auditRowsFor(sb, W_AFTER).length;
-  const snapshotsBefore = sb.readSheet('WeekSnapshots').length;
+  const snapshotsBefore = sb.readSheet_('WeekSnapshots').length;
   const resp = sb.apiSaveWeek(plain({ isoDate: W, lastSavedAt: tab.lastSavedAt, week: { PAGE_TITLE: '自測序樂' },
     baseWeek: { PAGE_TITLE: tab.week.PAGE_TITLE || '' }, dutyEdits: [] }));
   assert.strictEqual(resp.ok, true, JSON.stringify(resp.error));
   assert.ok(activeChair(sb, W_AFTER), 'W+7 的覆寫仍然生效');
   assert.strictEqual(auditRowsFor(sb, W_AFTER).length, auditBefore, 'W+7 沒有 AuditLog');
-  assert.strictEqual(sb.readSheet('WeekSnapshots').length - snapshotsBefore, 1, '只有 W 一個版本');
+  assert.strictEqual(sb.readSheet_('WeekSnapshots').length - snapshotsBefore, 1, '只有 W 一個版本');
   assert.strictEqual(resp.data.message.text, '已儲存，更新了 1 個欄位。');
 
   // 對照：填寫介面一定帶 nextWeekDutyEdits（空陣列）→ 照舊自動停用（D9-12 的行為）。

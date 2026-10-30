@@ -211,7 +211,7 @@ test('2f. 真正入口：超過 FILL_BACKUP_KEEP 時真的刪走最舊的（唯�
 
   const remaining = env.sandbox.listFillBackups_(QUARTER_ID);
   assert.ok(remaining.length <= 3, '保留數目不應該超過 3，實際 ' + remaining.length);
-  assert.ok(env.sandbox.readSheet('AuditLog').some(function (r) { return r.ACTION === 'FILL_BACKUP_PRUNE'; }),
+  assert.ok(env.sandbox.readSheet_('AuditLog').some(function (r) { return r.ACTION === 'FILL_BACKUP_PRUNE'; }),
     '刪走舊備份要留 AuditLog——這是唯一容許刪行的地方，更加要留痕');
 });
 
@@ -231,7 +231,7 @@ test('3. 還原之前一定會再備份一次（原因 BEFORE_RESTORE）', funct
   assert.strictEqual(result.ok, true);
   assert.ok(result.safetyBackupId, '一定要有一個還原前的安全備份');
 
-  const reasons = env.sandbox.readSheet('FillBackup').map(function (r) { return r.REASON; });
+  const reasons = env.sandbox.readSheet_('FillBackup').map(function (r) { return r.REASON; });
   assert.ok(reasons.indexOf('BEFORE_RESTORE') !== -1, '還原前的備份原因要是 BEFORE_RESTORE');
 });
 
@@ -245,14 +245,14 @@ test('3b. 還原之後，安全備份可以把改動再還原回來', function (
   const restore = env.sandbox.restoreFillBackup_(QUARTER_ID, first.backupId);
   assert.strictEqual(restore.restoredCount, 1);
 
-  const afterRestore = env.sandbox.readSheet('BulletinWeeks').filter(function (r) {
+  const afterRestore = env.sandbox.readSheet_('BulletinWeeks').filter(function (r) {
     return env.sandbox.fillGridCellText_(r.SERVICE_DATE) === '2027-11-07';
   })[0];
   assert.strictEqual(afterRestore.FLOWER_THIS_WEEK, '原本的講題');
 
   // 再用安全備份還原回去
   env.sandbox.restoreFillBackup_(QUARTER_ID, restore.safetyBackupId);
-  const afterUndo = env.sandbox.readSheet('BulletinWeeks').filter(function (r) {
+  const afterUndo = env.sandbox.readSheet_('BulletinWeeks').filter(function (r) {
     return env.sandbox.fillGridCellText_(r.SERVICE_DATE) === '2027-11-07';
   })[0];
   assert.strictEqual(afterUndo.FLOWER_THIS_WEEK, '後來改成這個', '安全備份要真的還原得回去');
@@ -316,7 +316,7 @@ test('4e. 真正入口：還原逐格記 AuditLog', function () {
 
   env.sandbox.restoreFillBackup_(QUARTER_ID, backup.backupId);
 
-  const restoreLogs = env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'FILL_BACKUP_RESTORE'; });
+  const restoreLogs = env.sandbox.readSheet_('AuditLog').filter(function (r) { return r.ACTION === 'FILL_BACKUP_RESTORE'; });
   assert.strictEqual(restoreLogs.length, 2, '兩格各記一筆');
   assert.ok(restoreLogs.every(function (r) { return r.ROW_KEY === '2027-11-07'; }));
 });
@@ -327,12 +327,12 @@ test('4f. previewFillRestore_：唯讀，不會寫入任何一格', function () 
   const backup = env.sandbox.createFillBackup_(QUARTER_ID, FILL_BACKUP_REASON.MANUAL);
   env.sandbox.writeBulletinWeekField_('2027-11-07', 'FLOWER_THIS_WEEK', '改過');
 
-  const before = JSON.stringify(env.sandbox.readSheet('BulletinWeeks'));
+  const before = JSON.stringify(env.sandbox.readSheet_('BulletinWeeks'));
   const preview = env.sandbox.previewFillRestore_(QUARTER_ID, backup.backupId);
 
   assert.strictEqual(preview.ok, true);
   assert.strictEqual(preview.changes.length, 1);
-  assert.strictEqual(JSON.stringify(env.sandbox.readSheet('BulletinWeeks')), before,
+  assert.strictEqual(JSON.stringify(env.sandbox.readSheet_('BulletinWeeks')), before,
     '預覽一定要唯讀——使用者還未確認');
 });
 
@@ -362,11 +362,11 @@ test('4i. 季度填寫表已停用（內容表 v2，審查 D1）：還原之後�
 
   const backup = env.sandbox.createFillBackup_(QUARTER_ID, FILL_BACKUP_REASON.MANUAL);
   env.sandbox.writeBulletinWeekField_('2027-11-07', 'FLOWER_THIS_WEEK', '改過');
-  const before = JSON.stringify(env.sandbox.readSheet('FillSnapshot'));
+  const before = JSON.stringify(env.sandbox.readSheet_('FillSnapshot'));
   env.sandbox.restoreFillBackup_(QUARTER_ID, backup.backupId);
 
-  assert.strictEqual(JSON.stringify(env.sandbox.readSheet('FillSnapshot')), before, 'FillSnapshot 一格不變');
-  const week = env.sandbox.readSheet('BulletinWeeks').filter(function (r) {
+  assert.strictEqual(JSON.stringify(env.sandbox.readSheet_('FillSnapshot')), before, 'FillSnapshot 一格不變');
+  const week = env.sandbox.readSheet_('BulletinWeeks').filter(function (r) {
     return env.sandbox.fillGridCellText_(r.SERVICE_DATE) === '2027-11-07';
   })[0];
   assert.strictEqual(week.FLOWER_THIS_WEEK, '原本的', '還原照樣寫入 BulletinWeeks');
@@ -412,7 +412,7 @@ test('備份內容：不屬於該季的清單行不會被備份', function () {
 test('備份：每次都記一筆 AuditLog', function () {
   const env = makeFillEnv({ withGrid: false });
   env.sandbox.createFillBackup_(QUARTER_ID, FILL_BACKUP_REASON.MANUAL);
-  assert.ok(env.sandbox.readSheet('AuditLog').some(function (r) { return r.ACTION === 'FILL_BACKUP_CREATE'; }));
+  assert.ok(env.sandbox.readSheet_('AuditLog').some(function (r) { return r.ACTION === 'FILL_BACKUP_CREATE'; }));
 });
 
 test('備份編號：以季度開頭，含時間戳記', function () {

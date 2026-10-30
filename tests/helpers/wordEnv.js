@@ -62,7 +62,7 @@ function makeWordEnv(o) {
 }
 
 function weekRowOf(env, iso) {
-  return env.sandbox.readSheet('BulletinWeeks').filter(function (r) {
+  return env.sandbox.readSheet_('BulletinWeeks').filter(function (r) {
     return env.sandbox.formatIsoDate_(env.sandbox.normalizeDate_(r.SERVICE_DATE)) === iso;
   })[0];
 }

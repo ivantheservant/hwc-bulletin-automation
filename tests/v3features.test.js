@@ -87,7 +87,7 @@ function makeEnv(options) {
 }
 
 function rowOf(env, iso) {
-  return env.sandbox.readSheet('BulletinWeeks').filter(function (r) {
+  return env.sandbox.readSheet_('BulletinWeeks').filter(function (r) {
     return env.sandbox.formatIsoDate_(r.SERVICE_DATE) === iso;
   })[0];
 }
@@ -106,7 +106,7 @@ function previewHtml(env, params) {
   return env.sandbox.renderPreviewResponse_({ parameter: params }).__html;
 }
 
-function auditCount(env) { return env.sandbox.readSheet('AuditLog').length; }
+function auditCount(env) { return env.sandbox.readSheet_('AuditLog').length; }
 
 const THREE_ANNOUNCEMENTS = [
   { SERVICE_DATE: D, SEQ_NO: 1, TEXT: '甲', ACTIVE: true },
@@ -256,7 +256,7 @@ test('程序增刪經「儲存」寫入：載入時程序表有拿走（removed�
   const html = previewHtml(env, { date: D });
   assert.ok(html.indexOf('特別分享') !== -1 && html.indexOf('王弟兄') !== -1);
   assert.strictEqual(html.indexOf('三一頌'), -1, '預覽頁與 Word 同一份資料模型');
-  assert.ok(env.sandbox.readSheet('AuditLog').some(function (r) { return r.FIELD === 'PROGRAM_EDITS'; }));
+  assert.ok(env.sandbox.readSheet_('AuditLog').some(function (r) { return r.FIELD === 'PROGRAM_EDITS'; }));
 });
 
 test('程序增刪格式不對：儲存整次拒絕（INVALID_ARRANGEMENT），一格都沒有寫；工作表那一格本身壞了 → 照範本印並出警告', function () {
@@ -402,7 +402,7 @@ function documentXmlOf(result) {
 test('草稿（真正入口 apiDownloadBulletinDocx）：Word 用畫面上未儲存的大標題；檔名加「（草稿）」；週報、雲端硬碟、版本記錄一格都不寫', function () {
   const t = makeDraftWordEnv();
   const sb = t.env.sandbox;
-  const auditBefore = sb.readSheet('AuditLog').length;
+  const auditBefore = sb.readSheet_('AuditLog').length;
   const resp = sb.apiDownloadBulletinDocx(D, { draft: { week: { PAGE_TITLE: '草稿大標題' }, dutyEdits: [], nextWeekDutyEdits: [] } });
   assert.strictEqual(resp.ok, true, JSON.stringify(resp.error));
   assert.strictEqual(resp.data.draft, true);
@@ -410,12 +410,12 @@ test('草稿（真正入口 apiDownloadBulletinDocx）：Word 用畫面上未儲
   assert.strictEqual(resp.data.wordFile, null, '草稿不存雲端硬碟');
   assert.ok(documentXmlOf(t.captured[0]).indexOf('草稿大標題') !== -1, 'Word 內容用草稿');
 
-  const row = sb.readSheet('BulletinWeeks')[0];
+  const row = sb.readSheet_('BulletinWeeks')[0];
   assert.strictEqual(String(row.PAGE_TITLE || ''), '', '週報那一格沒有改');
   assert.strictEqual(String(row.DOC_ID || ''), '', '沒有記 Word 檔');
   assert.strictEqual(t.env.drive.listFolderFiles(OUTPUT_FOLDER).length, 0, '雲端硬碟沒有新檔案');
   assert.strictEqual(sb.listWeekSnapshotsForWebApp_(D).versions.length, 0, '沒有存版本');
-  assert.strictEqual(sb.readSheet('AuditLog').length, auditBefore, '沒有 AuditLog');
+  assert.strictEqual(sb.readSheet_('AuditLog').length, auditBefore, '沒有 AuditLog');
 });
 
 test('草稿的事奉格：用未儲存的名字（與儲存同一份計畫），DutyOverride 一行都沒有寫', function () {
@@ -429,7 +429,7 @@ test('草稿的事奉格：用未儲存的名字（與儲存同一份計畫）�
   assert.strictEqual(resp.ok, true, JSON.stringify(resp.error));
   const chair = models[0].dutyBoxPage1.filter(function (r) { return r.postId === 'CHAIR' || r.label === '主席'; })[0];
   assert.ok(chair && String(chair.text).indexOf('草稿主席') !== -1, JSON.stringify(models[0].dutyBoxPage1));
-  assert.strictEqual(sb.readSheet('DutyOverride').length, 0);
+  assert.strictEqual(sb.readSheet_('DutyOverride').length, 0);
 });
 
 test('草稿帶了只在內容表輸入的欄位 → 與儲存同一道檢查，拒絕；之後照常下載已儲存的版本會存雲端硬碟並記 Word 檔', function () {
@@ -441,7 +441,7 @@ test('草稿帶了只在內容表輸入的欄位 → 與儲存同一道檢查，
   const saved = sb.apiDownloadBulletinDocx(D);
   assert.strictEqual(saved.ok, true, JSON.stringify(saved.error));
   assert.strictEqual(saved.data.draft, false);
-  assert.ok(String(sb.readSheet('BulletinWeeks')[0].DOC_ID || '') !== '', '已儲存的版本照舊記 Word 檔');
+  assert.ok(String(sb.readSheet_('BulletinWeeks')[0].DOC_ID || '') !== '', '已儲存的版本照舊記 Word 檔');
 });
 
 // =====================================================================
@@ -556,18 +556,18 @@ test('runAutoCreateQuarters_（真正入口）：職事表多了一季（有版�
   assert.ok(created, JSON.stringify(result));
   assert.strictEqual(created.weeksAdded, 2);
   assert.strictEqual(result.created.filter(function (c) { return c.quarterId === '2031T2' || c.quarterId === '2030T1'; }).length, 0);
-  const rows = sb.readSheet('BulletinWeeks').filter(function (r) { return r.QUARTER_ID === '2031T1'; });
+  const rows = sb.readSheet_('BulletinWeeks').filter(function (r) { return r.QUARTER_ID === '2031T1'; });
   assert.strictEqual(rows.length, 2);
-  assert.ok(sb.readSheet('AuditLog').some(function (r) { return r.ACTION === 'AUTO_CREATE_WEEKS' && r.ROW_KEY === '2031T1'; }));
+  assert.ok(sb.readSheet_('AuditLog').some(function (r) { return r.ACTION === 'AUTO_CREATE_WEEKS' && r.ROW_KEY === '2031T1'; }));
   // 這個測試環境沒有內容表資料夾：內容表建不到 → 記入 skipped 與 ErrorLog，週報照建。
   assert.ok(result.skipped.some(function (s) { return s.quarterId === '2031T1'; }), JSON.stringify(result.skipped));
-  assert.ok(sb.readSheet('ErrorLog').some(function (r) { return r.ERROR_CODE === 'AUTO_CREATE_CONTENT_SHEET_FAILED'; }));
+  assert.ok(sb.readSheet_('ErrorLog').some(function (r) { return r.ERROR_CODE === 'AUTO_CREATE_CONTENT_SHEET_FAILED'; }));
   assert.ok(result.message.indexOf('2031T1 的週報（2 個主日）') !== -1, result.message);
   assertWrittenChinese(assert, '自動建立訊息', [result.message]);
 
   const again = plain(sb.runAutoCreateQuarters_({ source: 'TRIGGER' }));
   assert.strictEqual(again.created.filter(function (c) { return c.quarterId === '2031T1'; }).length, 0, '週報已經有，不再建');
-  assert.strictEqual(sb.readSheet('BulletinWeeks').filter(function (r) { return r.QUARTER_ID === '2031T1'; }).length, 2);
+  assert.strictEqual(sb.readSheet_('BulletinWeeks').filter(function (r) { return r.QUARTER_ID === '2031T1'; }).length, 2);
 });
 
 test('runAutoCreateQuarters_：Config AUTO_CREATE_QUARTERS=FALSE → 整個停用，一行都不建；maxQuarters=1 → 其餘留待下一次並講出來', function () {
@@ -575,7 +575,7 @@ test('runAutoCreateQuarters_：Config AUTO_CREATE_QUARTERS=FALSE → 整個停�
   addRosterQuarter(off, '2031T1', ['2031-01-05'], 1);
   const r = plain(off.sandbox.runAutoCreateQuarters_({}));
   assert.strictEqual(r.enabled, false);
-  assert.strictEqual(off.sandbox.readSheet('BulletinWeeks').filter(function (x) { return x.QUARTER_ID === '2031T1'; }).length, 0);
+  assert.strictEqual(off.sandbox.readSheet_('BulletinWeeks').filter(function (x) { return x.QUARTER_ID === '2031T1'; }).length, 0);
 
   const env = makeEnv({ config: { AUTO_CREATE_QUARTERS_LEAD_DAYS: '0' } });
   addRosterQuarter(env, '2031T1', ['2031-01-05'], 1);
@@ -589,12 +589,12 @@ test('上線前檢查（唯讀）多一項「自動建立季度」：列出現�
   const env = makeEnv({ config: { AUTO_CREATE_QUARTERS_LEAD_DAYS: '0' } });
   addRosterQuarter(env, '2031T1', ['2031-01-05', '2031-01-12'], 1);
   const sb = env.sandbox;
-  const rowsBefore = sb.readSheet('BulletinWeeks').length;
+  const rowsBefore = sb.readSheet_('BulletinWeeks').length;
   const item = plain(sb.buildGoLiveChecklist_()).filter(function (i) { return i.label === '上線前：自動建立季度'; })[0];
   assert.ok(item, '要有這一項');
   assert.strictEqual(item.status, sb.SELF_CHECK_STATUS_.YELLOW);
   assert.ok(item.message.indexOf('2031T1（2031-01-05 至 2031-01-12，週報與內容表）') !== -1, item.message);
-  assert.strictEqual(sb.readSheet('BulletinWeeks').length, rowsBefore, '唯讀');
+  assert.strictEqual(sb.readSheet_('BulletinWeeks').length, rowsBefore, '唯讀');
   assertWrittenChinese(assert, '上線前檢查：自動建立季度', [item.message]);
   // 與真正建立同一份計畫：建立之後，這一項不再列出 2031T1 的週報。
   sb.runAutoCreateQuarters_({});
@@ -646,9 +646,9 @@ test('開啟填寫介面（真入口 autoCreateQuartersForWebApp_）：Config AU
     extraStubs: { PropertiesService: { getScriptProperties: function () { return props; }, getUserProperties: function () { return props; } } } });
   addRosterQuarter(env, '2031T1', ['2031-01-05'], 1);
   const sb = env.sandbox;
-  const rowsBefore = sb.readSheet('BulletinWeeks').length;
+  const rowsBefore = sb.readSheet_('BulletinWeeks').length;
   assert.strictEqual(sb.autoCreateQuartersForWebApp_(), '');
-  assert.strictEqual(sb.readSheet('BulletinWeeks').length, rowsBefore, '停用就不建');
+  assert.strictEqual(sb.readSheet_('BulletinWeeks').length, rowsBefore, '停用就不建');
   // 開啟之後同一條入口照常講結果（這個環境內容表建不到，所以講「未能自動建立」）——即是只有停用時才靜默。
   const on = makeEnv({ config: { AUTO_CREATE_QUARTERS_LEAD_DAYS: '0' },
     extraStubs: { PropertiesService: { getScriptProperties: function () { const s2 = {}; return { getProperty: function (k) { return s2[k] === undefined ? null : s2[k]; }, setProperty: function (k, v) { s2[k] = String(v); }, deleteProperty: function (k) { delete s2[k]; } }; } } } });
@@ -685,11 +685,11 @@ test('開啟填寫介面：某一季內容表自動建立失敗過，一日內�
   // 第一次（每日觸發器）：2027T4 與 2031T1 的內容表都建不到（這個環境沒有資料夾）→ 記下失敗。
   sb.runAutoCreateQuarters_({ source: 'TRIGGER' });
   assert.ok(store[sb.autoCreateSheetFailedKey_(QUARTER_ID)], '記下 2027T4 內容表失敗');
-  const errorsBefore = sb.readSheet('ErrorLog').length;
+  const errorsBefore = sb.readSheet_('ErrorLog').length;
   // 開頁：兩季都只欠內容表、一日內失敗過 → 整季略過，不再試、不再寫 ErrorLog。
   const webapp = plain(sb.runAutoCreateQuarters_({ maxQuarters: 1, source: 'WEBAPP' }));
   assert.strictEqual(webapp.skipped.length, 0, JSON.stringify(webapp));
-  assert.strictEqual(sb.readSheet('ErrorLog').length, errorsBefore);
+  assert.strictEqual(sb.readSheet_('ErrorLog').length, errorsBefore);
   // 每日觸發器照試。
   const daily = plain(sb.runAutoCreateQuarters_({ source: 'TRIGGER' }));
   assert.ok(daily.skipped.length >= 1, JSON.stringify(daily));
@@ -704,7 +704,7 @@ test('開啟填寫介面（真正入口 apiListWeeks，autoCreate）：自動建
   addRosterQuarter(env, '2031T2', ['2031-04-06'], 1);
   const sb = env.sandbox;
   // 2027T4 當作已經有內容表（只看新的季度）。
-  sb.writeSheet('ContentSheets', [{ QUARTER_ID: QUARTER_ID, FILE_ID: 'CS1', FILE_URL: 'https://docs.google.com/spreadsheets/d/CS1/edit', ACTIVE: true }]);
+  sb.writeSheet_('ContentSheets', [{ QUARTER_ID: QUARTER_ID, FILE_ID: 'CS1', FILE_URL: 'https://docs.google.com/spreadsheets/d/CS1/edit', ACTIVE: true }]);
   let runs = 0;
   const original = sb.runAutoCreateQuarters_;
   sb.runAutoCreateQuarters_ = function () { runs++; return original.apply(this, arguments); };
@@ -712,7 +712,7 @@ test('開啟填寫介面（真正入口 apiListWeeks，autoCreate）：自動建
   assert.strictEqual(first.ok, true, JSON.stringify(first.error));
   assert.ok(first.data.autoCreateNotice.indexOf('系統已自動建立 2031T1 的週報') !== -1, first.data.autoCreateNotice);
   assert.ok(first.data.autoCreateNotice.indexOf('另有 1 季會在稍後自動建立') !== -1, '每次開頁最多一季，其餘講明');
-  assert.strictEqual(sb.readSheet('BulletinWeeks').filter(function (r) { return r.QUARTER_ID === '2031T2'; }).length, 0);
+  assert.strictEqual(sb.readSheet_('BulletinWeeks').filter(function (r) { return r.QUARTER_ID === '2031T2'; }).length, 0);
   // 即使仍有未建立的季度，十分鐘內亦不再檢查（每一次開頁都讀職事表、重試失敗的內容表會令開頁變慢、ErrorLog 洗版）。
   const second = sb.apiListWeeks(false, { autoCreate: true });
   assert.strictEqual(second.data.autoCreateNotice, '');
@@ -725,7 +725,7 @@ test('開啟填寫介面（真正入口 apiListWeeks，autoCreate）：自動建
   const broken = sb.apiListWeeks(false, { autoCreate: true });
   assert.strictEqual(broken.ok, true, '自動建立出錯不可以令載入失敗');
   assert.strictEqual(broken.data.autoCreateNotice, '');
-  assert.ok(sb.readSheet('ErrorLog').some(function (r) { return String(r.MESSAGE).indexOf('職事表讀不到') !== -1; }));
+  assert.ok(sb.readSheet_('ErrorLog').some(function (r) { return String(r.MESSAGE).indexOf('職事表讀不到') !== -1; }));
 });
 
 // =====================================================================
@@ -1084,7 +1084,7 @@ test('選單「試寄星期一草稿預覽信」（真入口 menuTestSendPreview
     }
   });
   env.sandbox.menuTestSendPreviewNotice_();
-  const rows = env.sandbox.readSheet('SendLog').filter(function (r) { return r.STATUS === 'PREVIEW'; });
+  const rows = env.sandbox.readSheet_('SendLog').filter(function (r) { return r.STATUS === 'PREVIEW'; });
   assert.ok(rows.length >= 1, '寫了 SendLog：' + JSON.stringify(alerts));
   assert.strictEqual(env.sandbox.formatIsoDate_(rows[0].SERVICE_DATE), D_NEXT);
   assert.strictEqual(rows[0].DRY_RUN, true);
@@ -1100,7 +1100,7 @@ test('選單「試寄星期一草稿預覽信」（真入口 menuTestSendPreview
     alert: function (t) { bad.push(String(t)); return 'OK'; } } } });
   env2.sandbox.menuTestSendPreviewNotice_();
   assert.ok(bad.length === 1 && bad[0].indexOf('日期格式不對') !== -1, JSON.stringify(bad));
-  assert.strictEqual(env2.sandbox.readSheet('SendLog').length, 0);
+  assert.strictEqual(env2.sandbox.readSheet_('SendLog').length, 0);
 });
 
 test('預覽連結不帶日期（真入口 renderPreviewResponse_）＝今日或之後第一個主日：正式寄出（SENT）之後不會跳去再下一個主日；模擬今日填了就按它', function () {

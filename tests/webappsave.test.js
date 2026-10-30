@@ -277,13 +277,13 @@ test('真正入口：第一次儲存（lastSavedAt 皆空）→ 成功，仍然�
   assert.ok(result.changedFieldCount > 0);
   assert.ok(result.lastSavedAt, 'lastSavedAt 要有值');
 
-  const week = env.sandbox.readSheet('BulletinWeeks')[0];
+  const week = env.sandbox.readSheet_('BulletinWeeks')[0];
   assert.strictEqual(week.PAGE_TITLE, '宣教主日');
   assert.strictEqual(week.FLOWER_THIS_WEEK, '假甲', '獻花仍然是純介面填');
   // v3：沒有「內容表為來源、介面可覆寫」的欄位，一筆 FieldOverride 都不會寫。
-  assert.strictEqual(env.sandbox.readSheet('FieldOverride').length, 0);
+  assert.strictEqual(env.sandbox.readSheet_('FieldOverride').length, 0);
 
-  const auditRows = env.sandbox.readSheet('AuditLog');
+  const auditRows = env.sandbox.readSheet_('AuditLog');
   assert.ok(auditRows.length > 0, '應該有 AuditLog 記錄');
   assert.ok(
     auditRows.every(function (r) { return r.ACTION === 'WEBAPP_SAVE_WEEK'; }),
@@ -303,8 +303,8 @@ test('真正入口：樂觀鎖不符 → 拋 STALE 且完全沒有寫入動作',
   });
 
   const before = {
-    week: JSON.stringify(env.sandbox.readSheet('BulletinWeeks')),
-    audit: JSON.stringify(env.sandbox.readSheet('AuditLog'))
+    week: JSON.stringify(env.sandbox.readSheet_('BulletinWeeks')),
+    audit: JSON.stringify(env.sandbox.readSheet_('AuditLog'))
   };
 
   assert.throws(function () {
@@ -315,8 +315,8 @@ test('真正入口：樂觀鎖不符 → 拋 STALE 且完全沒有寫入動作',
   }, function (err) { return err.code === 'STALE'; }, '應該拋出 code=STALE 的錯誤');
 
   const after = {
-    week: JSON.stringify(env.sandbox.readSheet('BulletinWeeks')),
-    audit: JSON.stringify(env.sandbox.readSheet('AuditLog'))
+    week: JSON.stringify(env.sandbox.readSheet_('BulletinWeeks')),
+    audit: JSON.stringify(env.sandbox.readSheet_('AuditLog'))
   };
   assert.strictEqual(after.week, before.week, 'BulletinWeeks 不應該有任何變動');
   assert.strictEqual(after.audit, before.audit, 'AuditLog 不應該有任何新記錄');
@@ -332,7 +332,7 @@ test('真正入口：沒有改動的欄位重新儲存同樣的內容 → change
   }));
   assert.ok(first.changedFieldCount > 0);
 
-  const savedWeek = env.sandbox.readSheet('BulletinWeeks')[0];
+  const savedWeek = env.sandbox.readSheet_('BulletinWeeks')[0];
 
   const second = env.sandbox.saveWeekFromWebApp_(basicPayload({
     lastSavedAt: savedWeek.LAST_SAVED_AT,
@@ -354,7 +354,7 @@ test('真正入口：填寫介面送空的清單陣列 → 一行都不會被停
 
   env.sandbox.saveWeekFromWebApp_(basicPayload({ week: { FLOWER_THIS_WEEK: '講題甲' }, announcements: [] }));
 
-  const rows = env.sandbox.readSheet('Announcements');
+  const rows = env.sandbox.readSheet_('Announcements');
   assert.strictEqual(rows.length, 1);
   assert.strictEqual(rows[0].ACTIVE, true, '一行都不可以被停用——清單已經不歸填寫介面管');
   assert.strictEqual(rows[0].TEXT, '由內容表匯入的那一項');
@@ -374,8 +374,8 @@ test('真正入口：填寫介面送**有內容**的清單 → 拒絕，而且�
     return err.code === 'CONTENT_SHEET_READONLY';
   });
 
-  assert.strictEqual(env.sandbox.readSheet('Announcements').length, 0);
-  assert.strictEqual(env.sandbox.readSheet('BulletinWeeks')[0].FLOWER_THIS_WEEK, '',
+  assert.strictEqual(env.sandbox.readSheet_('Announcements').length, 0);
+  assert.strictEqual(env.sandbox.readSheet_('BulletinWeeks')[0].FLOWER_THIS_WEEK, '',
     '拒絕之後，連其他欄位都不可以寫進去——整個儲存要原子性地失敗');
 });
 
@@ -418,12 +418,12 @@ test('浸禮六欄：儲存時原樣存進 BulletinWeeks，多人欄位不加尊
     }
   }));
 
-  const week = env.sandbox.readSheet('BulletinWeeks')[0];
+  const week = env.sandbox.readSheet_('BulletinWeeks')[0];
   assert.strictEqual(week.BAPTISM_OFFICIANT, '甲', '值照樣寫入 BulletinWeeks');
   assert.strictEqual(week.BAPTISM_MEMBERS, '丙 乙 丁', '多人欄位原樣存（次序不變、不加尊稱）');
   assert.strictEqual(week.MEMBERSHIP_MEMBERS, '己');
   assert.strictEqual(week.CHILD_DEDICATION_CHILDREN, '辛 壬');
-  assert.strictEqual(env.sandbox.readSheet('FieldOverride').length, 0, 'v3：不再寫 FieldOverride');
+  assert.strictEqual(env.sandbox.readSheet_('FieldOverride').length, 0, 'v3：不再寫 FieldOverride');
 });
 
 test('浸禮六欄：改動會逐格寫入 AuditLog；沒有改動的不會', function () {
@@ -439,7 +439,7 @@ test('浸禮六欄：改動會逐格寫入 AuditLog；沒有改動的不會', fu
     baseWeek: { BAPTISM_OFFICIANT: '甲', BAPTISM_MEMBERS: '乙' }
   }));
 
-  const audit = env.sandbox.readSheet('AuditLog')
+  const audit = env.sandbox.readSheet_('AuditLog')
     .filter(function (r) { return r.ACTION === 'WEBAPP_SAVE_WEEK'; });
   const fields = audit.map(function (r) { return r.FIELD; });
   assert.ok(fields.indexOf('BAPTISM_MEMBERS') !== -1, '改過那一格要有記錄');

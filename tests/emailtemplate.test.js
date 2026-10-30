@@ -116,19 +116,19 @@ function makeEnv(configOverrides) {
 
 test('真正入口：CHURCH_NAME 的 DEFAULTS 已經是非空字串（本輪修補的必要設定）', function () {
   const sb = makeEnv();
-  assert.notStrictEqual(sb.getConfig(sb.CONFIG_KEYS.CHURCH_NAME, ''), '', 'CHURCH_NAME 不應該還是空字串');
+  assert.notStrictEqual(sb.getConfig_(sb.CONFIG_KEYS.CHURCH_NAME, ''), '', 'CHURCH_NAME 不應該還是空字串');
 });
 
 test('{{ChurchName}} 取自 Config：設定值會正確替換進範本', function () {
   const sb = makeEnv();
-  const churchName = sb.getConfig(sb.CONFIG_KEYS.CHURCH_NAME, '');
+  const churchName = sb.getConfig_(sb.CONFIG_KEYS.CHURCH_NAME, '');
   const result = sb.renderEmailTemplate_('{{ChurchName}}週報', { ChurchName: churchName }, []);
   assert.strictEqual(result, churchName + '週報');
 });
 
 test('{{ChurchName}} 未設定（Config 值是空字串）時，渲染結果是空字串，且**不會**因為值是空字串而誤判成未知佔位符', function () {
   const sb = makeEnv({ CHURCH_NAME: '' });
-  const churchName = sb.getConfig(sb.CONFIG_KEYS.CHURCH_NAME, '');
+  const churchName = sb.getConfig_(sb.CONFIG_KEYS.CHURCH_NAME, '');
   assert.strictEqual(churchName, '');
   const warnings = [];
   const result = sb.renderEmailTemplate_('{{ChurchName}}週報', { ChurchName: churchName }, warnings);

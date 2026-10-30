@@ -114,11 +114,11 @@ function tabRows(env, name) {
 }
 
 function weekOf(env, iso) {
-  return env.sandbox.readSheet('BulletinWeeks').filter(function (r) { return env.sandbox.formatIsoDate_(r.SERVICE_DATE) === iso; })[0];
+  return env.sandbox.readSheet_('BulletinWeeks').filter(function (r) { return env.sandbox.formatIsoDate_(r.SERVICE_DATE) === iso; })[0];
 }
 
 function activeTexts(env, sheetName, iso) {
-  return env.sandbox.readSheet(sheetName).filter(function (r) {
+  return env.sandbox.readSheet_(sheetName).filter(function (r) {
     return r.ACTIVE === true && env.sandbox.formatIsoDate_(r.SERVICE_DATE) === iso;
   }).sort(function (a, b) { return Number(a.SEQ_NO) - Number(b.SEQ_NO); }).map(function (r) { return String(r.TEXT); }).slice();
 }
@@ -190,7 +190,7 @@ test('V4-2 執行：六欄搬入週報（只寫有值的格，週報原有的值
   assert.ok(text.indexOf('以下 2 行不會搬入新分頁') !== -1, text);
   assert.ok(text.indexOf('已停用（有效＝FALSE）') !== -1 && text.indexOf('同一個日期較早的一行（以最後一行為準）') !== -1, text);
   // 週報那一邊逐格 AuditLog。
-  const audits = env.sandbox.readSheet('AuditLog').filter(function (a) { return a.ACTION === 'CONTENT_SHEET_UPGRADE_V4'; });
+  const audits = env.sandbox.readSheet_('AuditLog').filter(function (a) { return a.ACTION === 'CONTENT_SHEET_UPGRADE_V4'; });
   assert.strictEqual(audits.length, 6, JSON.stringify(plain(audits)));
 });
 
@@ -246,7 +246,7 @@ test('V4-5 執行的數字等於預覽；再按一次一格不改（只排序、
   const env = makeV3Env();
   const preview = env.sandbox.apiPreviewContentSheetBuild(QUARTER_ID).data;
   run(env);
-  const audits = env.sandbox.readSheet('AuditLog').filter(function (a) { return a.ACTION === 'CONTENT_SHEET_UPGRADE_V4'; });
+  const audits = env.sandbox.readSheet_('AuditLog').filter(function (a) { return a.ACTION === 'CONTENT_SHEET_UPGRADE_V4'; });
   assert.ok(preview.lines.join('\n').indexOf('（' + audits.length + ' 格，') !== -1, preview.lines.join('\n'));
   const once = snapshot(env);
   const again = run(env);
@@ -261,8 +261,8 @@ test('V4-6 自動流程（星期一 weeklyBulletinSendTrigger_）不替人轉換
   const before = snapshot(env);
   env.sandbox.weeklyBulletinSendTrigger_();
   assert.strictEqual(snapshot(env), before, '一格不寫');
-  const errs = env.sandbox.readSheet('ErrorLog').filter(function (r) { return r.ERROR_CODE === 'CONTENT_SHEET_NEEDS_MIGRATION'; });
-  assert.strictEqual(errs.length, 1, JSON.stringify(plain(env.sandbox.readSheet('ErrorLog'))));
+  const errs = env.sandbox.readSheet_('ErrorLog').filter(function (r) { return r.ERROR_CODE === 'CONTENT_SHEET_NEEDS_MIGRATION'; });
+  assert.strictEqual(errs.length, 1, JSON.stringify(plain(env.sandbox.readSheet_('ErrorLog'))));
   ['「崇拜程序」只留讀經經文、證道講題、回應詩歌', '更新本季內容表…'].forEach(function (p) {
     assert.ok(errs[0].MESSAGE.indexOf(p) !== -1, errs[0].MESSAGE);
   });
@@ -286,7 +286,7 @@ test('V4-7 改名之後建新分頁失敗（中途停止）→ 匯入被擋（�
   assert.ok(String(imp.data.message).indexOf('上一次更新未做完') !== -1, imp.data.message);
   run(env);
   assert.strictEqual(snapshot(env), expected, '重跑之後與一次跑完相同');
-  const audits = env.sandbox.readSheet('AuditLog').filter(function (a) { return a.ACTION === 'CONTENT_SHEET_UPGRADE_V4'; });
+  const audits = env.sandbox.readSheet_('AuditLog').filter(function (a) { return a.ACTION === 'CONTENT_SHEET_UPGRADE_V4'; });
   assert.strictEqual(audits.length, 6, '週報那一步不重複寫');
 });
 
@@ -319,7 +319,7 @@ test('V4-14 日期欄鎖不到（例如 Shared Drive 不准拿走編輯者）→
   const text = data.lines.join('\n');
   assert.ok(text.indexOf('「崇拜程序」的日期欄鎖不到') !== -1 && text.indexOf('「崇拜人數」的日期欄鎖不到') !== -1, text);
   assert.deepStrictEqual(tabRows(env, '崇拜程序').map(function (r) { return r.SERVICE_DATE; }), contentEnv.SERVICE_DATES);
-  const errs = env.sandbox.readSheet('ErrorLog').filter(function (e) { return e.ERROR_CODE === 'CONTENT_SHEET_LOCK_FAILED'; });
+  const errs = env.sandbox.readSheet_('ErrorLog').filter(function (e) { return e.ERROR_CODE === 'CONTENT_SHEET_LOCK_FAILED'; });
   assert.ok(errs.length >= 2, JSON.stringify(plain(errs)));
 });
 
@@ -384,7 +384,7 @@ test('V4-11 每日觸發器（真入口 dailyQuarterAutoCreateTrigger_）把家�
   sb.dailyQuarterAutoCreateTrigger_();
   const texts = tabRows(env, '家事報告').map(function (r) { return r.SERVICE_DATE + ' ' + r.SEQ_NO + ' ' + r.TEXT; });
   assert.deepStrictEqual(texts, [D1 + ' 5 甲五', D1 + ' 10 甲十連續', D1 + '  甲留空', D2 + ' 20 乙二十', D2 + '  乙留空']);
-  assert.strictEqual(sb.readSheet('AuditLog').filter(function (a) { return a.ACTION === 'CONTENT_SHEET_NIGHTLY_SORT'; }).length, 1);
+  assert.strictEqual(sb.readSheet_('AuditLog').filter(function (a) { return a.ACTION === 'CONTENT_SHEET_NIGHTLY_SORT'; }).length, 1);
   // 排序之後再匯入，週報的先後與排序前相同。
   assert.strictEqual(sb.apiRunQuarterContentImport(QUARTER_ID).data.ok, true);
   assert.deepStrictEqual(plainTexts(env, 'Announcements', D1), beforeD1);
@@ -393,7 +393,7 @@ test('V4-11 每日觸發器（真入口 dailyQuarterAutoCreateTrigger_）把家�
   const once = snapshot(env);
   sb.dailyQuarterAutoCreateTrigger_();
   assert.strictEqual(snapshot(env), once);
-  assert.strictEqual(sb.readSheet('AuditLog').filter(function (a) { return a.ACTION === 'CONTENT_SHEET_NIGHTLY_SORT'; }).length, 1);
+  assert.strictEqual(sb.readSheet_('AuditLog').filter(function (a) { return a.ACTION === 'CONTENT_SHEET_NIGHTLY_SORT'; }).length, 1);
 });
 
 test('V4-12 排序失敗 → ErrorLog 一筆（季度、原因），建立季度那一段照常；沙盒季度不排', function () {
@@ -410,8 +410,8 @@ test('V4-12 排序失敗 → ErrorLog 一筆（季度、原因），建立季度
     return range;
   };
   sb.dailyQuarterAutoCreateTrigger_();
-  const errs = sb.readSheet('ErrorLog').filter(function (e) { return e.FUNCTION_NAME === 'runNightlyContentSort_'; });
-  assert.strictEqual(errs.length, 1, JSON.stringify(plain(sb.readSheet('ErrorLog'))));
+  const errs = sb.readSheet_('ErrorLog').filter(function (e) { return e.FUNCTION_NAME === 'runNightlyContentSort_'; });
+  assert.strictEqual(errs.length, 1, JSON.stringify(plain(sb.readSheet_('ErrorLog'))));
   assert.ok(String(errs[0].MESSAGE).indexOf(QUARTER_ID) !== -1 && String(errs[0].MESSAGE).indexOf('注入：排序失敗') !== -1, errs[0].MESSAGE);
   sheet.getRange = realGetRange;
   // 沙盒季度：一格不排。
@@ -460,14 +460,14 @@ test('V4-15 家事報告、代禱事項一次過搬兩欄（每張分頁一次 m
   const ann = env2.contentSpreadsheet.getSheetByName('家事報告');
   ann.moveColumns(ann.getRange('D:D'), 2);
   const before = snapshot(env2);
-  const weeksBefore = JSON.stringify(env2.sandbox.readSheet('BulletinWeeks'));
+  const weeksBefore = JSON.stringify(env2.sandbox.readSheet_('BulletinWeeks'));
   const preview = env2.sandbox.apiPreviewContentSheetBuild(QUARTER_ID);
   assert.ok(JSON.stringify(preview).indexOf('「家事報告」第 2 行') !== -1, JSON.stringify(preview));
   const data = failResult(env2.sandbox.apiRunContentSheetBuild(QUARTER_ID));
   assert.strictEqual(data.ok, false, JSON.stringify(data));
   assert.ok(String(data.message).indexOf('「家事報告」第 2 行') !== -1 && String(data.message).indexOf('一格都沒有寫') !== -1, data.message);
   assert.strictEqual(snapshot(env2), before, '內容表一格不寫');
-  assert.strictEqual(JSON.stringify(env2.sandbox.readSheet('BulletinWeeks')), weeksBefore, '週報一格不寫');
+  assert.strictEqual(JSON.stringify(env2.sandbox.readSheet_('BulletinWeeks')), weeksBefore, '週報一格不寫');
   assertWrittenChinese(assert, '拒絕訊息', [data.message]);
 });
 

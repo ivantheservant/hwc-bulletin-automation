@@ -186,13 +186,13 @@ function generateQuarterFellowships_(quarterId) {
   var sourceNote = serviceDateSourceNote_(dateResolution);
   var plan = buildFellowshipGenerationPlan_({
     serviceDates: dateResolution.entries,
-    defaultRows: readSheet(SHEETS.FELLOWSHIP_DEFAULTS),
-    existingRows: readSheet(SHEETS.FELLOWSHIPS),
-    datePattern: getConfig(CONFIG_KEYS.FELLOWSHIP_DATE_PATTERN, 'd/M')
+    defaultRows: readSheet_(SHEETS.FELLOWSHIP_DEFAULTS),
+    existingRows: readSheet_(SHEETS.FELLOWSHIPS),
+    datePattern: getConfig_(CONFIG_KEYS.FELLOWSHIP_DATE_PATTERN, 'd/M')
   });
 
   if (plan.appends.length > 0) {
-    writeSheet(SHEETS.FELLOWSHIPS, plan.appends.map(function (row) {
+    writeSheet_(SHEETS.FELLOWSHIPS, plan.appends.map(function (row) {
       return Object.assign({}, row, {
         SERVICE_DATE: normalizeDate_(row.SERVICE_DATE),
         FELLOWSHIP_NAME: sanitizeCellText_(row.FELLOWSHIP_NAME),

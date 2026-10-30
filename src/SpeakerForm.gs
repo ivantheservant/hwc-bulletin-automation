@@ -54,7 +54,7 @@
  */
 function speakerFormQuestionTitles_() {
   function read(key, fallback) {
-    return String(getConfig(key, fallback) || '').trim() || fallback;
+    return String(getConfig_(key, fallback) || '').trim() || fallback;
   }
   return {
     date: read(CONFIG_KEYS.SPEAKER_FORM_Q_DATE, '主日日期'),
@@ -235,7 +235,7 @@ function buildSpeakerMismatchWarning_(formSpeaker, rosterSpeaker, honorifics) {
 function speakerMismatchWarningForModel_(isoDate, slotsByPost) {
   var rows;
   try {
-    rows = readSheet(SHEETS.SPEAKER_FORM_SUBMISSIONS);
+    rows = readSheet_(SHEETS.SPEAKER_FORM_SUBMISSIONS);
   } catch (err) {
     return null;
   }
@@ -415,9 +415,9 @@ function buildSpeakerFormCheckItem_(state, statuses) {
  *   {string} 兩個都空白回空字串。
  */
 function resolveSpeakerFormFolderId_() {
-  var own = String(getConfig(CONFIG_KEYS.SPEAKER_FORM_FOLDER_ID, '') || '').trim();
+  var own = String(getConfig_(CONFIG_KEYS.SPEAKER_FORM_FOLDER_ID, '') || '').trim();
   if (own) return own;
-  return String(getConfig(CONFIG_KEYS.CONTENT_SHEET_FOLDER_ID, '') || '').trim();
+  return String(getConfig_(CONFIG_KEYS.CONTENT_SHEET_FOLDER_ID, '') || '').trim();
 }
 
 /**
@@ -427,7 +427,7 @@ function resolveSpeakerFormFolderId_() {
  *   {string}
  */
 function speakerFormTodayIso_() {
-  return Utilities.formatDate(new Date(), getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland'), 'yyyy-MM-dd');
+  return Utilities.formatDate(new Date(), getConfig_(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland'), 'yyyy-MM-dd');
 }
 
 /**
@@ -438,9 +438,9 @@ function speakerFormTodayIso_() {
  */
 function currentSpeakerFormDateOptions_() {
   return buildSpeakerFormDateOptions_(
-    readSheet(SHEETS.BULLETIN_WEEKS), speakerFormTodayIso_(),
-    getConfig(CONFIG_KEYS.SPEAKER_FORM_WEEKS_AHEAD, '16'),
-    getConfig(CONFIG_KEYS.SPEAKER_FORM_DATE_SPECIAL_PATTERN, '{{DATE}}（{{SPECIAL}}）')
+    readSheet_(SHEETS.BULLETIN_WEEKS), speakerFormTodayIso_(),
+    getConfig_(CONFIG_KEYS.SPEAKER_FORM_WEEKS_AHEAD, '16'),
+    getConfig_(CONFIG_KEYS.SPEAKER_FORM_DATE_SPECIAL_PATTERN, '{{DATE}}（{{SPECIAL}}）')
   );
 }
 
@@ -455,7 +455,7 @@ function currentSpeakerFormDateOptions_() {
  *   Error 讀 Config 失敗時原樣拋出。
  */
 function inspectSpeakerFormState_() {
-  var formId = String(getConfig(CONFIG_KEYS.SPEAKER_FORM_ID, '') || '').trim();
+  var formId = String(getConfig_(CONFIG_KEYS.SPEAKER_FORM_ID, '') || '').trim();
   var trigger = inspectProjectTriggers_().items.filter(function (t) { return t.handler === 'onSpeakerFormSubmit_'; })[0];
   return {
     created: formId !== '',
@@ -474,12 +474,12 @@ function inspectSpeakerFormState_() {
  *     triggerOk:boolean, folderConfigured:boolean, weeksAhead:number}}
  */
 function speakerFormStatusForWebApp_() {
-  var formId = String(getConfig(CONFIG_KEYS.SPEAKER_FORM_ID, '') || '').trim();
+  var formId = String(getConfig_(CONFIG_KEYS.SPEAKER_FORM_ID, '') || '').trim();
   var triggerCount = countSpeakerFormTriggers_();
-  var weeksAhead = normalizeInt_(getConfig(CONFIG_KEYS.SPEAKER_FORM_WEEKS_AHEAD, '16'));
+  var weeksAhead = normalizeInt_(getConfig_(CONFIG_KEYS.SPEAKER_FORM_WEEKS_AHEAD, '16'));
   return {
     created: formId !== '',
-    url: String(getConfig(CONFIG_KEYS.SPEAKER_FORM_URL, '') || '').trim(),
+    url: String(getConfig_(CONFIG_KEYS.SPEAKER_FORM_URL, '') || '').trim(),
     editUrl: formId ? ('https://docs.google.com/forms/d/' + formId + '/edit') : '',
     triggerCount: triggerCount,
     triggerOk: triggerCount === 1,
@@ -514,7 +514,7 @@ function createSpeakerFormForWebApp_() {
     return { ok: false, reason: reason, message: message, url: '', editUrl: '', triggerInstalled: false, warnings: [] };
   }
 
-  if (String(getConfig(CONFIG_KEYS.SPEAKER_FORM_ID, '') || '').trim()) {
+  if (String(getConfig_(CONFIG_KEYS.SPEAKER_FORM_ID, '') || '').trim()) {
     return fail('ALREADY_EXISTS', '講員表格已經建立過了。講員收藏的是固定連結，所以不會再建第二個。'
       + '要改日期選項請按「刷新日期選項」。');
   }
@@ -539,16 +539,16 @@ function createSpeakerFormForWebApp_() {
 
   var titles = speakerFormQuestionTitles_();
   var created = createSpeakerFormFile_({
-    title: String(getConfig(CONFIG_KEYS.SPEAKER_FORM_TITLE, '') || '').trim() || '主日講員資料',
-    description: String(getConfig(CONFIG_KEYS.SPEAKER_FORM_DESCRIPTION, '') || ''),
-    confirmation: String(getConfig(CONFIG_KEYS.SPEAKER_FORM_CONFIRMATION, '') || ''),
+    title: String(getConfig_(CONFIG_KEYS.SPEAKER_FORM_TITLE, '') || '').trim() || '主日講員資料',
+    description: String(getConfig_(CONFIG_KEYS.SPEAKER_FORM_DESCRIPTION, '') || ''),
+    confirmation: String(getConfig_(CONFIG_KEYS.SPEAKER_FORM_CONFIRMATION, '') || ''),
     questions: titles,
     dateChoices: options.map(function (o) { return o.label; })
   });
 
   // 先記下 ID 與連結：表單已經存在，後面任何一步失敗都不可以令人再建一個。
-  setConfig(CONFIG_KEYS.SPEAKER_FORM_ID, created.formId, 'createSpeakerFormForWebApp_');
-  setConfig(CONFIG_KEYS.SPEAKER_FORM_URL, created.publishedUrl, 'createSpeakerFormForWebApp_');
+  setConfig_(CONFIG_KEYS.SPEAKER_FORM_ID, created.formId, 'createSpeakerFormForWebApp_');
+  setConfig_(CONFIG_KEYS.SPEAKER_FORM_URL, created.publishedUrl, 'createSpeakerFormForWebApp_');
 
   var warnings = [];
   try {
@@ -591,7 +591,7 @@ function createSpeakerFormForWebApp_() {
  *   Error 如果開不到表單（被刪、未授權）。
  */
 function refreshSpeakerFormDatesForWebApp_() {
-  var formId = String(getConfig(CONFIG_KEYS.SPEAKER_FORM_ID, '') || '').trim();
+  var formId = String(getConfig_(CONFIG_KEYS.SPEAKER_FORM_ID, '') || '').trim();
   if (!formId) {
     return { ok: false, reason: 'NOT_CREATED', message: '還沒有建立講員表格。', count: 0 };
   }
@@ -621,7 +621,7 @@ function refreshSpeakerFormDatesForWebApp_() {
  */
 function refreshSpeakerFormDatesQuietly_(source) {
   try {
-    if (!String(getConfig(CONFIG_KEYS.SPEAKER_FORM_ID, '') || '').trim()) {
+    if (!String(getConfig_(CONFIG_KEYS.SPEAKER_FORM_ID, '') || '').trim()) {
       return { skipped: true, ok: true, message: '' };
     }
     var result = refreshSpeakerFormDatesForWebApp_();
@@ -696,7 +696,7 @@ function handleSpeakerFormSubmission_(e, todayIso) {
   var answer = extractSpeakerFormAnswers_(e, speakerFormQuestionTitles_());
   var outcome = { result: 'RETIRED', detail: speakerFormRetiredSubmissionDetail_(), published: false, special: '' };
 
-  writeSheet(SHEETS.SPEAKER_FORM_SUBMISSIONS, [{
+  writeSheet_(SHEETS.SPEAKER_FORM_SUBMISSIONS, [{
     TIMESTAMP: answer.timestamp instanceof Date ? answer.timestamp : new Date(),
     SERVICE_DATE: answer.isoDate ? normalizeDate_(answer.isoDate) : '',
     RESPONDENT_EMAIL: sanitizeCellText_(answer.email),
@@ -763,7 +763,7 @@ function speakerFormRetiredApiMessage_() {
  *   Error 讀 Config 失敗時原樣拋出。
  */
 function speakerFormClosedMessage_() {
-  var raw = String(getConfig(CONFIG_KEYS.SPEAKER_FORM_CLOSED_MESSAGE, '') || '').trim();
+  var raw = String(getConfig_(CONFIG_KEYS.SPEAKER_FORM_CLOSED_MESSAGE, '') || '').trim();
   return raw || '講員資料改為在內容表「崇拜程序」填寫，請聯絡幹事。';
 }
 
@@ -795,13 +795,13 @@ function applySpeakerFormAnswer_(answer, todayIso) {
     return { result: 'SKIPPED_PAST', published: false, special: '', detail: '主日 ' + isoDate + ' 已經過去（今日是 ' + todayIso + '），沒有寫進週報。' };
   }
 
-  var weekRow = findBulletinWeekRow_(readSheet(SHEETS.BULLETIN_WEEKS), isoDate);
+  var weekRow = findBulletinWeekRow_(readSheet_(SHEETS.BULLETIN_WEEKS), isoDate);
   if (!weekRow) {
     return { result: 'NO_WEEK', published: false, special: '', detail: 'BulletinWeeks 沒有 ' + isoDate + ' 這一行。請先用「建立本季週報」建好。' };
   }
 
   var special = String(weekRow.SPECIAL_TYPE || '').trim();
-  var published = filterPublishedRowsForDate_(readSheet(SHEETS.PUBLISH_LOG), isoDate).length > 0;
+  var published = filterPublishedRowsForDate_(readSheet_(SHEETS.PUBLISH_LOG), isoDate).length > 0;
   var quarterId = String(weekRow.QUARTER_ID || '').trim();
 
   var fields = [
@@ -873,7 +873,7 @@ function applySpeakerFormAnswer_(answer, todayIso) {
     }
     detail = writtenText + '已寫進內容表「' + tabName + '」分頁第 ' + upsert.rowNo + ' 行'
       + (upsert.created ? '（新增一行）' : '') + '，並已匯入週報。';
-    var after = findBulletinWeekRow_(readSheet(SHEETS.BULLETIN_WEEKS), isoDate) || {};
+    var after = findBulletinWeekRow_(readSheet_(SHEETS.BULLETIN_WEEKS), isoDate) || {};
     refreshFillSnapshotAfterSave_(isoDate, changes.map(function (f) { return { field: f.key, newValue: after[f.key] }; }));
   } else {
     changes.forEach(function (f) {
@@ -921,9 +921,9 @@ function speakerFormContentTabName_() {
  *   {{sent:boolean, reason:string, dryRun:boolean, recipientCount:number}}
  */
 function notifySpeakerFormAnswer_(answer, outcome) {
-  var dryRun = normalizeBoolean_(getConfig(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
+  var dryRun = normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
   var groups = getConfigTextList_(CONFIG_KEYS.SPEAKER_FORM_NOTIFY_GROUPS, 'ADMIN');
-  var recipients = buildRecipientList_(readSheet(SHEETS.RECIPIENTS), groups, new Date()).recipients;
+  var recipients = buildRecipientList_(readSheet_(SHEETS.RECIPIENTS), groups, new Date()).recipients;
   if (recipients.length === 0) {
     return { sent: false, reason: 'NO_RECIPIENTS', dryRun: dryRun, recipientCount: 0 };
   }
@@ -944,11 +944,11 @@ function notifySpeakerFormAnswer_(answer, outcome) {
   }
 
   var notice = buildSpeakerFormNotice_({
-    churchName: getConfig(CONFIG_KEYS.CHURCH_NAME, ''),
-    subjectPattern: getConfig(CONFIG_KEYS.SPEAKER_FORM_NOTIFY_SUBJECT, ''),
+    churchName: getConfig_(CONFIG_KEYS.CHURCH_NAME, ''),
+    subjectPattern: getConfig_(CONFIG_KEYS.SPEAKER_FORM_NOTIFY_SUBJECT, ''),
     answer: answer, resultCode: outcome.result, resultDetail: outcome.detail,
     special: outcome.special, mismatchText: mismatchText, published: outcome.published,
-    webAppUrl: String(getConfig(CONFIG_KEYS.WEBAPP_URL, '') || '').trim()
+    webAppUrl: String(getConfig_(CONFIG_KEYS.WEBAPP_URL, '') || '').trim()
   });
 
   var sendLogRows = [];

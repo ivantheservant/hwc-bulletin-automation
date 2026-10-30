@@ -326,7 +326,7 @@ console.log('\n第 3 組：I03');
 function makeI03Env() {
   const env = makeEnv({});
   env.sandbox.createBlankBulletinWeeks_(SANDBOX_QUARTER);
-  const rows = env.sandbox.readSheet(env.sandbox.SHEETS.BULLETIN_WEEKS);
+  const rows = env.sandbox.readSheet_(env.sandbox.SHEETS.BULLETIN_WEEKS);
   const iso = env.sandbox.formatIsoDate_(rows[0].SERVICE_DATE);
   return { env: env, ctx: { quarterId: SANDBOX_QUARTER, isoDate: iso }, rowCount: rows.length };
 }
@@ -460,7 +460,7 @@ test('清理靠 IS_SELFTEST，不是靠日期——換過沙盒季度也清得�
 
   env.sandbox.resetSelfTestSandbox_(config);
 
-  const left = env.sandbox.readSheet(env.sandbox.SHEETS.PUBLISH_LOG);
+  const left = env.sandbox.readSheet_(env.sandbox.SHEETS.PUBLISH_LOG);
   assert.strictEqual(left.length, 1, '只應該剩下正式那一行，實際 ' + left.length);
   assert.strictEqual(left[0].IS_SELFTEST, false, '剩下的必須是正式那一行');
   assert.strictEqual(String(left[0].CONTENT_MD5), 'bbb');
@@ -476,7 +476,7 @@ test('清理不會碰正式發佈的紀錄（就算日期落在沙盒季度之�
     ]
   });
   env.sandbox.resetSelfTestSandbox_(env.sandbox.selfTestConfig_());
-  const left = env.sandbox.readSheet(env.sandbox.SHEETS.PUBLISH_LOG);
+  const left = env.sandbox.readSheet_(env.sandbox.SHEETS.PUBLISH_LOG);
   assert.strictEqual(left.length, 1, '正式紀錄一行都不可以被刪');
   assert.strictEqual(String(left[0].CONTENT_MD5), 'ccc');
 });
@@ -514,7 +514,7 @@ test('初始化：值仍然是系統種下的舊預設值 → 自動更新為 20
   assert.strictEqual(r.upgrades[0].key, 'SELFTEST_QUARTER_ID');
   assert.strictEqual(r.upgrades[0].from, '2030T2');
   assert.strictEqual(r.upgrades[0].to, '2030T1');
-  assert.strictEqual(env.sandbox.getConfig('SELFTEST_QUARTER_ID', ''), '2030T1');
+  assert.strictEqual(env.sandbox.getConfig_('SELFTEST_QUARTER_ID', ''), '2030T1');
   // 對話框要逐條列出「更新了哪個鍵、由什麼變成什麼」。
   assert.strictEqual(r.lines.length, 1);
   assert.ok(r.lines[0].indexOf('2030T2') !== -1 && r.lines[0].indexOf('2030T1') !== -1, r.lines[0]);
@@ -524,7 +524,7 @@ test('初始化：更早那一個舊預設值 2028T4 一樣更新得到', functi
   const env = makeEnv({ config: { SELFTEST_QUARTER_ID: '2028T4' } });
   const r = env.sandbox.upgradeSystemSeededDefaults_();
   assert.strictEqual(r.upgrades.length, 1, JSON.stringify(r.skipped));
-  assert.strictEqual(env.sandbox.getConfig('SELFTEST_QUARTER_ID', ''), '2030T1');
+  assert.strictEqual(env.sandbox.getConfig_('SELFTEST_QUARTER_ID', ''), '2030T1');
 });
 
 test('初始化：使用者自己揀的值一律不動', function () {
@@ -532,7 +532,7 @@ test('初始化：使用者自己揀的值一律不動', function () {
   const env = makeEnv({ config: { SELFTEST_QUARTER_ID: '2029T3' } });
   const r = env.sandbox.upgradeSystemSeededDefaults_();
   assert.strictEqual(r.upgrades.length, 0);
-  assert.strictEqual(env.sandbox.getConfig('SELFTEST_QUARTER_ID', ''), '2029T3');
+  assert.strictEqual(env.sandbox.getConfig_('SELFTEST_QUARTER_ID', ''), '2029T3');
   assert.strictEqual(r.skipped.length, 1);
   assert.ok(r.skipped[0].reason.indexOf('2029T3') !== -1, '要講明為什麼沒有動：' + r.skipped[0].reason);
 });
@@ -541,7 +541,7 @@ test('初始化：已經是新預設值 → 不會重複寫入', function () {
   const env = makeEnv({ config: { SELFTEST_QUARTER_ID: '2030T1' } });
   const r = env.sandbox.upgradeSystemSeededDefaults_();
   assert.strictEqual(r.upgrades.length, 0);
-  const audit = env.sandbox.readSheet(env.sandbox.SHEETS.AUDIT_LOG)
+  const audit = env.sandbox.readSheet_(env.sandbox.SHEETS.AUDIT_LOG)
     .filter(function (a) { return String(a.ACTION) === 'CONFIG_UPGRADE_DEFAULT'; });
   assert.strictEqual(audit.length, 0, '沒有改動就不應該寫 AuditLog');
 });

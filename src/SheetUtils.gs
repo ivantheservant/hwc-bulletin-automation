@@ -2,13 +2,13 @@
  * SheetUtils.gs
  *
  * 工作表存取的共用工具：確保工作表存在（ensureSheet_）、通用讀取
- * （readSheet）、通用附加寫入（writeSheet），型別正規化層
+ * （readSheet_）、通用附加寫入（writeSheet_），型別正規化層
  * （normalizeBoolean_／normalizeText_／normalizeDate_／normalizeInt_），
  * 以及防止字串被 Sheets 當成公式求值的 sanitizeCellText_()。
  *
  * 型別正規化層存在的原因：Google Sheets 會自動把 `TRUE`／`FALSE` 正規化成
  * boolean、把日期形狀的字串正規化成 Date 物件，如果不處理，「本來想要字串
- * 卻拿到 Date」這類狀況會被靜靜當成正常值往下傳。readSheet() 內部一律呼叫
+ * 卻拿到 Date」這類狀況會被靜靜當成正常值往下傳。readSheet_() 內部一律呼叫
  * 這四個函式，缺失或型別不符一律明確拋錯。
  */
 
@@ -17,7 +17,7 @@
 // =====================================================================
 // 型別警告收集——normalizeText_() 偵測到「文字欄位拿到 Date 物件」時，
 // 不會拋錯（因為已經自動轉回文字、資料沒有遺失），但會記一筆警告在這裡，
-// 由呼叫方（例如 Bootstrap.gs 的 initializeAllSheets()）決定何時、以什麼
+// 由呼叫方（例如 Bootstrap.gs 的 initializeAllSheets_()）決定何時、以什麼
 // 形式（通常是 writeDiagnosticsReport_()）呈現出來。
 // =====================================================================
 
@@ -165,7 +165,7 @@ function normalizeInt_(v) {
 
 /**
  * 用途：依 COLUMN_TYPES 的型別名稱，分派到對應的 normalize*_() 函式。
- *   readSheet() 內部用這個函式逐欄正規化。
+ *   readSheet_() 內部用這個函式逐欄正規化。
  * Args:
  *   type {string} COLUMN_TYPES 的其中一個值。
  *   raw {*} 儲存格原始值。
@@ -208,7 +208,7 @@ function normalizeByType_(type, raw, context) {
  *   `setValues()`／`setValue()` 跟使用者在儲存格介面手動打字不一樣，
  *   沒有「這一欄是純文字格式」這道防線可以攔（`textFormatColumns` 只保護
  *   固定的欄，Diagnostics／AuditLog 這類每次內容都不一樣的欄位沒辦法
- *   預先鎖死格式）——凡是**系統自己組出來、經 `writeSheet()` 整批寫入**
+ *   預先鎖死格式）——凡是**系統自己組出來、經 `writeSheet_()` 整批寫入**
  *   的文字，尤其是 `Diagnostics`／`AuditLog`／`SendLog`（見
  *   docs/已知bug類型.md 事故六），一律要在寫入前經過這個函式。
  * Args:
@@ -318,30 +318,30 @@ function ensureSheet_(ss, sheetId) {
  *   Error 如果工作表不存在，或第 2 行機器鍵與 COLUMNS 定義不符（代表工作表
  *     結構跑位，必須先重新執行「初始化工作表」），或任何一格的值無法正規化。
  */
-function readSheet(sheetName) {
+function readSheet_(sheetName) {
   var sheetId = SHEET_ID_BY_NAME[sheetName];
   if (!sheetId) {
-    throw new Error('readSheet：未知的工作表名稱「' + sheetName + '」。');
+    throw new Error('readSheet_：未知的工作表名稱「' + sheetName + '」。');
   }
   var def = COLUMNS[sheetId];
 
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName(sheetName);
   if (!sheet) {
-    throw new Error('readSheet：找不到工作表「' + sheetName + '」，請先執行「初始化工作表」。');
+    throw new Error('readSheet_：找不到工作表「' + sheetName + '」，請先執行「初始化工作表」。');
   }
 
   var lastRow = sheet.getLastRow();
   var colCount = def.keys.length;
   if (lastRow < 2) {
-    throw new Error('readSheet：工作表「' + sheetName + '」連標題都不完整，請先執行「初始化工作表」。');
+    throw new Error('readSheet_：工作表「' + sheetName + '」連標題都不完整，請先執行「初始化工作表」。');
   }
 
   var actualKeys = sheet.getRange(2, 1, 1, colCount).getValues()[0];
   for (var i = 0; i < def.keys.length; i++) {
     if (String(actualKeys[i]).trim() !== def.keys[i]) {
       throw new Error(
-        'readSheet：工作表「' + sheetName + '」第 2 行機器鍵與程式定義不符（第 ' + (i + 1)
+        'readSheet_：工作表「' + sheetName + '」第 2 行機器鍵與程式定義不符（第 ' + (i + 1)
         + ' 欄，預期「' + def.keys[i] + '」，實際讀到「' + actualKeys[i] + '」）。'
         + '請先執行「初始化工作表」，如果仍然不符，代表工作表結構被人手改動過。'
       );
@@ -368,7 +368,7 @@ function readSheet(sheetName) {
         obj[key] = normalizeByType_(type, raw, context);
       } catch (err) {
         throw new Error(
-          'readSheet：工作表「' + sheetName + '」第 ' + (r + 3) + ' 行、欄位「' + key
+          'readSheet_：工作表「' + sheetName + '」第 ' + (r + 3) + ' 行、欄位「' + key
           + '」的值無法正規化：' + err.message
         );
       }
@@ -393,26 +393,26 @@ function readSheet(sheetName) {
  *   Error 如果工作表不存在，或 rows 內含 COLUMNS 定義以外的機器鍵
  *     （代表呼叫方拼錯欄位名稱，寧可拋錯也不要靜靜寫進錯的欄）。
  */
-function writeSheet(sheetName, rows) {
+function writeSheet_(sheetName, rows) {
   if (!rows || rows.length === 0) return 0;
 
   var sheetId = SHEET_ID_BY_NAME[sheetName];
   if (!sheetId) {
-    throw new Error('writeSheet：未知的工作表名稱「' + sheetName + '」。');
+    throw new Error('writeSheet_：未知的工作表名稱「' + sheetName + '」。');
   }
   var def = COLUMNS[sheetId];
 
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName(sheetName);
   if (!sheet) {
-    throw new Error('writeSheet：找不到工作表「' + sheetName + '」，請先執行「初始化工作表」。');
+    throw new Error('writeSheet_：找不到工作表「' + sheetName + '」，請先執行「初始化工作表」。');
   }
 
   var values = rows.map(function (rowObj) {
     var unknownKeys = Object.keys(rowObj).filter(function (k) { return def.keys.indexOf(k) === -1; });
     if (unknownKeys.length > 0) {
       throw new Error(
-        'writeSheet：工作表「' + sheetName + '」不認識的機器鍵：' + unknownKeys.join('、')
+        'writeSheet_：工作表「' + sheetName + '」不認識的機器鍵：' + unknownKeys.join('、')
       );
     }
     return def.keys.map(function (key) {

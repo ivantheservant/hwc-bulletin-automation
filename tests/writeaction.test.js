@@ -663,8 +663,8 @@ test('G13-11 後端（真正入口 apiSaveWeek）：同一份儲存 payload 送�
 
   const first = sb.apiSaveWeek(JSON.parse(JSON.stringify(payload)));
   assert.strictEqual(first.ok, true, JSON.stringify(first.error));
-  const auditAfterFirst = sb.readSheet('AuditLog').length;
-  const weekAfterFirst = JSON.stringify(sb.readSheet('BulletinWeeks'));
+  const auditAfterFirst = sb.readSheet_('AuditLog').length;
+  const weekAfterFirst = JSON.stringify(sb.readSheet_('BulletinWeeks'));
 
   // 前端收到 502、表單保留、幹事再按一次「儲存」：送出的是同一份 payload。
   const second = sb.apiSaveWeek(JSON.parse(JSON.stringify(payload)));
@@ -672,8 +672,8 @@ test('G13-11 後端（真正入口 apiSaveWeek）：同一份儲存 payload 送�
   assert.strictEqual(second.error.code, 'STALE');
   assert.ok(second.error.message.indexOf('這一週的資料在你載入之後被改過') === 0, second.error.message);
   assert.ok(EXPECTED_SAVE_MESSAGE.indexOf('「這一週的資料在你載入之後被改過」') !== -1, '前端那一句引用的字眼要與伺服器的一致');
-  assert.strictEqual(sb.readSheet('AuditLog').length, auditAfterFirst, '第二次一格都沒有寫');
-  assert.strictEqual(JSON.stringify(sb.readSheet('BulletinWeeks')), weekAfterFirst);
+  assert.strictEqual(sb.readSheet_('AuditLog').length, auditAfterFirst, '第二次一格都沒有寫');
+  assert.strictEqual(JSON.stringify(sb.readSheet_('BulletinWeeks')), weekAfterFirst);
 });
 
 // =====================================================================
@@ -709,8 +709,8 @@ function saveWithSecondDuringFirst(env) {
   sb.trySnapshotWeek_ = function () {
     if (!seen.started) {
       seen.started = true;
-      seen.lastSavedAtAtThatMoment = sb.readSheet('BulletinWeeks')[0].LAST_SAVED_AT;
-      seen.preludeAtThatMoment = sb.readSheet('BulletinWeeks')[0].PAGE_TITLE;
+      seen.lastSavedAtAtThatMoment = sb.readSheet_('BulletinWeeks')[0].LAST_SAVED_AT;
+      seen.preludeAtThatMoment = sb.readSheet_('BulletinWeeks')[0].PAGE_TITLE;
       // D12：第二次儲存是另一次執行（另一個 google.script.run），模組層的鎖計數是它自己的一份。
       seen.second = asOtherExecution(sb, function () { return sb.apiSaveWeek(JSON.parse(JSON.stringify(env.payload))); });
     }
@@ -737,7 +737,7 @@ function asOtherExecution(sb, fn) {
 }
 
 function auditOf(sb, action) {
-  return sb.readSheet('AuditLog').filter(function (r) { return r.ACTION === action; });
+  return sb.readSheet_('AuditLog').filter(function (r) { return r.ACTION === action; });
 }
 
 test('G23-1 第一次儲存拿着鎖、未寫 LAST_SAVED_AT 時第二次儲存到達 → 第二次拿不到鎖，回清楚的一句，一格都沒有寫；第一次照常完成', function () {
@@ -752,7 +752,7 @@ test('G23-1 第一次儲存拿着鎖、未寫 LAST_SAVED_AT 時第二次儲存�
     '另一個寫入動作（例如另一次儲存、匯入或發佈）正在執行中，30 秒內等不到，所以這一次一格都沒有寫。你的改動仍在畫面上，請稍等再按「儲存」。');
   assert.strictEqual(auditOf(env.sb, 'WEBAPP_SAVE_WEEK').length, 1, 'AuditLog 只有第一次那一筆');
   assert.strictEqual(auditOf(env.sb, 'WEEK_SNAPSHOT_CREATE').length, 1, '版本只存了一個');
-  assert.strictEqual(env.sb.readSheet('BulletinWeeks')[0].PAGE_TITLE, '新序樂');
+  assert.strictEqual(env.sb.readSheet_('BulletinWeeks')[0].PAGE_TITLE, '新序樂');
   assert.strictEqual(env.sb.LockService.held(), false, '第一次完成之後放鎖');
   assertWrittenChinese(assert, 'G23 拿不到鎖', [seen.second.error.message]);
 });
@@ -761,11 +761,11 @@ test('G23-2 第二次等到鎖（第一次已經寫完）→ 回 STALE，一格�
   const env = makeSaveEnv();
   const first = env.sb.apiSaveWeek(JSON.parse(JSON.stringify(env.payload)));
   assert.strictEqual(first.ok, true);
-  const auditAfterFirst = env.sb.readSheet('AuditLog').length;
+  const auditAfterFirst = env.sb.readSheet_('AuditLog').length;
   const second = env.sb.apiSaveWeek(JSON.parse(JSON.stringify(env.payload)));
   assert.strictEqual(second.ok, false);
   assert.strictEqual(second.error.code, 'STALE');
-  assert.strictEqual(env.sb.readSheet('AuditLog').length, auditAfterFirst);
+  assert.strictEqual(env.sb.readSheet_('AuditLog').length, auditAfterFirst);
   assert.strictEqual(env.sb.LockService.held(), false, 'STALE（鎖之內拋錯）之後一樣放鎖');
   // 放了鎖，之後正常的儲存照樣做得到。
   const loaded = env.sb.loadWeekForWebApp_(env.iso);
@@ -836,7 +836,7 @@ test('G23b-3 複審：flush 拋錯 → 主結果不變（真正入口 apiSaveWee
   assert.strictEqual(resp.ok, true, JSON.stringify(resp.error));
   assert.strictEqual(resp.data.message.text, '已儲存，更新了 1 個欄位。', '主結果照原樣');
   assert.strictEqual(env.sb.LockService.held(), false, '鎖已放');
-  const errors = env.sb.readSheet('ErrorLog').filter(function (r) { return r.ERROR_CODE === 'FLUSH_FAILED'; });
+  const errors = env.sb.readSheet_('ErrorLog').filter(function (r) { return r.ERROR_CODE === 'FLUSH_FAILED'; });
   assert.strictEqual(errors.length, 1);
   assert.strictEqual(errors[0].FUNCTION_NAME, 'flushAndReleaseLock_');
   assert.ok(errors[0].MESSAGE.indexOf('Service Spreadsheets failed') !== -1, errors[0].MESSAGE);
@@ -965,7 +965,7 @@ function makeOverriddenChairEnv() {
 }
 
 function chairOverride(sb) {
-  return sb.readSheet('DutyOverride').filter(function (r) { return r.POST_ID === 'CHAIR'; })[0];
+  return sb.readSheet_('DutyOverride').filter(function (r) { return r.POST_ID === 'CHAIR'; })[0];
 }
 
 test('G28-1 真正入口：分頁甲載入 → 分頁乙「由職事表重新取數」停用主席的覆寫 → 分頁甲按「儲存」（事奉框仍是舊的覆寫名字）→ STALE，覆寫沒有復活', function () {
@@ -978,7 +978,7 @@ test('G28-1 真正入口：分頁甲載入 → 分頁乙「由職事表重新取
   assert.strictEqual(fetched.ok, true, JSON.stringify(fetched.error));
   assert.strictEqual(fetched.data.clearedCount, 1);
   assert.strictEqual(chairOverride(sb).ACTIVE, false);
-  assert.notStrictEqual(sb.canonicalSaveToken_(sb.readSheet('BulletinWeeks')[0].LAST_SAVED_AT), tabA.lastSavedAt,
+  assert.notStrictEqual(sb.canonicalSaveToken_(sb.readSheet_('BulletinWeeks')[0].LAST_SAVED_AT), tabA.lastSavedAt,
     '由職事表重新取數要更新最後儲存時間');
 
   // 分頁甲只改了序樂。D9 之後前端只送改過的格，主席那一格不送；以前整批送（主席仍是載入時的「李小明」）
@@ -995,16 +995,16 @@ test('G28-2 由職事表重新取數一格都沒有停用（勾選的格本來�
   const env = makeOverriddenChairEnv();
   const sb = env.sb;
   sb.apiFetchFromRoster(env.iso, [{ postId: 'CHAIR', slotIndex: 1 }]);
-  const before = sb.readSheet('BulletinWeeks')[0].LAST_SAVED_AT;
+  const before = sb.readSheet_('BulletinWeeks')[0].LAST_SAVED_AT;
   const rowNo = sb.readBulletinWeekRowWithRowNo_(env.iso).__rowNo;
   sb.SpreadsheetApp.getActiveSpreadsheet().getSheetByName('BulletinWeeks')
     .getRange(rowNo, sb.COLUMNS.BULLETIN_WEEKS.keys.indexOf('LAST_SAVED_AT') + 1).setValue('2026-10-02');
   // 撥回之後先讀一次作對照：假工作表把日期字串存成本機時區零時，直接與字串比較會受時區影響。
-  const rewound = sb.canonicalSaveToken_(sb.readSheet('BulletinWeeks')[0].LAST_SAVED_AT);
+  const rewound = sb.canonicalSaveToken_(sb.readSheet_('BulletinWeeks')[0].LAST_SAVED_AT);
   const again = sb.apiFetchFromRoster(env.iso, [{ postId: 'CHAIR', slotIndex: 1 }]);
   assert.strictEqual(again.data.clearedCount, 0);
   assert.ok(before, '前提：第一次有寫');
-  assert.strictEqual(sb.canonicalSaveToken_(sb.readSheet('BulletinWeeks')[0].LAST_SAVED_AT), rewound, '沒有停用就不動');
+  assert.strictEqual(sb.canonicalSaveToken_(sb.readSheet_('BulletinWeeks')[0].LAST_SAVED_AT), rewound, '沒有停用就不動');
 });
 
 /**
@@ -1039,7 +1039,7 @@ function saveFromStaleTab(env, iso, chairName, nextChairName) {
 }
 
 function activeChairOn(sb, iso) {
-  const row = sb.readSheet('DutyOverride').filter(function (r) {
+  const row = sb.readSheet_('DutyOverride').filter(function (r) {
     return r.POST_ID === 'CHAIR' && sb.formatIsoDate_(sb.normalizeDate_(r.SERVICE_DATE)) === iso;
   })[0];
   return row && row.ACTIVE === true ? row.OVERRIDE_NAME : null;
@@ -1188,7 +1188,7 @@ console.log('\n還原、重設、由職事表重新取數拿同一把鎖（D13�
 function wholeBook(sb) {
   const out = {};
   Object.keys(sb.SHEETS).forEach(function (id) {
-    try { out[id] = sb.readSheet(sb.SHEETS[id]); } catch (err) { out[id] = 'ERR'; }
+    try { out[id] = sb.readSheet_(sb.SHEETS[id]); } catch (err) { out[id] = 'ERR'; }
   });
   return JSON.stringify(out);
 }
@@ -1286,12 +1286,12 @@ test('D13-4 真的同一刻：儲存拿着鎖、正要寫入時，另一次執�
   assert.strictEqual(seen.reset.error.code, 'LOCK_TIMEOUT');
   assert.strictEqual(seen.resetVersions, 0, '重設連安全版本都沒有存');
   assert.strictEqual(auditOf(sb, 'WEEK_RESET').length, 0);
-  assert.strictEqual(sb.readSheet('BulletinWeeks')[0].PAGE_TITLE, '新序樂', '儲存照常完成');
+  assert.strictEqual(sb.readSheet_('BulletinWeeks')[0].PAGE_TITLE, '新序樂', '儲存照常完成');
   assert.strictEqual(sb.LockService.held(), false);
   const later = sb.apiResetWeek({ isoDate: env.iso });
   assert.strictEqual(later.ok, true, JSON.stringify(later.error));
   // v3：重設把大標題改回 Config 的 DEFAULT_PAGE_TITLE（沒有填就是「崇拜程序」）。
-  assert.strictEqual(sb.readSheet('BulletinWeeks')[0].PAGE_TITLE, '崇拜程序');
+  assert.strictEqual(sb.readSheet_('BulletinWeeks')[0].PAGE_TITLE, '崇拜程序');
 });
 
 test('D13-5 還原、重設、由職事表重新取數成功時各拿一次鎖、放一次鎖（經 withScriptLock_()，flush 之後才放）', function () {

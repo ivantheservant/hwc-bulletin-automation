@@ -42,7 +42,7 @@ function appendAuditLog_(entry) {
     }
   }
 
-  writeSheet(SHEETS.AUDIT_LOG, [{
+  writeSheet_(SHEETS.AUDIT_LOG, [{
     TIMESTAMP: new Date(),
     ACTOR: sanitizeCellText_(actor),
     ACTION: sanitizeCellText_(entry.action),

@@ -6,7 +6,7 @@
  * 下去」的測試使用（tests/rostersnapshot.test.js、tests/configcache.test.js）。
  * 支援讀取（getValues）與 ensureSheet_() 會用到的少數幾個寫入方法
  * （setValues／setFontWeight／setBackground／setNumberFormat／
- * setFrozenRows），足夠讓 getConfig() 的 loadConfigCache_() 冷啟動路徑
+ * setFrozenRows），足夠讓 getConfig_() 的 loadConfigCache_() 冷啟動路徑
  * （會先呼叫 ensureSheet_(ss,'CONFIG') 確保標題正確）正常運作。
  */
 
@@ -222,7 +222,7 @@ function makeFakeSheet(headers, keys, rowObjects, options) {
           return this;
         },
         // 真正的 Range 除了 getValues/setValues 也有單格的 getValue/setValue，
-        // 而且 ConfigService.setConfig() 與 BulletinModel 的範本寫回都在用。
+        // 而且 ConfigService.setConfig_() 與 BulletinModel 的範本寫回都在用。
         // 假物件缺了它們的話，那些程式碼會在 try/catch 內悄悄失敗，測試表面
         // 上還是「通過」——所以這裡一併補齊。
         getValue: function () {

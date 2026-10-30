@@ -1,7 +1,7 @@
 /**
  * Bootstrap.gs
  *
- * 週報系統的初始化入口：initializeAllSheets() 建立 SHEETS 定義的全部工作表與標題、
+ * 週報系統的初始化入口：initializeAllSheets_() 建立 SHEETS 定義的全部工作表與標題、
  * 補回 Config 預設值，並 seed PostDisplay／MergeGroups／ProgramTemplates／
  * EmailTemplates 的固定資料。整個檔案冪等：重複執行不會清空既有資料，
  * 也不會重覆新增 seed 資料。
@@ -29,7 +29,7 @@
  *   Error 如果任何一步失敗（例如試算表被鎖定），錯誤會原樣往上拋，由呼叫方
  *     （menuInitializeAllSheets_()）決定如何呈現給使用者。
  */
-function initializeAllSheets() {
+function initializeAllSheets_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheetIds = Object.keys(SHEETS);
   // 第二批測試修正 G8：記下這一次才新建的工作表，之後只對它們即時設定保護。
@@ -123,7 +123,7 @@ function upgradeSystemSeededDefaults_() {
   CONFIG_UPGRADABLE_DEFAULTS_.forEach(function (rule) {
     var key = rule.key;
     var target = defaultConfigValueFor_(key);
-    var current = String(getConfig(key, '') || '').trim();
+    var current = String(getConfig_(key, '') || '').trim();
 
     if (!target) {
       skipped.push({ key: key, current: current, reason: 'DEFAULTS 沒有這一個鍵的預設值。' });
@@ -145,7 +145,7 @@ function upgradeSystemSeededDefaults_() {
       return;
     }
 
-    setConfig(key, target, '初始化工作表：更新系統種下的過時預設值');
+    setConfig_(key, target, '初始化工作表：更新系統種下的過時預設值');
     appendAuditLog_({
       action: 'CONFIG_UPGRADE_DEFAULT', sheetName: SHEETS.CONFIG,
       rowKey: key, field: 'VALUE', oldValue: current, newValue: target,
@@ -264,7 +264,7 @@ function writeReadmeContent_(ss) {
   if (sheet.getLastRow() >= 3) return 0;
 
   var rows = readmeContentLines_().map(function (line) { return { TEXT: line }; });
-  writeSheet(SHEETS.README, rows);
+  writeSheet_(SHEETS.README, rows);
   return rows.length;
 }
 
@@ -317,10 +317,10 @@ function readmeContentLines_() {
 }
 
 /**
- * 用途：把本次 initializeAllSheets() 的執行摘要，連同 readSheet() 累積的
+ * 用途：把本次 initializeAllSheets_() 的執行摘要，連同 readSheet_() 累積的
  *   型別警告（例如某個文字欄位被 Sheets 誤判成日期），寫入 Diagnostics。
  * Args:
- *   summary {Object} initializeAllSheets() 組出的摘要物件。
+ *   summary {Object} initializeAllSheets_() 組出的摘要物件。
  * Returns:
  *   {void}
  * Raises:
@@ -420,7 +420,7 @@ function backfillPublishLogMasterFileId_() {
   var selfTestCol = def.keys.indexOf('IS_SELFTEST') + 1;
   if (masterCol <= 0 || selfTestCol <= 0) return out;
 
-  var masterFileId = String(getConfig(CONFIG_KEYS.PUBLISHED_PDF_FILE_ID, '') || '').trim();
+  var masterFileId = String(getConfig_(CONFIG_KEYS.PUBLISHED_PDF_FILE_ID, '') || '').trim();
   out.masterFileId = masterFileId;
 
   var numRows = lastRow - 2;
@@ -493,7 +493,7 @@ function backfillPublishLogContentFingerprint_() {
   var sheet = ss.getSheetByName(SHEETS.PUBLISH_LOG);
   if (!sheet) return out;
 
-  var rows = readSheet(SHEETS.PUBLISH_LOG);
+  var rows = readSheet_(SHEETS.PUBLISH_LOG);
   if (rows.length === 0) return out;
 
   var def = COLUMNS.PUBLISH_LOG;
@@ -606,7 +606,7 @@ function seedFellowshipDefaults_() {
 /**
  * 用途：通用的「補齊缺少的 seed 行」邏輯。用一個或多個機器鍵組成唯一識別，
  *   只新增工作表目前沒有的組合；已存在的一律不覆蓋、不重覆新增，確保
- *   initializeAllSheets() 可以重複執行而不會產生重複資料。
+ *   initializeAllSheets_() 可以重複執行而不會產生重複資料。
  * Args:
  *   sheetName {string} 工作表名稱。
  *   uniqueKey {(string|string[])} 用來判斷「是否已存在」的機器鍵，可以是
@@ -617,7 +617,7 @@ function seedFellowshipDefaults_() {
  */
 function seedMissingRows_(sheetName, uniqueKey, seedRows) {
   var keyFields = Array.isArray(uniqueKey) ? uniqueKey : [uniqueKey];
-  var existing = readSheet(sheetName);
+  var existing = readSheet_(sheetName);
 
   var existingCompositeKeys = {};
   existing.forEach(function (row) {
@@ -629,7 +629,7 @@ function seedMissingRows_(sheetName, uniqueKey, seedRows) {
   });
   if (missing.length === 0) return 0;
 
-  writeSheet(sheetName, missing);
+  writeSheet_(sheetName, missing);
   return missing.length;
 }
 

@@ -154,7 +154,7 @@ function runQuarterRehearsal_(quarterId) {
   runRehearsalStep_('7. 統計待填欄位／尊稱未設定人數', function () {
     if (!firstIsoDate) return;
     var quarterInfo = listRosterQuarterAssignedPersons_(firstIsoDate);
-    var personDisplayRows = readSheet(SHEETS.PERSON_DISPLAY);
+    var personDisplayRows = readSheet_(SHEETS.PERSON_DISPLAY);
     honorificMissingCount = buildHonorificMissingList_(quarterInfo.persons, personDisplayRows).length;
   }, timings, failedSteps);
 

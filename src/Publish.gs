@@ -123,7 +123,7 @@ function setPublishMasterFileIdOverride_(fileId) {
  */
 function effectivePublishMasterFileId_() {
   if (PUBLISH_MASTER_FILE_ID_OVERRIDE_) return PUBLISH_MASTER_FILE_ID_OVERRIDE_;
-  return String(getConfig(CONFIG_KEYS.PUBLISHED_PDF_FILE_ID, '') || '').trim();
+  return String(getConfig_(CONFIG_KEYS.PUBLISHED_PDF_FILE_ID, '') || '').trim();
 }
 
 /**
@@ -156,24 +156,24 @@ function setPublishWindowBypass_(on) {
  *   （D11，Config `SEND_ONLY_DEDUP_SEC`，預設 600）。兩個讀不到或是負數都退回各自的預設值。
  */
 function publishConfig_() {
-  var maxMb = normalizeInt_(getConfig(CONFIG_KEYS.PUBLISH_MAX_PDF_MB, '10'));
-  var dedupSec = normalizeInt_(getConfig(CONFIG_KEYS.PUBLISH_DEDUP_SEC, '30'));
-  var sendOnlyDedupSec = normalizeInt_(getConfig(CONFIG_KEYS.SEND_ONLY_DEDUP_SEC, '600'));
+  var maxMb = normalizeInt_(getConfig_(CONFIG_KEYS.PUBLISH_MAX_PDF_MB, '10'));
+  var dedupSec = normalizeInt_(getConfig_(CONFIG_KEYS.PUBLISH_DEDUP_SEC, '30'));
+  var sendOnlyDedupSec = normalizeInt_(getConfig_(CONFIG_KEYS.SEND_ONLY_DEDUP_SEC, '600'));
   return {
     // ⚠️ 經 effectivePublishMasterFileId_()：自測機／亂行機用記憶體覆寫，
     //    不會碰 Config 那一格。理由見 PUBLISH_MASTER_FILE_ID_OVERRIDE_。
     masterFileId: effectivePublishMasterFileId_(),
-    masterFolderId: String(getConfig(CONFIG_KEYS.PUBLISHED_PDF_FOLDER_ID, '') || '').trim(),
-    masterFileName: getConfig(CONFIG_KEYS.PUBLISHED_PDF_NAME, '粵語堂週報（最新一期）.pdf'),
-    archiveFolderId: String(getConfig(CONFIG_KEYS.PUBLISHED_ARCHIVE_FOLDER_ID, '') || '').trim(),
+    masterFolderId: String(getConfig_(CONFIG_KEYS.PUBLISHED_PDF_FOLDER_ID, '') || '').trim(),
+    masterFileName: getConfig_(CONFIG_KEYS.PUBLISHED_PDF_NAME, '粵語堂週報（最新一期）.pdf'),
+    archiveFolderId: String(getConfig_(CONFIG_KEYS.PUBLISHED_ARCHIVE_FOLDER_ID, '') || '').trim(),
     sendGroups: getConfigTextList_(CONFIG_KEYS.PUBLISH_SEND_GROUPS, 'CC,DB,ADMIN'),
-    attachPdf: normalizeBoolean_(getConfig(CONFIG_KEYS.PUBLISH_ATTACH_PDF, 'TRUE')) === true,
+    attachPdf: normalizeBoolean_(getConfig_(CONFIG_KEYS.PUBLISH_ATTACH_PDF, 'TRUE')) === true,
     maxPdfMb: (maxMb === null || maxMb <= 0) ? 10 : maxMb,
     dedupSec: (dedupSec === null || dedupSec < 0) ? 30 : dedupSec,
     sendOnlyDedupSec: (sendOnlyDedupSec === null || sendOnlyDedupSec < 0) ? 600 : sendOnlyDedupSec,
-    timezone: getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland'),
-    dryRun: normalizeBoolean_(getConfig(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true,
-    churchName: getConfig(CONFIG_KEYS.CHURCH_NAME, '')
+    timezone: getConfig_(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland'),
+    dryRun: normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true,
+    churchName: getConfig_(CONFIG_KEYS.CHURCH_NAME, '')
   };
 }
 
@@ -332,7 +332,7 @@ function publishRowIsoDate_(row) {
  */
 function readOfficialPublishLogRows_() {
   try {
-    return readSheet(SHEETS.PUBLISH_LOG).filter(function (r) { return r.IS_SELFTEST !== true; });
+    return readSheet_(SHEETS.PUBLISH_LOG).filter(function (r) { return r.IS_SELFTEST !== true; });
   } catch (err) {
     return [];
   }
@@ -351,7 +351,7 @@ function readOfficialPublishLogRows_() {
  *   空白／取不到的 `IS_SELFTEST`（欄位加入之前寫的舊行）當成**正式**，
  *   與 `readOfficialPublishLogRows_()` 一致。
  * Args:
- *   rows {Object[]} `readSheet(SHEETS.PUBLISH_LOG)` 的輸出。
+ *   rows {Object[]} `readSheet_(SHEETS.PUBLISH_LOG)` 的輸出。
  *   isSelfTest {boolean} 要哪一類。
  * Returns:
  *   {Object[]}
@@ -368,7 +368,7 @@ function publishLogRowsOfKind_(rows, isSelfTest) {
  *   ⚠️ 刻意**唔用「行數 + 1」**：`PublishLog` 混住唔同主日嘅記錄，
  *   版本號係「呢個主日嘅第幾版」，唔係「整張表嘅第幾行」。
  * Args:
- *   rows {Object[]} `readSheet(SHEETS.PUBLISH_LOG)` 嘅輸出。
+ *   rows {Object[]} `readSheet_(SHEETS.PUBLISH_LOG)` 嘅輸出。
  *   isoDate {string} 主日日期，yyyy-MM-dd。
  * Returns:
  *   {number} 由 1 起。
@@ -393,7 +393,7 @@ function nextPublishVersion_(rows, isoDate) {
  *   ⚠️ 唔可以淨係取最後一行：人手插咗一行、或者補寫舊記錄，最後一行
  *   就唔係最新嗰次發佈，頂部狀態列會長期顯示錯嘅版本。
  * Args:
- *   rows {Object[]} `readSheet(SHEETS.PUBLISH_LOG)` 嘅輸出。
+ *   rows {Object[]} `readSheet_(SHEETS.PUBLISH_LOG)` 嘅輸出。
  * Returns:
  *   {?Object} 冇任何記錄回 `null`。
  */
@@ -436,7 +436,7 @@ function latestPublishLogRow_(rows) {
  *   讀 `PublishLog` 失敗時的例外原樣拋出。
  */
 function currentMasterPublishIssue_(masterFileId) {
-  var rows = readSheet(SHEETS.PUBLISH_LOG);
+  var rows = readSheet_(SHEETS.PUBLISH_LOG);
   var latest = latestPublishLogRow_(publishLogRowsOfKind_(rows, isSelfTestMasterFileId_(masterFileId)));
   if (!latest) return null;
 
@@ -632,11 +632,11 @@ function isWithinPublishWindow_(isoDate, todayIso) {
  *   （無）
  */
 function webAppTodayIso_() {
-  var raw = String(getConfig(CONFIG_KEYS.WEBAPP_SIMULATED_TODAY, '') || '').trim();
+  var raw = String(getConfig_(CONFIG_KEYS.WEBAPP_SIMULATED_TODAY, '') || '').trim();
   if (raw && isIsoDateShape_(raw) && isoDateToTime_(raw) !== null) {
     return { todayIso: raw, simulated: true, simulatedRaw: raw };
   }
-  var tz = getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland');
+  var tz = getConfig_(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland');
   return { todayIso: Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd'), simulated: false, simulatedRaw: raw };
 }
 
@@ -990,7 +990,7 @@ function resolvePublishRecipients_(groups, customText, selfEmail) {
   }
 
   var sheetGroups = selected.filter(function (g) { return g !== PUBLISH_GROUP_SELF_; });
-  var listed = buildRecipientList_(readSheet(SHEETS.RECIPIENTS), sheetGroups, null);
+  var listed = buildRecipientList_(readSheet_(SHEETS.RECIPIENTS), sheetGroups, null);
 
   var recipients = listed.recipients.slice();
   var seen = {};
@@ -1222,7 +1222,7 @@ function recordPublishStamp_(isoDate, versionNo, nowMs) {
 function isSelfTestMasterFileId_(masterFileId) {
   var fileId = String(masterFileId || '').trim();
   if (!fileId) return false;
-  var selfTestId = String(getConfig(CONFIG_KEYS.SELFTEST_MASTER_PDF_FILE_ID, '') || '').trim();
+  var selfTestId = String(getConfig_(CONFIG_KEYS.SELFTEST_MASTER_PDF_FILE_ID, '') || '').trim();
   if (!selfTestId) return false;
   return fileId === selfTestId;
 }
@@ -1311,7 +1311,7 @@ function executePublish_(isoDate, blob, options) {
   //    「正式」但版本號係喺自測堆入面數出嚟，事後冇人查得出。
   var isSelfTestRun = isSelfTestMasterFileId_(config.masterFileId);
   var versionNo = nextPublishVersion_(
-    publishLogRowsOfKind_(readSheet(SHEETS.PUBLISH_LOG), isSelfTestRun), isoDate);
+    publishLogRowsOfKind_(readSheet_(SHEETS.PUBLISH_LOG), isSelfTestRun), isoDate);
 
   // ---- 1. 覆寫 master（檔案 ID 不變）----
   try {
@@ -1357,7 +1357,7 @@ function executePublish_(isoDate, blob, options) {
   var publishedFingerprint = pdfFingerprint_(blob ? blob.getBytes() : []);
   var fingerprintParts = splitPdfFingerprint_(publishedFingerprint);
 
-  writeSheet(SHEETS.PUBLISH_LOG, [{
+  writeSheet_(SHEETS.PUBLISH_LOG, [{
     SERVICE_DATE: normalizeDate_(isoDate),
     VERSION_NO: versionNo,
     PUBLISHED_AT: new Date(),
@@ -1578,7 +1578,7 @@ function sendPublishNotice_(isoDate, options) {
  */
 function findPublishEmailTemplate_() {
   var fallback = seedPublishNoticeRow_();
-  var rows = readSheet(SHEETS.EMAIL_TEMPLATES) || [];
+  var rows = readSheet_(SHEETS.EMAIL_TEMPLATES) || [];
   for (var i = 0; i < rows.length; i++) {
     var row = rows[i];
     if (String(row.TEMPLATE_ID || '').trim() !== PUBLISH_TEMPLATE_ID_) continue;
@@ -1678,7 +1678,7 @@ function runPublishFlow_(payload) {
 
     // ⚠️ 「揀錯檔案」嘅防線（第 4 部分）。排喺呢度係刻意嘅：仲未動過
     // 任何嘢，可以乾淨咁拒絕。
-    var source = checkUploadedPdfIsNew_(bytes, config, readSheet(SHEETS.PUBLISH_LOG).length > 0);
+    var source = checkUploadedPdfIsNew_(bytes, config, readSheet_(SHEETS.PUBLISH_LOG).length > 0);
     if (!source.ok) return { ok: false, reason: source.reason, message: source.message, lines: [] };
 
     pdfSizeMb = check.sizeMb;
@@ -1689,7 +1689,7 @@ function runPublishFlow_(payload) {
   //    （真正讀檔在鎖之內，見 runPublishFlowLocked_()）。
   var attachWord = doSend && p.attachWord === true;
   if (attachWord) {
-    var savedWeek = findBulletinWeekRow_(readSheet(SHEETS.BULLETIN_WEEKS), isoDate);
+    var savedWeek = findBulletinWeekRow_(readSheet_(SHEETS.BULLETIN_WEEKS), isoDate);
     if (!savedWeek || !String(savedWeek.DOC_ID || '').trim()) {
       return { ok: false, reason: 'NO_SAVED_WORD', lines: [], message: readSavedWordForSend_(isoDate).message };
     }
@@ -1884,8 +1884,8 @@ function runPublishFlowLocked_(payload, ctx) {
  *   第 2 行機器鍵；只取防重複要用的六欄，其餘欄位有格式不對的格亦不會令寄出失敗。
  *   工作表不存在當作沒有記錄——寄出之後 writeSendLogRows_() 一樣寫不到，屆時會原樣拋錯。
  *
- *   G22 補充（改正）：G22(b) 第一版這裏寫「readSheet() 會把 TIMESTAMP 正規化成當日零時」，
- *   不對。正式環境 readSheet() 的 DATE 欄經 normalizeDate_()，遇到 Date 原樣回傳，時分秒仍在；
+ *   G22 補充（改正）：G22(b) 第一版這裏寫「readSheet_() 會把 TIMESTAMP 正規化成當日零時」，
+ *   不對。正式環境 readSheet_() 的 DATE 欄經 normalizeDate_()，遇到 Date 原樣回傳，時分秒仍在；
  *   丟失時分秒的是測試的假工作表（tests/helpers/fakeSpreadsheet.js 的 writeCellLikeSheets()
  *   把 Date 存成 yyyy-MM-dd，為了跨 realm）。所以測時間窗要用假工作表的 keepDateTime。
  * Args: （無）
@@ -2147,7 +2147,7 @@ function buildPublishStatusForWebApp_() {
 
   var recipientRows = [];
   try {
-    recipientRows = readSheet(SHEETS.RECIPIENTS);
+    recipientRows = readSheet_(SHEETS.RECIPIENTS);
   } catch (err) {
     recipientRows = [];
   }
@@ -2195,7 +2195,7 @@ function publishActorLabel_(value) {
  *   想畀人睇到嘅顯示名稱，所以優先用佢。
  * Args:
  *   email {*} `PublishLog.PUBLISHED_BY`。
- *   recipientRows {Object[]} `readSheet(SHEETS.RECIPIENTS)` 嘅輸出。
+ *   recipientRows {Object[]} `readSheet_(SHEETS.RECIPIENTS)` 嘅輸出。
  * Returns:
  *   {string} 兩者都揾唔到（例如 email 本身係空）就回空字串。
  */
@@ -2308,7 +2308,7 @@ function ensureMasterPublishFile_() {
     pdfFingerprint_(placeholderBlob.getBytes())
   );
 
-  setConfig(CONFIG_KEYS.PUBLISHED_PDF_FILE_ID, created.fileId, '選單「建立 master 發佈檔案」');
+  setConfig_(CONFIG_KEYS.PUBLISHED_PDF_FILE_ID, created.fileId, '選單「建立 master 發佈檔案」');
   appendAuditLog_({
     action: 'CREATE_MASTER_PUBLISH_FILE',
     sheetName: SHEETS.CONFIG, rowKey: CONFIG_KEYS.PUBLISHED_PDF_FILE_ID,
@@ -2411,8 +2411,8 @@ function menuCreateMasterPublishFile_() {
  *     情境並講明），不是失敗。
  */
 function checkMasterFileIdsDistinct_() {
-  var published = String(getConfig(CONFIG_KEYS.PUBLISHED_PDF_FILE_ID, '') || '').trim();
-  var selftest = String(getConfig(CONFIG_KEYS.SELFTEST_MASTER_PDF_FILE_ID, '') || '').trim();
+  var published = String(getConfig_(CONFIG_KEYS.PUBLISHED_PDF_FILE_ID, '') || '').trim();
+  var selftest = String(getConfig_(CONFIG_KEYS.SELFTEST_MASTER_PDF_FILE_ID, '') || '').trim();
 
   if (!selftest) {
     return {
@@ -2462,8 +2462,8 @@ function checkMasterFileIdsDistinct_() {
  *     「驗證不到」，不是失敗。
  */
 function checkPublishedMasterMatchesLog_() {
-  var configValue = String(getConfig(CONFIG_KEYS.PUBLISHED_PDF_FILE_ID, '') || '').trim();
-  var rows = readSheet(SHEETS.PUBLISH_LOG).filter(function (r) { return r.IS_SELFTEST !== true; });
+  var configValue = String(getConfig_(CONFIG_KEYS.PUBLISHED_PDF_FILE_ID, '') || '').trim();
+  var rows = readSheet_(SHEETS.PUBLISH_LOG).filter(function (r) { return r.IS_SELFTEST !== true; });
   var latest = latestPublishLogRow_(rows);
 
   if (!latest) {

@@ -30,7 +30,7 @@ var SEND_NOTICE_TEMPLATE_ID_ = 'SEND_NOTICE';
  */
 function contentSheetLinkForIsoDate_(isoDate) {
   try {
-    var weekRow = findBulletinWeekRow_(readSheet(SHEETS.BULLETIN_WEEKS), isoDate);
+    var weekRow = findBulletinWeekRow_(readSheet_(SHEETS.BULLETIN_WEEKS), isoDate);
     var qid = weekRow ? String(weekRow.QUARTER_ID || '').trim() : '';
     var row = qid ? findContentSheetRow_(qid) : null;
     var url = row ? String(row.FILE_URL || '').trim() : '';
@@ -99,7 +99,7 @@ function buildSendNoticeVars_(input) {
 function findSendNoticeTemplate_() {
   var fallback = seedSendNoticeRow_();
   var rows = [];
-  try { rows = readSheet(SHEETS.EMAIL_TEMPLATES) || []; } catch (err) { rows = []; }
+  try { rows = readSheet_(SHEETS.EMAIL_TEMPLATES) || []; } catch (err) { rows = []; }
   for (var i = 0; i < rows.length; i++) {
     var row = rows[i];
     if (String(row.TEMPLATE_ID || '').trim() !== SEND_NOTICE_TEMPLATE_ID_) continue;
@@ -119,7 +119,7 @@ function findSendNoticeTemplate_() {
  *   （無）
  */
 function readSavedWordForSend_(isoDate) {
-  var weekRow = findBulletinWeekRow_(readSheet(SHEETS.BULLETIN_WEEKS), isoDate);
+  var weekRow = findBulletinWeekRow_(readSheet_(SHEETS.BULLETIN_WEEKS), isoDate);
   var docId = weekRow ? String(weekRow.DOC_ID || '').trim() : '';
   if (!docId) {
     return {
@@ -153,9 +153,9 @@ function readSavedWordForSend_(isoDate) {
  *   （無）讀不到產生時間亦回一句提醒（不當作是最新）。
  */
 function savedWordStalenessNotice_(isoDate) {
-  var weekRow = findBulletinWeekRow_(readSheet(SHEETS.BULLETIN_WEEKS), isoDate);
+  var weekRow = findBulletinWeekRow_(readSheet_(SHEETS.BULLETIN_WEEKS), isoDate);
   if (!weekRow || !String(weekRow.DOC_ID || '').trim()) return '';
-  var tz = getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland');
+  var tz = getConfig_(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland');
   function stamp(d) { return Utilities.formatDate(d, tz, 'yyyy-MM-dd HH:mm'); }
   var generatedAt = weekRow.LAST_GENERATED_AT;
   if (!(generatedAt instanceof Date) || isNaN(generatedAt.getTime())) {
@@ -168,7 +168,7 @@ function savedWordStalenessNotice_(isoDate) {
     latest = { at: savedAt, label: weekSnapshotReasonLabel_('WEBAPP_SAVE') };
   }
   var groups = [];
-  try { groups = groupWeekSnapshots_(readSheet(SHEETS.WEEK_SNAPSHOTS), isoDate); } catch (err) { groups = []; }
+  try { groups = groupWeekSnapshots_(readSheet_(SHEETS.WEEK_SNAPSHOTS), isoDate); } catch (err) { groups = []; }
   groups.forEach(function (g) {
     if (g.reason === 'WORD_GENERATED') return;
     var at = g.createdAt;

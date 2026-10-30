@@ -69,15 +69,15 @@ test('VO-2 只看的用戶：載入、清單、程序預覽可以；儲存被擋
   assert.strictEqual(sb.apiListWeeks(false).ok, true);
   const load = sb.apiLoadWeek(D);
   assert.strictEqual(load.ok, true, JSON.stringify(load.error));
-  const before = JSON.stringify(sb.readSheet('BulletinWeeks'));
-  const errBefore = sb.readSheet('ErrorLog').length;
+  const before = JSON.stringify(sb.readSheet_('BulletinWeeks'));
+  const errBefore = sb.readSheet_('ErrorLog').length;
   const saved = sb.apiSaveWeek({ isoDate: D, lastSavedAt: load.data.lastSavedAt, payloadVersion: 2,
     week: { PRELUDE: '改了' }, baseWeek: { PRELUDE: '' }, announcements: [], prayers: [], fellowships: [], finance: [] });
   assert.strictEqual(saved.ok, false);
   assert.strictEqual(saved.error.code, 'VIEW_ONLY');
   assertWrittenChinese(assert, 'VIEW_ONLY', [saved.error.message]);
-  assert.strictEqual(JSON.stringify(sb.readSheet('BulletinWeeks')), before);
-  assert.strictEqual(sb.readSheet('ErrorLog').length, errBefore);
+  assert.strictEqual(JSON.stringify(sb.readSheet_('BulletinWeeks')), before);
+  assert.strictEqual(sb.readSheet_('ErrorLog').length, errBefore);
 });
 
 test('VO-3 預設擋住：不在白名單的每一個 api* 對只看的用戶一律回 VIEW_ONLY；白名單每一個都是真的 api 函式', function () {
@@ -104,6 +104,22 @@ test('VO-4 可以修改的用戶（兩個名單都有）不受影響；不在名
   const r = env.sandbox.apiLoadWeek(D);
   assert.strictEqual(r.ok, false);
   assert.strictEqual(r.error.code, 'FORBIDDEN');
+});
+
+test('VO-6 獨立審查第 3 項：只看的用戶載入不自動匯入內容表；下載 Word 只下載，不存雲端硬碟、不記 AuditLog', function () {
+  const env = viewerEnv();
+  const sb = env.sandbox;
+  const load = sb.apiLoadWeek(D);
+  assert.strictEqual(load.ok, true);
+  assert.strictEqual(load.data.autoImport.reason, 'VIEW_ONLY');
+  const auditBefore = sb.readSheet_('AuditLog').length;
+  const weekBefore = JSON.stringify(sb.readSheet_('BulletinWeeks'));
+  const dl = sb.apiDownloadBulletinDocx(D, {});
+  assert.strictEqual(dl.ok, true, JSON.stringify(dl.error));
+  assert.strictEqual(dl.data.wordFile, null);
+  assert.ok(dl.data.base64, '照樣有檔案下載');
+  assert.strictEqual(sb.readSheet_('AuditLog').length, auditBefore);
+  assert.strictEqual(JSON.stringify(sb.readSheet_('BulletinWeeks')), weekBefore);
 });
 
 console.log('\n前端');

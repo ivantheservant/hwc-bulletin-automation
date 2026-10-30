@@ -3,7 +3,7 @@
  * tests/rosterread82.test.js
  *
  * 2026-10-27：週報讀職事表資料，對照職事表第八十二輪說明（docs/週報系統讀取職事表資料說明.md）之後的修改。
- * 一律由真正入口叫下去（buildBulletinModel_／loadWeekForWebApp_／initializeAllSheets），不直接叫內部函式：
+ * 一律由真正入口叫下去（buildBulletinModel_／loadWeekForWebApp_／initializeAllSheets_），不直接叫內部函式：
  *
  *   1. 每週標題改讀 ServiceDates.Title；程序範本留空＝自動跟標題（標題改了、清空了都跟），人手揀過就不跟。
  *   2. 「不是人」的顯示字一律當空白：不印、不帶入獻花、不算「與職事表不同」，不記警告。
@@ -82,7 +82,7 @@ function makeEnv(o) {
 }
 
 function rowOf(env, iso) {
-  return env.sandbox.readSheet('BulletinWeeks').filter(function (r) {
+  return env.sandbox.readSheet_('BulletinWeeks').filter(function (r) {
     return env.sandbox.formatIsoDate_(env.sandbox.normalizeDate_(r.SERVICE_DATE)) === iso;
   })[0];
 }
@@ -238,7 +238,7 @@ test('DUTY_PRINT_EMPTY_ROWS=TRUE：照印崗位名、名字留空', function () 
 
 test('舊覆寫記下的職事表值是「（待填）」，職事表現在仍然是「（待填）」→ 不算衝突（不是「與職事表不同」）', function () {
   const env = makeEnv({});
-  env.sandbox.writeSheet('DutyOverride', [{
+  env.sandbox.writeSheet_('DutyOverride', [{
     SERVICE_DATE: env.sandbox.normalizeDate_(D), POST_ID: 'PREACHER', SLOT_INDEX: 1, OVERRIDE_NAME: '林牧師',
     ROSTER_VALUE_AT_OVERRIDE: '（待填）', ROSTER_VERSION_AT_OVERRIDE: 3, OVERRIDE_AT: new Date(), OVERRIDE_BY: 'x',
     REASON: '', ACTIVE: true, NOTES: ''
@@ -257,7 +257,7 @@ console.log('\n沒有 PersonID 的名字');
 
 test('下週事奉：外請講員照印名字；臨時幫手名字在 PersonDisplay → 按名字套尊稱（第 3 頁不加弟兄姊妹、職稱照加）', function () {
   const env = makeEnv({});
-  env.sandbox.writeSheet('PersonDisplay', [
+  env.sandbox.writeSheet_('PersonDisplay', [
     { PERSON_ID: 'P-TEMP', NAME_TC: '臨時甲', HONORIFIC: '姊妹', DISPLAY_OVERRIDE: '', EFFECTIVE_FROM: '', EFFECTIVE_TO: '', ACTIVE: true, NOTES: '' },
     { PERSON_ID: 'P-EXT', NAME_TC: '黃外請', HONORIFIC: '牧師', DISPLAY_OVERRIDE: '', EFFECTIVE_FROM: '', EFFECTIVE_TO: '', ACTIVE: true, NOTES: '' }
   ]);
@@ -270,7 +270,7 @@ test('下週事奉：外請講員照印名字；臨時幫手名字在 PersonDisp
   const page1Model = makeEnv({
     assignments: [assignment(D, 'USHER', 1, '', '臨時甲', '')]
   });
-  page1Model.sandbox.writeSheet('PersonDisplay', [
+  page1Model.sandbox.writeSheet_('PersonDisplay', [
     { PERSON_ID: 'P-TEMP', NAME_TC: '臨時甲', HONORIFIC: '姊妹', DISPLAY_OVERRIDE: '', EFFECTIVE_FROM: '', EFFECTIVE_TO: '', ACTIVE: true, NOTES: '' }
   ]);
   const page1 = page1Model.sandbox.buildBulletinModel_(D).dutyBoxPage1.filter(function (r) { return r.label === '司事'; })[0];
@@ -293,7 +293,7 @@ test('系統寫入的範本清空、人手揀過的保留；AuditLog 逐格記�
     { SERVICE_DATE: '2027-12-05', QUARTER_ID: '2027T4', WEEK_OF_MONTH: 1, STATUS: 'SENT', PROGRAM_TEMPLATE_ID: 'TPL_COMBINED', ARCHIVED: true }
   ];
   const env = makeEnv({ weekRows: weekRows, weekTitles: { [D]: '浸禮主日' } });
-  env.sandbox.writeSheet('AuditLog', [
+  env.sandbox.writeSheet_('AuditLog', [
     { TIMESTAMP: new Date(), ACTOR: 'x', ACTION: 'INFER_PROGRAM_TEMPLATE', SHEET_NAME: 'BulletinWeeks', ROW_KEY: D,
       FIELD: 'PROGRAM_TEMPLATE_ID', OLD_VALUE: '', NEW_VALUE: 'TPL_COMBINED', NOTES: '' },
     // 幹事在填寫介面揀了堂慶範本：保留
@@ -309,7 +309,7 @@ test('系統寫入的範本清空、人手揀過的保留；AuditLog 逐格記�
       FIELD: 'PROGRAM_TEMPLATE_ID', OLD_VALUE: 'TPL_COMBINED', NEW_VALUE: 'TPL_NORMAL', NOTES: '' }
   ]);
 
-  const summary = env.sandbox.initializeAllSheets();
+  const summary = env.sandbox.initializeAllSheets_();
   assert.strictEqual(summary.programTemplateAuto.ran, true);
   assert.strictEqual(summary.programTemplateAuto.cleared, 2);
   assert.strictEqual(summary.programTemplateAuto.kept, 3, '填寫介面揀過、季度填寫表揀過、已封存');
@@ -325,7 +325,7 @@ test('系統寫入的範本清空、人手揀過的保留；AuditLog 逐格記�
   assert.strictEqual(rowOf(env, D_NEXT).PROGRAM_TEMPLATE_ID, 'TPL_ANNIVERSARY', '人手揀過的保留');
   assert.strictEqual(env.sandbox.buildBulletinModel_(D).templateId, 'TPL_COMBINED_BAPTISM', '清空之後跟標題');
 
-  const audit = env.sandbox.readSheet('AuditLog');
+  const audit = env.sandbox.readSheet_('AuditLog');
   const clears = audit.filter(function (a) { return a.ACTION === 'PROGRAM_TEMPLATE_AUTO_CLEAR'; });
   assert.strictEqual(clears.length, 2);
   assert.ok(clears.some(function (a) { return a.OLD_VALUE === 'TPL_COMBINED'; }), '舊值記在 AuditLog，可以照抄回去');
@@ -333,17 +333,17 @@ test('系統寫入的範本清空、人手揀過的保留；AuditLog 逐格記�
 
   // 再按一次初始化：不再做（之後還原舊版本帶回來的範本 ID 不應該再被清走）
   env.sandbox.setCellValueTextSafe_(env.sheets.BulletinWeeks, env.sandbox.COLUMNS.BULLETIN_WEEKS, 4, 'PROGRAM_TEMPLATE_ID', 'TPL_NORMAL');
-  const again = env.sandbox.initializeAllSheets();
+  const again = env.sandbox.initializeAllSheets_();
   assert.strictEqual(again.programTemplateAuto.ran, false);
   assert.strictEqual(rowOf(env, D).PROGRAM_TEMPLATE_ID, 'TPL_NORMAL', '第二次一格都不動');
 });
 
 test('初始化工作表：Config 舊鍵 ROSTER_SHEET_SPECIAL_SUNDAYS 有值 → 不自動刪，列出請人手確認', function () {
   const env = makeEnv({ config: { ROSTER_SHEET_SPECIAL_SUNDAYS: 'SpecialSundays' } });
-  const summary = env.sandbox.initializeAllSheets();
+  const summary = env.sandbox.initializeAllSheets_();
   assert.ok(summary.deprecatedConfigWarnings.some(function (w) { return w.indexOf('ROSTER_SHEET_SPECIAL_SUNDAYS') !== -1; }),
     JSON.stringify(summary.deprecatedConfigWarnings));
-  assert.strictEqual(env.sandbox.getConfig('ROSTER_SHEET_SPECIAL_SUNDAYS', ''), 'SpecialSundays', '有值就不刪');
+  assert.strictEqual(env.sandbox.getConfig_('ROSTER_SHEET_SPECIAL_SUNDAYS', ''), 'SpecialSundays', '有值就不刪');
 });
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');

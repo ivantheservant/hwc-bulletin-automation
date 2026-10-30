@@ -1255,14 +1255,14 @@ function buildSaveResultMessage_(changedFieldCount, sideRecordCount) {
 // =====================================================================
 
 /**
- * 用途：跟 `SheetUtils.gs` 的 `readSheet()` 幾乎一樣，差別是**每個元素多
- *   一個 `__rowNo`**（工作表實際行號，從 3 開始）——`readSheet()` 刻意
+ * 用途：跟 `SheetUtils.gs` 的 `readSheet_()` 幾乎一樣，差別是**每個元素多
+ *   一個 `__rowNo`**（工作表實際行號，從 3 開始）——`readSheet_()` 刻意
  *   不回傳行號（它的呼叫方通常只需要內容），但儲存邏輯需要行號才能對
  *   指定儲存格做 `setValue()`，所以另外寫一個。
  * Args:
  *   sheetName {string} 工作表名稱。
  * Returns:
- *   {Object[]} 每個元素在 `readSheet()` 原有的欄位之上多一個 `__rowNo`。
+ *   {Object[]} 每個元素在 `readSheet_()` 原有的欄位之上多一個 `__rowNo`。
  * Raises:
  *   Error 如果工作表不存在。
  */
@@ -1506,7 +1506,7 @@ function createWeekRow_(targetDate, normalizedWeek, isoDate, auditEntriesOut) {
     }
   });
 
-  writeSheet(SHEETS.BULLETIN_WEEKS, [row]);
+  writeSheet_(SHEETS.BULLETIN_WEEKS, [row]);
 }
 
 /**
@@ -1575,7 +1575,7 @@ function applyListPlan_(sheetName, targetDate, isoDate, listType, plan, auditEnt
       Object.keys(row).forEach(function (k) { full[k] = row[k]; });
       return full;
     });
-    writeSheet(sheetName, rows);
+    writeSheet_(sheetName, rows);
 
     plan.appends.forEach(function (row) {
       Object.keys(row).forEach(function (field) {
@@ -1599,7 +1599,7 @@ function applyListPlan_(sheetName, targetDate, isoDate, listType, plan, auditEnt
  *   算「沒有改動」，覆寫記錄再也不會更新。
  *
  *   內容表帶入的值 = 覆寫**之前**的 `BulletinWeeks` 那一格，也就是
- *   `readSheet()` 讀出來、**未經** `applyFieldOverrides_()` 那一份。
+ *   `readSheet_()` 讀出來、**未經** `applyFieldOverrides_()` 那一份。
  * Args:
  *   isoDate {string} 主日日期。
  *   targetDate {Date} 主日日期。

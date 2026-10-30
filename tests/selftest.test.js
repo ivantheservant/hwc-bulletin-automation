@@ -602,7 +602,7 @@ test('清空沙盒：只刪沙盒季度那幾行，其餘一行都不動', funct
   const config = env.sandbox.selfTestConfig_();
   env.sandbox.resetSelfTestSandbox_(config);
 
-  const left = env.sandbox.readSheet('BulletinWeeks');
+  const left = env.sandbox.readSheet_('BulletinWeeks');
   assert.strictEqual(left.length, 1, '只應該剩下非沙盒那一行');
   assert.strictEqual(String(left[0].QUARTER_ID), '2027T4', '真實季度那一行不可以被刪');
 });
@@ -620,7 +620,7 @@ test('清空沙盒：一個主日多行的表，只刪主日屬於沙盒季度�
 
   env.sandbox.resetSelfTestSandbox_(env.sandbox.selfTestConfig_());
 
-  const left = env.sandbox.readSheet('Announcements');
+  const left = env.sandbox.readSheet_('Announcements');
   assert.strictEqual(left.length, 1);
   assert.strictEqual(String(left[0].TEXT), '真實的');
 });
@@ -633,7 +633,7 @@ test('清空沙盒：判斷不到主日的行一律不刪（寧可留垃圾，�
   ]);
 
   env.sandbox.resetSelfTestSandbox_(env.sandbox.selfTestConfig_());
-  assert.strictEqual(env.sandbox.readSheet('Announcements').length, 1);
+  assert.strictEqual(env.sandbox.readSheet_('Announcements').length, 1);
 });
 
 // =====================================================================
@@ -889,10 +889,10 @@ test('selfTestPublishVersion_：只在自測那一類的行裏面數，不受正
   const src = require('fs').readFileSync(
     require('path').join(__dirname, '..', 'src', 'SelfTest.gs'), 'utf8');
 
-  assert.ok(src.indexOf('publishLogRowsOfKind_(readSheet(SHEETS.PUBLISH_LOG), true)') !== -1,
+  assert.ok(src.indexOf('publishLogRowsOfKind_(readSheet_(SHEETS.PUBLISH_LOG), true)') !== -1,
     'selfTestPublishVersion_ 要跟 executePublish_ 數同一堆行');
   assert.strictEqual(
-    (src.match(/nextPublishVersion_\(readSheet\(SHEETS\.PUBLISH_LOG\), isoDate\)/g) || []).length, 0,
+    (src.match(/nextPublishVersion_\(readSheet_\(SHEETS\.PUBLISH_LOG\), isoDate\)/g) || []).length, 0,
     '情境不可以再自己照數整張表——那是靠「沙盒主日跟真實主日不會撞」這個巧合答對');
   assert.strictEqual(typeof env.sandbox.selfTestPublishVersion_, 'function');
 });

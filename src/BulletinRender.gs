@@ -545,32 +545,32 @@ function resolveWordTemplate_(templateId) {
   if (isBaptismTemplateId_(templateId)) {
     return {
       configKey: CONFIG_KEYS.TEMPLATE_FILE_ID_COMBINED_BAPTISM,
-      fileId: getConfig(CONFIG_KEYS.TEMPLATE_FILE_ID_COMBINED_BAPTISM, ''),
+      fileId: getConfig_(CONFIG_KEYS.TEMPLATE_FILE_ID_COMBINED_BAPTISM, ''),
       label: '浸禮三堂聯合崇拜'
     };
   }
   if (templateId === PROGRAM_TEMPLATE_ID_ANNIVERSARY_) {
     return {
       configKey: CONFIG_KEYS.TEMPLATE_FILE_ID_ANNIVERSARY,
-      fileId: getConfig(CONFIG_KEYS.TEMPLATE_FILE_ID_ANNIVERSARY, ''),
+      fileId: getConfig_(CONFIG_KEYS.TEMPLATE_FILE_ID_ANNIVERSARY, ''),
       label: '堂慶三堂聯合崇拜'
     };
   }
   // v3：三堂聯合崇拜（例如宣教月合堂）。未有自己的 Word 範本就用堂慶合堂那一個（版面一樣是三堂聯合）。
   if (templateId === PROGRAM_TEMPLATE_ID_COMBINED_) {
-    var combinedFileId = getConfig(CONFIG_KEYS.TEMPLATE_FILE_ID_COMBINED, '');
+    var combinedFileId = getConfig_(CONFIG_KEYS.TEMPLATE_FILE_ID_COMBINED, '');
     if (combinedFileId) {
       return { configKey: CONFIG_KEYS.TEMPLATE_FILE_ID_COMBINED, fileId: combinedFileId, label: '三堂聯合崇拜' };
     }
     return {
       configKey: CONFIG_KEYS.TEMPLATE_FILE_ID_ANNIVERSARY,
-      fileId: getConfig(CONFIG_KEYS.TEMPLATE_FILE_ID_ANNIVERSARY, ''),
+      fileId: getConfig_(CONFIG_KEYS.TEMPLATE_FILE_ID_ANNIVERSARY, ''),
       label: '三堂聯合崇拜（借用堂慶三堂聯合崇拜的 Word 範本）'
     };
   }
   return {
     configKey: CONFIG_KEYS.TEMPLATE_FILE_ID_NORMAL,
-    fileId: getConfig(CONFIG_KEYS.TEMPLATE_FILE_ID_NORMAL, ''),
+    fileId: getConfig_(CONFIG_KEYS.TEMPLATE_FILE_ID_NORMAL, ''),
     label: '平常主日'
   };
 }
@@ -586,7 +586,7 @@ function resolveWordTemplate_(templateId) {
  */
 function buildOutputFileName_(isoDate, pattern) {
   var raw = pattern === undefined
-    ? getConfig(CONFIG_KEYS.OUTPUT_FILE_NAME_PATTERN, '{{SERVICE_DATE}}_粵語堂週報.docx')
+    ? getConfig_(CONFIG_KEYS.OUTPUT_FILE_NAME_PATTERN, '{{SERVICE_DATE}}_粵語堂週報.docx')
     : pattern;
   var name = String(raw || '').split('{{SERVICE_DATE}}').join(String(isoDate || ''));
   if (!name) name = String(isoDate || 'bulletin') + '.docx';
@@ -656,7 +656,7 @@ function generateBulletinDocx_(isoDate, options) {
     return wordTemplateNotConfiguredResult_(template);
   }
 
-  var blockIfMissing = normalizeBoolean_(getConfig(CONFIG_KEYS.RENDER_BLOCK_IF_MISSING_FIELDS, 'FALSE')) === true;
+  var blockIfMissing = normalizeBoolean_(getConfig_(CONFIG_KEYS.RENDER_BLOCK_IF_MISSING_FIELDS, 'FALSE')) === true;
   // F6：只數「一定要填」。獻花這類通常空白的欄位若也算進去，幾乎每一週都被擋。
   var renderMissing = missingCountSummary_(model.missing || []);
   if (blockIfMissing && renderMissing.requiredCount > 0) {
@@ -671,18 +671,18 @@ function generateBulletinDocx_(isoDate, options) {
   }
 
   var context = buildRenderContext_(model, {
-    churchName: getConfig(CONFIG_KEYS.CHURCH_NAME, ''),
-    cantoneseSubColumnLabel: getConfig(CONFIG_KEYS.CANTONESE_SUBCOLUMN_LABEL, '主堂'),
-    callFormat: getConfig(CONFIG_KEYS.CALL_TO_WORSHIP_FORMAT, '{{CALL_TEXT}}（{{CALL_REF}}）'),
+    churchName: getConfig_(CONFIG_KEYS.CHURCH_NAME, ''),
+    cantoneseSubColumnLabel: getConfig_(CONFIG_KEYS.CANTONESE_SUBCOLUMN_LABEL, '主堂'),
+    callFormat: getConfig_(CONFIG_KEYS.CALL_TO_WORSHIP_FORMAT, '{{CALL_TEXT}}（{{CALL_REF}}）'),
     generatedAt: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm'),
-    dutyPlaceholderMax: normalizeInt_(getConfig(CONFIG_KEYS.DUTY_PLACEHOLDER_MAX, '20')),
+    dutyPlaceholderMax: normalizeInt_(getConfig_(CONFIG_KEYS.DUTY_PLACEHOLDER_MAX, '20')),
     flowerLine: {
-      thisWeekLabel: getConfig(CONFIG_KEYS.FLOWER_THIS_WEEK_LABEL, FLOWER_LINE_DEFAULTS_.thisWeekLabel),
-      nextWeekLabel: getConfig(CONFIG_KEYS.FLOWER_NEXT_WEEK_LABEL, FLOWER_LINE_DEFAULTS_.nextWeekLabel),
-      separator: getConfig(CONFIG_KEYS.FLOWER_LINE_SEPARATOR, FLOWER_LINE_DEFAULTS_.separator)
+      thisWeekLabel: getConfig_(CONFIG_KEYS.FLOWER_THIS_WEEK_LABEL, FLOWER_LINE_DEFAULTS_.thisWeekLabel),
+      nextWeekLabel: getConfig_(CONFIG_KEYS.FLOWER_NEXT_WEEK_LABEL, FLOWER_LINE_DEFAULTS_.nextWeekLabel),
+      separator: getConfig_(CONFIG_KEYS.FLOWER_LINE_SEPARATOR, FLOWER_LINE_DEFAULTS_.separator)
     },
-    financeTitlePattern: getConfig(CONFIG_KEYS.FINANCE_TITLE_PATTERN, FINANCE_TITLE_PATTERN_DEFAULT_),
-    financePeriodLabelPattern: getConfig(CONFIG_KEYS.FINANCE_PERIOD_LABEL_PATTERN, FINANCE_PERIOD_LABEL_PATTERN_DEFAULT_)
+    financeTitlePattern: getConfig_(CONFIG_KEYS.FINANCE_TITLE_PATTERN, FINANCE_TITLE_PATTERN_DEFAULT_),
+    financePeriodLabelPattern: getConfig_(CONFIG_KEYS.FINANCE_PERIOD_LABEL_PATTERN, FINANCE_PERIOD_LABEL_PATTERN_DEFAULT_)
   });
 
   var fileName = buildOutputFileName_(isoDate);
@@ -701,7 +701,7 @@ function generateBulletinDocx_(isoDate, options) {
       // applyOptionalLabelledCellRows_() 找不到佔位符就原樣回傳，
       // 所以三個範本可以共用同一份設定。
       optionalCellRows: baptismBoxRowGroups_(),
-      missingValueMode: getConfig(CONFIG_KEYS.TEMPLATE_MISSING_VALUE_MODE, 'BLANK')
+      missingValueMode: getConfig_(CONFIG_KEYS.TEMPLATE_MISSING_VALUE_MODE, 'BLANK')
     });
     renderStats = result.stats;
     renderWarnings = result.warnings;
@@ -847,9 +847,9 @@ function saveBulletinDocx_(isoDate, generated) {
 
   var written = writeLatestOutputFile_(
     result.blob,
-    getConfig(CONFIG_KEYS.BULLETIN_OUTPUT_FOLDER_ID, ''),
+    getConfig_(CONFIG_KEYS.BULLETIN_OUTPUT_FOLDER_ID, ''),
     result.fileName,
-    outputSubFolderName_(result.quarterId, getConfig(CONFIG_KEYS.OUTPUT_GROUP_BY_QUARTER, 'TRUE'))
+    outputSubFolderName_(result.quarterId, getConfig_(CONFIG_KEYS.OUTPUT_GROUP_BY_QUARTER, 'TRUE'))
   );
 
   return Object.assign({}, result, { file: written });
@@ -899,7 +899,7 @@ function storeLatestBulletinDocx_(isoDate, generated, audit) {
  *     `wordFile` 形狀見 `buildWordFileInfo_()`。
  */
 function tryStoreLatestBulletinDocx_(isoDate, generated, audit) {
-  if (!getConfig(CONFIG_KEYS.BULLETIN_OUTPUT_FOLDER_ID, '')) {
+  if (!getConfig_(CONFIG_KEYS.BULLETIN_OUTPUT_FOLDER_ID, '')) {
     return { wordFile: null, warning: {
       code: 'WORD_NOT_STORED',
       message: '尚未設定輸出資料夾（Config 的 BULLETIN_OUTPUT_FOLDER_ID），雲端硬碟沒有留存最新版 Word。'
@@ -943,7 +943,7 @@ function saveBulletinDocxCopy_(isoDate) {
 
   var written = writeOutputFile_(
     result.blob,
-    getConfig(CONFIG_KEYS.BULLETIN_OUTPUT_FOLDER_ID, ''),
+    getConfig_(CONFIG_KEYS.BULLETIN_OUTPUT_FOLDER_ID, ''),
     result.fileName
   );
 
@@ -992,12 +992,12 @@ function inspectTemplatePlaceholders_() {
     { label: '堂慶三堂聯合崇拜', configKey: CONFIG_KEYS.TEMPLATE_FILE_ID_ANNIVERSARY }
   ];
   // v3：三堂聯合崇拜的 Word 範本可以留空（借用堂慶那一個），所以只在設定了才盤點，留空不當作缺少。
-  if (getConfig(CONFIG_KEYS.TEMPLATE_FILE_ID_COMBINED, '')) {
+  if (getConfig_(CONFIG_KEYS.TEMPLATE_FILE_ID_COMBINED, '')) {
     targets.push({ label: '三堂聯合崇拜', configKey: CONFIG_KEYS.TEMPLATE_FILE_ID_COMBINED });
   }
 
   var templates = targets.map(function (target) {
-    var fileId = getConfig(target.configKey, '');
+    var fileId = getConfig_(target.configKey, '');
     var entry = {
       label: target.label, configKey: target.configKey, configured: Boolean(fileId),
       error: '', placeholders: [], usedValues: [], usedLists: [], broken: [],
@@ -1153,7 +1153,7 @@ function buildTemplateInspectionLines_(report) {
 function menuGenerateBulletinDocx_() {
   var ui = SpreadsheetApp.getUi();
   try {
-    var defaultDate = getConfig(CONFIG_KEYS.ROSTER_TEST_DATE, '2027-10-03');
+    var defaultDate = getConfig_(CONFIG_KEYS.ROSTER_TEST_DATE, '2027-10-03');
     var resp = ui.prompt(
       '產生本週週報（Word）',
       '請輸入主日日期，格式 yyyy-MM-dd（例如 ' + defaultDate + '）：',

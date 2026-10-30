@@ -256,7 +256,7 @@ function makeEnv(options) {
 }
 
 function rows(env, sheetId) {
-  return env.sandbox.readSheet(env.sandbox.SHEETS[sheetId]);
+  return env.sandbox.readSheet_(env.sandbox.SHEETS[sheetId]);
 }
 
 // =====================================================================
@@ -301,7 +301,7 @@ test('選單「發佈版本記錄」與填寫介面看同一份事實（collectP
   //    的程式碼扯進來，而那種測試遲早會因為別人改別的東西而變紅。
   const body = menu.slice(menu.indexOf('function menuShowPublishRevisions_('));
   const fnText = body.slice(0, body.indexOf('\nfunction ', 5));
-  assert.ok(fnText.indexOf('readSheet(SHEETS.PUBLISH_LOG)') === -1,
+  assert.ok(fnText.indexOf('readSheet_(SHEETS.PUBLISH_LOG)') === -1,
     '選單不可以再自己讀一次 PublishLog——兩處各讀一次就會各自過濾一套');
 });
 

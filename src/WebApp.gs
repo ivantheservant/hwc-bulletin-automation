@@ -127,7 +127,7 @@ function renderPreviewResponse_(e) {
  *   {number} 秒。
  */
 function webAppCallTimeoutSec_() {
-  var seconds = normalizeInt_(getConfig(CONFIG_KEYS.WEBAPP_CALL_TIMEOUT_SEC, '120'));
+  var seconds = normalizeInt_(getConfig_(CONFIG_KEYS.WEBAPP_CALL_TIMEOUT_SEC, '120'));
   return (seconds === null || seconds <= 0) ? 120 : seconds;
 }
 
@@ -208,7 +208,7 @@ function buildNoAccessLines_() {
  *   {boolean}
  */
 function isWebAppEnabled_() {
-  return normalizeBoolean_(getConfig(CONFIG_KEYS.WEBAPP_ENABLED, 'TRUE')) === true;
+  return normalizeBoolean_(getConfig_(CONFIG_KEYS.WEBAPP_ENABLED, 'TRUE')) === true;
 }
 
 /**
@@ -327,7 +327,9 @@ function callerWebAppRole_() {
 
 /**
  * 2026-10-30：「只可以看」的用戶可以叫的 API（白名單；**沒有列出＝不可以**，新加的 API 預設擋住）。
- *   全部只讀資料，或者只產生 Word 給自己看（下載、開啟預覽），不改週報的任何一格。
+ *   全部只讀資料，或者只產生 Word 給自己看。獨立審查第 3 項：其中三個本來有寫入，對只可以看的用戶另外處理——
+ *   apiLoadWeek 不自動匯入內容表；apiDownloadBulletinDocx 只下載、不存雲端硬碟；apiOpenWordPreview 放在
+ *   「版本預覽」子資料夾，不覆寫最新 Word。apiLogClientError 只寫 ErrorLog。
  */
 var VIEW_ONLY_ALLOWED_APIS_ = Object.freeze([
   'apiListWeeks', 'apiLoadWeek', 'apiPreviewProgram', 'apiListWeekSnapshots', 'apiDiffWeekSnapshot',
@@ -470,7 +472,10 @@ function apiLoadWeek(isoDate) {
   return withApiResult_(function () {
     // 2026-10-28（Ivan 測試結果 B）：載入之前先自動由內容表匯入這一個主日（有改動才寫），
     //    幹事不用再按「重新匯入」。內容表出問題不影響載入，只在結果帶一句說明。
-    var autoImport = autoImportContentForWeek_(isoDate, 'WEBAPP_LOAD');
+    // 2026-10-30（獨立審查第 3 項）：只可以看的用戶不觸發寫入（內容表自動同步觸發器照樣每 30 分鐘做）。
+    var autoImport = callerWebAppRole_() === WEBAPP_ROLE_.VIEW
+      ? { ran: false, changed: 0, reason: 'VIEW_ONLY', message: '' }
+      : autoImportContentForWeek_(isoDate, 'WEBAPP_LOAD');
     var data = loadWeekForWebApp_(isoDate);
     data.autoImport = autoImport;
     return data;
@@ -543,7 +548,7 @@ function contentImportForWebApp_(isoDate, apply) {
     });
   }
 
-  var dryRun = normalizeBoolean_(getConfig(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
+  var dryRun = normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
   var conflicts = result.plan.conflicts || [];
   var releases = result.plan.releases || [];
   return {
@@ -846,6 +851,7 @@ function apiPreviewProgram(isoDate, draftFields) {
 function apiSaveWeek(payload) {
   return withApiResult_(function () {
     assertSheetSchemaUpToDate_('儲存');
+    assertWeekNotCancelled_(payload && payload.isoDate);
     return saveWeekFromWebApp_(payload);
   }, { functionName: 'apiSaveWeek', argsSummary: 'isoDate=' + (payload && payload.isoDate) });
 }
@@ -964,6 +970,7 @@ function apiDiffWeekSnapshot(isoDate, snapshotId) {
 function apiRestoreWeekSnapshot(payload) {
   return withApiResult_(function () {
     assertSheetSchemaUpToDate_('還原');
+    assertWeekNotCancelled_(payload && payload.isoDate);
     return restoreWeekSnapshotFromWebApp_(payload);
   }, { functionName: 'apiRestoreWeekSnapshot',
     argsSummary: 'isoDate=' + (payload && payload.isoDate) + ' snapshotId=' + (payload && payload.snapshotId) });
@@ -980,6 +987,7 @@ function apiRestoreWeekSnapshot(payload) {
 function apiResetWeek(payload) {
   return withApiResult_(function () {
     assertSheetSchemaUpToDate_('重設');
+    assertWeekNotCancelled_(payload && payload.isoDate);
     return resetWeekFromWebApp_(payload && payload.isoDate, payload && payload.lastSavedAt);
   }, { functionName: 'apiResetWeek', argsSummary: 'isoDate=' + (payload && payload.isoDate) });
 }
@@ -1013,7 +1021,10 @@ function apiGetRosterFetchCandidates(isoDate) {
  *   {{ok:boolean, data:{clearedCount:number, message:{type:string,text:string}}, error?:Object}}
  */
 function apiFetchFromRoster(isoDate, selections) {
-  return withApiResult_(function () { return fetchFromRosterForWebApp_(isoDate, selections); },
+  return withApiResult_(function () {
+    assertWeekNotCancelled_(isoDate);
+    return fetchFromRosterForWebApp_(isoDate, selections);
+  },
     { functionName: 'apiFetchFromRoster', argsSummary: 'isoDate=' + isoDate + ' selections=' + ((selections || []).length) });
 }
 
@@ -1154,6 +1165,8 @@ function bulletinWordPreview_(isoDate, options) {
   var o = options || {};
   var snapshotId = String(o.snapshotId || '').trim();
   var kind = snapshotId ? 'SNAPSHOT' : (o.draft ? 'DRAFT' : 'SAVED');
+  // 2026-10-30（獨立審查第 3 項）：只可以看的用戶的「開啟預覽」放在「版本預覽」子資料夾，不覆寫最新 Word、不記版本。
+  var viewerPreview = kind === 'SAVED' && callerWebAppRole_() === WEBAPP_ROLE_.VIEW;
   var modelOptions;
   if (kind === 'SNAPSHOT') modelOptions = buildSnapshotModelOptions_(isoDate, snapshotId).options;
   else if (kind === 'DRAFT') modelOptions = buildDraftModelOptions_(isoDate, o.draft);
@@ -1165,7 +1178,7 @@ function bulletinWordPreview_(isoDate, options) {
     throw err;
   }
 
-  if (kind === 'SAVED') {
+  if (kind === 'SAVED' && !viewerPreview) {
     var stored = tryStoreLatestBulletinDocx_(isoDate, result, {
       action: 'BULLETIN_DOCX_WEBAPP_PREVIEW',
       notes: '填寫介面「開啟預覽」同時更新了這個主日的最新 Word。'
@@ -1181,13 +1194,13 @@ function bulletinWordPreview_(isoDate, options) {
     };
   }
 
-  var folderId = getConfig(CONFIG_KEYS.BULLETIN_OUTPUT_FOLDER_ID, '');
+  var folderId = getConfig_(CONFIG_KEYS.BULLETIN_OUTPUT_FOLDER_ID, '');
   if (!folderId) {
     var noFolder = new Error('尚未設定輸出資料夾（Config 的 BULLETIN_OUTPUT_FOLDER_ID），無法預覽 Word。');
     noFolder.code = 'WORD_NOT_STORED';
     throw noFolder;
   }
-  var suffix = kind === 'SNAPSHOT' ? '（版本預覽）' : '（草稿預覽）';
+  var suffix = kind === 'SNAPSHOT' ? '（版本預覽）' : (viewerPreview ? '（預覽）' : '（草稿預覽）');
   var name = String(result.fileName || '').replace(/\.docx$/i, '') + suffix + '.docx';
   var written = writeLatestOutputFile_(result.blob, folderId, name, WORD_PREVIEW_SUBFOLDER_);
   return { url: written.url, fileName: name, kind: kind, wordFile: null, warnings: result.warnings || [] };
@@ -1226,7 +1239,7 @@ function publishPanelDataForWebApp_() {
     // 在 Config 填一句話，頁面頂部就會常駐顯示一條藍色橫幅。留空就不
     // 顯示——這是唯一一個「有值才出現」的頂部橫幅，另一條（DRY_RUN）
     // 是系統狀態，不是人手決定要不要講。
-    testModeBanner: getConfig(CONFIG_KEYS.TEST_MODE_BANNER, '')
+    testModeBanner: getConfig_(CONFIG_KEYS.TEST_MODE_BANNER, '')
   };
 }
 
@@ -1315,6 +1328,13 @@ function bulletinDocxForDownload_(isoDate, draft) {
     throw err;
   }
   // v3：草稿只下載，不存雲端硬碟（雲端硬碟上的「最新 Word」一定是已儲存的內容）。
+  // 2026-10-30（獨立審查第 3 項）：只可以看的用戶亦只下載，不覆寫雲端硬碟上的最新 Word（幹事可能人手改過）。
+  if (!draft && callerWebAppRole_() === WEBAPP_ROLE_.VIEW) {
+    return {
+      fileName: result.fileName, base64: Utilities.base64Encode(result.blob.getBytes()),
+      warnings: result.warnings || [], wordFile: null, draft: false
+    };
+  }
   if (draft) {
     var draftName = String(result.fileName || '').replace(/\.docx$/i, '') + '（草稿）.docx';
     return {
@@ -1353,7 +1373,7 @@ function buildWordFileInfo_(docId, generatedAt, isoDate, folderId) {
   var stamp = '';
   if (generatedAt instanceof Date && !isNaN(generatedAt.getTime())) {
     stamp = Utilities.formatDate(
-      generatedAt, getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland'), 'yyyy-MM-dd HH:mm'
+      generatedAt, getConfig_(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland'), 'yyyy-MM-dd HH:mm'
     );
   }
   var folder = String(folderId || '').trim();
@@ -1398,17 +1418,17 @@ function wordFileInfoForWeek_(weekRow, isoDate) {
  *     quarters:Object[], defaultQuarterId:(string|null)}}
  */
 function listWeeksForWebApp_(includeArchived) {
-  var rows = readSheet(SHEETS.BULLETIN_WEEKS);
+  var rows = readSheet_(SHEETS.BULLETIN_WEEKS);
   // v3 重測（2026-10-27）：與發佈時窗同一個「今日」——測試時 Config WEBAPP_SIMULATED_TODAY 填了，打開就落在
   //    模擬那一週（未填就是真正的今日，與以前一樣）。
   var todayIso = webAppTodayIso_().todayIso;
 
-  var publishIndex = weekSelectorPublishIndex_(readSheet(SHEETS.PUBLISH_LOG));
+  var publishIndex = weekSelectorPublishIndex_(readSheet_(SHEETS.PUBLISH_LOG));
   var missingIndex = weekSelectorMissingIndex_(
     rows,
-    readSheet(SHEETS.ANNOUNCEMENTS),
-    readSheet(SHEETS.PRAYERS),
-    readSheet(SHEETS.FELLOWSHIPS)
+    readSheet_(SHEETS.ANNOUNCEMENTS),
+    readSheet_(SHEETS.PRAYERS),
+    readSheet_(SHEETS.FELLOWSHIPS)
   );
 
   var entries = buildWeekListEntries_(rows, todayIso, {
@@ -1416,7 +1436,7 @@ function listWeeksForWebApp_(includeArchived) {
     missingIndex: missingIndex
   });
 
-  var allGroups = buildQuarterWeekGroups_(entries, getConfig(CONFIG_KEYS.SELFTEST_QUARTER_ID, ''));
+  var allGroups = buildQuarterWeekGroups_(entries, getConfig_(CONFIG_KEYS.SELFTEST_QUARTER_ID, ''));
 
   // R-035：已封存的季度預設不顯示，勾了「顯示已封存」才全部列出。
   // ⚠️ 沙盒季度由 buildQuarterWeekGroups_() 擋走，兩邊都不會出現。
@@ -1462,7 +1482,7 @@ function listWeeksForWebApp_(includeArchived) {
  *   整季一齊做的，出現「一半封存一半沒有」代表中途出過事——那種情況
  *   應該讓那一季照樣顯示（睇得到才修得到），不是靜靜收起。
  * Args:
- *   rows {Object[]} `readSheet(SHEETS.BULLETIN_WEEKS)` 的輸出。
+ *   rows {Object[]} `readSheet_(SHEETS.BULLETIN_WEEKS)` 的輸出。
  * Returns:
  *   {Object<string,boolean>}
  */
@@ -1489,7 +1509,7 @@ function quarterArchivedFlags_(rows) {
  *   ⚠️ 自測（`IS_SELFTEST` 為真）那些行不可以算進去，否則沙盒跑過一次
  *   之後，正式的主日會變成「已發佈」。
  * Args:
- *   publishRows {Object[]} `readSheet(SHEETS.PUBLISH_LOG)` 的輸出。
+ *   publishRows {Object[]} `readSheet_(SHEETS.PUBLISH_LOG)` 的輸出。
  * Returns:
  *   {Object<string,number>} 以 yyyy-MM-dd 為鍵，值是最大的版本號。
  *     沒有任何發佈紀錄的主日不會出現在裏面。
@@ -1532,10 +1552,10 @@ function weekSelectorIsoOf_(value) {
  *   用。因此這個數字是「未填欄位」的**下限**：職事表未排人手那幾格不計。
  *   要看完整清單請用選單「本季待填清單」。
  * Args:
- *   weekRows {Object[]} `readSheet(SHEETS.BULLETIN_WEEKS)` 的輸出。
- *   announcementRows {Object[]} `readSheet(SHEETS.ANNOUNCEMENTS)` 的輸出。
- *   prayerRows {Object[]} `readSheet(SHEETS.PRAYERS)` 的輸出。
- *   fellowshipRows {Object[]} `readSheet(SHEETS.FELLOWSHIPS)` 的輸出。
+ *   weekRows {Object[]} `readSheet_(SHEETS.BULLETIN_WEEKS)` 的輸出。
+ *   announcementRows {Object[]} `readSheet_(SHEETS.ANNOUNCEMENTS)` 的輸出。
+ *   prayerRows {Object[]} `readSheet_(SHEETS.PRAYERS)` 的輸出。
+ *   fellowshipRows {Object[]} `readSheet_(SHEETS.FELLOWSHIPS)` 的輸出。
  * Returns:
  *   {Object<string,number>} 以 yyyy-MM-dd 為鍵，值是未填項數。
  */
@@ -1602,7 +1622,7 @@ function weekSelectorStatusLabel_(publishedVersion, missingCount) {
  * 用途：把 `BulletinWeeks` 資料列組成下拉選單用的清單：`STATUS` 不是
  *   `SENT` 的排前面，組內按日期由小到大排序。純函式，方便獨立測試。
  * Args:
- *   rows {Object[]} `readSheet(SHEETS.BULLETIN_WEEKS)` 的輸出。
+ *   rows {Object[]} `readSheet_(SHEETS.BULLETIN_WEEKS)` 的輸出。
  *   todayIso {string} 今天的日期，yyyy-MM-dd（只用來讓呼叫方之後挑預設值，
  *     這個函式本身不使用）。
  *   decorations {Object=} 可選，形狀
@@ -1859,7 +1879,7 @@ function loadWeekForWebApp_(isoDate) {
     throw err;
   }
 
-  var weekRows = readSheet(SHEETS.BULLETIN_WEEKS);
+  var weekRows = readSheet_(SHEETS.BULLETIN_WEEKS);
   var weekRow = findBulletinWeekRow_(weekRows, isoDate) || {};
   // 2026-10-30：特別崇拜（非主日）：清單與上週崇拜人數跟上一個主日（只顯示），讀經經文等三欄在這裏填。
   var specialService = isSpecialServiceRow_(weekRow);
@@ -1898,12 +1918,12 @@ function loadWeekForWebApp_(isoDate) {
     isoDate: isoDate,
     week: week,
     lists: {
-      announcements: arrangedForUi('announcements', pickWebAppListItems_(readSheet(SHEETS.ANNOUNCEMENTS), listIso, ['TEXT'])),
-      prayers: arrangedForUi('prayers', pickWebAppListItems_(readSheet(SHEETS.PRAYERS), listIso, ['TEXT'])),
-      fellowships: arrangedForUi('fellowships', pickWebAppListItems_(readSheet(SHEETS.FELLOWSHIPS), listIso,
+      announcements: arrangedForUi('announcements', pickWebAppListItems_(readSheet_(SHEETS.ANNOUNCEMENTS), listIso, ['TEXT'])),
+      prayers: arrangedForUi('prayers', pickWebAppListItems_(readSheet_(SHEETS.PRAYERS), listIso, ['TEXT'])),
+      fellowships: arrangedForUi('fellowships', pickWebAppListItems_(readSheet_(SHEETS.FELLOWSHIPS), listIso,
         ['FELLOWSHIP_NAME', 'MEETING_DATE', 'MEETING_TIME', 'CONTENT'])),
       // 2026-10-30：財政報告兩款，全部欄都顯示（唯讀）。鍵由 webAppListDefs_() 決定（與 Script.html LIST_DEFS.finance 相同）。
-      finance: pickWebAppListItems_(readSheet(SHEETS.FINANCE), listIso, webAppListDefs_().finance.fieldKeys)
+      finance: pickWebAppListItems_(readSheet_(SHEETS.FINANCE), listIso, webAppListDefs_().finance.fieldKeys)
     },
     lastSavedAt: canonicalSaveToken_(weekRow.LAST_SAVED_AT),
     readOnly: {
@@ -2035,7 +2055,7 @@ function buildDutyDiffNotices_(rosterDiff) {
  *   （無）
  */
 function rosterWebAppUrlForButton_() {
-  var url = String(getConfig(CONFIG_KEYS.ROSTER_WEBAPP_URL, '') || '').trim();
+  var url = String(getConfig_(CONFIG_KEYS.ROSTER_WEBAPP_URL, '') || '').trim();
   return /^https:\/\//i.test(url) ? url : '';
 }
 
@@ -2091,7 +2111,7 @@ function buildContentSheetStatusForWebApp_(quarterId) {
   var lastImported = '';
   if (row.LAST_IMPORTED_AT instanceof Date) {
     lastImported = Utilities.formatDate(
-      row.LAST_IMPORTED_AT, getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland'), 'yyyy-MM-dd HH:mm'
+      row.LAST_IMPORTED_AT, getConfig_(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland'), 'yyyy-MM-dd HH:mm'
     );
   }
 
@@ -2165,7 +2185,7 @@ function forgetContentSheetSchemaStatus_(fileId) {
  *   `Fellowships`／`Finance`），篩出指定主日、`ACTIVE=TRUE` 的行，按
  *   `SEQ_NO` 排序，只挑出呼叫方要的欄位（加上 `seqNo`）。
  * Args:
- *   rows {Object[]} `readSheet()` 的輸出。
+ *   rows {Object[]} `readSheet_()` 的輸出。
  *   isoDate {string} 主日日期，yyyy-MM-dd。
  *   fieldKeys {string[]} 要挑出的機器鍵（例如 `['TEXT']`）。
  * Returns:
@@ -2205,12 +2225,12 @@ function pickWebAppListItems_(rows, isoDate, fieldKeys) {
  */
 function webAppFieldOptions_() {
   return {
-    programTemplateIds: [''].concat(uniqueProgramTemplateIds_(readSheet(SHEETS.PROGRAM_TEMPLATES))),
+    programTemplateIds: [''].concat(uniqueProgramTemplateIds_(readSheet_(SHEETS.PROGRAM_TEMPLATES))),
     recitationOptions: webAppRecitationOptions_(),
     prayerBlockHeadingOptions: getConfigTextList_(
       CONFIG_KEYS.PRAYER_BLOCK_HEADING_OPTIONS, '代禱事項,宣教消息,宣教代禱消息,宣教代禱事項'
     ),
-    cantoneseSubColumnLabel: getConfig(CONFIG_KEYS.CANTONESE_SUBCOLUMN_LABEL, '主堂')
+    cantoneseSubColumnLabel: getConfig_(CONFIG_KEYS.CANTONESE_SUBCOLUMN_LABEL, '主堂')
   };
 }
 
@@ -2218,7 +2238,7 @@ function webAppFieldOptions_() {
  * 用途：把 `ProgramTemplates` 啟用中的資料列去重出 `TEMPLATE_ID` 清單，
  *   保留第一次出現的次序。
  * Args:
- *   templateRows {Object[]} `readSheet(SHEETS.PROGRAM_TEMPLATES)` 的輸出。
+ *   templateRows {Object[]} `readSheet_(SHEETS.PROGRAM_TEMPLATES)` 的輸出。
  * Returns:
  *   {string[]}
  */
@@ -2243,9 +2263,9 @@ function uniqueProgramTemplateIds_(templateRows) {
  */
 function webAppRecitationOptions_() {
   var raw = [
-    getConfig(CONFIG_KEYS.RECITATION_JAN_APR, '使徒信經'),
-    getConfig(CONFIG_KEYS.RECITATION_MAY_AUG, '十誡'),
-    getConfig(CONFIG_KEYS.RECITATION_SEP_DEC, '主禱文')
+    getConfig_(CONFIG_KEYS.RECITATION_JAN_APR, '使徒信經'),
+    getConfig_(CONFIG_KEYS.RECITATION_MAY_AUG, '十誡'),
+    getConfig_(CONFIG_KEYS.RECITATION_SEP_DEC, '主禱文')
   ];
   var seen = {};
   var options = [''];
@@ -2292,14 +2312,14 @@ function buildRosterReloadMessage_(versionNo, isOfficial) {
  *   {{templateId:string, rows:Object[]}}
  */
 function previewProgramForWebApp_(isoDate, draftFields) {
-  var weekRows = readSheet(SHEETS.BULLETIN_WEEKS);
+  var weekRows = readSheet_(SHEETS.BULLETIN_WEEKS);
   var weekRow = findBulletinWeekRow_(weekRows, isoDate) || {};
   // 特別崇拜：週次條件不成立，與資料模型同一個快照（否則即時預覽與印出來的不一樣）。
   var snapshot = readRosterSnapshotForWeek_(isoDate, weekRow);
   var draftWeek = Object.assign({}, weekRow, draftFields || {});
   // 內容表 v2（審查 C5）：序樂留空時與 Word、電郵一樣印 Config PRELUDE_DEFAULT（同一支 applyPreludeDefault_()，
   //    見 buildBulletinModel_()），否則填寫介面的程序預覽與印出來的不一樣。
-  draftWeek = applyPreludeDefault_(draftWeek, getConfig(CONFIG_KEYS.PRELUDE_DEFAULT, ''));
+  draftWeek = applyPreludeDefault_(draftWeek, getConfig_(CONFIG_KEYS.PRELUDE_DEFAULT, ''));
   var program = buildProgramTable_(draftWeek, snapshot);
   return {
     templateId: program.templateId, rows: program.rows,
@@ -2446,7 +2466,7 @@ function fetchFromRosterLocked_(isoDate, picked) {
 function menuOpenWebApp_() {
   var ui = SpreadsheetApp.getUi();
   try {
-    var url = getConfig(CONFIG_KEYS.WEBAPP_URL, '');
+    var url = getConfig_(CONFIG_KEYS.WEBAPP_URL, '');
 
     if (url) {
       var html = HtmlService.createHtmlOutput(

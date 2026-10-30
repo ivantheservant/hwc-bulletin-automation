@@ -46,7 +46,7 @@ function buildGoLiveChecklist_() {
   // ---- 1. Recipients 齊備 CC、DB、IT ----
   var byGroup = {};
   try {
-    readSheet(SHEETS.RECIPIENTS).forEach(function (r) {
+    readSheet_(SHEETS.RECIPIENTS).forEach(function (r) {
       if (r.ACTIVE !== true) return;
       var g = String(r.GROUP_NAME || '').trim().toUpperCase();
       if (g) byGroup[g] = (byGroup[g] || 0) + 1;
@@ -68,7 +68,7 @@ function buildGoLiveChecklist_() {
   });
 
   // ---- 2. DRY_RUN 現值 ----
-  var dryRun = normalizeBoolean_(getConfig(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
+  var dryRun = normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
   items.push({
     label: '上線前：寄送模式',
     status: dryRun ? S.YELLOW : S.GREEN,
@@ -79,7 +79,7 @@ function buildGoLiveChecklist_() {
   });
 
   // ---- 3. PREVIEW_WEBAPP_URL 已填 ----
-  var previewUrl = String(getConfig(CONFIG_KEYS.PREVIEW_WEBAPP_URL, '') || '').trim();
+  var previewUrl = String(getConfig_(CONFIG_KEYS.PREVIEW_WEBAPP_URL, '') || '').trim();
   items.push({
     label: '上線前：草稿預覽網址',
     status: previewUrl ? S.GREEN : S.YELLOW,
@@ -147,7 +147,7 @@ function buildGoLiveChecklist_() {
   items.push(buildAutoCreateQuartersGoLiveItem_(S));
 
   // ---- 12. v3：測試用的「模擬今日」要在正式使用前清空（填了就只可以發佈／寄出模擬那一週）----
-  var simulated = String(getConfig(CONFIG_KEYS.WEBAPP_SIMULATED_TODAY, '') || '').trim();
+  var simulated = String(getConfig_(CONFIG_KEYS.WEBAPP_SIMULATED_TODAY, '') || '').trim();
   items.push({
     label: '上線前：模擬今日（測試設定）',
     // v3 重測（獨立審查）：紅色——模擬今日亦影響自動建立季度、預覽連結與打開時落在哪一週，忘記清空會靜靜出錯。
@@ -178,9 +178,9 @@ function inspectContentSheetVersions_() {
   var lastDateByQuarter = {};
   var todayIso;
   try {
-    var timezone = getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland');
+    var timezone = getConfig_(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland');
     todayIso = Utilities.formatDate(new Date(), timezone, 'yyyy-MM-dd');
-    readSheet(SHEETS.BULLETIN_WEEKS).forEach(function (w) {
+    readSheet_(SHEETS.BULLETIN_WEEKS).forEach(function (w) {
       var q = String(w.QUARTER_ID || '').trim();
       var iso = fieldOverrideIsoOf_(w.SERVICE_DATE);
       if (!q || !iso) return;
@@ -190,7 +190,7 @@ function inspectContentSheetVersions_() {
     return { ok: false, error: '讀不到週報資料：' + ((err && err.message) ? err.message : String(err)), checked: [], problems: [] };
   }
   try {
-    readSheet(SHEETS.CONTENT_SHEETS);
+    readSheet_(SHEETS.CONTENT_SHEETS);
   } catch (err) {
     // ContentSheets 工作表讀不到（例如未按「初始化工作表」）：不知道各季內容表在哪裏，不可以當成「開不到」逐季報。
     return { ok: false, error: '讀不到 ContentSheets 工作表：' + ((err && err.message) ? err.message : String(err)), checked: [], problems: [] };
@@ -309,7 +309,7 @@ function countRecentErrorLogRows_(days) {
 
   var rows = [];
   try {
-    rows = readSheet(SHEETS.ERROR_LOG);
+    rows = readSheet_(SHEETS.ERROR_LOG);
   } catch (err) {
     return { count: 0, latestSummary: '（讀不到 ErrorLog）' };
   }
@@ -386,7 +386,7 @@ function countProtectedSheets_() {
  */
 function buildSandboxVisibilityItem_(statuses) {
   var label = '上線前：沙盒季度不在用戶可見範圍';
-  var sandbox = String(getConfig(CONFIG_KEYS.SELFTEST_QUARTER_ID, '') || '').trim();
+  var sandbox = String(getConfig_(CONFIG_KEYS.SELFTEST_QUARTER_ID, '') || '').trim();
 
   if (!sandbox) {
     return {
@@ -398,7 +398,7 @@ function buildSandboxVisibilityItem_(statuses) {
 
   var rows = [];
   try {
-    rows = readSheet(SHEETS.BULLETIN_WEEKS);
+    rows = readSheet_(SHEETS.BULLETIN_WEEKS);
   } catch (err) {
     return {
       label: label, status: statuses.YELLOW,

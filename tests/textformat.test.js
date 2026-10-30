@@ -145,26 +145,26 @@ test('2c. setCellValueTextSafe_：不認識的機器鍵回 false，不會靜靜�
     false);
 });
 
-test('2d. writeSheet 附加新行：純文字欄守得住（附加是匯入最常走的路）', function () {
+test('2d. writeSheet_ 附加新行：純文字欄守得住（附加是匯入最常走的路）', function () {
   const env = makeFillEnv({});
-  env.sandbox.writeSheet(env.sandbox.SHEETS.FINANCE, [{
+  env.sandbox.writeSheet_(env.sandbox.SHEETS.FINANCE, [{
     SERVICE_DATE: '2027-10-03', SEQ_NO: 10, ROW_LABEL: '奉獻',
     COL_SPECIAL_OVERSEAS: '42,150', COL_HARDSHIP: '1,234.50',
     COL3: '007', COL4: '--', COL5: '', ACTIVE: true
   }]);
-  const rows = env.sandbox.readSheet(env.sandbox.SHEETS.FINANCE);
+  const rows = env.sandbox.readSheet_(env.sandbox.SHEETS.FINANCE);
   assert.strictEqual(rows.length, 1);
   assert.strictEqual(rows[0].COL_SPECIAL_OVERSEAS, '42,150');
   assert.strictEqual(rows[0].COL_HARDSHIP, '1,234.50');
   assert.strictEqual(rows[0].COL3, '007', '前導零一樣會被轉走，一樣要守');
 });
 
-test('2e. writeSheet：SEQ_NO 這類真數字欄不受影響，仍然是數字', function () {
+test('2e. writeSheet_：SEQ_NO 這類真數字欄不受影響，仍然是數字', function () {
   const env = makeFillEnv({});
-  env.sandbox.writeSheet(env.sandbox.SHEETS.FINANCE, [{
+  env.sandbox.writeSheet_(env.sandbox.SHEETS.FINANCE, [{
     SERVICE_DATE: '2027-10-03', SEQ_NO: 20, ROW_LABEL: '慈惠', ACTIVE: true
   }]);
-  const rows = env.sandbox.readSheet(env.sandbox.SHEETS.FINANCE);
+  const rows = env.sandbox.readSheet_(env.sandbox.SHEETS.FINANCE);
   assert.strictEqual(rows[0].SEQ_NO, 20);
 });
 
@@ -268,14 +268,14 @@ test('4c. repairTextColumnsStoredAsNumbers_：真的改回文字，並報得出�
     SERVICE_DATE: '2027-10-03', SEQ_NO: 10, ROW_LABEL: '奉獻',
     COL_SPECIAL_OVERSEAS: 42150, COL_HARDSHIP: 3200
   });
-  const before = env.sandbox.readSheet(env.sandbox.SHEETS.FINANCE)[0];
+  const before = env.sandbox.readSheet_(env.sandbox.SHEETS.FINANCE)[0];
   assert.strictEqual(before.COL_SPECIAL_OVERSEAS, '42150', '前置條件：舊資料的確已經被轉走');
 
   const summary = env.sandbox.repairTextColumnsStoredAsNumbers_({ dryRun: false });
   assert.strictEqual(summary.ok, true);
   assert.ok(summary.repaired >= 2, '至少修得到那兩格：' + summary.repaired);
 
-  const after = env.sandbox.readSheet(env.sandbox.SHEETS.FINANCE)[0];
+  const after = env.sandbox.readSheet_(env.sandbox.SHEETS.FINANCE)[0];
   assert.strictEqual(after.COL_SPECIAL_OVERSEAS, '42150');
   assert.strictEqual(typeof after.COL_SPECIAL_OVERSEAS, 'string', '修完之後型別要是文字');
   assert.strictEqual(after.SEQ_NO, 10, 'SEQ_NO 不是文字欄，不可以被改');
@@ -307,7 +307,7 @@ test('4f. 修完之後再寫同一個值，不會再被轉走（修復與寫入�
   });
   env.sandbox.repairTextColumnsStoredAsNumbers_({ dryRun: false });
   env.sandbox.setCellValueTextSafe_(seeded.sheet, seeded.def, 3, 'COL_SPECIAL_OVERSEAS', '42,150');
-  const after = env.sandbox.readSheet(env.sandbox.SHEETS.FINANCE)[0];
+  const after = env.sandbox.readSheet_(env.sandbox.SHEETS.FINANCE)[0];
   assert.strictEqual(after.COL_SPECIAL_OVERSEAS, '42,150');
 });
 

@@ -370,7 +370,7 @@ function buildFillGridHeaderRows_() {
 function fillGridValidationOptions_() {
   var templateIds = [];
   try {
-    readSheet(SHEETS.PROGRAM_TEMPLATES).forEach(function (r) {
+    readSheet_(SHEETS.PROGRAM_TEMPLATES).forEach(function (r) {
       if (r.ACTIVE !== true) return;
       var id = String(r.TEMPLATE_ID || '').trim();
       if (id && templateIds.indexOf(id) === -1) templateIds.push(id);
@@ -381,9 +381,9 @@ function fillGridValidationOptions_() {
 
   var recitations = [];
   parseRecitationMonthGroups_(
-    getConfig(CONFIG_KEYS.RECITATION_MONTH_GROUPS, '1-4:RECITATION_JAN_APR,5-8:RECITATION_MAY_AUG,9-12:RECITATION_SEP_DEC')
+    getConfig_(CONFIG_KEYS.RECITATION_MONTH_GROUPS, '1-4:RECITATION_JAN_APR,5-8:RECITATION_MAY_AUG,9-12:RECITATION_SEP_DEC')
   ).forEach(function (g) {
-    var value = String(getConfig(g.configKey, '') || '').trim();
+    var value = String(getConfig_(g.configKey, '') || '').trim();
     if (value && recitations.indexOf(value) === -1) recitations.push(value);
   });
 

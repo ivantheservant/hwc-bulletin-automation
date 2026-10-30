@@ -69,7 +69,7 @@ function buildBulletinModel_(isoDate, options) {
 
   // 2026-10-30：特別崇拜（非主日，src/SpecialService.gs）——下週事奉是**下一個主日**（不是加七天），
   //    家事報告等跟上一個主日。所以先讀這一行，才知道下一個主日是哪一日。
-  var weekRows = readSheet(SHEETS.BULLETIN_WEEKS);
+  var weekRows = readSheet_(SHEETS.BULLETIN_WEEKS);
   var weekRowForDate = findBulletinWeekRow_(weekRows, isoDate);
   // 2026-10-30：已取消的特別崇拜（不刪行）——填寫介面、預覽、Word 一律講明，不可以照樣組出一期。
   if (isCancelledSpecialServiceRow_(weekRowForDate)) throw cancelledSpecialServiceError_(isoDate, weekRowForDate);
@@ -119,7 +119,7 @@ function buildBulletinModel_(isoDate, options) {
   // 內容表 v2（決定 11）：序樂空白時印 Config PRELUDE_DEFAULT。序樂改由內容表「崇拜程序」匯入之後，
   //    內容表那一格空白就會把週報的序樂清空（以前預設值只在「建立本季空白週報」寫一次）。這裏只改
   //    週報資料模型（印出來的值），不寫工作表；填寫介面讀的是工作表，照樣顯示空白。
-  week = applyPreludeDefault_(week, getConfig(CONFIG_KEYS.PRELUDE_DEFAULT, ''));
+  week = applyPreludeDefault_(week, getConfig_(CONFIG_KEYS.PRELUDE_DEFAULT, ''));
 
   // 2026-10-30：特別崇拜的上週崇拜人數、清單次序跟上一個主日（內容來源主日）。
   var contentSourceIso = contentSourceIsoForWeek_(week, isoDate);
@@ -146,11 +146,24 @@ function buildBulletinModel_(isoDate, options) {
   (program.editWarnings || []).forEach(function (w) { warnings.push(w); });
   // 2026-10-30：職事表把這一週設為合堂，但種類代號不在 Config COMBINED_KIND_TEMPLATES（src/CombinedService.gs）。
   if (program.unknownCombinedKind) {
+    var handPicked = program.inferred === false;
     warnings.push({
       code: 'COMBINED_KIND_UNKNOWN',
       message: '職事表把這一週設為合堂（種類代號 ' + program.unknownCombinedKind + '），但 Config 的 COMBINED_KIND_TEMPLATES '
-        + '沒有這個代號，程序範本改用每週標題判斷（目前自動值：' + program.templateAuto + '）。'
-        + '請管理員在 COMBINED_KIND_TEMPLATES 加上「' + program.unknownCombinedKind + '=範本ID」，或者在「程序範本」下拉直接選。'
+        + '沒有這個代號。' + (handPicked
+          ? '現時用的是人手選的範本 ' + program.templateId + '，不受影響；'
+          : '程序範本改用每週標題判斷（目前自動值：' + program.templateAuto + '）。')
+        + '請管理員在 COMBINED_KIND_TEMPLATES 加上「' + program.unknownCombinedKind + '=範本ID」'
+        + (handPicked ? '。' : '，或者在「程序範本」下拉直接選。')
+    });
+  }
+  // 獨立審查 2026-10-30 第 7 項：範本 ID 在 ProgramTemplates 沒有生效中的行＝程序表空白，不可以靜靜印一個空表。
+  if ((program.rows || []).length === 0 && program.templateId) {
+    warnings.push({
+      code: 'PROGRAM_TEMPLATE_EMPTY',
+      message: '程序範本「' + program.templateId + '」在 ProgramTemplates 沒有生效中的行，程序表會是空白。'
+        + '請在「程序範本」下拉選另一個範本，或者請管理員核對 ProgramTemplates'
+        + (program.templateAutoSource === 'COMBINED_KIND' && program.inferred !== false ? '與 Config 的 COMBINED_KIND_TEMPLATES' : '') + '。'
     });
   }
 
@@ -217,35 +230,35 @@ function buildBulletinModel_(isoDate, options) {
     dutyBoxPage1: dutyBoxPage1,
     nextWeekDuty: nextWeekDuty,
     rosterDiff: diff,
-    announcementRows: readSheet(SHEETS.ANNOUNCEMENTS),
-    prayerRows: readSheet(SHEETS.PRAYERS),
-    fellowshipRows: readSheet(SHEETS.FELLOWSHIPS),
-    financeRows: readSheet(SHEETS.FINANCE),
+    announcementRows: readSheet_(SHEETS.ANNOUNCEMENTS),
+    prayerRows: readSheet_(SHEETS.PRAYERS),
+    fellowshipRows: readSheet_(SHEETS.FELLOWSHIPS),
+    financeRows: readSheet_(SHEETS.FINANCE),
     // 浸禮副框的**單人**欄位要套尊稱，走的是跟事奉框人手覆寫姓名完全
     // 同一條路徑（resolveOverrideDisplay_ 按姓名查 PersonDisplay），所以
     // 尊稱開關也沿用第 1 頁那一個——副框就在第 1 頁。
     baptismOptions: {
-      personDisplayRows: readSheet(SHEETS.PERSON_DISPLAY),
-      withHonorific: normalizeBoolean_(getConfig(CONFIG_KEYS.HONORIFIC_ON_PAGE1, 'TRUE')) === true,
+      personDisplayRows: readSheet_(SHEETS.PERSON_DISPLAY),
+      withHonorific: normalizeBoolean_(getConfig_(CONFIG_KEYS.HONORIFIC_ON_PAGE1, 'TRUE')) === true,
       targetDate: targetDate
     },
     config: {
-      dateFormatCover: getConfig(CONFIG_KEYS.DATE_FORMAT_COVER, 'yyyy 年 MM 月 dd 日'),
-      dateFormatInline: getConfig(CONFIG_KEYS.DATE_FORMAT_INLINE, 'dd/MM/yyyy'),
-      defaultPageTitle: getConfig(CONFIG_KEYS.DEFAULT_PAGE_TITLE, '崇拜程序'),
-      defaultAttendanceHeading: getConfig(CONFIG_KEYS.DEFAULT_ATTENDANCE_HEADING, '上週主日崇拜人數'),
-      defaultNextWeekHeading: getConfig(CONFIG_KEYS.DEFAULT_NEXT_WEEK_HEADING, '下週主日崇拜聚會事奉肢體'),
-      defaultPrayerBlockHeading: getConfig(CONFIG_KEYS.DEFAULT_PRAYER_BLOCK_HEADING, '代禱事項'),
-      preludeDefault: getConfig(CONFIG_KEYS.PRELUDE_DEFAULT, ''),
-      cantoneseSubColumnLabel: getConfig(CONFIG_KEYS.CANTONESE_SUBCOLUMN_LABEL, '主堂'),
-      dutyPrintEmptyRows: normalizeBoolean_(getConfig(CONFIG_KEYS.DUTY_PRINT_EMPTY_ROWS, 'FALSE')) === true,
+      dateFormatCover: getConfig_(CONFIG_KEYS.DATE_FORMAT_COVER, 'yyyy 年 MM 月 dd 日'),
+      dateFormatInline: getConfig_(CONFIG_KEYS.DATE_FORMAT_INLINE, 'dd/MM/yyyy'),
+      defaultPageTitle: getConfig_(CONFIG_KEYS.DEFAULT_PAGE_TITLE, '崇拜程序'),
+      defaultAttendanceHeading: getConfig_(CONFIG_KEYS.DEFAULT_ATTENDANCE_HEADING, '上週主日崇拜人數'),
+      defaultNextWeekHeading: getConfig_(CONFIG_KEYS.DEFAULT_NEXT_WEEK_HEADING, '下週主日崇拜聚會事奉肢體'),
+      defaultPrayerBlockHeading: getConfig_(CONFIG_KEYS.DEFAULT_PRAYER_BLOCK_HEADING, '代禱事項'),
+      preludeDefault: getConfig_(CONFIG_KEYS.PRELUDE_DEFAULT, ''),
+      cantoneseSubColumnLabel: getConfig_(CONFIG_KEYS.CANTONESE_SUBCOLUMN_LABEL, '主堂'),
+      dutyPrintEmptyRows: normalizeBoolean_(getConfig_(CONFIG_KEYS.DUTY_PRINT_EMPTY_ROWS, 'FALSE')) === true,
       // 2026-10-30：財政報告（src/FinanceReports.gs）。
-      financeTitlePattern: getConfig(CONFIG_KEYS.FINANCE_TITLE_PATTERN, FINANCE_TITLE_PATTERN_DEFAULT_),
-      financePeriodLabelPattern: getConfig(CONFIG_KEYS.FINANCE_PERIOD_LABEL_PATTERN, FINANCE_PERIOD_LABEL_PATTERN_DEFAULT_),
-      financeSpecialTitlePattern: getConfig(CONFIG_KEYS.FINANCE_SPECIAL_TITLE_PATTERN, FINANCE_SPECIAL_TITLE_PATTERN_DEFAULT_),
-      financeSpecialKeywords: getConfig(CONFIG_KEYS.FINANCE_SPECIAL_KEYWORDS, FINANCE_SPECIAL_KEYWORDS_DEFAULT_),
-      financeMainColumnLabels: getConfig(CONFIG_KEYS.FINANCE_MAIN_COLUMN_LABELS, FINANCE_MAIN_COLUMN_LABELS_DEFAULT_),
-      financeSpecialColumnLabels: getConfig(CONFIG_KEYS.FINANCE_SPECIAL_COLUMN_LABELS, FINANCE_SPECIAL_COLUMN_LABELS_DEFAULT_)
+      financeTitlePattern: getConfig_(CONFIG_KEYS.FINANCE_TITLE_PATTERN, FINANCE_TITLE_PATTERN_DEFAULT_),
+      financePeriodLabelPattern: getConfig_(CONFIG_KEYS.FINANCE_PERIOD_LABEL_PATTERN, FINANCE_PERIOD_LABEL_PATTERN_DEFAULT_),
+      financeSpecialTitlePattern: getConfig_(CONFIG_KEYS.FINANCE_SPECIAL_TITLE_PATTERN, FINANCE_SPECIAL_TITLE_PATTERN_DEFAULT_),
+      financeSpecialKeywords: getConfig_(CONFIG_KEYS.FINANCE_SPECIAL_KEYWORDS, FINANCE_SPECIAL_KEYWORDS_DEFAULT_),
+      financeMainColumnLabels: getConfig_(CONFIG_KEYS.FINANCE_MAIN_COLUMN_LABELS, FINANCE_MAIN_COLUMN_LABELS_DEFAULT_),
+      financeSpecialColumnLabels: getConfig_(CONFIG_KEYS.FINANCE_SPECIAL_COLUMN_LABELS, FINANCE_SPECIAL_COLUMN_LABELS_DEFAULT_)
     },
     // 正式路徑用 Apps Script 的 Utilities.formatDate()，才能完整支援 Config
     // 內任何 Java SimpleDateFormat 樣式；純函式層測試會改用內建的簡化版。

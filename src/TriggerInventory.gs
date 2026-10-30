@@ -55,7 +55,7 @@ function expectedProjectTriggers_() {
     {
       // 2026-10-30：內容表自動同步（與自動寄送一齊安裝、一齊移除）。Config 設 0 時預期 0 個。
       handler: 'contentAutoSyncTrigger_', label: '內容表自動同步',
-      expected: parseContentAutoSyncMinutes_(getConfig(CONFIG_KEYS.CONTENT_AUTO_SYNC_MINUTES, '30')).minutes > 0 ? 1 : 0,
+      expected: parseContentAutoSyncMinutes_(getConfig_(CONFIG_KEYS.CONTENT_AUTO_SYNC_MINUTES, '30')).minutes > 0 ? 1 : 0,
       retired: false,
       missingHint: '內容表改了之後，要等幹事打開填寫介面或星期一才會匯入，預覽連結不會自動更新。請按選單「安裝自動寄送觸發器」。',
       duplicateHint: '每一個都會各自跑一次（多跑不會重複寫，但浪費時間）。'

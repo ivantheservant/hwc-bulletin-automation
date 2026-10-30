@@ -10,7 +10,7 @@
  * 一處，所有需要「本季是哪一季」的地方一律呼叫這一個函式，不可以自己
  * 另外猜。
  *
- * ⚠️ 唯讀：本檔案全部函式只讀取（`getConfig`／`readSheet`／職事表快照），
+ * ⚠️ 唯讀：本檔案全部函式只讀取（`getConfig_`／`readSheet_`／職事表快照），
  * 不寫入任何資料。
  */
 
@@ -50,11 +50,11 @@ function isIsoDateShape_(raw) {
  * 用途：把一個工作表讀出來的日期欄位值換算成毫秒時間戳，供「哪個季度
  *   最接近今日」排序用。**純函式**。
  *
- *   ⚠️ `readSheet()` 依欄位型別把 DATE 欄轉成 `Date` 物件，但寬鬆解析
+ *   ⚠️ `readSheet_()` 依欄位型別把 DATE 欄轉成 `Date` 物件，但寬鬆解析
  *   失敗（或測試直接塞字串）時可能仍然是字串——兩種都要處理（見
  *   `docs/已知bug類型.md` 第 4 類）。
  * Args:
- *   v {*} `readSheet()` 某一格 DATE 欄的值。
+ *   v {*} `readSheet_()` 某一格 DATE 欄的值。
  * Returns:
  *   {?number} 換算不出來（`null`／`undefined`／格式不符）回 `null`。
  */
@@ -88,7 +88,7 @@ function isoDateToTime_(isoDate) {
  *   純函式核心——在 `BulletinWeeks` 現有資料裡，找「主日數目最多、且
  *   最接近今日」的季度。**純函式**，方便單獨測試排序規則。
  * Args:
- *   rows {Object[]} `readSheet(SHEETS.BULLETIN_WEEKS)` 的輸出，每個元素
+ *   rows {Object[]} `readSheet_(SHEETS.BULLETIN_WEEKS)` 的輸出，每個元素
  *     至少要有 `QUARTER_ID`／`SERVICE_DATE`。
  *   todayIso {string} 今天的日期，yyyy-MM-dd，用來算「最接近」。
  * Returns:
@@ -186,7 +186,7 @@ function checkQuarterExistsInRoster_(quarterId) {
  *        經 `guessNextBulletinSendIso_()` 叫落去，**不可以**自己另外
  *        算一次，見 docs/已知bug類型.md 事故三十。
  *     3. `ROSTER_TEST_DATE`——由 Config `ROSTER_TEST_DATE` 反查職事表。
- *        `getConfig()` 已經把 Config 儲存格的 `Date` 物件正規化成
+ *        `getConfig_()` 已經把 Config 儲存格的 `Date` 物件正規化成
  *        `yyyy-MM-dd` 字串（見 `src/ConfigService.gs` 的
  *        `coerceConfigRawValue_()`），這裡只需要再擋一次「人手打的文字
  *        不是 yyyy-MM-dd 形狀」（例如 `7/11/2027`）。
@@ -214,7 +214,7 @@ function resolveWorkingQuarter_() {
   }
 
   // ---- 第 1 層：CONFIG_OVERRIDE ----
-  var override = String(getConfig(CONFIG_KEYS.WORKING_QUARTER_ID, '') || '').trim();
+  var override = String(getConfig_(CONFIG_KEYS.WORKING_QUARTER_ID, '') || '').trim();
   if (override) {
     var existCheck = checkQuarterExistsInRoster_(override);
     if (!existCheck.exists) {
@@ -240,7 +240,7 @@ function resolveWorkingQuarter_() {
   }
 
   // ---- 第 3 層：ROSTER_TEST_DATE ----
-  var testDateRaw = String(getConfig(CONFIG_KEYS.ROSTER_TEST_DATE, '') || '').trim();
+  var testDateRaw = String(getConfig_(CONFIG_KEYS.ROSTER_TEST_DATE, '') || '').trim();
   if (!testDateRaw) {
     notes.push('設定值 ROSTER_TEST_DATE 是空的，略過這一層。');
   } else if (!isIsoDateShape_(testDateRaw)) {
@@ -255,9 +255,9 @@ function resolveWorkingQuarter_() {
   }
 
   // ---- 第 4 層：BULLETIN_WEEKS_LATEST ----
-  var timezone = getConfig(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland');
+  var timezone = getConfig_(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland');
   var todayIso = Utilities.formatDate(new Date(), timezone, 'yyyy-MM-dd');
-  var latest = pickLatestBulletinWeeksQuarter_(readSheet(SHEETS.BULLETIN_WEEKS), todayIso);
+  var latest = pickLatestBulletinWeeksQuarter_(readSheet_(SHEETS.BULLETIN_WEEKS), todayIso);
   if (latest.quarterId) {
     notes.push('改用 BulletinWeeks 現有資料，主日數最多且最接近今日的季度是「' + latest.quarterId + '」（' + latest.count + ' 個主日）。');
     return done('BULLETIN_WEEKS_LATEST', latest.quarterId, null);

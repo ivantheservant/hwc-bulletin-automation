@@ -61,7 +61,7 @@ function gridEdit(env, isoDate, fieldKey, value) {
 }
 
 function weekRow(env, isoDate) {
-  return env.sandbox.readSheet('BulletinWeeks').filter(function (r) {
+  return env.sandbox.readSheet_('BulletinWeeks').filter(function (r) {
     return env.sandbox.fillGridCellText_(r.SERVICE_DATE) === isoDate;
   })[0];
 }
@@ -70,7 +70,7 @@ function weekRow(env, isoDate) {
 function snapshotAll(env) {
   const names = ['BulletinWeeks', 'AuditLog', 'FieldOverride', 'DutyOverride', 'FillSnapshot', 'ErrorLog'];
   const out = {};
-  names.forEach(function (n) { out[n] = JSON.stringify(env.sandbox.readSheet(n)); });
+  names.forEach(function (n) { out[n] = JSON.stringify(env.sandbox.readSheet_(n)); });
   out.grid = JSON.stringify(env.sheets['Fill_' + QUARTER_ID].__data);
   return out;
 }
@@ -144,8 +144,8 @@ test('F1-2 同一格兩邊都改過 → FIELD_CONFLICT，整次拒絕，一格�
   assert.deepStrictEqual(Array.from(err.conflictFields), ['PAGE_TITLE']);
   assertNothingWritten(env, before);
   assert.strictEqual(weekRow(env, D).FLOWER_THIS_WEEK, '', '連沒有衝突的獻花也不可以寫');
-  assert.strictEqual(env.sandbox.readSheet('FieldOverride').length, 0);
-  assert.strictEqual(env.sandbox.readSheet('DutyOverride').length, 0);
+  assert.strictEqual(env.sandbox.readSheet_('FieldOverride').length, 0);
+  assert.strictEqual(env.sandbox.readSheet_('DutyOverride').length, 0);
 });
 
 test('F1-3 衝突訊息用介面標籤，不用機器鍵；多個欄位用「、」分隔', function () {
@@ -251,7 +251,7 @@ test('F1-10 沒有衝突的正常改動：舊值 = baseWeek → 照寫，並逐�
   });
   assert.strictEqual(result.changedFieldCount, 1);
   assert.strictEqual(weekRow(env, D).PAGE_TITLE, '新序樂');
-  const audit = env.sandbox.readSheet('AuditLog').filter(function (r) { return r.ACTION === 'WEBAPP_SAVE_WEEK'; });
+  const audit = env.sandbox.readSheet_('AuditLog').filter(function (r) { return r.ACTION === 'WEBAPP_SAVE_WEEK'; });
   assert.strictEqual(audit.length, 1);
   assert.strictEqual(audit[0].OLD_VALUE, '舊序樂');
   assert.strictEqual(audit[0].NEW_VALUE, '新序樂');
@@ -261,14 +261,14 @@ test('F1-11 沒有改動的第三種欄位不會被開覆寫（FieldOverride 沒
   const env = makeSyncedEnv();
   // 講題由別處寫入（等同內容表匯入後 BulletinWeeks 的新值）。
   gridEdit(env, D, 'SERMON_TITLE', '別處寫入的講題');
-  const overridesBefore = env.sandbox.readSheet('FieldOverride').length;
+  const overridesBefore = env.sandbox.readSheet_('FieldOverride').length;
 
   // 舊分頁只改獻花；講題沒有改，所以前端根本不送。
   env.sandbox.saveWeekFromWebApp_({
     isoDate: D, lastSavedAt: '', baseWeek: { FLOWER_THIS_WEEK: '' }, week: { FLOWER_THIS_WEEK: '玫瑰' }
   });
   assert.strictEqual(weekRow(env, D).SERMON_TITLE, '別處寫入的講題');
-  assert.strictEqual(env.sandbox.readSheet('FieldOverride').length, overridesBefore,
+  assert.strictEqual(env.sandbox.readSheet_('FieldOverride').length, overridesBefore,
     '⚠️ 不可以替沒有改過的舊值開覆寫（否則內容表之後的新值會被永遠擋住）');
 });
 
@@ -366,7 +366,7 @@ test('F2-1 完全沒有改動的儲存：不寫 LAST_SAVED_AT，回傳原本的 
   });
   const token = env.sandbox.canonicalSaveToken_(weekRow(env, D).LAST_SAVED_AT);
   assert.ok(token, '前提：第一次真的儲存過，有 token');
-  const auditBefore = env.sandbox.readSheet('AuditLog').length;
+  const auditBefore = env.sandbox.readSheet_('AuditLog').length;
 
   const result = env.sandbox.apiSaveWeek({ isoDate: D, lastSavedAt: token, baseWeek: {}, week: {} });
   assert.strictEqual(result.ok, true, JSON.stringify(result));
@@ -374,7 +374,7 @@ test('F2-1 完全沒有改動的儲存：不寫 LAST_SAVED_AT，回傳原本的 
   assert.strictEqual(result.data.changedFieldCount, 0);
   assert.strictEqual(result.data.message.text, '沒有偵測到任何改動，工作表沒有變更。');
   assert.strictEqual(env.sandbox.canonicalSaveToken_(weekRow(env, D).LAST_SAVED_AT), token, 'LAST_SAVED_AT 沒有變');
-  assert.strictEqual(env.sandbox.readSheet('AuditLog').length, auditBefore);
+  assert.strictEqual(env.sandbox.readSheet_('AuditLog').length, auditBefore);
 });
 
 test('F2-2 H15／H17：無改動儲存之後，另一個用同一 token 的 payload 可以正常儲存', function () {
@@ -414,7 +414,7 @@ test('F2-4 只有事奉覆寫有改動，也算有改動：照舊更新 LAST_SAV
   });
   assert.ok(result.changedFieldCount >= 1);
   assert.ok(result.lastSavedAt, '有改動就要有新 token');
-  assert.strictEqual(env.sandbox.readSheet('DutyOverride').length, 1);
+  assert.strictEqual(env.sandbox.readSheet_('DutyOverride').length, 1);
 });
 
 // =====================================================================
@@ -434,20 +434,20 @@ test('F8-2 經 apiSaveWeek()：STALE 回傳錯誤給介面，但不寫 ErrorLog'
   env.sandbox.saveWeekFromWebApp_({
     isoDate: D, lastSavedAt: '', baseWeek: { FLOWER_THIS_WEEK: '' }, week: { FLOWER_THIS_WEEK: '玫瑰' }
   });
-  const errorsBefore = env.sandbox.readSheet('ErrorLog').length;
+  const errorsBefore = env.sandbox.readSheet_('ErrorLog').length;
   const resp = env.sandbox.apiSaveWeek({
     isoDate: D, lastSavedAt: '', baseWeek: { FLOWER_THIS_WEEK: '' }, week: { FLOWER_THIS_WEEK: '另一個分頁' }
   });
   assert.strictEqual(resp.ok, false);
   assert.strictEqual(resp.error.code, 'STALE');
   assert.ok(resp.error.message.length > 0);
-  assert.strictEqual(env.sandbox.readSheet('ErrorLog').length, errorsBefore, 'STALE 不是故障，不寫 ErrorLog');
+  assert.strictEqual(env.sandbox.readSheet_('ErrorLog').length, errorsBefore, 'STALE 不是故障，不寫 ErrorLog');
 });
 
 test('F8-3 經 apiSaveWeek()：FIELD_CONFLICT 與 CLIENT_OUTDATED 同樣不寫 ErrorLog', function () {
   const env = makeSyncedEnv();
   gridEdit(env, D, 'PAGE_TITLE', '格子表');
-  const errorsBefore = env.sandbox.readSheet('ErrorLog').length;
+  const errorsBefore = env.sandbox.readSheet_('ErrorLog').length;
 
   const conflict = env.sandbox.apiSaveWeek({
     isoDate: D, lastSavedAt: '', baseWeek: { PAGE_TITLE: '' }, week: { PAGE_TITLE: '分頁' }
@@ -457,26 +457,26 @@ test('F8-3 經 apiSaveWeek()：FIELD_CONFLICT 與 CLIENT_OUTDATED 同樣不寫 E
   const outdated = env.sandbox.apiSaveWeek({ isoDate: D, lastSavedAt: '', week: { PAGE_TITLE: '分頁' } });
   assert.strictEqual(outdated.error.code, 'CLIENT_OUTDATED');
 
-  assert.strictEqual(env.sandbox.readSheet('ErrorLog').length, errorsBefore);
+  assert.strictEqual(env.sandbox.readSheet_('ErrorLog').length, errorsBefore);
 });
 
 test('F8-4 其他錯誤照寫 ErrorLog', function () {
   const env = makeSyncedEnv();
-  const errorsBefore = env.sandbox.readSheet('ErrorLog').length;
+  const errorsBefore = env.sandbox.readSheet_('ErrorLog').length;
   const resp = env.sandbox.apiSaveWeek({ isoDate: '', week: {} });
   assert.strictEqual(resp.ok, false);
-  const rows = env.sandbox.readSheet('ErrorLog');
+  const rows = env.sandbox.readSheet_('ErrorLog');
   assert.strictEqual(rows.length, errorsBefore + 1, '真正的錯誤要記下來');
   assert.strictEqual(rows[rows.length - 1].FUNCTION_NAME, 'apiSaveWeek');
 });
 
 test('F8-5 withApiResult_ 直接測：自訂錯誤碼 BOOM 要寫，STALE 不寫', function () {
   const env = makeSyncedEnv();
-  const before = env.sandbox.readSheet('ErrorLog').length;
+  const before = env.sandbox.readSheet_('ErrorLog').length;
   env.sandbox.withApiResult_(function () { const e = new Error('x'); e.code = 'STALE'; throw e; }, { functionName: 't' });
-  assert.strictEqual(env.sandbox.readSheet('ErrorLog').length, before);
+  assert.strictEqual(env.sandbox.readSheet_('ErrorLog').length, before);
   env.sandbox.withApiResult_(function () { const e = new Error('x'); e.code = 'BOOM'; throw e; }, { functionName: 't' });
-  assert.strictEqual(env.sandbox.readSheet('ErrorLog').length, before + 1);
+  assert.strictEqual(env.sandbox.readSheet_('ErrorLog').length, before + 1);
 });
 
 // =====================================================================
