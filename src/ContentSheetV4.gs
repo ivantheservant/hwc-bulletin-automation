@@ -174,8 +174,16 @@ function detectWorshipTabLayoutV4_(spreadsheet) {
     var layout = reshapeSheet ? 'RESHAPE_PENDING' : (retiredSheet ? 'V4_PENDING' : 'NONE');
     return { layout: layout, sheet: s, retiredSheet: retiredSheet, reshapeSheet: reshapeSheet };
   }
+  // 2026-10-31（部署 @74 後瀏覽器測試，2028T4）：沒有「崇拜程序」（或者整張空白）而舊的「宣召」／「浸禮合堂」未改名＝
+  //    v1 的內容表少了崇拜程序分頁。以前當成新分頁（NONE），v2 移轉不跑，舊分頁一直未改名，匯入一直叫人按
+  //    「更新本季內容表…」而按了又不會處理（死胡同）。改為當舊版（LEGACY）：先經 v2 移轉建「崇拜程序」並搬舊分頁。
+  function legacyOr(p) {
+    if (p.layout !== 'NONE') return p;
+    var hasLegacy = legacyMergedTabDefs_().some(function (d) { return Boolean(spreadsheet.getSheetByName(d.tabName)); });
+    return hasLegacy ? { layout: 'LEGACY', sheet: p.sheet, retiredSheet: retiredSheet, worshipMissing: !p.sheet } : p;
+  }
   var sheet = spreadsheet.getSheetByName(def.tabName);
-  if (!sheet) return pending(null);
+  if (!sheet) return legacyOr(pending(null));
 
   var header = readContentTabHeaderKeys_(sheet, v3Keys.length);
   var isV3 = v3Keys.every(function (k, i) { return header[i] === k; });
@@ -190,7 +198,7 @@ function detectWorshipTabLayoutV4_(spreadsheet) {
     var state = blankHeaderDataState_(sheet, def.keys.length);
     if (state.beyond) return { layout: 'UNREADABLE', sheet: sheet, retiredSheet: retiredSheet };
     if (state.hasData) return { layout: 'V4', sheet: sheet, retiredSheet: retiredSheet, headerRestore: true };
-    return pending(sheet);
+    return legacyOr(pending(sheet));
   }
   return { layout: 'LEGACY', sheet: sheet, retiredSheet: retiredSheet };
 }

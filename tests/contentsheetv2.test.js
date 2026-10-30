@@ -883,5 +883,35 @@ test('R3-2 Script.html：單週匯入預覽把「解除覆寫」算作改動（�
   assert.ok(fn.indexOf('openConfirmDialog(') > fn.indexOf('summary.noChangeMessage'));
 });
 
+console.log('\n2026-10-31：v1 內容表少了「崇拜程序」分頁（2028T4 的樣子）');
+
+test('C-NW 沒有「崇拜程序」而「宣召」「浸禮合堂」未改名：以前更新之後仍然擋住匯入（死胡同）；現在當舊版移轉，舊分頁改名，之後匯入正常', function () {
+  const env = makeV1Env({ omitTabs: ['崇拜程序'] });
+  assert.strictEqual(env.contentSpreadsheet.getSheetByName('崇拜程序'), null, '前提：沒有崇拜程序分頁');
+  const before = env.sandbox.apiRunQuarterContentImport(QUARTER_ID);
+  assert.strictEqual(before.data.ok, false);
+  assert.ok(String(before.data.message).indexOf('仍然有舊的「宣召」分頁') !== -1, before.data.message);
+  assert.strictEqual(env.sandbox.detectWorshipTabLayoutV4_(env.contentSpreadsheet).layout, 'LEGACY');
+  const preview = env.sandbox.apiPreviewContentSheetBuild(QUARTER_ID);
+  assert.strictEqual(preview.ok, true, JSON.stringify(preview));
+  const ptext = preview.data.lines.join('\n');
+  assert.ok(ptext.indexOf('宣召') !== -1, '預覽要講舊分頁：' + ptext);
+  assertWrittenChinese(assert, '預覽', preview.data.lines);
+  const data = run(env);
+  assert.strictEqual(data.ok, true, JSON.stringify(data));
+  const names = env.contentSpreadsheet.getSheets().map(function (sh) { return sh.getName(); });
+  assert.strictEqual(names.indexOf('宣召'), -1, '舊「宣召」要改名：' + names.join('、'));
+  assert.strictEqual(names.indexOf('浸禮合堂'), -1, '舊「浸禮合堂」要改名：' + names.join('、'));
+  assert.ok(env.contentSpreadsheet.getSheetByName('崇拜程序'), '建了崇拜程序');
+  assert.strictEqual(env.sandbox.detectWorshipTabLayoutV4_(env.contentSpreadsheet).layout, 'V4');
+  const after = env.sandbox.apiRunQuarterContentImport(QUARTER_ID);
+  assert.strictEqual(after.data.ok, true, JSON.stringify(after.data));
+  assert.strictEqual(String(weekOf(env, D4).CALL_REF), '詩篇 1:1', '宣召出處留在週報');
+  // 再按一次：一格不改。
+  const snap = contentSnapshot(env);
+  run(env);
+  assert.strictEqual(contentSnapshot(env), snap);
+});
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail === 0 ? 0 : 1);
