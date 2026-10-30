@@ -33,6 +33,24 @@ function makeContentTab(keys, headers, rows, opts) {
 }
 
 /**
+ * 2026-10-30：造一張日子橫放的分頁：A 欄中文標題、B 欄機器鍵、C 欄起每一筆一欄（「有效」不放）。
+ * `rows` 與舊版一樣以機器鍵為 key（每一筆＝一個崇拜日期）。
+ */
+function makeTransposedTab(def, rows, opts) {
+  const tkeys = def.keys.filter(function (k) { return k !== 'ACTIVE'; });
+  const theaders = def.headers.filter(function (h, i) { return def.keys[i] !== 'ACTIVE'; });
+  const tab = makeContentTab([], [], [], opts);
+  const matrix = tkeys.map(function (k, i) {
+    return [theaders[i], k].concat((rows || []).map(function (r) { return r[k] === undefined ? '' : r[k]; }));
+  });
+  // 真的內容表由 applyTransposedContentTabLayout_() 設成純文字；這裏一樣，否則「1,024」會被轉成數字。
+  const range = tab.getRange(1, 1, tkeys.length, 2 + (rows || []).length);
+  range.setNumberFormat('@');
+  range.setValues(matrix);
+  return tab;
+}
+
+/**
  * 造一個測試環境。
  * options.content：分頁名稱 → 資料列陣列（以內容表機器鍵為 key）。
  *   沒有列出的分頁＝整張空白。⚠️ 寫了一個這個版面沒有的分頁名稱就拋錯——以前會靜靜當成
@@ -46,6 +64,7 @@ function makeContentTab(keys, headers, rows, opts) {
  * options.extraTabs：另外加的分頁 `[{tabName, keys, headers, rows}]`（例如已改名的舊分頁）。
  * options.maxColumns：每張分頁的欄數（數字，或者「分頁名稱 → 欄數」）；預設 26，與真的新分頁一樣。
  * options.contentFaults：`{failOnSetValue, failOnSetName, failOnDeleteColumns}`，第 N 次寫入格子／改名／刪欄時拋錯。
+ * options.attendanceLayout：'rows'＝「崇拜人數」用舊的一個日期一行（測試轉換用）；預設日子橫放。
  * options.otherContentSheets：2026-10-30（「連續到」跨季）另外幾份內容表
  *   `[{quarterId, fileId, content:{分頁: 行}, missing:boolean=, layout:'current'|'v3'=}]`，會登記在 ContentSheets
  *   （ACTIVE=TRUE）；`missing:true`＝登記了但開不到。
@@ -130,8 +149,13 @@ function makeEnv(options) {
   layoutDefs.concat(o.extraTabs || []).forEach(function (def) {
     if ((o.omitTabs || []).indexOf(def.tabName) !== -1) return;
     const rows = (o.content || {})[def.tabName] || def.rows || [];
-    const tab = makeContentTab(def.keys, def.headers, rows,
-      { name: def.tabName, faults: contentFaults, maxColumns: maxColumnsFor(def.tabName) });
+    // 2026-10-30：現行版面的「崇拜人數」是日子橫放（src/ContentSheetTransposed.gs）；`attendanceLayout:'rows'`
+    //    或者舊版面（v1／v2／v3）＝舊的一個日期一行。
+    const transposed = def.transposed === true && !o.contentLayout && o.attendanceLayout !== 'rows';
+    const tab = transposed
+      ? makeTransposedTab(def, rows, { name: def.tabName, faults: contentFaults, maxColumns: maxColumnsFor(def.tabName) })
+      : makeContentTab(def.keys, def.headers, rows,
+        { name: def.tabName, faults: contentFaults, maxColumns: maxColumnsFor(def.tabName) });
     contentTabs[def.tabName] = tab;
     tabList.push(tab);
   });
@@ -153,6 +177,7 @@ function makeEnv(options) {
   };
 
   const otherSpreadsheets = {};
+  // 2026-10-30：另外幾份內容表的「崇拜人數」一律是舊的一個日期一行（上一季未必按過「更新本季內容表…」）。
   (o.otherContentSheets || []).forEach(function (c) {
     if (c.missing) return;
     const defs = c.layout === 'v3' ? legacyContentTabDefsV3(boot.contentSheetTabDefs_()) : boot.contentSheetTabDefs_();
@@ -223,7 +248,7 @@ function makeEnv(options) {
 
   return {
     sandbox: sandbox, sheets: ownSheets, locks: locks, uiAlerts: uiAlerts, contentTabs: contentTabs,
-    contentSpreadsheet: contentSpreadsheet, contentFaults: contentFaults
+    contentSpreadsheet: contentSpreadsheet, contentFaults: contentFaults, otherSpreadsheets: otherSpreadsheets
   };
 }
 
@@ -252,6 +277,7 @@ function baseStubs() {
 module.exports = {
   makeEnv: makeEnv,
   makeContentTab: makeContentTab,
+  makeTransposedTab: makeTransposedTab,
   baseStubs: baseStubs,
   FAKE_ROSTER_ID: FAKE_ROSTER_ID,
   FAKE_FOLDER_ID: FAKE_FOLDER_ID,

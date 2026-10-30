@@ -61,6 +61,8 @@ function makeRichSheet(name) {
   const wraps = {};           // 'r,c' → boolean
   const columnWidths = {};
   let frozenRows = 0;
+  let frozenColumns = 0;
+  const hiddenColumns = {};
   // 內容表 v2 Commit 1：真的新分頁有 26 欄，超出就拋錯；可以隱藏、可以保護（移轉要用）。
   let maxColumns = 26;
   let hidden = false;
@@ -103,8 +105,11 @@ function makeRichSheet(name) {
     insertColumnsAfter: function (afterCol, howMany) { maxColumns += Number(howMany) || 0; return sheet; },
     getFrozenRows: function () { return frozenRows; },
     setFrozenRows: function (n) { frozenRows = n; return sheet; },
-    getFrozenColumns: function () { return 0; },
-    setFrozenColumns: function () { return sheet; },
+    getFrozenColumns: function () { return frozenColumns; },
+    setFrozenColumns: function (n) { frozenColumns = n; return sheet; },
+    // 2026-10-30：崇拜人數日子橫放，機器鍵欄（B）隱藏。
+    hideColumns: function (col, n) { for (let i = 0; i < (n || 1); i++) hiddenColumns[col + i] = true; return sheet; },
+    isColumnHiddenByUser: function (col) { return hiddenColumns[col] === true; },
     setColumnWidth: function (col, width) { columnWidths[col] = width; return sheet; },
     getColumnWidth: function (col) { return columnWidths[col] || 100; },
     hideSheet: function () { hidden = true; return sheet; },
@@ -142,6 +147,10 @@ function makeRichSheet(name) {
           + ' 欄，分頁只有 ' + maxColumns + ' 欄）。');
       }
       const range = {
+        getRow: function () { return r; },
+        getColumn: function () { return c; },
+        getNumRows: function () { return numRows; },
+        getNumColumns: function () { return numCols; },
         // v4：按一欄排序（每晚排序用排名欄）。
         sort: function (spec) {
           const col = typeof spec === 'number' ? spec : spec.column;
@@ -518,6 +527,19 @@ test('2. 建立：每張表第 1、2 行正確，資料由第 3 行開始', func
   env.sandbox.contentSheetTabDefs_().forEach(function (def) {
     const sheet = ss.getSheetByName(def.tabName);
     assert.ok(sheet, def.tabName + ' 應該存在');
+    if (def.transposed === true) {
+      // 2026-10-30（Ivan）：「崇拜人數」日子橫放：A 欄中文標題、B 欄機器鍵（隱藏）、第 1 行 C 起＝每一個崇拜日期。
+      const tkeys = env.sandbox.transposedContentKeys_(def);
+      const theaders = env.sandbox.transposedContentHeaders_(def);
+      assert.strictEqual(tkeys.indexOf('ACTIVE'), -1, '橫放的分頁沒有「有效」');
+      assertArrayEqual(Array.from(sheet.__data.slice(0, tkeys.length).map(function (r) { return r[0]; })), theaders, def.tabName + ' 第 A 欄');
+      assertArrayEqual(Array.from(sheet.__data.slice(0, tkeys.length).map(function (r) { return r[1]; })), tkeys, def.tabName + ' 第 B 欄');
+      assert.strictEqual(sheet.getFrozenRows(), 1, def.tabName + ' 應該凍結第 1 行');
+      assert.strictEqual(sheet.getFrozenColumns(), 2, def.tabName + ' 應該凍結 A、B 欄');
+      assert.strictEqual(sheet.isColumnHiddenByUser(2), true, def.tabName + ' 機器鍵欄要隱藏');
+      assert.strictEqual(sheet.getLastColumn(), 2 + SERVICE_DATES.length, def.tabName + ' 每個主日一欄');
+      return;
+    }
     assertArrayEqual(row(sheet, 1, def.headers.length), def.headers, def.tabName + ' 第 1 行');
     assertArrayEqual(row(sheet, 2, def.keys.length), def.keys, def.tabName + ' 第 2 行');
     assert.strictEqual(sheet.getFrozenRows(), 2, def.tabName + ' 應該凍結頭兩行');
@@ -623,15 +645,20 @@ test('5. 季度多咗一個主日 → 下拉選單跟住更新，舊資料唔郁
 // 6-8. 下拉與格式
 // =====================================================================
 
-test('6. 崇拜人數預先開好的日期包含「第一個主日減七天」（2026-10-30 v4：一個日期一行、日期欄鎖住，不再有下拉）', function () {
+test('6. 崇拜人數預先開好的日期包含「第一個主日減七天」（2026-10-30：日子橫放，第 1 行 C 起，鎖住，不再有下拉）', function () {
   const env = makeEnv({});
   env.sandbox.buildOrRefreshContentSheet_(QUARTER_ID);
   const sheet = env.contentSpreadsheet().getSheetByName('崇拜人數');
-  assert.strictEqual(sheet.__validations['3,1'], undefined, '日期由系統填好並鎖住，不用下拉（以前 200 行都有下拉箭咀）');
-  const dates = sheet.__data.slice(2).map(function (r) { return String(r[0] || ''); }).filter(Boolean);
+  assert.strictEqual(sheet.__validations['1,3'], undefined, '日期由系統填好並鎖住，不用下拉');
+  const dates = sheet.__data[0].slice(2).map(function (v) { return String(v || ''); }).filter(Boolean);
   assert.strictEqual(dates[0], '2027-10-31',
     '第一個主日 2027-11-07 減七天＝2027-10-31，否則該季第一期嘅人數無處可填');
   assert.strictEqual(dates.length, SERVICE_DATES.length);
+  // 同工只可以改 C2 起的人數格（日期、標題、機器鍵鎖住）。
+  const lock = sheet.__protections.filter(function (p) { return p.description === env.sandbox.CONTENT_SHEET_V4_LOCK_DESCRIPTION_; });
+  assert.strictEqual(lock.length, 1, '整張分頁要保護');
+  const free = lock[0].unprotected.map(function (r) { return [r.getRow(), r.getColumn(), r.getNumRows(), r.getNumColumns()]; });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(free)), [[2, 3, 12, SERVICE_DATES.length]], '只可以改 C2 起十二行 × 每個日期欄');
 });
 
 test('7. 「日期」「時間」「五個數字欄」「十二個人數格」嘅儲存格格式係純文字', function () {
@@ -653,13 +680,17 @@ test('7. 「日期」「時間」「五個數字欄」「十二個人數格」�
     assert.strictEqual(finance.__numberFormats['3,' + col], '@', k + ' 一定要純文字（$3,491.40、-- 都要原樣）');
   });
 
+  // 2026-10-30：崇拜人數日子橫放——每一個人數格（第 2 至 13 行 × 每個日期欄）都是純文字。
   const attendance = ss.getSheetByName('崇拜人數');
-  const attKeys = env.sandbox.contentSheetTabDefs_().filter(function (d) { return d.tabName === '崇拜人數'; })[0].keys;
-  const attCols = attKeys.filter(function (k) { return /^ATT_/.test(k); });
-  assert.strictEqual(attCols.length, 12);
-  attCols.forEach(function (k) {
-    const col = attKeys.indexOf(k) + 1;
-    assert.strictEqual(attendance.__numberFormats['3,' + col], '@', k + ' 一定要純文字');
+  const attDef = env.sandbox.contentSheetTabDefs_().filter(function (d) { return d.tabName === '崇拜人數'; })[0];
+  const attKeys = env.sandbox.transposedContentKeys_(attDef);
+  const attRows = attKeys.filter(function (k) { return /^ATT_/.test(k); });
+  assert.strictEqual(attRows.length, 12);
+  attRows.forEach(function (k) {
+    const r = attKeys.indexOf(k) + 1;
+    [3, 2 + SERVICE_DATES.length].forEach(function (c) {
+      assert.strictEqual(attendance.__numberFormats[r + ',' + c], '@', k + ' 第 ' + c + ' 欄一定要純文字');
+    });
   });
 });
 
@@ -733,9 +764,9 @@ test('11b. 樣本：崇拜人數填喺第一個主日減七天、財政都有；
   env.sandbox.buildOrRefreshContentSheet_(QUARTER_ID);
   const ss = env.contentSpreadsheet();
 
-  // 內容表 v4：崇拜人數一個崇拜日期一行預先開好（第一行＝第一個主日減七天），唔再寫樣本數字。
-  assert.strictEqual(cell(ss.getSheetByName('崇拜人數'), 3, 1), '2027-10-31');
-  assert.strictEqual(cell(ss.getSheetByName('崇拜人數'), 3, 2), '');
+  // 2026-10-30：崇拜人數日子橫放，每個崇拜日期一欄預先開好（C1＝第一個主日減七天），唔再寫樣本數字。
+  assert.strictEqual(cell(ss.getSheetByName('崇拜人數'), 1, 3), '2027-10-31');
+  assert.strictEqual(cell(ss.getSheetByName('崇拜人數'), 2, 3), '');
   assert.strictEqual(ss.getSheetByName('宣召'), null, '內容表 v2：冇「宣召」分頁');
   assert.strictEqual(env.sandbox.contentSheetWorshipTabDef_().keys.indexOf('CALL_REF'), -1, '內容表 v4：宣召改在介面填');
   assert.strictEqual(ss.getSheetByName('財政報告').getLastRow(), 4, '兩行財政樣本');

@@ -103,6 +103,18 @@ function makeV3Env(extra) {
 function tabRows(env, name) {
   const sheet = env.contentSpreadsheet.getSheetByName(name);
   const data = sheet.__data;
+  // 2026-10-30：「崇拜人數」日子橫放（B 欄機器鍵、第 1 行 C 起日期）→ 每一欄變成一筆。
+  if (data[0] && data[0][1] === 'SERVICE_DATE') {
+    const tkeys = data.map(function (r) { return r[1]; }).filter(Boolean);
+    const width = Math.max.apply(null, data.slice(0, tkeys.length).map(function (r) { return r.length; }));
+    const out = [];
+    for (let c = 2; c < width; c++) {
+      const o = {};
+      tkeys.forEach(function (k, i) { const v = (data[i] || [])[c]; o[k] = v === undefined ? '' : v; });
+      if (Object.keys(o).some(function (k) { return o[k] !== '' && o[k] !== null; })) out.push(o);
+    }
+    return plain(out);
+  }
   const keys = data[1];
   return plain(data.slice(2).filter(function (r) {
     return r.some(function (v) { return v !== '' && v !== null && v !== undefined; });
@@ -515,13 +527,15 @@ test('V4-17 重新整理改名之後、寫資料行之前停止 → 重跑由最
     ws.__data.push(keys.map(function (k) { return k === 'SERVICE_DATE' ? D2 : (k === 'SERMON_TITLE' ? '插入的講題' : ''); }));
     const r1 = ws.__data.findIndex(function (row, i) { return i >= 2 && row[0] === D1; });
     ws.__data[r1][keys.indexOf('SERMON_TITLE')] = '改過的講題甲';
+    // 崇拜人數日子橫放：改一格，再在最後加一欄重複的日期（要重新整理）。
     const at = e.contentSpreadsheet.getSheetByName('崇拜人數');
-    const ak = at.__data[1];
-    const ar = at.__data.findIndex(function (row, i) { return i >= 2 && row[0] === minus7(D3); });
-    at.__data[ar][ak.indexOf('ATT_ENG_WORSHIP')] = '77';
-    at.__data.push(ak.map(function (k) {
-      return k === 'SERVICE_DATE' ? minus7(D4) : (k === 'ATT_ENG_WORSHIP' ? '66' : (k === 'ACTIVE' ? 'TRUE' : ''));
-    }));
+    const engRow = at.__data.findIndex(function (row) { return row[1] === 'ATT_ENG_WORSHIP'; }) + 1;
+    const c3 = at.__data[0].indexOf(minus7(D3)) + 1;
+    at.getRange(engRow, c3).setValue('77');
+    const last = at.getLastColumn();
+    at.insertColumnsAfter(last, 1);
+    at.getRange(1, last + 1).setValue(minus7(D4));
+    at.getRange(engRow, last + 1).setValue('66');
     return e;
   }
   const clean = prepare();
@@ -532,14 +546,29 @@ test('V4-17 重新整理改名之後、寫資料行之前停止 → 重跑由最
 
   const env = prepare();
   const real = env.sandbox.writeContentRows_;
+  const realT = env.sandbox.writeTransposedContentTab_;
   const failed = [];
   env.sandbox.writeContentRows_ = function (sheet) {
     const name = String(sheet.getName());
-    if ((name === '崇拜程序' || name === '崇拜人數') && failed.indexOf(name) === -1) {
+    if (name === '崇拜程序' && failed.indexOf(name) === -1) {
       failed.push(name);
       throw new Error('注入：寫資料行之前停止');
     }
     return real.apply(this, arguments);
+  };
+  // 崇拜人數（日子橫放）：新分頁建了、資料欄寫了，寫第 A、B 欄之前停止。
+  env.sandbox.writeTransposedContentTab_ = function (spreadsheet, tabDef, rows) {
+    if (failed.indexOf('崇拜人數') === -1) {
+      failed.push('崇拜人數');
+      const sheet = env.sandbox.ensureContentTab_(spreadsheet, tabDef.tabName).sheet;
+      env.sandbox.ensureContentTabColumns_(sheet, 2 + rows.length);
+      const keys = env.sandbox.transposedContentKeys_(tabDef);
+      const range = sheet.getRange(1, 3, keys.length, rows.length);
+      range.setNumberFormat('@');
+      range.setValues(keys.map(function (k) { return rows.map(function (r) { return r[k] === undefined || r[k] === null ? '' : String(r[k]); }); }));
+      throw new Error('注入：寫第 A、B 欄之前停止');
+    }
+    return realT.apply(this, arguments);
   };
   assert.strictEqual(env.sandbox.apiRunContentSheetBuild(QUARTER_ID).ok, false, '第一次：崇拜程序停止');
   const imp = env.sandbox.apiRunQuarterContentImport(QUARTER_ID);
@@ -551,6 +580,13 @@ test('V4-17 重新整理改名之後、寫資料行之前停止 → 重跑由最
   assert.strictEqual(env.sandbox.apiRunContentSheetBuild(QUARTER_ID).ok, false, '第二次：崇拜人數停止');
   assert.deepStrictEqual(failed, ['崇拜程序', '崇拜人數']);
   env.sandbox.writeContentRows_ = real;
+  env.sandbox.writeTransposedContentTab_ = realT;
+  // 停在中間的崇拜人數：第 A、B 欄空白、資料欄已經寫好 → 匯入擋住（講明標題被清走），更新時補回。
+  assert.strictEqual(env.sandbox.detectTransposedTabLayout_(env.contentSpreadsheet.getSheetByName('崇拜人數'),
+    env.sandbox.contentSheetTabDefs_().filter(function (d) { return d.tabName === '崇拜人數'; })[0]), 'TRANSPOSED_NO_HEAD');
+  const imp2 = env.sandbox.apiRunQuarterContentImport(QUARTER_ID);
+  assert.strictEqual(imp2.data.ok, false);
+  assert.ok(String(imp2.data.message).indexOf('「崇拜人數」第 A、B 欄（標題）被清走了') !== -1, imp2.data.message);
   run(env);
   assert.strictEqual(snapshot(env), expected, '重跑之後與一次跑完相同');
 });
@@ -614,14 +650,15 @@ test('V4-20 第 1、2 行被清走：「崇拜人數」下面有資料 → 照�
   const env = makeV3Env();
   run(env);
   const at = env.contentSpreadsheet.getSheetByName('崇拜人數');
-  // v4 之後才填的人數（改了名的舊分頁沒有）：清走第 1、2 行之後仍然要在。
-  const r3 = at.__data.findIndex(function (row, i) { return i >= 2 && row[0] === minus7(D3); });
-  at.__data[r3][at.__data[1].indexOf('ATT_ENG_WORSHIP')] = '99';
+  // v4 之後才填的人數（改了名的舊分頁沒有）：清走標題（日子橫放＝第 A、B 欄）之後仍然要在。
+  const engRow = at.__data.findIndex(function (row) { return row[1] === 'ATT_ENG_WORSHIP'; }) + 1;
+  at.getRange(engRow, at.__data[0].indexOf(minus7(D3)) + 1).setValue('99');
   const before = tabRows(env, '崇拜人數');
-  at.__data[0] = at.__data[0].map(function () { return ''; });
-  at.__data[1] = at.__data[1].map(function () { return ''; });
+  const headBefore = plain(at.__data.map(function (r) { return r.slice(0, 2); }));
+  at.getRange(1, 1, at.getLastRow(), 2).clearContent();
   run(env);
-  assert.deepStrictEqual(tabRows(env, '崇拜人數'), before, '人數不清走、第 1、2 行補回');
+  assert.deepStrictEqual(tabRows(env, '崇拜人數'), before, '人數不清走');
+  assert.deepStrictEqual(plain(at.__data.map(function (r) { return r.slice(0, 2); })), headBefore, '第 A、B 欄補回');
   assert.strictEqual(env.contentSpreadsheet.getSheetByName('崇拜人數（整理前，已停用）2'), null, '不用重建');
   const ann = env.contentSpreadsheet.getSheetByName('家事報告');
   ann.__data[0] = ann.__data[0].map(function () { return ''; });

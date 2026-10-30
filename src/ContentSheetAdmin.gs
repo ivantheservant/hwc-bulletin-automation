@@ -307,10 +307,17 @@ function buildOrRefreshContentSheetLocked_(quarterId, options) {
     var needsMigration = (runLegacy && (migrationPlan.needsMigration || contentSheetV3PlanHasWrites_(upgradePlan)))
       || v4Detect.layout === 'LEGACY' || Boolean(v4PrePlan && v4PrePlan.needsMigration);
     if (needsMigration && buildOptions.migrate !== true) {
+      // 2026-10-30：只差「崇拜人數」改為日子橫放（其餘已經是新版）→ 只講這一項。
+      var transposeOnly = v4Detect.layout !== 'LEGACY' && Boolean(v4PrePlan) && v4PrePlan.worship.action !== 'FROM_V3'
+        && v4PrePlan.reorder.length === 0 && v4PrePlan.attendance.transpose === true
+        && !(runLegacy && (migrationPlan.needsMigration || contentSheetV3PlanHasWrites_(upgradePlan)));
+      var what = transposeOnly ? '要先更新：「崇拜人數」改為日子橫放（每一個崇拜日期一欄，已經填好的人數照搬）。'
+        : '是舊版，要先更新成新版（「崇拜程序」只留讀經經文、證道講題、回應詩歌，'
+          + '一個主日一行；序樂、宣召、詩歌頌讚、詩班改在填寫介面填'
+          + (v4PrePlan && v4PrePlan.attendance.transpose === true ? '；「崇拜人數」改為日子橫放' : '') + '）。';
       return {
         ok: false, created: false, quarterId: qid, reason: 'NEEDS_MIGRATION',
-        message: '季度「' + qid + '」的內容表是舊版，要先更新成新版（「崇拜程序」只留讀經經文、證道講題、回應詩歌，'
-          + '一個主日一行；序樂、宣召、詩歌頌讚、詩班改在填寫介面填）。'
+        message: '季度「' + qid + '」的內容表' + what
           + '自動流程不會替你更新，這次一格都沒有寫。請在填寫介面打開這一季任何一個主日，'
           + '按內容表狀態列的「更新本季內容表…」，先看會做甚麼再確定。'
       };
@@ -394,6 +401,21 @@ function buildOrRefreshContentSheetLocked_(quarterId, options) {
   contentSheetTabDefs_().forEach(function (tabDef) {
     var ensured = ensureContentTab_(spreadsheet, tabDef.tabName);
     if (ensured.created) tabsCreated.push(tabDef.tabName);
+
+    // 2026-10-30：日子橫放的分頁（崇拜人數，src/ContentSheetTransposed.gs）有自己的版面與鎖；
+    //    v4 整理已經寫好。仍然是舊版（未確定轉換）就不套任何版面，一格不動。
+    if (tabDef.transposed === true) {
+      var tLayout = detectTransposedTabLayout_(ensured.sheet, tabDef);
+      if (tLayout === 'TRANSPOSED' || tLayout === 'TRANSPOSED_NO_HEAD') {
+        // 第 A、B 欄被清走（或者上一次寫到一半）：資料位置仍然是現行的，補回標題，人數一格不改。
+        if (tLayout === 'TRANSPOSED_NO_HEAD') writeTransposedContentHead_(ensured.sheet, tabDef);
+        var dateCols = transposedDateColumnCount_(ensured.sheet);
+        applyTransposedContentTabLayout_(ensured.sheet, tabDef, dateCols, layoutOptions);
+        var tLock = ensureContentTabDateLock_(ensured.sheet, transposedContentKeys_(tabDef).length, dateCols, { transposed: true });
+        if (!tLock.ok) lockFailures.push({ tabName: tabDef.tabName, message: tLock.message });
+      }
+      return;
+    }
 
     applyContentTabLayout_(ensured.sheet, tabDef, layoutOptions);
 

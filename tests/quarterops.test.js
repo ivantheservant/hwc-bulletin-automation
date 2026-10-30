@@ -28,6 +28,7 @@ const path = require('path');
 const { loadAllSrcFilesInOrder } = require('./helpers/loadGas');
 const { makeFakeSheet, makeFakeSpreadsheet } = require('./helpers/fakeSpreadsheet');
 const { makeContentTab: makeStrictContentTab, makeContentSpreadsheet } = require('./helpers/contentTabFake');
+const { makeTransposedTab } = require('./helpers/contentEnv');
 const { assertWrittenChinese } = require('./helpers/writtenChinese');
 
 const FAKE_ROSTER_ID = 'FAKE_ROSTER_ID_FOR_QUARTER_OPS';
@@ -189,7 +190,10 @@ function makeEnv(options) {
   const contentTabs = {};
   const tabList = [];
   boot.contentSheetTabDefs_().forEach(function (def) {
-    const tab = makeContentTab(def.keys, def.headers, (o.content || {})[def.tabName] || [], { name: def.tabName });
+    // 2026-10-30：「崇拜人數」日子橫放（與 tests/helpers/contentEnv.js 同一個造法）。
+    const tab = def.transposed === true
+      ? makeTransposedTab(def, (o.content || {})[def.tabName] || [], { name: def.tabName })
+      : makeContentTab(def.keys, def.headers, (o.content || {})[def.tabName] || [], { name: def.tabName });
     contentTabs[def.tabName] = tab;
     tabList.push(tab);
   });

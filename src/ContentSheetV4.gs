@@ -241,31 +241,33 @@ function readContentSheetV4Inputs_(spreadsheet) {
   }
 
   var attendanceDef = contentSheetTabDefs_().filter(function (d) { return d.oneRowPerDate === true && d.tabName !== worshipDef.tabName; })[0];
-  var attendance = { exists: false, headerOk: false, rows: [], tabName: attendanceDef.tabName };
+  var attendance = { exists: false, headerOk: false, rows: [], tabName: attendanceDef.tabName, layout: 'MISSING' };
   var attendanceSheet = spreadsheet.getSheetByName(attendanceDef.tabName);
+  // 2026-10-30（Ivan）：「崇拜人數」改為日子橫放（src/ContentSheetTransposed.gs）。舊版（一個日期一行）＝要轉換。
+  var attLayout = detectTransposedTabLayout_(attendanceSheet, attendanceDef);
+  attendance.layout = attLayout;
   if (attendanceSheet) {
     attendance.exists = true;
-    var aHeader = readContentTabHeaderKeys_(attendanceSheet, attendanceDef.keys.length);
-    attendance.headerBlank = aHeader.every(function (v) { return v === ''; });
-    attendance.headerOk = attendanceDef.keys.every(function (k, i) { return aHeader[i] === k; });
-    if (attendance.headerBlank) {
-      // 第 1、2 行空白而下面有資料：當作現行欄位位置（與「崇拜程序」同一個規則），不可以當成新分頁清走。
-      var aState = blankHeaderDataState_(attendanceSheet, attendanceDef.keys.length);
-      attendance.unreadable = aState.beyond;
-      if (aState.hasData && !aState.beyond) { attendance.headerBlank = false; attendance.headerOk = true; }
-    }
-    // 已經鎖住＝v4 由系統建的分頁：行數不對（例如職事表加了主日）就自動重新整理，不用人手確認。
+    attendance.headerBlank = attLayout === 'BLANK';
+    attendance.unreadable = attLayout === 'UNREADABLE';
+    attendance.headerOk = attLayout === 'TRANSPOSED' || attLayout === 'TRANSPOSED_NO_HEAD' || attLayout === 'ROWS';
+    // 已經鎖住＝由系統建的分頁：日期數目不對（例如職事表加了主日）就自動重新整理，不用人手確認。
     attendance.locked = hasContentTabDateLock_(attendanceSheet);
-    if (attendance.headerOk) {
+    if (attLayout === 'TRANSPOSED' || attLayout === 'TRANSPOSED_NO_HEAD') {
+      attendance.rows = readTransposedContentRows_(attendanceSheet, attendanceDef);
+    } else if (attLayout === 'ROWS') {
       attendance.rows = parseContentTabRows_(readContentTabDataValues_(attendanceSheet, attendanceDef.keys.length), attendanceDef.keys);
     }
   }
   if (!attendanceSheet || (attendance.headerBlank === true && attendance.unreadable !== true)) {
     // 分頁未有或者一行都未寫，而重新整理改了名的舊分頁在＝上一次重新整理中途失敗：由最新那一張再建一次
-    //（不可以當成新分頁開空白行，人數全部在舊分頁）。
+    //（不可以當成新分頁開空白格，人數全部在舊分頁）。舊分頁可以是橫放或者舊版。
     var attRetired = newestRetiredContentTab_(spreadsheet, CONTENT_SHEET_V4_ATTENDANCE_RESHAPE_BASE_);
-    var retiredHeader = attRetired ? readContentTabHeaderKeys_(attRetired, attendanceDef.keys.length) : [];
-    if (attRetired && attendanceDef.keys.every(function (k, i) { return retiredHeader[i] === k; })) {
+    var retiredLayout = attRetired ? detectTransposedTabLayout_(attRetired, attendanceDef) : 'MISSING';
+    if (retiredLayout === 'TRANSPOSED') {
+      attendance.rows = readTransposedContentRows_(attRetired, attendanceDef);
+      attendance.sourceName = String(attRetired.getName());
+    } else if (retiredLayout === 'ROWS') {
       attendance.rows = parseContentTabRows_(readContentTabDataValues_(attRetired, attendanceDef.keys.length), attendanceDef.keys);
       attendance.sourceName = String(attRetired.getName());
     }
@@ -516,9 +518,14 @@ function planContentSheetV4_(input) {
     plan.attendance.sourceName = String(att.sourceName || '');
   } else if (!att.headerOk) {
     plan.attendance.action = 'HEADER_UNKNOWN';
+  } else if (att.layout === 'ROWS') {
+    // 2026-10-30：舊版（一個日期一行）→ 日子橫放。要先預覽、人手確定（Ivan 選「自動轉換（先預覽）」）。
+    plan.attendance.action = 'RESHAPE';
+    plan.attendance.transpose = true;
+    plan.needsMigration = true;
   } else if (!isOneRowPerDateCanonical_(att.rows, attendanceDates)) {
     plan.attendance.action = 'RESHAPE';
-    // 舊版（未鎖、人手開行）要人手確認；v4 鎖住的分頁只是主日有變，自動整理。
+    // 舊版（未鎖、人手開行）要人手確認；鎖住的分頁只是主日有變，自動整理。
     if (att.rows.length > 0 && att.locked !== true) plan.needsMigration = true;
   }
   if (plan.attendance.action === 'CREATE' || plan.attendance.action === 'RESHAPE') {
@@ -589,7 +596,10 @@ function contentSheetV4PlanHasWrites_(plan) {
  * Raises:
  *   （無）
  */
-function ensureContentTabDateLock_(sheet, colCount, dataRows) {
+function ensureContentTabDateLock_(sheet, colCount, dataRows, options) {
+  // 2026-10-30：橫放分頁（src/ContentSheetTransposed.gs）：`colCount` 是行數（機器鍵數目），`dataRows` 是日期欄數；
+  //    只可以改 C2 至最後一欄第 colCount 行。
+  var transposed = Boolean(options && options.transposed === true);
   // ⚠️ 鎖不到不可以令整次「更新本季內容表」失敗（改名、建分頁已經做了；Shared Drive 的權限可能不准拿走編輯者）：
   //    分頁照樣是一個日期一行，只是同工仍然插得到行——匯入時重複的日期照樣會擋（不匯入並警告）。
   try {
@@ -598,7 +608,9 @@ function ensureContentTabDateLock_(sheet, colCount, dataRows) {
     });
     var protection = sheet.protect().setDescription(CONTENT_SHEET_V4_LOCK_DESCRIPTION_);
     if (colCount > 1 && dataRows > 0) {
-      protection.setUnprotectedRanges([sheet.getRange(CONTENT_SHEET_FIRST_DATA_ROW_, 2, dataRows, colCount - 1)]);
+      protection.setUnprotectedRanges([transposed
+        ? sheet.getRange(2, CONTENT_SHEET_TRANSPOSED_FIRST_DATA_COL_, colCount - 1, dataRows)
+        : sheet.getRange(CONTENT_SHEET_FIRST_DATA_ROW_, 2, dataRows, colCount - 1)]);
     }
     // Apps Script 說明的做法：先把自己加為編輯者，再拿走其餘的人（自己拿不走）。
     var me = Session.getEffectiveUser();
@@ -785,10 +797,11 @@ function applyContentSheetV4_(spreadsheet, plan, quarterId, layoutOptions) {
     var att = spreadsheet.getSheetByName(attendanceDef.tabName);
     if (att && plan.attendance.action === 'RESHAPE') {
       out.retired.push(retireContentTabV4_(spreadsheet, att, CONTENT_SHEET_V4_ATTENDANCE_RESHAPE_BASE_, quarterId,
-        '「崇拜人數」要一個崇拜日期一行，'));
+        plan.attendance.transpose ? '「崇拜人數」改為日子橫放（每一日一欄），' : '「崇拜人數」要每一個崇拜日期一欄，'));
     }
-    var attLayout = Object.assign({}, layoutOptions);
-    writeOneRowPerDateTab_(spreadsheet, attendanceDef, plan.attendance.rows, attLayout);
+    // 2026-10-30：日子橫放（src/ContentSheetTransposed.gs）。
+    //    鎖不到由「建立／更新本季內容表」之後逐張再鎖一次時講出來（src/ContentSheetAdmin.gs）。
+    writeTransposedContentTab_(spreadsheet, attendanceDef, plan.attendance.rows, layoutOptions);
     out.attendanceRows = plan.attendance.rows.length;
   }
 
@@ -808,7 +821,7 @@ function applyContentSheetV4_(spreadsheet, plan, quarterId, layoutOptions) {
   if (plan.worship.action || plan.attendance.action || plan.reorder.length > 0) {
     appendAuditLog_({
       action: 'CONTENT_SHEET_MIGRATE_V4', sheetName: SHEETS.CONTENT_SHEETS, rowKey: quarterId, field: '完成',
-      newValue: '崇拜程序 ' + out.worshipRows + ' 行、崇拜人數 ' + out.attendanceRows + ' 行、週報 ' + out.weekCells + ' 格',
+      newValue: '崇拜程序 ' + out.worshipRows + ' 行、崇拜人數 ' + out.attendanceRows + ' 個日期、週報 ' + out.weekCells + ' 格',
       notes: '內容表 v4 整理完成：' + (plan.worship.action || '崇拜程序不用改') + '／' + (plan.attendance.action || '崇拜人數不用改')
         + (out.reordered.length ? '／搬欄：' + out.reordered.join('、') : '') + '。'
     });
@@ -863,14 +876,18 @@ function buildContentSheetV4Lines_(plan, options) {
   } else if (plan.worship.action === 'CREATE') {
     lines.push('・「崇拜程序」' + w + '一個主日一行預先開好（' + plan.counts.worshipRows + ' 行），日期欄鎖住。');
   }
-  if (plan.attendance.action === 'RESHAPE') {
-    lines.push('・「崇拜人數」' + w + '整理成一個崇拜日期一行（' + plan.counts.attendanceRows + ' 行），日期欄鎖住、不可以插入行；'
-      + '舊分頁' + w + '改名「' + CONTENT_SHEET_V4_ATTENDANCE_RESHAPE_BASE_ + '」保留。');
+  // 2026-10-30：「崇拜人數」日子橫放（第 1 行是崇拜日期，每一日一欄）。
+  if (plan.attendance.action === 'RESHAPE' && plan.attendance.transpose) {
+    lines.push('・「崇拜人數」' + w + '改為日子橫放：第 1 行是崇拜日期（每一日一欄，共 ' + plan.counts.attendanceRows
+      + ' 欄），十二格人數在日期下面；已經填好的人數照搬。舊分頁' + w + '改名「' + CONTENT_SHEET_V4_ATTENDANCE_RESHAPE_BASE_ + '」隱藏保留。');
+  } else if (plan.attendance.action === 'RESHAPE') {
+    lines.push('・「崇拜人數」的日期與這一季對不上，' + w + '重新整理成每一個崇拜日期一欄（' + plan.counts.attendanceRows
+      + ' 欄），日期鎖住；舊分頁' + w + '改名「' + CONTENT_SHEET_V4_ATTENDANCE_RESHAPE_BASE_ + '」保留。');
   } else if (plan.attendance.action === 'CREATE' && plan.attendance.sourceName) {
-    lines.push('・「崇拜人數」上一次重新整理未做完，' + w + '由「' + plan.attendance.sourceName + '」再建一次（一個崇拜日期一行，'
-      + plan.counts.attendanceRows + ' 行），日期欄鎖住。');
+    lines.push('・「崇拜人數」上一次重新整理未做完，' + w + '由「' + plan.attendance.sourceName + '」再建一次（每一個崇拜日期一欄，'
+      + plan.counts.attendanceRows + ' 欄），日期鎖住。');
   } else if (plan.attendance.action === 'CREATE') {
-    lines.push('・「崇拜人數」' + w + '一個崇拜日期一行預先開好（' + plan.counts.attendanceRows + ' 行），日期欄鎖住。');
+    lines.push('・「崇拜人數」' + w + '日子橫放預先開好（每一個崇拜日期一欄，' + plan.counts.attendanceRows + ' 欄），日期鎖住。');
   }
   plan.reorder.forEach(function (tabName) {
     lines.push('・「' + tabName + '」' + w + '把「連續到」搬到 B 欄、「有效」搬到 C 欄（整欄搬移，資料不變）。');

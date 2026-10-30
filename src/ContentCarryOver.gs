@@ -185,14 +185,18 @@ function readContentCarryOver_(quarterId, serviceDates) {
       + '如果那份內容表已經不用，請在週報系統試算表的 ContentSheets 把季度「' + prevQid + '」那一行的「有效」改為 FALSE。');
     return out;
   }
-  var schema = checkContentSheetSchema_(spreadsheet);
+  // 2026-10-30：只核對、只讀有「連續到」的分頁——上一季其他分頁（例如崇拜人數仍然是一個日期一行）不影響帶入。
+  var carryTabs = contentImportTargets_().filter(function (def) {
+    return def.kind === 'LIST' && def.repeatUntil === true;
+  }).map(function (def) { return def.tabName; });
+  var schema = checkContentSheetSchema_(spreadsheet, carryTabs);
   if (!schema.ok) {
     out.unreadable = true;
     out.warnings.push('上一季（' + prevQid + '）的內容表版面未更新，所以本季的家事報告、代禱事項這一次不匯入（週報保留原有的內容）：'
       + schema.message);
     return out;
   }
-  var selected = selectContentCarryOverRows_(readContentSheetTabs_(spreadsheet), serviceDates[0], prevQid);
+  var selected = selectContentCarryOverRows_(readContentSheetTabs_(spreadsheet, carryTabs), serviceDates[0], prevQid);
   out.rowsByTab = selected.rowsByTab;
   out.warnings = selected.warnings;
   out.skipThrough = selected.skipThrough;

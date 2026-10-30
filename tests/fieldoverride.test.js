@@ -29,6 +29,7 @@ const path = require('path');
 const { loadAllSrcFilesInOrder } = require('./helpers/loadGas');
 const { makeFakeSheet, makeFakeSpreadsheet } = require('./helpers/fakeSpreadsheet');
 const { makeContentTab: makeStrictContentTab, makeContentSpreadsheet } = require('./helpers/contentTabFake');
+const { makeTransposedTab } = require('./helpers/contentEnv');
 
 const FAKE_ROSTER_ID = 'FAKE_ROSTER_ID_FOR_FIELD_OVERRIDE';
 const FAKE_FOLDER_ID = 'FAKE_CONTENT_FOLDER';
@@ -159,7 +160,10 @@ function makeEnv(options) {
   boot.contentSheetTabDefs_().forEach(function (def) {
     // §4.0 的測試要模擬「這一張分頁根本未建立」。
     if ((o.missingTabs || []).indexOf(def.tabName) !== -1) return;
-    const tab = makeContentTab(def.keys, def.headers, (o.content || {})[def.tabName] || [], { name: def.tabName });
+    // 2026-10-30：「崇拜人數」日子橫放（與 tests/helpers/contentEnv.js 同一個造法）。
+    const tab = def.transposed === true
+      ? makeTransposedTab(def, (o.content || {})[def.tabName] || [], { name: def.tabName })
+      : makeContentTab(def.keys, def.headers, (o.content || {})[def.tabName] || [], { name: def.tabName });
     contentTabs[def.tabName] = tab;
     tabList.push(tab);
   });

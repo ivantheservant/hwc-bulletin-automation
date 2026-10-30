@@ -379,8 +379,8 @@ function buildContentImportTargets_(contentData, serviceDates, carryOver) {
         if (typeIssues.skipRowNos[row.__rowNo]) return;
         var iso = attendanceDateToServiceDate_(row.SERVICE_DATE, serviceDates);
         if (!iso) {
-          warnings.push('崇拜人數第 ' + row.__rowNo + ' 行的崇拜日期 '
-            + (row.SERVICE_DATE || '（空白）') + ' 加七天之後不是本季的主日，本行略過。');
+          warnings.push('崇拜人數' + contentRowRef_(row) + '的崇拜日期 '
+            + (row.SERVICE_DATE || '（空白）') + ' 加七天之後不是本季的主日，' + (row.__colLetter ? '這一欄' : '本行') + '略過。');
           return;
         }
         noteRow(iso, row);
@@ -532,7 +532,7 @@ function classifyContentTypeIssues_(def, rows) {
       } else {
         consequence = '這一格這一次不匯入（週報保留原值）';
       }
-      out.warnings.push('「' + def.tabName + '」第 ' + row.__rowNo + ' 行「' + contentTabColumnLabel_(def.tabName, key)
+      out.warnings.push('「' + def.tabName + '」' + contentRowRef_(row) + '「' + contentTabColumnLabel_(def.tabName, key)
         + '」被試算表轉成日期／時間，' + consequence + '。請把那一格的格式改回純文字（格式 ▸ 數字 ▸ 純文字），再重新輸入。');
     });
   });
@@ -962,6 +962,8 @@ function compareContentTabHeaderKeys_(expectedKeys, actualKeys) {
  *   （不在這裏拒絕）。所有匯入入口（選單、單週、整季、重設、自測）都經 `previewContentImport_()`。
  * Args:
  *   spreadsheet {Spreadsheet} 已經開啟的內容表。
+ *   tabNames {string[]=} 2026-10-30：只核對這幾張分頁（「連續到」跨季只讀上一季的家事報告、代禱事項——上一季的
+ *     崇拜人數仍然是一個日期一行也不影響）。省略＝全部分頁。
  * Returns:
  *   {{ok:boolean, reason:string, message:string, tabs:{tabName:string, status:string}[]}}
  *     `reason`：`''`／`'CONTENT_SHEET_OUTDATED'`／`'CONTENT_SHEET_HEADER_CHANGED'`
@@ -969,28 +971,44 @@ function compareContentTabHeaderKeys_(expectedKeys, actualKeys) {
  * Raises:
  *   Error 讀取分頁失敗時原樣拋出。
  */
-function checkContentSheetSchema_(spreadsheet) {
+function checkContentSheetSchema_(spreadsheet, tabNames) {
   var tabs = [];
   var outdated = [];
   var changed = [];
+  var only = Array.isArray(tabNames) ? tabNames : null;
+  function wanted(name) { return !only || only.indexOf(name) !== -1; }
+  var worshipTabName = contentSheetWorshipTabDef_().tabName;
   // 內容表 v2：未改名的舊分頁（宣召、浸禮合堂）仍然在 → 未移轉。匯入只讀新定義的分頁，舊分頁
   //    上的資料不會被讀到；移轉（建立／刷新本季內容表）會把它搬入「崇拜程序」並改名。
-  var pendingLegacy = legacyMergedTabDefs_().filter(function (def) {
+  var pendingLegacy = !wanted(worshipTabName) ? [] : legacyMergedTabDefs_().filter(function (def) {
     return Boolean(spreadsheet.getSheetByName(def.tabName));
   }).map(function (def) { return def.tabName; });
-  var worshipTabName = contentSheetWorshipTabDef_().tabName;
   var v2Keys = contentSheetWorshipKeysV2_();
   var v3Keys = contentSheetWorshipKeysV3_();
   // v4（2026-10-30）：v3 的「崇拜程序」改了名而新分頁未建好（中途停止）→ 未更新。
-  var worshipLayout = detectWorshipTabLayoutV4_(spreadsheet).layout;
+  var worshipLayout = wanted(worshipTabName) ? detectWorshipTabLayoutV4_(spreadsheet).layout : '';
   var worshipPending = worshipLayout === 'V4_PENDING' || worshipLayout === 'RESHAPE_PENDING';
   if (worshipPending) {
     outdated.push({ tabDef: contentSheetWorshipTabDef_(), verdict: { status: 'OUTDATED', v4Pending: true } });
   }
   contentSheetTabDefs_().forEach(function (tabDef) {
+    if (!wanted(tabDef.tabName)) return;
     var sheet = spreadsheet.getSheetByName(tabDef.tabName);
     if (!sheet) return;
     if (tabDef.tabName === worshipTabName && worshipPending) return;
+    // 2026-10-30：日子橫放的分頁核對第 B 欄（src/ContentSheetTransposed.gs）；舊版一個日期一行＝未更新。
+    if (tabDef.transposed === true) {
+      var tLayout = detectTransposedTabLayout_(sheet, tabDef);
+      var tVerdict = tLayout === 'TRANSPOSED' ? { status: 'OK' }
+        : (tLayout === 'TRANSPOSED_NO_HEAD' ? { status: 'OUTDATED', noHead: true }
+        : (tLayout === 'ROWS' ? { status: 'OUTDATED', notTransposed: true }
+          : (tLayout === 'BLANK' ? { status: 'OUTDATED', missing: transposedContentKeys_(tabDef).length }
+            : { status: 'HEADER_CHANGED', transposed: true, column: 2, expected: transposedContentKeys_(tabDef)[0], actual: '' })));
+      tabs.push({ tabName: tabDef.tabName, status: tVerdict.status });
+      if (tVerdict.status === 'OUTDATED') outdated.push({ tabDef: tabDef, verdict: tVerdict });
+      if (tVerdict.status === 'HEADER_CHANGED') changed.push({ tabDef: tabDef, verdict: tVerdict });
+      return;
+    }
     var verdict = compareContentTabHeaderKeys_(tabDef.keys, readContentTabHeaderKeys_(sheet, tabDef.keys.length));
     // v3：v2 的「崇拜程序」（第 12 欄是浸禮主禮）不是「被人改過」，是未更新——當作 OUTDATED，
     //    講明要拿走浸禮六欄並加「詩班項目名稱」。
@@ -1019,6 +1037,9 @@ function checkContentSheetSchema_(spreadsheet) {
     return {
       ok: false, reason: 'CONTENT_SHEET_HEADER_CHANGED', tabs: tabs,
       message: changed.map(function (c) {
+        if (c.verdict.transposed) {
+          return '內容表「' + c.tabDef.tabName + '」第 B 欄（機器鍵，已隱藏）與系統的不符，或者被清走了。';
+        }
         return '內容表「' + c.tabDef.tabName + '」第 2 行（機器鍵）第 ' + c.verdict.column + ' 欄應該是「'
           + c.verdict.expected + '」，現在是「' + (c.verdict.actual || '（空白）') + '」。';
       }).join('') + '匯入按欄位位置讀，第 2 行不符就會讀錯欄，所以這次整次拒絕，一格都沒有寫。'
@@ -1031,6 +1052,8 @@ function checkContentSheetSchema_(spreadsheet) {
       if (o.verdict.v3) return '「' + o.tabDef.tabName + '」仍然是舊版（序樂、宣召、詩歌頌讚、詩班仍然在內容表）';
       if (o.verdict.v4Pending) return '「' + o.tabDef.tabName + '」上一次更新未做完';
       if (o.verdict.listV3) return '「' + o.tabDef.tabName + '」的「連續到」「有效」未搬到 B、C 欄';
+      if (o.verdict.noHead) return '「' + o.tabDef.tabName + '」第 A、B 欄（標題）被清走了';
+      if (o.verdict.notTransposed) return '「' + o.tabDef.tabName + '」未改為日子橫放（每一個崇拜日期一欄）';
       return '「' + o.tabDef.tabName + '」少了 ' + o.verdict.missing + ' 欄';
     }).concat(pendingLegacy.map(function (name) {
       return '仍然有舊的「' + name + '」分頁（內容要搬入「崇拜程序」）';
@@ -1067,15 +1090,21 @@ function checkQuarterContentSheetSchema_(quarterId) {
  * 用途：讀出內容表全部分頁的原始資料。
  * Args:
  *   spreadsheet {Spreadsheet} 已經開啟的內容表。
+ *   tabNames {string[]=} 2026-10-30：只讀這幾張分頁（與 `checkContentSheetSchema_()` 同一個用法）；省略＝全部。
  * Returns:
  *   {Object<string,Object[]>} 分頁名稱 → `parseContentTabRows_()` 的輸出。
  *     分頁不存在、或者只有標題兩行，一律回空陣列（＝那一張整張空白）。
  */
-function readContentSheetTabs_(spreadsheet) {
+function readContentSheetTabs_(spreadsheet, tabNames) {
   var out = {};
+  var only = Array.isArray(tabNames) ? tabNames : null;
   contentSheetTabDefs_().forEach(function (tabDef) {
+    if (only && only.indexOf(tabDef.tabName) === -1) return;
     var sheet = spreadsheet.getSheetByName(tabDef.tabName);
     if (!sheet) { out[tabDef.tabName] = []; return; }
+    // 2026-10-30：日子橫放（崇拜人數）每一欄一筆（src/ContentSheetTransposed.gs）。版面已經由
+    //    checkContentSheetSchema_() 核對過（舊版一個日期一行＝未更新，整次拒絕）。
+    if (tabDef.transposed === true) { out[tabDef.tabName] = readTransposedContentRows_(sheet, tabDef); return; }
 
     var lastRow = sheet.getLastRow();
     if (lastRow < CONTENT_SHEET_FIRST_DATA_ROW_) { out[tabDef.tabName] = []; return; }

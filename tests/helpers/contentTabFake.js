@@ -92,6 +92,7 @@ function makeContentTab(keys, headers, rows, opts) {
   let maxColumns = Math.max(o.maxColumns || DEFAULT_MAX_COLUMNS, (keys || []).length);
   let frozenRows = (keys || []).length > 0 ? 2 : 0;
   let frozenColumns = 0;
+  const hiddenColumns = {};
   let hidden = false;
   const protections = [];
 
@@ -203,6 +204,9 @@ function makeContentTab(keys, headers, rows, opts) {
     setFrozenRows: function (n) { frozenRows = n; return sheet; },
     getFrozenColumns: function () { return frozenColumns; },
     setFrozenColumns: function (n) { frozenColumns = n; return sheet; },
+    // 2026-10-30：日子橫放的分頁隱藏機器鍵欄（第 B 欄）。
+    hideColumns: function (col, num) { for (let c = col; c < col + (num || 1); c++) hiddenColumns[c] = true; return sheet; },
+    isColumnHiddenByUser: function (col) { return Boolean(hiddenColumns[col]); },
     setColumnWidth: function () { return sheet; },
     hideSheet: function () { hidden = true; return sheet; },
     showSheet: function () { hidden = false; return sheet; },
