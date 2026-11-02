@@ -1943,6 +1943,8 @@ function loadWeekForWebApp_(isoDate) {
       // 算好（`isBaptismTemplateId_()`），不讓前端自己拿 templateId 去跟
       // 字面值比——那樣範本 ID 一改就會有一處漏改。
       isBaptismSunday: model.isBaptismSunday === true,
+      // 2026-11-02：這一期人數表是合堂一欄（合堂三格有字，hasCombinedAttendance_()）——前端靠這個旗標顯示合堂那張表。
+      attendanceCombined: Boolean(model.attendance && model.attendance.combined === true),
       rosterVersionUsed: model.rosterVersionUsed,
       rosterIsOfficial: model.rosterIsOfficial,
       program: model.program,
@@ -2223,7 +2225,8 @@ function pickWebAppListItems_(rows, isoDate, fieldKeys) {
  * Args: （無）
  * Returns:
  *   {{programTemplateIds:string[], recitationOptions:string[],
- *     prayerBlockHeadingOptions:string[], cantoneseSubColumnLabel:string}}
+ *     prayerBlockHeadingOptions:string[], cantoneseSubColumnLabel:string, attendanceCombinedLabel:string}}
+ *     `attendanceCombinedLabel`（2026-11-02）：合堂人數表（一欄）的欄標題，填寫介面那張表的表頭用。
  *     `recitationOptions` 與 `programTemplateIds` 第一項固定是空字串（代表「留空＝自動」；
  *     程序範本的自動＝按每週標題推斷，2026-10-27）。
  */
@@ -2234,7 +2237,9 @@ function webAppFieldOptions_() {
     prayerBlockHeadingOptions: getConfigTextList_(
       CONFIG_KEYS.PRAYER_BLOCK_HEADING_OPTIONS, '代禱事項,宣教消息,宣教代禱消息,宣教代禱事項'
     ),
-    cantoneseSubColumnLabel: getConfig_(CONFIG_KEYS.CANTONESE_SUBCOLUMN_LABEL, '主堂')
+    cantoneseSubColumnLabel: getConfig_(CONFIG_KEYS.CANTONESE_SUBCOLUMN_LABEL, '主堂'),
+    attendanceCombinedLabel: pickWithDefault_(getConfig_(CONFIG_KEYS.ATTENDANCE_COMBINED_COLUMN_LABEL, ATTENDANCE_COMBINED_LABEL_DEFAULT_),
+      ATTENDANCE_COMBINED_LABEL_DEFAULT_)
   };
 }
 

@@ -513,7 +513,7 @@ function makeUi(sb) {
     syncSelectorsTo: noop, renderRosterGapBanner: noop, populateSelectOptions: noop, populatePrayerHeadingOptions: noop,
     renderAllLists: noop, renderStats: noop, renderConflictStat: noop, renderFillGridLink: noop, renderPreviewLink: noop,
     renderWordFileInfo: noop, refreshSnapshotPanel: noop, renderProgramPreview: noop, applyContentSheetReadOnly: noop,
-    adoptReadOnlyFields: noop, applyBaptismPanelVisibility: noop, renderFlowerHints: noop, resetPublishPanelIfWeekChanged: noop,
+    adoptReadOnlyFields: noop, applyBaptismPanelVisibility: noop, applyCombinedAttendanceVisibility: noop, renderFlowerHints: noop, resetPublishPanelIfWeekChanged: noop,
     refreshWeekSelectorLabels: noop,
     onWeekSelectChanged: noop, onQuarterChanged: noop, onShowArchivedChanged: noop, stepWeek: noop, backfillRoster: noop,
     openFetchFromRosterDialog: noop, cancelFetchFromRoster: noop, confirmFetchFromRoster: noop, setAllFetchCheckboxes: noop,

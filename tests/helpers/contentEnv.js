@@ -51,6 +51,26 @@ function makeTransposedTab(def, rows, opts) {
 }
 
 /**
+ * 2026-11-02：舊版「一個日期一行」的欄（分頁定義有 `legacyRowKeys` 就用那一份——合堂三格是日子橫放之後才加的，
+ * 舊版沒有）。中文標題按機器鍵在現行定義的位置取。
+ */
+function rowsLayoutOf(def) {
+  if (!def.legacyRowKeys) return { keys: def.keys, headers: def.headers };
+  return {
+    keys: def.legacyRowKeys.slice(),
+    headers: def.legacyRowKeys.map(function (k) { return def.headers[def.keys.indexOf(k)]; })
+  };
+}
+
+/**
+ * 2026-11-02：2026-11-02 之前建好的日子橫放分頁（未有合堂三行）：只有舊版的機器鍵（扣除「有效」）。
+ */
+function shortTransposedDef(def) {
+  const rl = rowsLayoutOf(def);
+  return Object.assign({}, def, { keys: rl.keys, headers: rl.headers });
+}
+
+/**
  * 造一個測試環境。
  * options.content：分頁名稱 → 資料列陣列（以內容表機器鍵為 key）。
  *   沒有列出的分頁＝整張空白。⚠️ 寫了一個這個版面沒有的分頁名稱就拋錯——以前會靜靜當成
@@ -64,7 +84,8 @@ function makeTransposedTab(def, rows, opts) {
  * options.extraTabs：另外加的分頁 `[{tabName, keys, headers, rows}]`（例如已改名的舊分頁）。
  * options.maxColumns：每張分頁的欄數（數字，或者「分頁名稱 → 欄數」）；預設 26，與真的新分頁一樣。
  * options.contentFaults：`{failOnSetValue, failOnSetName, failOnDeleteColumns}`，第 N 次寫入格子／改名／刪欄時拋錯。
- * options.attendanceLayout：'rows'＝「崇拜人數」用舊的一個日期一行（測試轉換用）；預設日子橫放。
+ * options.attendanceLayout：'rows'＝「崇拜人數」用舊的一個日期一行（測試轉換用）；'transposedShort'＝2026-11-02 之前
+ *   建好的日子橫放（只有十二格，未有合堂三行）；預設日子橫放（現行定義）。
  * options.otherContentSheets：2026-10-30（「連續到」跨季）另外幾份內容表
  *   `[{quarterId, fileId, content:{分頁: 行}, missing:boolean=, layout:'current'|'v3'=}]`，會登記在 ContentSheets
  *   （ACTIVE=TRUE）；`missing:true`＝登記了但開不到。
@@ -152,9 +173,11 @@ function makeEnv(options) {
     // 2026-10-30：現行版面的「崇拜人數」是日子橫放（src/ContentSheetTransposed.gs）；`attendanceLayout:'rows'`
     //    或者舊版面（v1／v2／v3）＝舊的一個日期一行。
     const transposed = def.transposed === true && !o.contentLayout && o.attendanceLayout !== 'rows';
+    const rl = rowsLayoutOf(def);
     const tab = transposed
-      ? makeTransposedTab(def, rows, { name: def.tabName, faults: contentFaults, maxColumns: maxColumnsFor(def.tabName) })
-      : makeContentTab(def.keys, def.headers, rows,
+      ? makeTransposedTab(o.attendanceLayout === 'transposedShort' ? shortTransposedDef(def) : def, rows,
+        { name: def.tabName, faults: contentFaults, maxColumns: maxColumnsFor(def.tabName) })
+      : makeContentTab(rl.keys, rl.headers, rows,
         { name: def.tabName, faults: contentFaults, maxColumns: maxColumnsFor(def.tabName) });
     contentTabs[def.tabName] = tab;
     tabList.push(tab);
@@ -182,7 +205,8 @@ function makeEnv(options) {
     if (c.missing) return;
     const defs = c.layout === 'v3' ? legacyContentTabDefsV3(boot.contentSheetTabDefs_()) : boot.contentSheetTabDefs_();
     const tabs = defs.map(function (def) {
-      return makeContentTab(def.keys, def.headers, (c.content || {})[def.tabName] || [], { name: def.tabName });
+      const rl = rowsLayoutOf(def);
+      return makeContentTab(rl.keys, rl.headers, (c.content || {})[def.tabName] || [], { name: def.tabName });
     });
     otherSpreadsheets[c.fileId] = makeContentSpreadsheet({
       id: c.fileId, url: 'https://docs.google.com/spreadsheets/d/' + c.fileId + '/edit', tabs: tabs

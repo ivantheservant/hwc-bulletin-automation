@@ -999,11 +999,13 @@ function checkContentSheetSchema_(spreadsheet, tabNames) {
     // 2026-10-30：日子橫放的分頁核對第 B 欄（src/ContentSheetTransposed.gs）；舊版一個日期一行＝未更新。
     if (tabDef.transposed === true) {
       var tLayout = detectTransposedTabLayout_(sheet, tabDef);
+      // 2026-11-02：未有合堂三行（之後才加的行）＝未更新。照讀的話那幾行當作空白，會把週報已有的值清走。
       var tVerdict = tLayout === 'TRANSPOSED' ? { status: 'OK' }
+        : (tLayout === 'TRANSPOSED_SHORT' ? { status: 'OUTDATED', shortRows: transposedMissingRows_(sheet, tabDef).headers }
         : (tLayout === 'TRANSPOSED_NO_HEAD' ? { status: 'OUTDATED', noHead: true }
         : (tLayout === 'ROWS' ? { status: 'OUTDATED', notTransposed: true }
           : (tLayout === 'BLANK' ? { status: 'OUTDATED', missing: transposedContentKeys_(tabDef).length }
-            : { status: 'HEADER_CHANGED', transposed: true, column: 2, expected: transposedContentKeys_(tabDef)[0], actual: '' })));
+            : { status: 'HEADER_CHANGED', transposed: true, column: 2, expected: transposedContentKeys_(tabDef)[0], actual: '' }))));
       tabs.push({ tabName: tabDef.tabName, status: tVerdict.status });
       if (tVerdict.status === 'OUTDATED') outdated.push({ tabDef: tabDef, verdict: tVerdict });
       if (tVerdict.status === 'HEADER_CHANGED') changed.push({ tabDef: tabDef, verdict: tVerdict });
@@ -1054,6 +1056,8 @@ function checkContentSheetSchema_(spreadsheet, tabNames) {
       if (o.verdict.listV3) return '「' + o.tabDef.tabName + '」的「連續到」「有效」未搬到 B、C 欄';
       if (o.verdict.noHead) return '「' + o.tabDef.tabName + '」第 A、B 欄（標題）被清走了';
       if (o.verdict.notTransposed) return '「' + o.tabDef.tabName + '」未改為日子橫放（每一個崇拜日期一欄）';
+      if (o.verdict.shortRows) return '「' + o.tabDef.tabName + '」未有最後 ' + o.verdict.shortRows.length + ' 行（'
+        + o.verdict.shortRows.join('、') + '）';
       return '「' + o.tabDef.tabName + '」少了 ' + o.verdict.missing + ' 欄';
     }).concat(pendingLegacy.map(function (name) {
       return '仍然有舊的「' + name + '」分頁（內容要搬入「崇拜程序」）';

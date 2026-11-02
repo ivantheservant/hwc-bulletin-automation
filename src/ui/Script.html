@@ -1418,6 +1418,20 @@
   }
 
   /**
+   * 用途：2026-11-02：合堂人數表（一欄三格，內容表接管、只顯示）只在這一期是合堂版面時顯示——那一期週報
+   *   就只印這一欄。判斷用伺服器算好的 `readOnly.attendanceCombined`（hasCombinedAttendance_()），前端不另寫規則。
+   * Args:
+   *   readOnly {Object} apiLoadWeek() 回傳的 readOnly 物件。
+   * Returns:
+   *   （無）
+   */
+  function applyCombinedAttendanceVisibility(readOnly) {
+    var table = document.getElementById('attCombinedTable');
+    if (!table) return;
+    table.classList.toggle('hidden', !(readOnly && readOnly.attendanceCombined === true));
+  }
+
+  /**
    * 用途：把第 1 頁事奉框渲染成**可編輯**的一格格輸入框（第六輪）。
    *
    *   每個崗位每個位次一個輸入框，預設值是 `slot.bulletinName`——那是
@@ -3043,10 +3057,13 @@
       function (v) { return v || '（留空＝自動）'; });
     populatePrayerHeadingOptions(data.options.prayerBlockHeadingOptions);
     document.getElementById('attCantoneseSubLabel').textContent = '粵語堂' + (data.options.cantoneseSubColumnLabel || '主堂');
+    var attCombinedLabelEl = document.getElementById('attCombinedLabel');
+    if (attCombinedLabelEl) attCombinedLabelEl.textContent = data.options.attendanceCombinedLabel || '合堂';
 
     // 2026-10-28：獻花兩格要在填表之前知道職事表的名字（空白就直接顯示職事表的名字）。
     state.flowerRoster = (data.readOnly && data.readOnly.flowerRoster) || { thisWeek: '', nextWeek: '' };
     applyWeekFieldsToForm();
+    applyCombinedAttendanceVisibility(data.readOnly);
     // F1：基準值要在「表單剛填好」這一刻記下，取表單實際顯示的值（下拉選單
     // 配不到選項時會變成空白，基準值要跟畫面一致，才不會把沒動過的欄位當成改動）。
     state.loadedWeek = collectWeekFieldsFromForm();

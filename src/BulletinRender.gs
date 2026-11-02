@@ -267,7 +267,9 @@ function buildFinancePeriodLabelForReport_(pattern, isoDate, reportTitle) {
  * Args:
  *   model {Object} `buildBulletinModel_()` 的輸出。
  *   options {{churchName:string=, generatedAt:string=,
- *            cantoneseSubColumnLabel:string=}=} 選填。
+ *            cantoneseSubColumnLabel:string=, attendanceCombinedLabel:string=}=} 選填。
+ *     `attendanceCombinedLabel`（2026-11-02）只在資料模型沒有 `attendance.combinedLabel` 時用（手砌的模型）；
+ *     真正入口的模型已經由 Config `ATTENDANCE_COMBINED_COLUMN_LABEL` 帶入。
  *     資料模型本身沒有這幾樣東西（它們來自 Config 或產生當下的時間），
  *     所以由呼叫方傳進來，純函式層不自己讀 Config。
  * Returns:
@@ -310,6 +312,17 @@ function buildRenderContext_(model, options) {
     values[key] = renderValueText_(week[key]);
   });
   values.CANTONESE_SUBCOLUMN_LABEL = renderValueText_(opts.cantoneseSubColumnLabel);
+  // 2026-11-02（Ivan）：合堂主日之後那一期只印一欄「合堂」（三格）。範本兩張人數表：十二格那一張每一列
+  //    {{#IF:ATTENDANCE_NORMAL_SHOW}}、一欄那一張每一列 {{#IF:ATTENDANCE_COMBINED_SHOW}}；不印的那一張一列都不剩，
+  //    整張拿走（removeRowlessTables_()）。判斷只有 hasCombinedAttendance_() 一處（資料模型的人數表亦用它）。
+  combinedAttendanceValueKeys_().forEach(function (key) {
+    values[key] = renderValueText_(week[key]);
+  });
+  var combinedAttendance = hasCombinedAttendance_(week);
+  values.ATTENDANCE_COMBINED_SHOW = combinedAttendance ? '有' : '';
+  values.ATTENDANCE_NORMAL_SHOW = combinedAttendance ? '' : '有';
+  values.ATTENDANCE_COMBINED_LABEL = renderValueText_(attendance.combinedLabel
+    || pickWithDefault_(opts.attendanceCombinedLabel, ATTENDANCE_COMBINED_LABEL_DEFAULT_));
 
   // ---- 事奉與獻花 ----
   values.NEXT_WEEK_HEADING = renderValueText_(header.nextWeekHeading);

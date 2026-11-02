@@ -1008,6 +1008,7 @@ function buildQuarterMissingFieldsReportLines_(quarterId, sourceLabel) {
     try {
       var attendanceCount = 0;
       var attendanceLineIndex = -1;
+      var attendanceCombined = false;
       (buildBulletinModel_(sd.isoDate).missing || []).forEach(function (m) {
         if (isAttendanceMissingItem_(m)) {
           // G7：人數只佔一行，先留位置，數完再寫字眼。
@@ -1016,6 +1017,8 @@ function buildQuarterMissingFieldsReportLines_(quarterId, sourceLabel) {
             itemLines.push('');
             itemCounts.push(0);
           }
+          // 2026-11-02：上週是合堂崇拜（待填的是合堂三格），字眼講明填合堂三格。
+          if (isCombinedAttendanceMissingItem_(m)) attendanceCombined = true;
           attendanceCount++;
           return;
         }
@@ -1027,7 +1030,7 @@ function buildQuarterMissingFieldsReportLines_(quarterId, sourceLabel) {
         itemCounts.push(1);
       });
       if (attendanceLineIndex !== -1) {
-        itemLines[attendanceLineIndex] = sd.isoDate + '　人數：' + attendanceMissingSummaryText_(attendanceCount);
+        itemLines[attendanceLineIndex] = sd.isoDate + '　人數：' + attendanceMissingSummaryText_(attendanceCount, attendanceCombined);
         itemCounts[attendanceLineIndex] = attendanceCount;
       }
     } catch (perDateErr) {

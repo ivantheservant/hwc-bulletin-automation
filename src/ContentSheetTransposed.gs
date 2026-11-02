@@ -14,6 +14,10 @@
  *   （`__rowNo` 是欄號、`__colLetter` 是欄的字母），寫的時候每一筆變成一欄。匯入、v4 整理的計畫都不用改。
  *
  *   舊的「一個崇拜日期一行」分頁由「更新本季內容表…」轉換（先預覽，確定之後舊分頁改名隱藏保留，一格不刪）。
+ *
+ *   2026-11-02（Ivan）：最後加合堂三行（合堂崇拜、合堂祈禱會、合堂兒童；第 14 至 16 行）。已經建好的橫放分頁
+ *   第 B 欄只有頭幾個機器鍵（`TRANSPOSED_SHORT`）：「建立本季內容表」（＝更新）只在最後補上那幾行的標題與
+ *   純文字格式（`addTransposedContentRows_()`），已有的格一格不改；未補之前匯入講明要先更新（不讀少了的行）。
  */
 
 'use strict';
@@ -30,6 +34,18 @@ var CONTENT_SHEET_TRANSPOSED_FIRST_DATA_COL_ = 3;
  */
 function transposedContentKeys_(tabDef) {
   return (tabDef.keys || []).filter(function (k) { return k !== 'ACTIVE'; });
+}
+
+/**
+ * 用途：舊版「一個崇拜日期一行」分頁第 2 行的機器鍵（凍結；分頁定義的 `legacyRowKeys`，沒有就用 `keys`）。
+ *   認出舊版、讀舊版資料都用這一份——之後加在橫放分頁的行（例如合堂三格）舊版沒有。純函式。
+ * Args:
+ *   tabDef {Object}
+ * Returns:
+ *   {string[]}
+ */
+function transposedLegacyRowKeys_(tabDef) {
+  return (tabDef.legacyRowKeys || tabDef.keys || []).slice();
 }
 
 /**
@@ -80,7 +96,9 @@ function readTransposedHeaderKeys_(sheet, n) {
  * Args:
  *   sheet {?Sheet}　tabDef {Object} 現行定義（`transposed:true`）。
  * Returns:
- *   {string} `'MISSING'`／`'TRANSPOSED'`（日子橫放）／`'TRANSPOSED_NO_HEAD'`（日子橫放，但第 A、B 欄空白：
+ *   {string} `'MISSING'`／`'TRANSPOSED'`（日子橫放）／`'TRANSPOSED_SHORT'`（日子橫放，第 B 欄是現行機器鍵的前段、
+ *     之後的行整行空白＝之後才加的行未補上，見 `transposedShortRowCount_()`）／
+ *     `'TRANSPOSED_NO_HEAD'`（日子橫放，但第 A、B 欄空白：
  *     有人清走了標題，或者上一次寫到一半——資料欄的位置仍然是現行的，照讀，套版面時補回 A、B 欄）／
  *     `'ROWS'`（舊版一個日期一行）／`'BLANK'`（新分頁）／`'UNREADABLE'`（標題空白而有資料，位置不明）／`'UNKNOWN'`。
  */
@@ -89,8 +107,14 @@ function detectTransposedTabLayout_(sheet, tabDef) {
   var tkeys = transposedContentKeys_(tabDef);
   var colB = readTransposedHeaderKeys_(sheet, tkeys.length);
   if (tkeys.every(function (k, i) { return colB[i] === k; })) return 'TRANSPOSED';
-  var row2 = readContentTabHeaderKeys_(sheet, tabDef.keys.length);
-  if (tabDef.keys.every(function (k, i) { return row2[i] === k; })) return 'ROWS';
+  // 2026-11-02：第 B 欄是現行機器鍵的前段（例如未有合堂三行）。之後的行有任何字＝位置不明（不當作少了行）。
+  var prefix = transposedKeyPrefixLength_(colB, tkeys);
+  if (prefix > 0) {
+    return transposedRowsBlank_(sheet, prefix + 1, tkeys.length - prefix) ? 'TRANSPOSED_SHORT' : 'UNKNOWN';
+  }
+  var legacyKeys = transposedLegacyRowKeys_(tabDef);
+  var row2 = readContentTabHeaderKeys_(sheet, legacyKeys.length);
+  if (legacyKeys.every(function (k, i) { return row2[i] === k; })) return 'ROWS';
   var colBBlank = colB.every(function (v) { return v === ''; });
   if ((Number(sheet.getLastRow()) || 0) === 0) return 'BLANK';
   // 第 A、B 欄（頭 n 行）全部空白而 C1 是日期＝日子橫放的資料位置（舊版第 A 欄第 3 行起是日期，不會全部空白）。
@@ -104,10 +128,90 @@ function detectTransposedTabLayout_(sheet, tabDef) {
   }
   var row2Blank = row2.every(function (v) { return v === ''; });
   if (!colBBlank || !row2Blank) return 'UNKNOWN';
-  var state = blankHeaderDataState_(sheet, tabDef.keys.length);
+  var state = blankHeaderDataState_(sheet, legacyKeys.length);
   if (!state.hasData && !state.beyond) return 'BLANK';
   // 舊版第 1、2 行空白而有資料（與「崇拜程序」同一個規則）：當作舊版的欄位位置。
   return state.beyond ? 'UNREADABLE' : 'ROWS';
+}
+
+/**
+ * 用途：第 B 欄（頭 n 行）是現行機器鍵的**真前段**時，前段有幾行：頭 k 行與機器鍵一一相同、其餘全部空白，
+ *   而且 0 < k < n。其餘情況（全部相同、全部空白、中間不同）回 0。純函式。
+ * Args:
+ *   colB {string[]} `readTransposedHeaderKeys_()` 的輸出（長度＝n）。
+ *   tkeys {string[]} `transposedContentKeys_()`。
+ * Returns:
+ *   {number}
+ */
+function transposedKeyPrefixLength_(colB, tkeys) {
+  var k = 0;
+  while (k < tkeys.length && colB[k] === tkeys[k]) k++;
+  if (k === 0 || k >= tkeys.length) return 0;
+  for (var i = k; i < tkeys.length; i++) {
+    if (String(colB[i] === undefined ? '' : colB[i]) !== '') return 0;
+  }
+  return k;
+}
+
+/**
+ * 用途：橫放分頁由第 `fromRow` 行起 `count` 行（第 A 欄至最後一欄）是不是整片空白。唯讀。
+ * Args:
+ *   sheet {Sheet}　fromRow {number} 1 起算。　count {number}
+ * Returns:
+ *   {boolean} 分頁行數不夠（那幾行根本不存在）亦當作空白。
+ */
+function transposedRowsBlank_(sheet, fromRow, count) {
+  var maxRows = Number(sheet.getMaxRows()) || 0;
+  var rows = Math.min(count, maxRows - fromRow + 1);
+  var lastCol = Number(sheet.getLastColumn()) || 0;
+  if (rows <= 0 || lastCol <= 0) return true;
+  return sheet.getRange(fromRow, 1, rows, lastCol).getValues().every(function (r) {
+    return r.every(function (v) { return v === '' || v === null || v === undefined; });
+  });
+}
+
+/**
+ * 用途：`TRANSPOSED_SHORT` 的分頁少了哪幾行（機器鍵與中文標題）。唯讀。
+ * Args:
+ *   sheet {Sheet}　tabDef {Object}
+ * Returns:
+ *   {{fromIndex:number, keys:string[], headers:string[]}} `fromIndex` 是第一個缺的機器鍵在 `transposedContentKeys_()`
+ *     的位置（0 起算；分頁上是第 fromIndex＋1 行）。不是 `TRANSPOSED_SHORT` 回 `keys:[]`。
+ */
+function transposedMissingRows_(sheet, tabDef) {
+  var tkeys = transposedContentKeys_(tabDef);
+  var headers = transposedContentHeaders_(tabDef);
+  var k = transposedKeyPrefixLength_(readTransposedHeaderKeys_(sheet, tkeys.length), tkeys);
+  if (k === 0) return { fromIndex: tkeys.length, keys: [], headers: [] };
+  return { fromIndex: k, keys: tkeys.slice(k), headers: headers.slice(k) };
+}
+
+/**
+ * 用途：在已經建好的橫放分頁最後補上新加的行（2026-11-02 合堂三行）：只寫那幾行的第 A 欄（中文標題）、
+ *   第 B 欄（機器鍵），並把那幾行的日期欄設成純文字。已有的格一格不改；版面與鎖由呼叫方之後照常套
+ *   （`applyTransposedContentTabLayout_()`、`ensureContentTabDateLock_()`）。IO 層；冪等（已經補好就不寫）。
+ * Args:
+ *   sheet {Sheet}　tabDef {Object}
+ * Returns:
+ *   {string[]} 補上的行的中文標題；沒有補就是空陣列。
+ * Raises:
+ *   Error 寫入失敗時原樣拋出。
+ */
+function addTransposedContentRows_(sheet, tabDef) {
+  var missing = transposedMissingRows_(sheet, tabDef);
+  if (missing.keys.length === 0) return [];
+  var firstRow = missing.fromIndex + 1;
+  var needRows = firstRow + missing.keys.length - 1;
+  var maxRows = Number(sheet.getMaxRows()) || 0;
+  if (maxRows < needRows) sheet.insertRowsAfter(Math.max(1, maxRows), needRows - maxRows);
+  var head = sheet.getRange(firstRow, 1, missing.keys.length, 2);
+  head.setNumberFormat('@');
+  head.setValues(missing.keys.map(function (k, i) { return [missing.headers[i], k]; }));
+  var dateCols = transposedDateColumnCount_(sheet);
+  if (dateCols > 0) {
+    sheet.getRange(firstRow, CONTENT_SHEET_TRANSPOSED_FIRST_DATA_COL_, missing.keys.length, dateCols).setNumberFormat('@');
+  }
+  return missing.headers.slice();
 }
 
 /**

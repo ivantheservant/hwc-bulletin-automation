@@ -124,8 +124,9 @@ test('T-3 確定轉換：新分頁日子橫放、人數照搬（千分位不變�
   assert.strictEqual(sheet.getFrozenColumns(), 2);
   const lock = sheet.__protections.filter(function (p) { return p.description === env.sandbox.CONTENT_SHEET_V4_LOCK_DESCRIPTION_; });
   assert.strictEqual(lock.length, 1);
+  // 2026-11-02：十二格之後有合堂三格，共十五行。
   assert.deepStrictEqual(plain(lock[0].unprotected.map(function (r) { return [r.getRow(), r.getColumn(), r.getNumRows(), r.getNumColumns()]; })),
-    [[2, 3, 12, DATES.length]]);
+    [[2, 3, 15, DATES.length]]);
   const imp = env.sandbox.apiRunQuarterContentImport(QUARTER_ID);
   assert.strictEqual(imp.data.ok, true, JSON.stringify(imp.data));
   // 崇拜日期 + 7 日＝印這一日人數的那一期週報。

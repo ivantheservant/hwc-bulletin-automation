@@ -111,3 +111,60 @@ function readCombinedServiceConfig_() {
     kindNames: parseCodeValueList_(getConfig_(CONFIG_KEYS.COMBINED_KIND_NAMES, 'COMBINED=合堂,BAPTISM=浸禮,ANNIVERSARY=堂慶'))
   };
 }
+
+/**
+ * 用途：2026-11-02：一個程序範本 ID 是不是合堂（三堂聯合）崇拜：三個合堂範本（TPL_COMBINED、浸禮、堂慶），
+ *   或者 Config `COMBINED_KIND_TEMPLATES` 任何一個種類對應的範本。純函式。
+ * Args:
+ *   templateId {?string}　templateConfig {Object} `readProgramTemplateConfig_()`（用 `combinedKindTemplates`）。
+ * Returns:
+ *   {boolean}
+ */
+function isCombinedServiceTemplateId_(templateId, templateConfig) {
+  var id = String(templateId || '').trim();
+  if (!id) return false;
+  var ids = [PROGRAM_TEMPLATE_ID_COMBINED_, PROGRAM_TEMPLATE_ID_BAPTISM_, PROGRAM_TEMPLATE_ID_ANNIVERSARY_];
+  var kinds = (templateConfig && templateConfig.combinedKindTemplates) || {};
+  Object.keys(kinds).forEach(function (k) { ids.push(String(kinds[k] || '').trim()); });
+  return ids.indexOf(id) !== -1;
+}
+
+/**
+ * 用途：2026-11-02：由已經讀好的資料判斷某一個主日是不是合堂崇拜：職事表把那一日設為合堂（`snapshot.combined`），
+ *   或者那一日用的程序範本（人手選的優先，否則自動推斷，`resolveProgramTemplateId_()`）是合堂範本。純函式。
+ * Args:
+ *   weekRow {?Object} `BulletinWeeks` 那一日的行（沒有就 null）。
+ *   snapshot {?Object} 那一日的職事表快照（沒有就 null）。
+ *   templateConfig {Object} `readProgramTemplateConfig_()`。
+ * Returns:
+ *   {boolean}
+ */
+function isCombinedServiceWeekResolved_(weekRow, snapshot, templateConfig) {
+  if (snapshot && snapshot.combined) return true;
+  var resolved = resolveProgramTemplateId_(weekRow || {}, snapshot || null, templateConfig || {});
+  return isCombinedServiceTemplateId_(resolved.templateId, templateConfig);
+}
+
+/**
+ * 用途：2026-11-02：某一個主日（通常是「上週崇拜人數」那一日）是不是合堂崇拜。待填清單用（人數十五格全部空白時，
+ *   要講填十二格還是合堂三格）。讀那一日的職事表快照（同一次執行內有快取）與程序範本 Config。
+ * Args:
+ *   isoDate {string} yyyy-MM-dd。
+ *   weekRows {Object[]} `readSheet_(SHEETS.BULLETIN_WEEKS)` 的輸出。
+ * Returns:
+ *   {boolean} 讀不到職事表（未設定或讀取失敗）就只看 `BulletinWeeks` 人手選的程序範本——只影響待填的字眼，
+ *     不影響印甚麼（印哪一組由填了哪一組決定），所以不拋錯。
+ */
+function isCombinedServiceWeek_(isoDate, weekRows) {
+  var iso = String(isoDate || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return false;
+  var row = findBulletinWeekRow_(weekRows || [], iso);
+  var snapshot = null;
+  try {
+    snapshot = readRosterSnapshot_(iso);
+    if (snapshot && (snapshot.notConfigured || !snapshot.found)) snapshot = null;
+  } catch (err) {
+    snapshot = null;
+  }
+  return isCombinedServiceWeekResolved_(row, snapshot, readProgramTemplateConfig_());
+}

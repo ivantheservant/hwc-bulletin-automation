@@ -252,10 +252,10 @@ test('1e. 每一個唯讀欄位都有給人看的名稱（訊息不可以只講�
 
 // 內容表 v2：宣召兩欄併入「崇拜程序」之後改為第三種模式（可覆寫），唯讀週欄位由十五個變十三個
 // （十二個人數欄＋人數統計日期）。這裏釘死剛好十三個——多了或少了都要有人想過為甚麼。
-test('2a. 十六個唯讀週欄位（內容表 v4：人數十三欄＋崇拜程序三欄），逐個單獨送，全部被拒且一筆 AuditLog 都沒有', function () {
+test('2a. 十九個唯讀週欄位（內容表 v4：人數十三欄＋2026-11-02 合堂三格＋崇拜程序三欄），逐個單獨送，全部被拒且一筆 AuditLog 都沒有', function () {
   const env0 = makeEnv({});
   const keys = env0.sandbox.CONTENT_SHEET_READONLY_FIELDS.WEEK;
-  assert.strictEqual(keys.length, 16, '應該有十六個：' + keys.length);
+  assert.strictEqual(keys.length, 19, '應該有十九個：' + keys.length);
 
   const bad = [];
   keys.forEach(function (key) {

@@ -152,11 +152,24 @@ function contentSheetTabDefs_() {
         '英語堂崇拜', '粵語堂東區崇拜', '粵語堂北岸崇拜', '華語堂崇拜',
         '英語堂祈禱會', '粵語堂東區祈禱會', '粵語堂北岸祈禱會', '華語堂祈禱會',
         '英語堂兒童', '粵語堂東區兒童', '粵語堂北岸兒童', '華語堂兒童',
+        // 2026-11-02（Ivan）：合堂主日（宣教月、浸禮、堂慶三堂聯合）那一日只填這三格，十二格留空。
+        //    橫放分頁的第 14 至 16 行；已經建好的分頁由「建立本季內容表」（＝更新）在最後補上這三行。
+        '合堂崇拜', '合堂祈禱會', '合堂兒童',
         '有效'
       ],
       // ⚠️ 機器鍵沿用週報系統現有嘅 ATT_* 十二個鍵，次序一致——下一輪匯入
       // 就唔使任何對照表（多一層對照就多一個會唔同步嘅地方）。
       keys: [
+        'SERVICE_DATE',
+        'ATT_ENG_WORSHIP', 'ATT_CANE_WORSHIP', 'ATT_CANN_WORSHIP', 'ATT_MAN_WORSHIP',
+        'ATT_ENG_PRAYER', 'ATT_CANE_PRAYER', 'ATT_CANN_PRAYER', 'ATT_MAN_PRAYER',
+        'ATT_ENG_CHILD', 'ATT_CANE_CHILD', 'ATT_CANN_CHILD', 'ATT_MAN_CHILD',
+        'ATT_COMB_WORSHIP', 'ATT_COMB_PRAYER', 'ATT_COMB_CHILD',
+        'ACTIVE'
+      ],
+      // 2026-11-02：舊版「一個崇拜日期一行」分頁第 2 行的機器鍵（凍結，認出舊版與讀舊版資料用）。
+      //    合堂三格是日子橫放之後才加的，舊版沒有那三欄。
+      legacyRowKeys: [
         'SERVICE_DATE',
         'ATT_ENG_WORSHIP', 'ATT_CANE_WORSHIP', 'ATT_CANN_WORSHIP', 'ATT_MAN_WORSHIP',
         'ATT_ENG_PRAYER', 'ATT_CANE_PRAYER', 'ATT_CANN_PRAYER', 'ATT_MAN_PRAYER',
@@ -176,13 +189,16 @@ function contentSheetTabDefs_() {
       plainTextColumns: [
         'ATT_ENG_WORSHIP', 'ATT_CANE_WORSHIP', 'ATT_CANN_WORSHIP', 'ATT_MAN_WORSHIP',
         'ATT_ENG_PRAYER', 'ATT_CANE_PRAYER', 'ATT_CANN_PRAYER', 'ATT_MAN_PRAYER',
-        'ATT_ENG_CHILD', 'ATT_CANE_CHILD', 'ATT_CANN_CHILD', 'ATT_MAN_CHILD'
+        'ATT_ENG_CHILD', 'ATT_CANE_CHILD', 'ATT_CANN_CHILD', 'ATT_MAN_CHILD',
+        'ATT_COMB_WORSHIP', 'ATT_COMB_PRAYER', 'ATT_COMB_CHILD'
       ],
       wrapColumns: [],
       activeKey: 'ACTIVE',
       note: '⚠️ 第 1 行的「崇拜日期」是崇拜當日，並非週報那一個主日——週報會自動對應到「崇拜日期加七天」那一期。'
         + '每一個崇拜日期一欄，已經預先開好（日期鎖住，不可以插入欄），請在那一日下面填十二格人數。'
-        + '十二格全部為純文字，可以輸入「--」、「前:5 / 後:120」。'
+        + '合堂主日（三堂聯合崇拜）那一欄只填最後的合堂三格（合堂崇拜、合堂祈禱會、合堂兒童），其餘留空；'
+        + '週報那一期就只印一欄「合堂」。'
+        + '全部格為純文字，可以輸入「--」、「前:5 / 後:120」。'
     }
   ];
 }
@@ -494,6 +510,8 @@ function buildContentSheetInstructionLines_(input) {
 
   lines.push('【「崇拜人數」：日子橫放，每一個崇拜日期一欄】');
   lines.push('　第 1 行是崇拜日期，每一日一欄，已經預先開好；請在那一日下面填十二格人數。人數會登在之後一個主日的週報。');
+  lines.push('　合堂主日（三堂聯合崇拜）那一欄只填最後的合堂三格（合堂崇拜、合堂祈禱會、合堂兒童），其餘留空；');
+  lines.push('　　之後一個主日的週報就只印一欄「合堂」。');
   lines.push('　日期與左邊兩欄鎖住，不可以插入或刪除欄；這張分頁沒有「有效」，不用的那一日留空即可。');
   lines.push('');
 

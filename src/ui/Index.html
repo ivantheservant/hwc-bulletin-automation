@@ -317,7 +317,18 @@
           </tr>
         </tbody>
       </table>
-      <p class="hint">以上 12 格一律當文字保存（樣本出現過「--」「前:5 / 後:120」這類值），不會被轉成數字或日期。</p>
+      <table class="attendance-table hidden" id="attCombinedTable">
+        <thead>
+          <tr><th></th><th id="attCombinedLabel">合堂</th></tr>
+        </thead>
+        <tbody>
+          <tr><th>崇拜</th><td><input type="text" data-field="ATT_COMB_WORSHIP"></td></tr>
+          <tr><th>祈禱會</th><td><input type="text" data-field="ATT_COMB_PRAYER"></td></tr>
+          <tr><th>兒童</th><td><input type="text" data-field="ATT_COMB_CHILD"></td></tr>
+        </tbody>
+      </table>
+      <p class="hint">以上各格一律當文字保存（樣本出現過「--」「前:5 / 後:120」這類值），不會被轉成數字或日期。
+        上週是合堂崇拜時，內容表那一日只填合堂三格，週報只印一欄「合堂」（上面會多出一張合堂人數表）。</p>
     </section>
 
     <section class="panel">

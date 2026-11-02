@@ -32,6 +32,50 @@ function attendanceRowDefs_() {
   ];
 }
 
+/** 2026-11-02：合堂一欄人數表的欄標題預設值（Config `ATTENDANCE_COMBINED_COLUMN_LABEL` 的 seed 值相同）。 */
+var ATTENDANCE_COMBINED_LABEL_DEFAULT_ = '合堂';
+
+/**
+ * 用途：2026-11-02（Ivan）：合堂主日之後那一期的人數表（一欄「合堂」）三個橫列：列標題 ＋ 對應的
+ *   `BulletinWeeks` 機器鍵。列標題與十二格那一張表相同（崇拜／祈禱會／兒童）。寫成函式延遲求值（載入次序）。
+ * Args: （無）
+ * Returns:
+ *   {{label:string, key:string}[]}
+ */
+function combinedAttendanceRowDefs_() {
+  return [
+    { label: '崇拜', key: 'ATT_COMB_WORSHIP' },
+    { label: '祈禱會', key: 'ATT_COMB_PRAYER' },
+    { label: '兒童', key: 'ATT_COMB_CHILD' }
+  ];
+}
+
+/**
+ * 用途：合堂三格的機器鍵（`combinedAttendanceRowDefs_()` 的 `key`）。純函式。
+ * Args: （無）
+ * Returns:
+ *   {string[]}
+ */
+function combinedAttendanceValueKeys_() {
+  return combinedAttendanceRowDefs_().map(function (def) { return def.key; });
+}
+
+/**
+ * 用途：這一期的人數是不是合堂（一欄）版面：合堂三格任何一格有字就是。**唯一的判斷**——資料模型的人數表、
+ *   Word 佔位符（`ATTENDANCE_COMBINED_SHOW`／`ATTENDANCE_NORMAL_SHOW`）、待填清單都經這一支。純函式。
+ * Args:
+ *   week {Object} `BulletinWeeks` 那一行（或者資料模型的 `weekFields`）。
+ * Returns:
+ *   {boolean}
+ */
+function hasCombinedAttendance_(week) {
+  var w = week || {};
+  return combinedAttendanceValueKeys_().some(function (key) {
+    var v = w[key];
+    return String(v === null || v === undefined ? '' : v).trim() !== '';
+  });
+}
+
 /**
  * 用途：週報資料模型的真正入口。讀 Config 與全部相關工作表（本週與下週的
  *   職事表快照、`BulletinWeeks`、家事報告、代禱、團契、財政、事奉框相關
@@ -124,6 +168,15 @@ function buildBulletinModel_(isoDate, options) {
   // 2026-10-30：特別崇拜的上週崇拜人數、清單次序跟上一個主日（內容來源主日）。
   var contentSourceIso = contentSourceIsoForWeek_(week, isoDate);
   if (specialService) week = applySpecialServiceSourceWeek_(week, findBulletinWeekRow_(weekRows, contentSourceIso) || {});
+
+  // 2026-11-02：人數十五格全部空白時，待填要講填十二格還是合堂三格——看人數那一日（上一個主日）是不是合堂崇拜。
+  //    有任何一格有字就不用知道（版面由填了哪一組決定），所以只在全部空白時才讀那一日的職事表快照。
+  var attendanceCombinedService = false;
+  if (!hasAnyAttendanceValue_(week)) {
+    var attendanceIso = formatIsoDate_(week.ATTENDANCE_DATE instanceof Date
+      ? week.ATTENDANCE_DATE : addDays_(normalizeDate_(contentSourceIso), -7));
+    attendanceCombinedService = isCombinedServiceWeek_(attendanceIso, weekRows);
+  }
 
   // ⚠️ R-042：獻花兩欄接上職事表的 `FLOWER` 崗位。
   //
@@ -251,6 +304,8 @@ function buildBulletinModel_(isoDate, options) {
       defaultPrayerBlockHeading: getConfig_(CONFIG_KEYS.DEFAULT_PRAYER_BLOCK_HEADING, '代禱事項'),
       preludeDefault: getConfig_(CONFIG_KEYS.PRELUDE_DEFAULT, ''),
       cantoneseSubColumnLabel: getConfig_(CONFIG_KEYS.CANTONESE_SUBCOLUMN_LABEL, '主堂'),
+      // 2026-11-02：合堂主日之後那一期人數表（一欄）的欄標題。
+      attendanceCombinedLabel: getConfig_(CONFIG_KEYS.ATTENDANCE_COMBINED_COLUMN_LABEL, ATTENDANCE_COMBINED_LABEL_DEFAULT_),
       dutyPrintEmptyRows: normalizeBoolean_(getConfig_(CONFIG_KEYS.DUTY_PRINT_EMPTY_ROWS, 'FALSE')) === true,
       // 2026-10-30：財政報告（src/FinanceReports.gs）。
       financeTitlePattern: getConfig_(CONFIG_KEYS.FINANCE_TITLE_PATTERN, FINANCE_TITLE_PATTERN_DEFAULT_),
@@ -260,6 +315,8 @@ function buildBulletinModel_(isoDate, options) {
       financeMainColumnLabels: getConfig_(CONFIG_KEYS.FINANCE_MAIN_COLUMN_LABELS, FINANCE_MAIN_COLUMN_LABELS_DEFAULT_),
       financeSpecialColumnLabels: getConfig_(CONFIG_KEYS.FINANCE_SPECIAL_COLUMN_LABELS, FINANCE_SPECIAL_COLUMN_LABELS_DEFAULT_)
     },
+    // 2026-11-02：人數那一日是合堂崇拜（只在十五格全部空白時才判斷，見上面）。
+    attendanceCombinedService: attendanceCombinedService,
     // 正式路徑用 Apps Script 的 Utilities.formatDate()，才能完整支援 Config
     // 內任何 Java SimpleDateFormat 樣式；純函式層測試會改用內建的簡化版。
     formatDate: function (date, pattern) {
@@ -324,7 +381,8 @@ function emptyBulletinModel_(isoDate, overrides) {
     // 判斷依據是 `templateId`（由 resolveProgramTemplateId_() 算出來的
     // 單一真相），不是在別處再比對一次特別主日的關鍵詞。
     isBaptismSunday: false,
-    attendance: { columns: [], rows: [] },
+    // 2026-11-02：`combined`＝合堂一欄版面；`combinedLabel`＝那一欄的標題（Config），見 buildAttendanceTable_()。
+    attendance: { columns: [], rows: [], combined: false, combinedLabel: '' },
     nextWeekDuty: [],
     // 第六輪新增：週報與職事表的比對結果（見 src/RosterDiff.gs）。
     rosterDiff: { isoDate: isoDate, rosterVersion: null, snapshotVersion: null, rows: [], conflictCount: 0, followedCount: 0 },
@@ -434,7 +492,7 @@ function assembleBulletinModel_(input) {
     nextWeekDate: formatDate(nextWeekDate, config.dateFormatInline || 'dd/MM/yyyy')
   };
 
-  model.attendance = buildAttendanceTable_(week, config.cantoneseSubColumnLabel || '主堂');
+  model.attendance = buildAttendanceTable_(week, config.cantoneseSubColumnLabel || '主堂', config.attendanceCombinedLabel);
 
   // 印出來的事奉框：沒有名字的崗位行印不印由 Config 決定（預設不印），規則只在 dutyRowsForPrint_()。
   model.dutyPrintEmptyRows = config.dutyPrintEmptyRows === true;
@@ -562,7 +620,8 @@ function assembleBulletinModel_(input) {
     announcementCount: model.announcements.length,
     prayerCount: model.prayerBlock.items.length,
     fellowshipCount: model.fellowships.length,
-    choirSinging: model.choirSinging
+    choirSinging: model.choirSinging,
+    attendanceCombinedService: input.attendanceCombinedService === true
   });
   // 2026-10-31：這一季職事表有設定詩班獻詩主日，而這一個主日不是，卻填了詩班曲名 → 提醒（照印）。
   var choirTitleNow = String(week.CHOIR_TITLE === null || week.CHOIR_TITLE === undefined ? '' : week.CHOIR_TITLE).trim();
@@ -581,24 +640,51 @@ function assembleBulletinModel_(input) {
  * 用途：組出人數表。三個橫列（崇拜／祈禱會／兒童）× 四個直欄（英語堂／
  *   粵語堂主堂／粵語堂北岸／華語堂），**全部當文字**——樣本內出現過
  *   `--` 與 `前:5 / 後:120` 這類值，不是數字。
+ *
+ *   2026-11-02（Ivan）：合堂主日之後那一期（合堂三格有字，`hasCombinedAttendance_()`）印的是**一欄**
+ *   （欄標題＝Config `ATTENDANCE_COMBINED_COLUMN_LABEL`，例如「合堂」），三個橫列相同。草稿預覽頁、電郵、
+ *   Diagnostics 都按這裏的欄與列印，所以合堂那一期自然只見一欄；Word 由範本的條件列決定（BulletinRender.gs）。
  * Args:
  *   week {Object} `BulletinWeeks` 資料列。
  *   cantoneseSubLabel {string} Config `CANTONESE_SUBCOLUMN_LABEL`（主堂）。
+ *   combinedLabel {string=} Config `ATTENDANCE_COMBINED_COLUMN_LABEL`；空白用 `ATTENDANCE_COMBINED_LABEL_DEFAULT_`。
  * Returns:
- *   {{columns:string[], rows:{label:string, values:string[]}[]}}
+ *   {{columns:string[], rows:{label:string, values:string[]}[], combined:boolean, combinedLabel:string}}
  */
-function buildAttendanceTable_(week, cantoneseSubLabel) {
+function buildAttendanceTable_(week, cantoneseSubLabel, combinedLabel) {
+  function text(key) {
+    var v = (week || {})[key];
+    return String(v === null || v === undefined ? '' : v);
+  }
+  var label = pickWithDefault_(combinedLabel, ATTENDANCE_COMBINED_LABEL_DEFAULT_);
+  if (hasCombinedAttendance_(week)) {
+    return {
+      columns: [label],
+      rows: combinedAttendanceRowDefs_().map(function (def) { return { label: def.label, values: [text(def.key)] }; }),
+      combined: true,
+      combinedLabel: label
+    };
+  }
   var columns = ['英語堂', '粵語堂' + cantoneseSubLabel, '粵語堂北岸', '華語堂'];
   var rows = attendanceRowDefs_().map(function (def) {
-    return {
-      label: def.label,
-      values: def.keys.map(function (key) {
-        var v = week[key];
-        return String(v === null || v === undefined ? '' : v);
-      })
-    };
+    return { label: def.label, values: def.keys.map(text) };
   });
-  return { columns: columns, rows: rows };
+  return { columns: columns, rows: rows, combined: false, combinedLabel: label };
+}
+
+/**
+ * 用途：人數十五格（十二格＋合堂三格）有沒有任何一格有字。純函式。
+ * Args:
+ *   week {Object} `BulletinWeeks` 那一行。
+ * Returns:
+ *   {boolean}
+ */
+function hasAnyAttendanceValue_(week) {
+  var w = week || {};
+  return attendanceValueKeys_().concat(combinedAttendanceValueKeys_()).some(function (key) {
+    var v = w[key];
+    return String(v === null || v === undefined ? '' : v).trim() !== '';
+  });
 }
 
 /**
@@ -633,8 +719,11 @@ function filterDatedRows_(rows, targetDate) {
  *   Config 的 `PRELUDE_DEFAULT` 補上即可，不需要每週叫人填一次。
  * Args:
  *   input {{week:Object, dutyBoxPage1:Object[], announcementCount:number,
- *          prayerCount:number, fellowshipCount:number, choirSinging:boolean=}}
+ *          prayerCount:number, fellowshipCount:number, choirSinging:boolean=,
+ *          attendanceCombinedService:boolean=}}
  *     `choirSinging`（2026-10-31）：職事表這一個主日詩班獻詩 → 詩班曲名空白就列入待填。
+ *     `attendanceCombinedService`（2026-11-02）：人數那一日是合堂崇拜（`isCombinedServiceWeek_()`）。人數十五格
+ *     全部空白時，是就列合堂三格、不是就列十二格；有任何一格有字就按填了哪一組（`hasCombinedAttendance_()`）。
  * Returns:
  *   {{field:string, label:string, reason:string}[]}
  */
@@ -687,11 +776,21 @@ function buildMissingList_(input) {
     add(key, labelOf(key), optional ? '通常空白，有就填。' : (tab ? contentSheetFillHint_(tab) : '尚未填寫。'), optional, tab);
   });
 
-  attendanceRowDefs_().forEach(function (def) {
-    def.keys.forEach(function (key) {
-      if (isBlank(key)) add(key, labelOf(key), '人數尚未填寫。');
+  // 2026-11-02：合堂三格與十二格只會印其中一組（人數表的版面），所以只列那一組的空格：合堂三格有字＝合堂；
+  //    十二格有字＝平常；全部空白＝看人數那一日是不是合堂崇拜。
+  var combinedLayout = hasCombinedAttendance_(week)
+    || (!hasAnyAttendanceValue_(week) && input.attendanceCombinedService === true);
+  if (combinedLayout) {
+    combinedAttendanceValueKeys_().forEach(function (key) {
+      if (isBlank(key)) add(key, labelOf(key), '合堂人數尚未填寫。');
     });
-  });
+  } else {
+    attendanceRowDefs_().forEach(function (def) {
+      def.keys.forEach(function (key) {
+        if (isBlank(key)) add(key, labelOf(key), '人數尚未填寫。');
+      });
+    });
+  }
 
   // 第二批測試修正 G6／G12：待填說明是給幹事看的，用內容表的分頁名稱，不用
   // 工作表英文名（Announcements／Prayers／Fellowships）；分頁名稱讀
@@ -861,16 +960,35 @@ function isAttendanceMissingItem_(item) {
 }
 
 /**
+ * 用途：2026-11-02：一項待填是不是合堂三格的其中一格（`isAttendanceMissingItem_()` 亦當它是人數）。純函式。
+ *   人數合併成一行時用來決定字眼（`attendanceMissingSummaryText_()` 的 `combined`）。
+ * Args:
+ *   item {?{field:string}} `buildMissingList_()` 輸出的一項。
+ * Returns:
+ *   {boolean}
+ * Raises:
+ *   （無）
+ */
+function isCombinedAttendanceMissingItem_(item) {
+  return combinedAttendanceValueKeys_().indexOf(String((item || {}).field || '')) !== -1;
+}
+
+/**
  * 用途：人數合併成一行時的字眼「N 格未填（上週崇拜人數由內容表輸入）」。
  *   純函式。寄出前檢查與本季待填清單共用，字眼只有一處。
+ *   2026-11-02：上週是合堂崇拜（待填的是合堂三格）就講明填合堂三格、其餘留空。
  * Args:
  *   count {number} 未填的人數格數。
+ *   combined {boolean=} 未填的是合堂三格（`isCombinedAttendanceMissingItem_()`）。
  * Returns:
  *   {string}
  * Raises:
  *   （無）
  */
-function attendanceMissingSummaryText_(count) {
+function attendanceMissingSummaryText_(count, combined) {
+  if (combined === true) {
+    return Number(count || 0) + ' 格未填（上週是合堂崇拜：請在內容表「崇拜人數」那一日填合堂三格，其餘留空）';
+  }
   return Number(count || 0) + ' 格未填（上週崇拜人數由內容表輸入）';
 }
 
@@ -897,6 +1015,7 @@ function mergeAttendanceMissingItems_(items) {
   var attendanceIndex = -1;
   var attendanceCount = 0;
   var attendanceOptional = false;
+  var attendanceCombined = false;
   (items || []).forEach(function (item) {
     if (!isAttendanceMissingItem_(item)) {
       out.push(item);
@@ -907,13 +1026,14 @@ function mergeAttendanceMissingItems_(items) {
       attendanceOptional = (item || {}).optional === true;
       out.push(null);
     }
+    if (isCombinedAttendanceMissingItem_(item)) attendanceCombined = true;
     attendanceCount++;
   });
   if (attendanceIndex !== -1) {
     out[attendanceIndex] = {
       field: 'ATT_*',
       label: '人數',
-      reason: attendanceMissingSummaryText_(attendanceCount),
+      reason: attendanceMissingSummaryText_(attendanceCount, attendanceCombined),
       optional: attendanceOptional,
       cellCount: attendanceCount
     };
@@ -1066,7 +1186,7 @@ function formatDatePatternSimple_(date, pattern) {
 
 
 /**
- * 用途：特別崇拜：把上一個主日（內容來源主日）那一行的「上週崇拜人數」十二格與統計日期、清單次序（這一行自己
+ * 用途：特別崇拜：把上一個主日（內容來源主日）那一行的「上週崇拜人數」十二格（2026-11-02 起連合堂三格）與統計日期、清單次序（這一行自己
  *   沒有安排時）疊上來。純函式，不改傳入的物件。人數只在內容表填，平常由內容表匯入主日那一行；特別崇拜沒有
  *   內容表的行，所以跟上一個主日印同一組數字。
  * Args:
@@ -1079,7 +1199,8 @@ function formatDatePatternSimple_(date, pattern) {
  */
 function applySpecialServiceSourceWeek_(week, sourceWeek, options) {
   var out = Object.assign({}, week);
-  attendanceValueKeys_().concat(['ATTENDANCE_DATE']).forEach(function (key) {
+  // 2026-11-02：合堂三格一樣跟上一個主日（上一個主日印一欄「合堂」，特別崇拜亦一樣）。
+  attendanceValueKeys_().concat(combinedAttendanceValueKeys_()).concat(['ATTENDANCE_DATE']).forEach(function (key) {
     out[key] = sourceWeek[key] === undefined ? '' : sourceWeek[key];
   });
   var inherit = !(options && options.inheritArrangement === false);

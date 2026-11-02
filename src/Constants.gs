@@ -166,7 +166,10 @@ var COLUMNS = Object.freeze({
       //    同樣加在**最尾**，理由見上面第六輪那一段。
       '程序增刪（這一週）', '清單次序與刪除（這一週）',
       // 2026-10-30：特別崇拜（非主日）＝SPECIAL；留空＝平常的主日（src/SpecialService.gs）。加在**最尾**。
-      '崇拜類別'
+      '崇拜類別',
+      // 2026-11-02（Ivan）：合堂主日之後那一期的人數表只有一欄「合堂」三格（崇拜／祈禱會／兒童），
+      //    由內容表「崇拜人數」匯入，與十二格同一個規則。加在**最尾**。
+      '合堂崇拜', '合堂祈禱會', '合堂兒童'
     ],
     keys: [
       'SERVICE_DATE', 'QUARTER_ID', 'WEEK_OF_MONTH', 'SPECIAL_TYPE', 'PAGE_TITLE',
@@ -185,7 +188,8 @@ var COLUMNS = Object.freeze({
       'BAPTISM_MEMBERS', 'MEMBERSHIP_MEMBERS', 'CHILD_DEDICATION_CHILDREN',
       'ROSTER_STATUS', 'ARCHIVED',
       'PROGRAM_EDITS', 'LIST_ARRANGEMENT',
-      'SERVICE_KIND'
+      'SERVICE_KIND',
+      'ATT_COMB_WORSHIP', 'ATT_COMB_PRAYER', 'ATT_COMB_CHILD'
     ],
     types: [
       'DATE', 'TEXT', 'INT', 'TEXT', 'TEXT',
@@ -209,12 +213,15 @@ var COLUMNS = Object.freeze({
       // v3：兩欄 JSON 一律 TEXT。
       'TEXT', 'TEXT',
       // 2026-10-30：崇拜類別。
-      'TEXT'
+      'TEXT',
+      // 2026-11-02：合堂三格（與十二格一樣是文字，可以是「--」）。
+      'TEXT', 'TEXT', 'TEXT'
     ],
     textFormatColumns: [
       'ATT_ENG_WORSHIP', 'ATT_CANE_WORSHIP', 'ATT_CANN_WORSHIP', 'ATT_MAN_WORSHIP',
       'ATT_ENG_PRAYER', 'ATT_CANE_PRAYER', 'ATT_CANN_PRAYER', 'ATT_MAN_PRAYER',
       'ATT_ENG_CHILD', 'ATT_CANE_CHILD', 'ATT_CANN_CHILD', 'ATT_MAN_CHILD',
+      'ATT_COMB_WORSHIP', 'ATT_COMB_PRAYER', 'ATT_COMB_CHILD',
       // v3：JSON 不可以被試算表轉換（例如「[」開頭的不會，但保險起見一律純文字）。
       'PROGRAM_EDITS', 'LIST_ARRANGEMENT'
     ]
@@ -806,7 +813,9 @@ var CONFIG_KEYS = Object.freeze({
   // 2026-10-30：內容表權限（src/ContentSheetSharing.gs）：網域內連結權限、可以修改的組別、財政報告分頁可以修改的組別。
   CONTENT_SHEET_LINK_ACCESS: 'CONTENT_SHEET_LINK_ACCESS',
   CONTENT_SHEET_EDITOR_GROUPS: 'CONTENT_SHEET_EDITOR_GROUPS',
-  CONTENT_SHEET_FINANCE_EDITOR_GROUPS: 'CONTENT_SHEET_FINANCE_EDITOR_GROUPS'
+  CONTENT_SHEET_FINANCE_EDITOR_GROUPS: 'CONTENT_SHEET_FINANCE_EDITOR_GROUPS',
+  // 2026-11-02：合堂主日之後那一期人數表（一欄）的欄標題（{{ATTENDANCE_COMBINED_LABEL}}）。
+  ATTENDANCE_COMBINED_COLUMN_LABEL: 'ATTENDANCE_COMBINED_COLUMN_LABEL'
 });
 
 // =====================================================================
@@ -1050,7 +1059,9 @@ var DEFAULTS = Object.freeze([
   { key: CONFIG_KEYS.WEBAPP_VIEWER_EMAILS, value: '', note: '只可以看填寫介面、不可以修改的電郵，逗號分隔。同時在 WEBAPP_ALLOWED_EMAILS 的人當作可以修改' },
   { key: CONFIG_KEYS.CONTENT_SHEET_LINK_ACCESS, value: 'VIEW', note: '內容表給教會網域的連結權限：VIEW＝網域內只可以看（CONTENT_SHEET_EDITOR_GROUPS 的人可以修改）；EDIT＝網域內任何人都可以修改（舊做法）。改了之後在填寫介面按「更新本季內容表…」才套用到現有的內容表' },
   { key: CONFIG_KEYS.CONTENT_SHEET_EDITOR_GROUPS, value: 'CC,DB,ADMIN,IT,WORSHIP', note: '內容表可以修改的 Recipients 組別（逗號分隔，按 GROUP_NAME；只計 ACTIVE=TRUE）。CONTENT_SHEET_LINK_ACCESS=VIEW 時才有作用' },
-  { key: CONFIG_KEYS.CONTENT_SHEET_FINANCE_EDITOR_GROUPS, value: 'DB,ADMIN,IT', note: '內容表「財政報告」分頁可以修改的 Recipients 組別（逗號分隔）。留空＝不另外限制（與其他分頁相同）' }
+  { key: CONFIG_KEYS.CONTENT_SHEET_FINANCE_EDITOR_GROUPS, value: 'DB,ADMIN,IT', note: '內容表「財政報告」分頁可以修改的 Recipients 組別（逗號分隔）。留空＝不另外限制（與其他分頁相同）' },
+  // ---- 2026-11-02 ----
+  { key: CONFIG_KEYS.ATTENDANCE_COMBINED_COLUMN_LABEL, value: '合堂', note: '合堂主日之後那一期，人數表只印一欄（崇拜／祈禱會／兒童三格）時那一欄的標題（Word 範本 {{ATTENDANCE_COMBINED_LABEL}}；2025 年的週報用過「三堂聯合」）。內容表「崇拜人數」那一日填了合堂三格就印這一欄，十二格那一張表不印' }
 ]);
 
 // =====================================================================
@@ -1271,6 +1282,8 @@ var CONTENT_SHEET_READONLY_FIELDS = Object.freeze({
     'ATT_ENG_WORSHIP', 'ATT_CANE_WORSHIP', 'ATT_CANN_WORSHIP', 'ATT_MAN_WORSHIP',
     'ATT_ENG_PRAYER', 'ATT_CANE_PRAYER', 'ATT_CANN_PRAYER', 'ATT_MAN_PRAYER',
     'ATT_ENG_CHILD', 'ATT_CANE_CHILD', 'ATT_CANN_CHILD', 'ATT_MAN_CHILD',
+    // 2026-11-02：合堂主日之後那一期的合堂三格（內容表「崇拜人數」第 14 至 16 行）。
+    'ATT_COMB_WORSHIP', 'ATT_COMB_PRAYER', 'ATT_COMB_CHILD',
     // 人數統計日期跟著十二個人數欄一起由內容表決定。
     'ATTENDANCE_DATE',
     // 2026-10-30（內容表 v4，Ivan）：「崇拜程序」只留這三欄；序樂、宣召出處、宣召經文、詩歌頌讚、詩班曲名、
@@ -1323,6 +1336,9 @@ var CONTENT_SHEET_READONLY_LABELS = Object.freeze({
   ATT_CANE_CHILD: '粵語堂主堂兒童人數',
   ATT_CANN_CHILD: '粵語堂北岸兒童人數',
   ATT_MAN_CHILD: '華語堂兒童人數',
+  ATT_COMB_WORSHIP: '合堂崇拜人數',
+  ATT_COMB_PRAYER: '合堂祈禱會人數',
+  ATT_COMB_CHILD: '合堂兒童人數',
   announcements: '家事報告',
   prayers: '代禱事項',
   fellowships: '本週團契聚會',

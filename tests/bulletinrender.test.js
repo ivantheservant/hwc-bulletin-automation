@@ -81,6 +81,9 @@ const REQUIRED_VALUE_KEYS = [
   'ATT_ENG_PRAYER', 'ATT_CANE_PRAYER', 'ATT_CANN_PRAYER', 'ATT_MAN_PRAYER',
   'ATT_ENG_CHILD', 'ATT_CANE_CHILD', 'ATT_CANN_CHILD', 'ATT_MAN_CHILD',
   'CANTONESE_SUBCOLUMN_LABEL',
+  // 2026-11-02：合堂主日之後那一期的一欄人數表
+  'ATT_COMB_WORSHIP', 'ATT_COMB_PRAYER', 'ATT_COMB_CHILD',
+  'ATTENDANCE_COMBINED_SHOW', 'ATTENDANCE_NORMAL_SHOW', 'ATTENDANCE_COMBINED_LABEL',
   // 事奉與獻花
   'NEXT_WEEK_HEADING', 'NEXT_WEEK_DATE', 'FLOWER_THIS_WEEK', 'FLOWER_NEXT_WEEK', 'FLOWER_LINE',
   // 2026-11-02：有團契聚會才有字（只作條件用）
@@ -207,11 +210,14 @@ test('1d. buildRenderContext_()：全部值都是字串（範本替換只接受�
   });
 });
 
-test('1e. buildRenderContext_()：空模型不會拋錯，全部值是空字串', function () {
+test('1e. buildRenderContext_()：空模型不會拋錯，全部值是空字串（人數表版面兩個例外，見下）', function () {
   let context;
   assert.doesNotThrow(function () { context = buildRenderContext_({}, {}); });
+  // 2026-11-02：沒有合堂三格＝平常版面（十二格那一張照印，與以前一樣）；合堂那一欄的標題有預設值。
+  const layoutDefaults = { ATTENDANCE_NORMAL_SHOW: '有', ATTENDANCE_COMBINED_LABEL: '合堂' };
   REQUIRED_VALUE_KEYS.forEach(function (k) {
-    assert.strictEqual(context.values[k], '', k + ' 在空模型下應該是空字串');
+    const expected = Object.prototype.hasOwnProperty.call(layoutDefaults, k) ? layoutDefaults[k] : '';
+    assert.strictEqual(context.values[k], expected, k + ' 在空模型下應該是「' + expected + '」');
   });
 });
 

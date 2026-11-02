@@ -86,11 +86,11 @@ test('1a. Finance 五個金額欄全部登記在 textFormatColumns（第一輪�
     ['COL3', 'COL4', 'COL5', 'COL_HARDSHIP', 'COL_SPECIAL_OVERSEAS', 'REPORT_TITLE', 'REPORT_NOTE', 'REPORT_BALANCE'].sort());
 });
 
-test('1b. BulletinWeeks 十二個 ATT_* 欄全部登記', function () {
+test('1b. BulletinWeeks 十五個 ATT_* 欄（十二格＋2026-11-02 合堂三格）全部登記', function () {
   const env = makeFillEnv({});
   const def = env.sandbox.COLUMNS.BULLETIN_WEEKS;
   const attKeys = def.keys.filter(function (k) { return k.indexOf('ATT_') === 0; });
-  assert.strictEqual(attKeys.length, 12);
+  assert.strictEqual(attKeys.length, 15);
   attKeys.forEach(function (key) {
     assert.ok(def.textFormatColumns.indexOf(key) !== -1, key + ' 沒有登記成純文字欄');
   });

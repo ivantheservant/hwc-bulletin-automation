@@ -658,7 +658,8 @@ test('6. 崇拜人數預先開好的日期包含「第一個主日減七天」�
   const lock = sheet.__protections.filter(function (p) { return p.description === env.sandbox.CONTENT_SHEET_V4_LOCK_DESCRIPTION_; });
   assert.strictEqual(lock.length, 1, '整張分頁要保護');
   const free = lock[0].unprotected.map(function (r) { return [r.getRow(), r.getColumn(), r.getNumRows(), r.getNumColumns()]; });
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(free)), [[2, 3, 12, SERVICE_DATES.length]], '只可以改 C2 起十二行 × 每個日期欄');
+  // 2026-11-02：十二格之後加了合堂三格（第 14 至 16 行），共十五行。
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(free)), [[2, 3, 15, SERVICE_DATES.length]], '只可以改 C2 起十五行 × 每個日期欄');
 });
 
 test('7. 「日期」「時間」「五個數字欄」「十二個人數格」嘅儲存格格式係純文字', function () {
@@ -681,11 +682,12 @@ test('7. 「日期」「時間」「五個數字欄」「十二個人數格」�
   });
 
   // 2026-10-30：崇拜人數日子橫放——每一個人數格（第 2 至 13 行 × 每個日期欄）都是純文字。
+  // 2026-11-02：連合堂三格（第 14 至 16 行）共十五行。
   const attendance = ss.getSheetByName('崇拜人數');
   const attDef = env.sandbox.contentSheetTabDefs_().filter(function (d) { return d.tabName === '崇拜人數'; })[0];
   const attKeys = env.sandbox.transposedContentKeys_(attDef);
   const attRows = attKeys.filter(function (k) { return /^ATT_/.test(k); });
-  assert.strictEqual(attRows.length, 12);
+  assert.strictEqual(attRows.length, 15);
   attRows.forEach(function (k) {
     const r = attKeys.indexOf(k) + 1;
     [3, 2 + SERVICE_DATES.length].forEach(function (c) {
@@ -1089,7 +1091,7 @@ test('20b. 五張舊表嘅欄位定義完全冇改（結構層面）', function 
   assert.strictEqual(cols.PRAYERS.keys.length, 4);
   assert.strictEqual(cols.FELLOWSHIPS.keys.length, 7);
   assert.strictEqual(cols.FINANCE.keys.length, 12, 'Finance 2026-10-30 最後加報告標題、附註、銀行結餘');
-  assert.strictEqual(cols.BULLETIN_WEEKS.keys.length, 58, 'BulletinWeeks 欄數（浸禮六欄 ＋ R-036 的 ROSTER_STATUS ＋ R-035 ＋ v3 兩欄 ＋ 2026-10-30 崇拜類別）');
+  assert.strictEqual(cols.BULLETIN_WEEKS.keys.length, 61, 'BulletinWeeks 欄數（浸禮六欄 ＋ R-036 的 ROSTER_STATUS ＋ R-035 ＋ v3 兩欄 ＋ 2026-10-30 崇拜類別 ＋ 2026-11-02 合堂三格）');
 });
 
 // =====================================================================

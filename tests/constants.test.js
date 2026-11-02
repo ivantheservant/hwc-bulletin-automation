@@ -128,10 +128,10 @@ test('textFormatColumns（如果有）指到的機器鍵必須真的存在於該
   });
 });
 
-test('BulletinWeeks 的 12 個人數欄一律是 TEXT 型別，且都在 textFormatColumns 內', function () {
+test('BulletinWeeks 的 15 個人數欄（十二格＋2026-11-02 合堂三格）一律是 TEXT 型別，且都在 textFormatColumns 內', function () {
   const def = COLUMNS.BULLETIN_WEEKS;
   const attKeys = def.keys.filter(function (k) { return /^ATT_/.test(k); });
-  assert.strictEqual(attKeys.length, 12, '人數欄應該剛好 12 個');
+  assert.strictEqual(attKeys.length, 15, '人數欄應該剛好 15 個');
   attKeys.forEach(function (k) {
     const idx = def.keys.indexOf(k);
     assert.strictEqual(def.types[idx], 'TEXT', k + ' 必須是 TEXT 型別');
@@ -147,24 +147,28 @@ test('Fellowships 的 MEETING_DATE／MEETING_TIME 是 TEXT 型別（不是 DATE�
   });
 });
 
-test('BulletinWeeks 剛好 58 欄（54 ＋ R-035 的 ARCHIVED ＋ v3 兩欄 ＋ 2026-10-30 崇拜類別）', function () {
+test('BulletinWeeks 剛好 61 欄（54 ＋ R-035 的 ARCHIVED ＋ v3 兩欄 ＋ 2026-10-30 崇拜類別 ＋ 2026-11-02 合堂三格）', function () {
   // 2026-08-27 由 54 變 55：R-035 加了 ARCHIVED（已封存），同樣加在最後面。
   // v3（2026-10-26）由 55 變 57：PROGRAM_EDITS、LIST_ARRANGEMENT（這一週的程序增刪、清單次序與刪除）。
   // 2026-10-30 由 57 變 58：SERVICE_KIND（特別崇拜，src/SpecialService.gs）。
-  assert.strictEqual(COLUMNS.BULLETIN_WEEKS.keys.length, 58);
+  // 2026-11-02 由 58 變 61：ATT_COMB_WORSHIP、ATT_COMB_PRAYER、ATT_COMB_CHILD（合堂主日之後那一期的一欄人數表）。
+  assert.strictEqual(COLUMNS.BULLETIN_WEEKS.keys.length, 61);
 });
 
 test('BulletinWeeks：新欄位一律加在**最後面**（中間插欄會令既有資料整排錯開）', function () {
   const def = COLUMNS.BULLETIN_WEEKS;
-  // 浸禮副框六欄 → R-036 的 ROSTER_STATUS → R-035 的 ARCHIVED → v3 兩欄 → 2026-10-30 崇拜類別。次序不可以調轉。
+  // 浸禮副框六欄 → R-036 的 ROSTER_STATUS → R-035 的 ARCHIVED → v3 兩欄 → 2026-10-30 崇拜類別 → 2026-11-02 合堂三格。
+  // 次序不可以調轉。
   const expected = [
     'BAPTISM_OFFICIANT', 'MEMBERSHIP_OFFICIANT', 'CHILD_DEDICATION_OFFICIANT',
     'BAPTISM_MEMBERS', 'MEMBERSHIP_MEMBERS', 'CHILD_DEDICATION_CHILDREN',
-    'ROSTER_STATUS', 'ARCHIVED', 'PROGRAM_EDITS', 'LIST_ARRANGEMENT', 'SERVICE_KIND'
+    'ROSTER_STATUS', 'ARCHIVED', 'PROGRAM_EDITS', 'LIST_ARRANGEMENT', 'SERVICE_KIND',
+    'ATT_COMB_WORSHIP', 'ATT_COMB_PRAYER', 'ATT_COMB_CHILD'
   ];
-  assert.strictEqual(JSON.stringify(def.keys.slice(-11)), JSON.stringify(expected));
+  assert.strictEqual(JSON.stringify(def.keys.slice(-14)), JSON.stringify(expected));
+  assert.strictEqual(JSON.stringify(def.headers.slice(-3)), JSON.stringify(['合堂崇拜', '合堂祈禱會', '合堂兒童']));
   // 除 ARCHIVED 以外一律 TEXT（多人欄位是一串用空格分隔的姓名，絕對不可以是 DATE／INT；v3 兩欄是 JSON 文字）。
-  def.keys.slice(-11).filter(function (k) { return k !== 'ARCHIVED'; }).forEach(function (k) {
+  def.keys.slice(-14).filter(function (k) { return k !== 'ARCHIVED'; }).forEach(function (k) {
     assert.strictEqual(def.types[def.keys.indexOf(k)], 'TEXT', k + ' 必須是 TEXT 型別');
   });
   // ⚠️ ARCHIVED 刻意是 BOOLEAN 不是 TEXT：它只有兩個值，而且 UI 與
@@ -176,7 +180,7 @@ test('BulletinWeeks：新欄位一律加在**最後面**（中間插欄會令既
 test('BulletinWeeks：浸禮副框六欄的中文標題與機器鍵一一對應，沒有錯位', function () {
   const def = COLUMNS.BULLETIN_WEEKS;
   const expectedHeaders = ['浸禮主禮', '入會禮主禮', '孩童奉獻禮主禮', '受浸肢體', '入會肢體', '奉獻孩童'];
-  assert.strictEqual(JSON.stringify(def.headers.slice(-11, -5)), JSON.stringify(expectedHeaders));
+  assert.strictEqual(JSON.stringify(def.headers.slice(-14, -8)), JSON.stringify(expectedHeaders));
 });
 
 test('CONFIG_KEYS 剛好 153 個（與 DEFAULTS 一一對應）', function () {
@@ -198,7 +202,8 @@ test('CONFIG_KEYS 剛好 153 個（與 DEFAULTS 一一對應）', function () {
   //    FLOWER_LINE_SEPARATOR、CONTENT_AUTO_SYNC_MINUTES），136 → 141。
   // 2026-10-30（第二批）：+7（CONTENT_REPEAT_UNTIL_NEXT_QUARTER_WEEKS、COMBINED_KIND_TEMPLATES、COMBINED_KIND_NAMES、
   //    WEBAPP_VIEWER_EMAILS、CONTENT_SHEET_LINK_ACCESS、CONTENT_SHEET_EDITOR_GROUPS、CONTENT_SHEET_FINANCE_EDITOR_GROUPS），146 → 153。
-  assert.strictEqual(Object.keys(CONFIG_KEYS).length, 153);
+  // 2026-11-02：+1（ATTENDANCE_COMBINED_COLUMN_LABEL，合堂一欄人數表的欄標題），153 → 154。
+  assert.strictEqual(Object.keys(CONFIG_KEYS).length, 154);
 });
 
 test('這一輪新增的 Config 鍵 FINANCE_PERIOD_LABEL_PATTERN 有定義、有預設值', function () {
@@ -231,8 +236,8 @@ test('CONFIG_KEYS 每一個值都有對應的 DEFAULTS 項目（不會有「有�
   });
 });
 
-test('DEFAULTS 剛好 153 筆（105 ＋ R-035 兩個 ＋ 階段 1 一個 ＋ 階段 2 兩個 ＋ 階段 3 十六個 ＋ D11 一個 ＋ 內容表 v2 一個 ＋ v3 六個 ＋ 2026-10-27 淨加兩個 ＋ 2026-10-30 五個 ＋ 2026-10-30 財政報告四個 ＋ 特別崇拜一個 ＋ 2026-10-30 第二批七個）', function () {
-  assert.strictEqual(DEFAULTS.length, 153);
+test('DEFAULTS 剛好 153 筆（105 ＋ R-035 兩個 ＋ 階段 1 一個 ＋ 階段 2 兩個 ＋ 階段 3 十六個 ＋ D11 一個 ＋ 內容表 v2 一個 ＋ v3 六個 ＋ 2026-10-27 淨加兩個 ＋ 2026-10-30 五個 ＋ 2026-10-30 財政報告四個 ＋ 特別崇拜一個 ＋ 2026-10-30 第二批七個 ＋ 2026-11-02 合堂人數欄標題一個）', function () {
+  assert.strictEqual(DEFAULTS.length, 154);
 });
 
 test('內容表那 13 個 Config 鍵齊備，而且 ID 類 seed 成空字串', function () {

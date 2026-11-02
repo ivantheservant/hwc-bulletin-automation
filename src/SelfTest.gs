@@ -2808,8 +2808,18 @@ function selfTestS17_(ctx) {
   ['SCRIPTURE_REF', 'SERMON_TITLE', 'RESPONSE_HYMN', 'FLOWER_THIS_WEEK'].forEach(function (key) {
     if (isBlank(key)) { recounted++; detail.push(key); }
   });
-  attendanceRowDefs_().forEach(function (def) {
-    def.keys.forEach(function (key) { if (isBlank(key)) { recounted++; detail.push(key); } });
+  // 2026-11-02：人數只數會印的那一組——合堂三格有字＝合堂三格；十二格有字＝十二格；全部空白＝看人數那一日是不是
+  //    合堂崇拜（這一項沿用資料模型的 attendance 旗標所依據的同一支 isCombinedServiceWeek_()，逐格數的部分照舊獨立）。
+  var combinedKeys = combinedAttendanceValueKeys_();
+  var normalKeys = [];
+  attendanceRowDefs_().forEach(function (def) { def.keys.forEach(function (key) { normalKeys.push(key); }); });
+  var anyCombined = combinedKeys.some(function (key) { return !isBlank(key); });
+  var anyNormal = normalKeys.some(function (key) { return !isBlank(key); });
+  var countCombined = anyCombined || (!anyNormal && isCombinedServiceWeek_(
+    formatIsoDate_(weekRow.ATTENDANCE_DATE instanceof Date ? weekRow.ATTENDANCE_DATE : addDays_(normalizeDate_(isoDate), -7)),
+    readSheet_(SHEETS.BULLETIN_WEEKS)));
+  (countCombined ? combinedKeys : normalKeys).forEach(function (key) {
+    if (isBlank(key)) { recounted++; detail.push(key); }
   });
   [[SHEETS.ANNOUNCEMENTS, '家事報告'], [SHEETS.PRAYERS, '代禱事項'], [SHEETS.FELLOWSHIPS, '團契聚會']]
     .forEach(function (pair) {
