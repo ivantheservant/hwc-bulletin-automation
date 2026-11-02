@@ -268,7 +268,7 @@ test('司事 2 人 → 一行，名字用空格分隔，按 slotIndex 排序', f
   assert.strictEqual(rowFor(rows, '司事').text, '陳大文 李小明');
 });
 
-test('聖餐輔禮 4 人 → 一行、四個名字用空格分隔', function () {
+test('聖餐襄禮 4 人 → 一行、四個名字用空格分隔', function () {
   var snapshot = makeSnapshot({
     weekOfMonth: 1,
     posts: { COMMUNION: { frequency: 'FIRST_SUNDAY', slotCount: 4 } },
@@ -280,14 +280,14 @@ test('聖餐輔禮 4 人 → 一行、四個名字用空格分隔', function () 
     ]
   });
   var rows = build(snapshot, 1);
-  assert.strictEqual(rowFor(rows, '聖餐輔禮').text, '甲 乙 丙 丁');
+  assert.strictEqual(rowFor(rows, '聖餐襄禮').text, '甲 乙 丙 丁');
 });
 
 // =====================================================================
 // NOT_APPLICABLE：整行不出現
 // =====================================================================
 
-test('首主日以外，聖餐輔禮 NOT_APPLICABLE → 該行完全不出現（不是顯示「—」或空白）', function () {
+test('首主日以外，聖餐襄禮 NOT_APPLICABLE → 該行完全不出現（不是顯示「—」或空白）', function () {
   var snapshot = makeSnapshot({
     weekOfMonth: 2,
     communionWeeks: [1],
@@ -295,11 +295,11 @@ test('首主日以外，聖餐輔禮 NOT_APPLICABLE → 該行完全不出現（
     assignments: [{ postId: 'CHAIR', personId: 'P9001', personName: '陳大文' }]
   });
   var rows = build(snapshot, 1);
-  assert.strictEqual(rowFor(rows, '聖餐輔禮'), null, '非首主日時聖餐輔禮那一行要整行消失');
+  assert.strictEqual(rowFor(rows, '聖餐襄禮'), null, '非首主日時聖餐襄禮那一行要整行消失');
   assert.ok(rowFor(rows, '主席'), '其餘崗位照常出現');
 });
 
-test('首主日時，聖餐輔禮照常出現（就算未排人也只是 PENDING）', function () {
+test('首主日時，聖餐襄禮照常出現（就算未排人也只是 PENDING）', function () {
   var snapshot = makeSnapshot({
     weekOfMonth: 1,
     communionWeeks: [1],
@@ -307,13 +307,13 @@ test('首主日時，聖餐輔禮照常出現（就算未排人也只是 PENDING
     assignments: []
   });
   var rows = build(snapshot, 1);
-  var row = rowFor(rows, '聖餐輔禮');
-  assert.ok(row, '首主日應該有聖餐輔禮這一行');
+  var row = rowFor(rows, '聖餐襄禮');
+  assert.ok(row, '首主日應該有聖餐襄禮這一行');
   assert.strictEqual(row.text, '');
   assert.strictEqual(row.isPending, true);
 });
 
-test('COMMUNION_WEEKS 改成 [2] → 第 2 個主日才出現聖餐輔禮（證明沒有寫死「首主日」）', function () {
+test('COMMUNION_WEEKS 改成 [2] → 第 2 個主日才出現聖餐襄禮（證明沒有寫死「首主日」）', function () {
   var week1 = makeSnapshot({
     weekOfMonth: 1, communionWeeks: [2],
     posts: { COMMUNION: { frequency: 'FIRST_SUNDAY' } }, assignments: []
@@ -322,8 +322,8 @@ test('COMMUNION_WEEKS 改成 [2] → 第 2 個主日才出現聖餐輔禮（證�
     weekOfMonth: 2, communionWeeks: [2],
     posts: { COMMUNION: { frequency: 'FIRST_SUNDAY' } }, assignments: []
   });
-  assert.strictEqual(rowFor(build(week1, 1), '聖餐輔禮'), null);
-  assert.ok(rowFor(build(week2, 1), '聖餐輔禮'));
+  assert.strictEqual(rowFor(build(week1, 1), '聖餐襄禮'), null);
+  assert.ok(rowFor(build(week2, 1), '聖餐襄禮'));
 });
 
 test('整個合併組都 NOT_APPLICABLE（RuleFlags）→ 該組那一行不出現', function () {

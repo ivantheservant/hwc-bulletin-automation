@@ -753,8 +753,10 @@ function seedPostDisplayRows_() {
     '與 SOUND 合併顯示為「影音」一格（不要求同一人）。'),
   postDisplayRow_('USHER', '司事', 100, true, '', '司事', 70, true, ''),
   postDisplayRow_('TRANSLATOR', '翻譯', 110, true, '', '翻譯', 110, true, ''),
-  postDisplayRow_('COMMUNION', '聖餐輔禮', 120, true, '', '聖餐輔禮', 130, true, '',
-    '職事表的崗位名稱是「聖餐襄禮」，週報一律顯示為「聖餐輔禮」。'),
+  // 2026-11-02 Ivan 決定：印刷版一直用「聖餐襄禮」（與職事表崗位名稱相同），
+  //    seed 由「聖餐輔禮」改回「聖餐襄禮」。已有的 PostDisplay 行由管理員自己改。
+  postDisplayRow_('COMMUNION', '聖餐襄禮', 120, true, '', '聖餐襄禮', 130, true, '',
+    '與職事表的崗位名稱相同（聖餐襄禮）；印刷版週報一直用這個名稱。'),
   postDisplayRow_('TRAFFIC', '交通指揮', 130, false, '', '交通指揮', 100, true, ''),
   postDisplayRow_('COUNT', '司數', 140, false, '', '司數', 105, true, ''),
   postDisplayRow_('FLOWER', '獻花', 150, false, '', '獻花', 140, false, '',

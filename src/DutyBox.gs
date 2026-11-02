@@ -325,7 +325,7 @@ function dutySlotIdentityKey_(slot) {
 
 /**
  * 用途：組出一個「不合併」崗位的事奉框資料列。同一個崗位有多個 slot
- *   （司事 2 位、聖餐輔禮 4 位）會合併成一格，姓名用一個半形空格分隔，
+ *   （司事 2 位、聖餐襄禮 4 位）會合併成一格，姓名用一個半形空格分隔，
  *   按 `slotIndex` 排序，重複的姓名只出現一次。
  * Args:
  *   post {Object} `PostDisplay` 的一行。

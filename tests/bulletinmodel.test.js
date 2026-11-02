@@ -485,19 +485,19 @@ test('真正入口：首主日有聖餐行、非首主日無聖餐行但有祈�
   assert.ok(names2.indexOf('祈禱會') !== -1, '第 2 個主日有祈禱會');
 });
 
-test('真正入口：非首主日的事奉框沒有「聖餐輔禮」那一行（NOT_APPLICABLE 整行消失）', function () {
+test('真正入口：非首主日的事奉框沒有「聖餐襄禮」那一行（NOT_APPLICABLE 整行消失）', function () {
   var env = makeEnvironment({});
 
   var week1 = env.sandbox.buildBulletinModel_('2027-10-03');
   assert.ok(
-    week1.dutyBoxPage1.some(function (r) { return r.label === '聖餐輔禮'; }),
-    '首主日應該有聖餐輔禮那一行'
+    week1.dutyBoxPage1.some(function (r) { return r.label === '聖餐襄禮'; }),
+    '首主日應該有聖餐襄禮那一行'
   );
 
   var week2 = env.sandbox.buildBulletinModel_('2027-10-10');
   assert.ok(
-    !week2.dutyBoxPage1.some(function (r) { return r.label === '聖餐輔禮'; }),
-    '第 2 個主日聖餐輔禮那一行要整行消失'
+    !week2.dutyBoxPage1.some(function (r) { return r.label === '聖餐襄禮'; }),
+    '第 2 個主日聖餐襄禮那一行要整行消失'
   );
 });
 

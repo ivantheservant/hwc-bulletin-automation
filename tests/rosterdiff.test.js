@@ -14,7 +14,7 @@
  * 4. 覆寫值與職事表現值相同 → 不產生 DutyOverride
  * 5. 清空覆寫 → ACTIVE=FALSE，不是刪行
  * 6. 覆寫的姓名對不上 PersonDisplay → 原樣顯示 + warning，不拋錯
- * 7. 多位次崗位（司事 2、聖餐輔禮 4）逐位次獨立覆寫
+ * 7. 多位次崗位（司事 2、聖餐襄禮 4）逐位次獨立覆寫
  *
  * 執行方式：node tests/rosterdiff.test.js
  * 離開碼：0＝全部通過　1＝有測試失敗
@@ -333,7 +333,7 @@ test('多位次崗位（司事 2 位）：只覆寫第 2 位，第 1 位不受�
   assert.strictEqual(applied.USHER[1].rosterName, '李小明', 'rosterName 永遠保留職事表現值');
 });
 
-test('多位次崗位（聖餐輔禮 4 位）：四個位次各自獨立，比對結果逐位次分開', function () {
+test('多位次崗位（聖餐襄禮 4 位）：四個位次各自獨立，比對結果逐位次分開', function () {
   const snapshot = makeSnapshot({ posts: { COMMUNION: ['甲一', '乙二', '丙三', '丁四'] }, versionNo: 12 });
   const overrides = [
     overrideRow({ POST_ID: 'COMMUNION', SLOT_INDEX: 2, OVERRIDE_NAME: '假甲', ROSTER_VALUE_AT_OVERRIDE: '乙二' }),
