@@ -30,10 +30,16 @@ function checkSheetSchema_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var missingSheets = [];
   var missingColumns = [];
+  // 2026-11-03（載入慢：開頁的 doGet 要十多秒）：一次取全部分頁，不逐張 getSheetByName()。
+  var byName = null;
+  if (typeof ss.getSheets === 'function') {
+    byName = {};
+    (ss.getSheets() || []).forEach(function (s) { byName[String(s.getName())] = s; });
+  }
 
   Object.keys(SHEETS).forEach(function (sheetId) {
     var name = SHEETS[sheetId];
-    var sheet = ss.getSheetByName(name);
+    var sheet = (byName && byName[name]) || ss.getSheetByName(name);
     if (!sheet) {
       missingSheets.push(name);
       return;
@@ -71,11 +77,16 @@ function checkSheetSchema_() {
  */
 function findMismatchedColumnKeys_(sheet, def) {
   var colCount = def.keys.length;
-  if (sheet.getLastRow() < 2) {
-    return def.keys.slice();
+  // 2026-11-03：不先問 getLastRow()（大工作表要時間）：直接讀第 2 行；未有第 2 行讀到的全是空白，同樣全部對不上。
+  //    欄數不夠（未按「初始化工作表」加欄）或行數不夠時 getRange() 會拋錯，才問分頁的大小。
+  var actualKeys;
+  try {
+    actualKeys = sheet.getRange(2, 1, 1, colCount).getValues()[0];
+  } catch (sizeErr) {
+    if (typeof sheet.getMaxRows !== 'function' || (Number(sheet.getMaxRows()) || 0) < 2) return def.keys.slice();
+    var width = Math.max(1, Math.min(colCount, Number(sheet.getMaxColumns()) || 1));
+    actualKeys = sheet.getRange(2, 1, 1, width).getValues()[0];
   }
-
-  var actualKeys = sheet.getRange(2, 1, 1, colCount).getValues()[0];
   var mismatched = [];
   for (var i = 0; i < def.keys.length; i++) {
     if (String(actualKeys[i]).trim() !== def.keys[i]) {

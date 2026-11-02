@@ -58,11 +58,14 @@
       <span id="statConflicts" class="stat stat-clickable" title="按一下展開職事表分歧清單">衝突 0 項</span>
       <span id="statSaved" class="stat">最後儲存時間：（尚未儲存）</span>
       <!-- 2026-11-03：這一次載入用了多少時間（滑鼠停留看分段），只是量度。 -->
-      <span id="statLoadTime" class="stat stat-muted hidden"></span>
+      <span id="statLoadTime" class="stat stat-muted stat-clickable hidden" title="按一下看分段用時"></span>
       <span class="topbar-spacer"></span>
       <!-- v3：有未儲存的修改時出現，提醒按「儲存」（每一個可以輸入的區塊右上角亦有一粒「儲存」）。 -->
       <span id="unsavedHint" class="unsaved-hint hidden">有未儲存的修改，請按「儲存」</span>
       <!-- 2026-10-28（Ivan 測試結果 B 第 4 項）：「開啟預覽」＝用新分頁開啟這一期最新的 Word（雲端硬碟的 Word 檢視器）。 -->
+      <!-- 2026-11-03：開頁、換週會用職事表快取（職事表沒有改過才用）；按這一粒一律重新讀職事表與內容表的最新內容。 -->
+      <button id="freshReloadBtn" type="button" class="btn btn-secondary"
+              title="重新載入這一個主日：職事表、內容表一律讀最新的內容（不用快取）。剛在職事表或內容表改完、想立即看到時按。">重新載入（讀最新）</button>
       <button id="previewLink" type="button" class="btn btn-secondary"
               title="產生這一期的 Word，並用新分頁開啟（與下載的 Word 完全一樣）">開啟預覽</button>
       <a id="wordPreviewFallbackLink" class="btn btn-small hidden" target="_blank" rel="noopener">瀏覽器擋了新分頁：按這裏開啟 Word 預覽</a>

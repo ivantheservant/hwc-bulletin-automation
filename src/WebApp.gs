@@ -472,7 +472,10 @@ function apiLoadWeek(isoDate, options) {
   // 2026-11-03：`options.deferImport:true`＝先回週報現有的內容，內容表匯入之後由前端另外叫 apiAutoImportWeek
   //    （畫面先顯示、匯入在背景做；匯入完成之前前端鎖住所有按鈕）。不傳＝舊做法（先匯入再載入）。
   var deferImport = Boolean(options && options.deferImport === true);
+  // 2026-11-03：`options.fresh:true`＝「重新載入（全部讀最新）」「重新讀取職事表」：不用職事表快取（src/RosterCache.gs）。
+  var fresh = Boolean(options && options.fresh === true);
   return withApiResult_(function () {
+    return withRosterCacheMode_(fresh ? ROSTER_CACHE_MODES_.REFRESH : ROSTER_CACHE_MODES_.USE, function () {
     var timer = createLoadTimer_('apiLoadWeek');
     // 2026-10-28（Ivan 測試結果 B）：載入之前先自動由內容表匯入這一個主日（有改動才寫），
     //    幹事不用再按「重新匯入」。內容表出問題不影響載入，只在結果帶一句說明。
@@ -481,11 +484,13 @@ function apiLoadWeek(isoDate, options) {
       ? { ran: false, changed: 0, reason: 'VIEW_ONLY', message: '' }
       : (deferImport ? { ran: false, changed: 0, reason: 'DEFERRED', message: '' }
         : autoImportContentForWeek_(isoDate, 'WEBAPP_LOAD', { timer: timer }));
-    var data = loadWeekForWebApp_(isoDate, timer);
+    // 2026-11-03：載入這一段只讀不寫，同一張工作表只讀一次（src/SheetUtils.gs withReadSheetMemo_()）。
+    var data = withReadSheetMemo_(function () { return loadWeekForWebApp_(isoDate, timer); });
     data.autoImport = autoImport;
     data.timings = timer.result();
     return data;
-  }, { functionName: 'apiLoadWeek', argsSummary: 'isoDate=' + isoDate + (deferImport ? ' deferImport' : '') });
+    });
+  }, { functionName: 'apiLoadWeek', argsSummary: 'isoDate=' + isoDate + (deferImport ? ' deferImport' : '') + (fresh ? ' fresh' : '') });
 }
 
 /**
@@ -508,6 +513,8 @@ function apiBootstrap(includeArchived, options) {
     var viewer = callerWebAppRole_() === WEBAPP_ROLE_.VIEW;
     var notice = (autoCreate && !viewer) ? autoCreateQuartersForWebApp_() : '';
     timer.mark('檢查新季度');
+    // 2026-11-03：以下只讀不寫：同一張工作表只讀一次；職事表用快取（職事表沒有改過才用）。
+    return withRosterCacheMode_(ROSTER_CACHE_MODES_.USE, function () { return withReadSheetMemo_(function () {
     var weeks = listWeeksForWebApp_(includeArchived === true);
     weeks.autoCreateNotice = notice;
     timer.mark('主日清單');
@@ -541,6 +548,7 @@ function apiBootstrap(includeArchived, options) {
     return { weeks: weeks, publish: publish, publishError: publishError, week: week, weekError: weekError, timings: timings,
       // 2026-11-03：頁底顯示（日後支援、更新時核對用）。
       systemVersion: APP_VERSION, congregationName: congregationName_() };
+    }); });
   }, { functionName: 'apiBootstrap', argsSummary: 'includeArchived=' + (includeArchived === true) + ' autoCreate=' + autoCreate });
 }
 
@@ -553,22 +561,26 @@ function apiBootstrap(includeArchived, options) {
  * Returns:
  *   {{ok:boolean, data:{autoImport:Object, week:?Object, timings:Object}, error?:Object}}
  */
-function apiAutoImportWeek(isoDate) {
+function apiAutoImportWeek(isoDate, options) {
+  // 2026-11-03：`options.fresh:true`＝「重新載入（全部讀最新）」：不理「內容表沒有改過」的記錄，照樣核對一次；職事表不用快取。
+  var fresh = Boolean(options && options.fresh === true);
   return withApiResult_(function () {
+    return withRosterCacheMode_(fresh ? ROSTER_CACHE_MODES_.REFRESH : ROSTER_CACHE_MODES_.USE, function () {
     var timer = createLoadTimer_('apiAutoImportWeek');
     if (callerWebAppRole_() === WEBAPP_ROLE_.VIEW) {
       return { autoImport: { ran: false, changed: 0, reason: 'VIEW_ONLY', message: '' }, week: null, timings: timer.result() };
     }
-    var autoImport = autoImportContentForWeek_(isoDate, 'WEBAPP_LOAD', { timer: timer, skipIfUnchanged: true });
+    var autoImport = autoImportContentForWeek_(isoDate, 'WEBAPP_LOAD', { timer: timer, skipIfUnchanged: !fresh });
     var week = null;
     if (Number(autoImport.changed || 0) > 0 || Number(autoImport.backfilled || 0) > 0) {
-      week = loadWeekForWebApp_(isoDate, timer);
+      week = withReadSheetMemo_(function () { return loadWeekForWebApp_(isoDate, timer); });
       week.autoImport = autoImport;
     }
     var timings = timer.result();
     if (week) week.timings = timings;
     return { autoImport: autoImport, week: week, timings: timings };
-  }, { functionName: 'apiAutoImportWeek', argsSummary: 'isoDate=' + isoDate });
+    });
+  }, { functionName: 'apiAutoImportWeek', argsSummary: 'isoDate=' + isoDate + (fresh ? ' fresh' : '') });
 }
 
 /**

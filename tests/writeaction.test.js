@@ -1420,7 +1420,8 @@ test('G19-4 Script.html 內每一個 openConfirmDialog() 的取消分支：會�
     if (m[1].trim() === 'title') continue;
     const callback = js.slice(m.index, js.indexOf('callServer(', m.index) === -1 ? m.index + 400 : js.indexOf('callServer(', m.index));
     titles.push(m[1].trim());
-    if (m[1].indexOf("'換週'") !== -1 || m[1].indexOf("'重新讀取職事表'") !== -1) {
+    // 2026-11-03：「重新載入（讀最新）」與換週一樣只是重新讀取，不是寫入。
+    if (m[1].indexOf("'換週'") !== -1 || m[1].indexOf("'重新讀取職事表'") !== -1 || m[1].indexOf("'重新載入'") !== -1) {
       assert.ok(callback.indexOf('CANCELLED_NOTHING_WRITTEN_MESSAGE') === -1, m[1] + ' 不是寫入，不用「一格都沒有寫」');
       continue;
     }
@@ -1429,7 +1430,8 @@ test('G19-4 Script.html 內每一個 openConfirmDialog() 的取消分支：會�
   // 內容表 v2：「建立講員表格」隨講員表格停用拿走。
   // v3：季度作業拿走；加「更新本季內容表」；「重讀職事表」改名「由職事表重新取數」。
   // 2026-10-30：加「建立特別崇拜」「取消特別崇拜」。
-  assert.deepStrictEqual(titles, ["'由內容表匯入'", "'更新本季內容表'", "'還原到這個版本'", "'重設這一週'", "'換週'", "'重新讀取職事表'",
+  // 2026-11-03：加「重新載入」（讀最新）。
+  assert.deepStrictEqual(titles, ["'由內容表匯入'", "'更新本季內容表'", "'還原到這個版本'", "'重設這一週'", "'換週'", "'重新載入'", "'重新讀取職事表'",
     "'建立特別崇拜'", "'取消特別崇拜'"],
     '對話框有增減：先檢查取消分支，再更新這裏');
   // 三選一對話框只有「下載 Word」一處，取消甚麼都不做（不是寫入，不講「一格都沒有寫」）。
@@ -2161,7 +2163,11 @@ test('LS-UI-2 apiBootstrap 回來 → 畫好主日，立即在背景叫 apiAutoI
     assert.strictEqual(ui.els[id].disabled, false, id + ' 完成之後要可以用');
   });
   assert.strictEqual(ui.els.statLoadTime.textContent, '伺服器用時 5.0 秒');
-  assert.ok(ui.els.statLoadTime.title.indexOf('職事表與資料模型：3.0 秒') !== -1, ui.els.statLoadTime.title);
+  // 2026-11-03：分段改為按一下顯示（滑鼠停留的提示在部分瀏覽器看不到）。
+  assert.strictEqual(ui.els.statLoadTime.title, '按一下看分段用時');
+  ui.ctx.showLoadTimingDetail();
+  const shown = ui.els.messageBar.children[0].textContent;
+  assert.ok(shown.indexOf('職事表與資料模型：3.0 秒') !== -1, shown);
   assertWrittenChinese(assert, '忙碌列', [ui.els.busyBarText.textContent]);
 });
 

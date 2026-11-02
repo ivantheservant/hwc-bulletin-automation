@@ -449,7 +449,14 @@ function fetchRosterTablesCached_(spreadsheetId, sheetNames) {
   if (ROSTER_TABLES_CACHE_ && ROSTER_TABLES_CACHE_KEY_ === cacheKey) {
     return ROSTER_TABLES_CACHE_;
   }
-  var result = fetchRosterTables_(spreadsheetId, sheetNames);
+  // 2026-11-03：跨執行的快取（src/RosterCache.gs）：職事表檔案沒有改過（修改時間一樣、十分鐘之內）就不開職事表。
+  //    修改時間一定要在讀職事表**之前**取，讀的時候有人改了，下一次就會對不上而重新讀。
+  var cached = readRosterCache_(spreadsheetId, sheetNames);
+  var result = cached.result;
+  if (!result) {
+    result = fetchRosterTables_(spreadsheetId, sheetNames);
+    storeRosterCache_(spreadsheetId, sheetNames, result, cached.mtime);
+  }
   ROSTER_TABLES_CACHE_ = result;
   ROSTER_TABLES_CACHE_KEY_ = cacheKey;
   return result;

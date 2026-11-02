@@ -110,6 +110,26 @@ function driveAdvancedServiceAvailable_() {
 }
 
 /**
+ * 用途：2026-11-03：一個檔案的最後修改時間（毫秒）。**只讀修改時間**，不讀內容、不改任何東西。
+ *   職事表快取（src/RosterCache.gs）用它判斷職事表有沒有人改過——職事表 ID 由呼叫方傳入，這個檔案仍然不引用
+ *   職事表的設定鍵（tools/lint-readonly-roster.js 規則 4）。
+ * Args:
+ *   fileId {string}
+ * Returns:
+ *   {?number} 讀不到回 `null`（呼叫方當作「有改過」）。
+ */
+function driveFileLastUpdatedMillis_(fileId) {
+  var id = String(fileId || '').trim();
+  if (!id) return null;
+  try {
+    var updated = DriveApp.getFileById(id).getLastUpdated();
+    return (updated instanceof Date && !isNaN(updated.getTime())) ? updated.getTime() : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
  * 用途：讀一個檔案嘅 metadata（用嚟確認檔案存唔存在、叫咩名）。
  * Args:
  *   fileId {string} 檔案 ID。

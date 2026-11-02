@@ -323,6 +323,57 @@ function readSheet_(sheetName) {
   if (!sheetId) {
     throw new Error('readSheet_：未知的工作表名稱「' + sheetName + '」。');
   }
+  // 2026-11-03（載入慢）：只在 withReadSheetMemo_() 的範圍之內，同一張工作表只讀一次（每次回一份新的拷貝）。
+  if (READ_SHEET_MEMO_ && Object.prototype.hasOwnProperty.call(READ_SHEET_MEMO_, sheetName)) {
+    return READ_SHEET_MEMO_[sheetName].map(function (r) { return Object.assign({}, r); });
+  }
+  var fresh = readSheetUncached_(sheetName, sheetId);
+  if (READ_SHEET_MEMO_) READ_SHEET_MEMO_[sheetName] = fresh.map(function (r) { return Object.assign({}, r); });
+  return fresh;
+}
+
+/**
+ * 用途：2026-11-03：`readSheet_()` 的記憶（工作表名稱 → 讀到的資料）。`null`＝不在記憶範圍之內（預設）。
+ *   ⚠️ 只在**一次執行之內、只讀的流程**用（填寫介面載入：apiBootstrap、apiLoadWeek、apiAutoImportWeek 的重新載入），
+ *   不跨執行；範圍之內任何經 `writeSheet_()`／`setCellValueTextSafe_()` 的寫入都會清走全部記憶。
+ */
+var READ_SHEET_MEMO_ = null;
+
+/**
+ * 用途：2026-11-03：在 `fn` 執行期間記住 `readSheet_()` 讀過的工作表（同一張只讀一次）；完成（或拋錯）之後清走。
+ *   巢狀呼叫時沿用外面那一份。
+ * Args:
+ *   fn {function(): *}
+ * Returns:
+ *   {*} `fn` 的回傳值。
+ * Raises:
+ *   `fn` 拋出的錯誤原樣拋出。
+ */
+function withReadSheetMemo_(fn) {
+  if (READ_SHEET_MEMO_) return fn();
+  READ_SHEET_MEMO_ = {};
+  try {
+    return fn();
+  } finally {
+    READ_SHEET_MEMO_ = null;
+  }
+}
+
+/** 2026-11-03：寫入工作表之後清走 `readSheet_()` 的記憶（在記憶範圍之內才有作用）。 */
+function forgetReadSheetMemo_() {
+  if (READ_SHEET_MEMO_) READ_SHEET_MEMO_ = {};
+}
+
+/**
+ * 用途：`readSheet_()` 真正讀工作表的部分（不經記憶）。
+ * Args:
+ *   sheetName {string}　sheetId {string}
+ * Returns:
+ *   {Object[]}
+ * Raises:
+ *   Error 同 `readSheet_()`。
+ */
+function readSheetUncached_(sheetName, sheetId) {
   var def = COLUMNS[sheetId];
 
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -395,6 +446,7 @@ function readSheet_(sheetName) {
  */
 function writeSheet_(sheetName, rows) {
   if (!rows || rows.length === 0) return 0;
+  forgetReadSheetMemo_();
 
   var sheetId = SHEET_ID_BY_NAME[sheetName];
   if (!sheetId) {
@@ -473,6 +525,7 @@ function applyTextFormatToRange_(sheet, def, startRow, numRows) {
  *   {boolean} 找不到那一欄回 `false`。
  */
 function setCellValueTextSafe_(sheet, def, rowNo, fieldKey, value) {
+  forgetReadSheetMemo_();
   if (!sheet || !def) return false;
   var colIndex = def.keys.indexOf(fieldKey) + 1;
   if (colIndex <= 0) return false;

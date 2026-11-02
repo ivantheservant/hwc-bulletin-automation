@@ -22,7 +22,7 @@ var APP_NAME = '週報系統';
 /** 「關於本系統」對話框顯示的版本字串。 */
 // 2026-11-03（多堂會／其他教會：方便日後支援和更新）：版本號＝部署日期（yyyy.MM.dd，同一日第二次部署加 -2）。
 //    每次改版要同時在 docs/更新說明.md 最上面加一段同一個版本號（tests/version.test.js 守住）。
-var APP_VERSION = '2026.11.03';
+var APP_VERSION = '2026.11.03-2';
 
 /** 本 repo 的網址（公開）。 */
 var REPO_URL = 'https://github.com/ivantheservant/hwc-bulletin-automation';

@@ -221,10 +221,10 @@
     document.getElementById('saveBtn').disabled = busy || !state.loaded;
     // 2026-11-03：頂部其餘按鈕（在 #mainContent 以外，遮罩擋不到）：載入未完成（包括背景匯入內容表）一律停用，
     //    免得一部分載入完、背景仍在載入時已經可以按。
-    ['previewLink', 'specialServiceBtn', 'specialServicePreviewBtn', 'specialServiceCancelBtn', 'cancelSpecialServiceBtn']
+    ['previewLink', 'freshReloadBtn', 'specialServiceBtn', 'specialServicePreviewBtn', 'specialServiceCancelBtn', 'cancelSpecialServiceBtn']
       .forEach(function (id) {
         var b = document.getElementById(id);
-        if (b) b.disabled = busy || (id === 'previewLink' && !state.loaded);
+        if (b) b.disabled = busy || ((id === 'previewLink' || id === 'freshReloadBtn') && !state.loaded);
       });
     // v3：每一個區塊右上角的「儲存」與頂部那一粒同一個狀態。
     var sectionSaves = document.querySelectorAll('[data-save-button]');
@@ -3045,7 +3045,9 @@
     var notice = opts.failureNotice ? String(opts.failureNotice) : '';
     // 2026-11-03：先載入週報現有的內容（不等內容表匯入），畫面顯示之後再在背景匯入（startBackgroundImport()）；
     //    兩段之間不會有空檔讓人按掣（同一個回呼之內接上，忙碌計數一直大於零）。
-    callServer('apiLoadWeek', [isoDate, { deferImport: true }],
+    // 2026-11-03：`opts.fresh`＝「重新載入（讀最新）」：職事表、內容表一律讀最新（伺服器不用快取）。
+    var fresh = opts.fresh === true;
+    callServer('apiLoadWeek', [isoDate, fresh ? { deferImport: true, fresh: true } : { deferImport: true }],
       function (resp) {
         if (notice && (!resp || !resp.ok)) {
           setLoaded(false);
@@ -3053,7 +3055,7 @@
           return;
         }
         onWeekLoaded(isoDate, resp);
-        if (resp && resp.ok) startBackgroundImport(isoDate, resp.data && resp.data.timings);
+        if (resp && resp.ok) startBackgroundImport(isoDate, resp.data && resp.data.timings, fresh);
       },
       {
         busyText: '載入中…（第 1 步，共 2 步：讀取週報與職事表）',
@@ -3077,9 +3079,9 @@
    * Returns:
    *   {void}
    */
-  function startBackgroundImport(isoDate, firstTimings) {
+  function startBackgroundImport(isoDate, firstTimings, fresh) {
     if (typeof isViewOnlyUser === 'function' && isViewOnlyUser()) { renderLoadTimings([firstTimings]); return; }
-    callServer('apiAutoImportWeek', [isoDate], function (resp) {
+    callServer('apiAutoImportWeek', fresh === true ? [isoDate, { fresh: true }] : [isoDate], function (resp) {
       // 期間不可能轉主日（介面鎖住），仍然保險：已經不是這一週就不理。
       if (state.isoDate !== isoDate) return;
       if (!resp || !resp.ok) {
@@ -3126,9 +3128,40 @@
       (t.parts || []).forEach(function (p) { detail.push('　' + p.label + '：' + (p.ms / 1000).toFixed(1) + ' 秒'); });
     });
     box.textContent = '伺服器用時 ' + (total / 1000).toFixed(1) + ' 秒';
-    box.title = detail.join('\n');
+    box.title = '按一下看分段用時';
+    LOAD_TIMING_DETAIL = detail.slice();
     box.classList.remove('hidden');
     try { console.log('[LoadTiming] ' + detail.join(' | ')); } catch (e) { /* 只是記錄 */ }
+  }
+
+  /** 2026-11-03：最近一次載入的分段用時（按「伺服器用時」顯示）。 */
+  var LOAD_TIMING_DETAIL = [];
+
+  /**
+   * 用途：按「伺服器用時」：在訊息列顯示最近一次載入的分段用時（滑鼠停留的提示在部分瀏覽器看不到）。
+   * Args: （無）
+   * Returns:
+   *   {void}
+   */
+  function showLoadTimingDetail() {
+    if (!LOAD_TIMING_DETAIL.length) return;
+    showMessage('info', '這一次載入的伺服器用時：' + LOAD_TIMING_DETAIL.map(function (line) { return line.trim(); }).join('；'));
+  }
+
+  /**
+   * 用途：按「重新載入（讀最新）」：重新載入這一個主日，職事表、內容表一律讀最新（不用快取）。
+   *   有未儲存的改動先問（與換週同一句）。
+   * Args: （無）
+   * Returns:
+   *   {void}
+   */
+  function freshReloadWeek() {
+    if (!state.isoDate || state.inFlight > 0) return;
+    var iso = state.isoDate;
+    if (!hasUnsavedWeekChanges()) { loadWeek(iso, { fresh: true }); return; }
+    openConfirmDialog('重新載入', ['這一週有未儲存的改動，重新載入會丟失這些改動。確定要重新載入嗎？'], function (accepted) {
+      if (accepted) loadWeek(iso, { fresh: true });
+    });
   }
   // END load-week
 
@@ -3497,7 +3530,7 @@
   function startRosterReload() {
     if (!state.isoDate || state.inFlight > 0) return;
     hideMessage();
-    callServer('apiLoadWeek', [state.isoDate], onRosterReloaded, { busyText: '重新讀取職事表中…' });
+    callServer('apiLoadWeek', [state.isoDate, { fresh: true }], onRosterReloaded, { busyText: '重新讀取職事表中…' });
   }
 
   /**
@@ -4812,6 +4845,8 @@
     document.getElementById('publishRunBtn').addEventListener('click', function () { runPublish(false); });
     document.getElementById('downloadWordBtn').addEventListener('click', downloadWord);
     document.getElementById('previewLink').addEventListener('click', function () { openWordPreview(null); });
+    document.getElementById('freshReloadBtn').addEventListener('click', function () { freshReloadWeek(); });
+    document.getElementById('statLoadTime').addEventListener('click', function () { showLoadTimingDetail(); });
     document.getElementById('snapshotPreviewLink').addEventListener('click', function () {
       var id = selectedSnapshotId();
       if (id) openWordPreview({ snapshotId: id });
