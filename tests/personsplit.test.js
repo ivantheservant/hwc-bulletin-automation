@@ -76,5 +76,12 @@ test('PS-5 事奉框（真正組框的函式）：一個 slot 寫了兩個名字
   assert.strictEqual(rows[0].text, '李潔慈姊妹 林敏恒弟兄');
 });
 
+test('PS-6 名字後面帶括號備註（翻譯「張元紅（粵／華）、方浩天（粵／英）」）：尊稱加在括號之前；對不上的照印', function () {
+  const rows = ROWS.concat([row('P7', '張元紅', '姊妹'), row('P8', '方浩天', '弟兄')]);
+  assert.strictEqual(sb.resolvePersonDisplay_('', '張元紅（粵／華）、方浩天（粵／英）', opts({ personDisplayRows: rows })), '張元紅姊妹（粵／華） 方浩天弟兄（粵／英）');
+  assert.strictEqual(sb.resolvePersonDisplay_('', '張元紅（粵／華）、方浩天（粵／英）', opts({ personDisplayRows: rows, withHonorific: false })), '張元紅（粵／華） 方浩天（粵／英）');
+  assert.strictEqual(sb.resolvePersonDisplay_('', '訪客（粵／英）、林敏恒', opts()), '訪客（粵／英） 林敏恒弟兄');
+});
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 if (fail > 0) process.exit(1);

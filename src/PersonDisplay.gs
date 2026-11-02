@@ -103,7 +103,9 @@ function resolvePersonDisplay_(personId, nameSnapshot, options) {
   var parts = splitJoinedPersonNames_(baseName, opts.nameSplitChars);
   if (parts.length > 1 && !findPersonDisplayRowByName_(baseName, opts.personDisplayRows, opts.targetDate || null)) {
     return parts.map(function (part) {
-      return resolvePersonDisplay_('', part, Object.assign({}, opts, { nameSplitChars: '' }));
+      return resolveNamePartWithNote_(part, function (n) {
+        return resolvePersonDisplay_('', n, Object.assign({}, opts, { nameSplitChars: '' }));
+      }, opts);
     }).join(' ');
   }
   var row = personId
@@ -198,7 +200,9 @@ function resolveOverrideDisplay_(overrideName, options) {
   var parts = splitJoinedPersonNames_(name, opts.nameSplitChars);
   if (parts.length > 1 && !findPersonDisplayRowByName_(name, opts.personDisplayRows, opts.targetDate || null)) {
     return parts.map(function (part) {
-      return resolveOverrideDisplay_(part, Object.assign({}, opts, { nameSplitChars: '' }));
+      return resolveNamePartWithNote_(part, function (n) {
+        return resolveOverrideDisplay_(n, Object.assign({}, opts, { nameSplitChars: '' }));
+      }, opts);
     }).join(' ');
   }
 
@@ -287,4 +291,22 @@ function splitJoinedPersonNames_(name, splitChars) {
   }
   parts.push(current);
   return parts.map(function (p) { return p.trim(); }).filter(function (p) { return p !== ''; });
+}
+
+/**
+ * 用途：拆開之後的一個名字如果後面帶括號備註（「張元紅（粵／華）」），而括號之前的名字對得上
+ *   `PersonDisplay`，就把尊稱加在名字後、括號之前（以往週報：「李瑞英姊妹(粵華）」）。對不上就整段交給 resolve。
+ * Args:
+ *   part {string} 一個名字（可能帶括號備註）。
+ *   resolve {function(string):string} 把一個名字算成顯示文字（resolvePersonDisplay_／resolveOverrideDisplay_）。
+ *   opts {Object} 同 resolvePersonDisplay_() 的 options（用 personDisplayRows、targetDate 判斷對不對得上）。
+ * Returns:
+ *   {string} 顯示文字。
+ */
+function resolveNamePartWithNote_(part, resolve, opts) {
+  var m = /^([^（(]+?)\s*([（(].*)$/.exec(String(part || ''));
+  if (m && findPersonDisplayRowByName_(m[1], (opts || {}).personDisplayRows, (opts || {}).targetDate || null)) {
+    return resolve(m[1]) + m[2];
+  }
+  return resolve(part);
 }
