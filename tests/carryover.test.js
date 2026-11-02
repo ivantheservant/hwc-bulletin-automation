@@ -246,5 +246,58 @@ test('CO-9 只有上一季的內容表改了 → 本季照樣自動同步（修�
   assert.deepStrictEqual(activeTexts(env, 'Announcements', '2027-10-10'), ['跨季（改了）']);
 });
 
+test('CO-10 上一季內容表仍然是舊版面（家事報告、代禱事項這一次不匯入）：自動同步沒有改動亦記 ErrorLog（同一季每日一次），填寫介面載入時講出來', function () {
+  const env = makeEnv({
+    config: { WEBAPP_SIMULATED_TODAY: '2027-10-01' },
+    content: { 家事報告: [{ SERVICE_DATE: '2027-10-17', SEQ_NO: '10', TEXT: '本季', ACTIVE: 'TRUE' }] },
+    otherContentSheets: prevSheet({}, { layout: 'v3' })
+  });
+  const sb = env.sandbox;
+  const times = { FAKE_CONTENT_FILE: '2027-01-01', FAKE_PREV_CONTENT_FILE: '2027-01-01' };
+  sb.DriveApp.getFileById = function (id) { return { getLastUpdated: function () { return sb.normalizeDate_(times[id]); } }; };
+  const props = {};
+  sb.PropertiesService = { getScriptProperties: function () {
+    return { getProperty: function (k) { return props[k] === undefined ? null : props[k]; }, setProperty: function (k, v) { props[k] = String(v); },
+      deleteProperty: function (k) { delete props[k]; } };
+  } };
+  function logged() { return sb.readSheet_('ErrorLog').filter(function (r) { return r.ERROR_CODE === 'CONTENT_CARRY_OVER_UNREADABLE'; }); }
+  const first = sb.runContentAutoSync_({ todayIso: '2027-10-01' });
+  const q = first.quarters.filter(function (e) { return e.quarterId === QUARTER_ID; })[0];
+  assert.ok(q.status === 'IMPORTED' || q.status === 'NO_CHANGE', JSON.stringify(first));
+  assert.strictEqual(q.notices.length, 1);
+  assert.ok(q.notices[0].indexOf('上一季（2027T3）的內容表版面未更新') !== -1, q.notices[0]);
+  assert.strictEqual(logged().length, 1);
+  // 內容表再改、沒有改動：以前 NO_CHANGE 就把提示丟掉；現在照記，但同一日不重複。
+  times.FAKE_CONTENT_FILE = '2027-01-02';
+  const second = sb.runContentAutoSync_({ todayIso: '2027-10-01' });
+  assert.strictEqual(second.quarters.filter(function (e) { return e.quarterId === QUARTER_ID; })[0].status, 'NO_CHANGE');
+  assert.strictEqual(logged().length, 1, '同一日只記一次');
+  times.FAKE_CONTENT_FILE = '2027-01-03';
+  sb.runContentAutoSync_({ todayIso: '2027-10-02' });
+  assert.strictEqual(logged().length, 2, '翌日再記');
+  // 填寫介面：載入時的自動匯入提示（renderAutoImportNotice 用的 autoImport.notices）。
+  const load = sb.apiLoadWeek('2027-10-17');
+  assert.strictEqual(load.ok, true, JSON.stringify(load.error));
+  assert.strictEqual(load.data.autoImport.reason, '');
+  assert.ok(load.data.autoImport.notices.some(function (n) { return n.indexOf('上一季（2027T3）的內容表版面未更新') !== -1; }),
+    JSON.stringify(load.data.autoImport));
+});
+
+test('CO-11 填寫介面 renderAutoImportNotice()：沒有改動而有持續狀況提示 → 顯示提示（以前甚麼都不顯示）；有改動亦附上', function () {
+  const fs = require('fs');
+  const vm = require('vm');
+  const js = fs.readFileSync(require('path').join(__dirname, '..', 'src', 'ui', 'Script.html'), 'utf8');
+  const fn = js.slice(js.indexOf('function renderAutoImportNotice('), js.indexOf('function renderPreviewLink('));
+  const shown = [];
+  const ctx = { showMessage: function (type, text) { shown.push([type, text]); } };
+  vm.createContext(ctx);
+  vm.runInContext(fn + '\nthis.f = renderAutoImportNotice;', ctx);
+  ctx.f({ ran: true, changed: 0, reason: '', notices: ['上一季（2027T3）的內容表版面未更新'] });
+  ctx.f({ ran: true, changed: 0, reason: '' });
+  ctx.f({ ran: true, changed: 2, reason: '', notices: ['甲'] });
+  assert.deepStrictEqual(shown, [['warning', '上一季（2027T3）的內容表版面未更新'],
+    ['warning', '已自動由內容表更新這一週 2 項（內容表最新的內容）。　甲']]);
+});
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail === 0 ? 0 : 1);
