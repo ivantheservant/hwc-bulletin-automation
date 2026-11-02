@@ -98,6 +98,14 @@ function findPersonDisplayRow_(personId, rows, targetDate) {
 function resolvePersonDisplay_(personId, nameSnapshot, options) {
   var opts = options || {};
   var baseName = String(nameSnapshot || '').trim();
+  // 2026-11-03（舊週報核對）：職事表同一格寫了幾個名字（「李潔慈、林敏恒」）→ 逐個名字按姓名套尊稱，
+  //    再用空格分開（與以往週報一樣）。整格對得上 PersonDisplay 的一行就不拆。
+  var parts = splitJoinedPersonNames_(baseName, opts.nameSplitChars);
+  if (parts.length > 1 && !findPersonDisplayRowByName_(baseName, opts.personDisplayRows, opts.targetDate || null)) {
+    return parts.map(function (part) {
+      return resolvePersonDisplay_('', part, Object.assign({}, opts, { nameSplitChars: '' }));
+    }).join(' ');
+  }
   var row = personId
     ? findPersonDisplayRow_(personId, opts.personDisplayRows, opts.targetDate || null)
     : findPersonDisplayRowByName_(baseName, opts.personDisplayRows, opts.targetDate || null);
@@ -186,6 +194,13 @@ function resolveOverrideDisplay_(overrideName, options) {
   var opts = options || {};
   var name = String(overrideName || '').trim();
   if (!name) return '';
+  // 2026-11-03：人手填了幾個名字（「李潔慈、林敏恒」）亦逐個套尊稱，用空格分開。
+  var parts = splitJoinedPersonNames_(name, opts.nameSplitChars);
+  if (parts.length > 1 && !findPersonDisplayRowByName_(name, opts.personDisplayRows, opts.targetDate || null)) {
+    return parts.map(function (part) {
+      return resolveOverrideDisplay_(part, Object.assign({}, opts, { nameSplitChars: '' }));
+    }).join(' ');
+  }
 
   var row = findPersonDisplayRowByName_(name, opts.personDisplayRows, opts.targetDate || null);
 
@@ -246,4 +261,30 @@ function resolveSlotDisplay_(slot, options) {
       if (slot.hasOverride) return resolveOverrideDisplay_(slot.overrideName, options);
       return resolvePersonDisplay_(slot.personId, slot.personName, options);
   }
+}
+
+/** `PERSON_NAME_SPLIT_CHARS` 未傳入時的預設（與 Config 預設值相同）。 */
+var PERSON_NAME_SPLIT_CHARS_DEFAULT_ = '、';
+
+/**
+ * 用途：把職事表或人手填的「幾個名字寫在同一格」拆開。純函式。
+ * Args:
+ *   name {string} 一格的名字文字。
+ *   splitChars {string=} 分隔字（每一個字都算分隔，例如「、，」）；`undefined` 用預設「、」，空字串＝不拆。
+ * Returns:
+ *   {string[]} 拆開並去掉空白之後的名字；沒有分隔字時回 `[name]`（空字串回 `[]`）。
+ */
+function splitJoinedPersonNames_(name, splitChars) {
+  var text = String(name || '').trim();
+  if (!text) return [];
+  var chars = splitChars === undefined || splitChars === null ? PERSON_NAME_SPLIT_CHARS_DEFAULT_ : String(splitChars);
+  if (!chars) return [text];
+  var parts = [];
+  var current = '';
+  for (var i = 0; i < text.length; i++) {
+    var ch = text.charAt(i);
+    if (chars.indexOf(ch) !== -1) { parts.push(current); current = ''; } else { current += ch; }
+  }
+  parts.push(current);
+  return parts.map(function (p) { return p.trim(); }).filter(function (p) { return p !== ''; });
 }

@@ -293,6 +293,7 @@ function buildBulletinModel_(isoDate, options) {
     baptismOptions: {
       personDisplayRows: readSheet_(SHEETS.PERSON_DISPLAY),
       withHonorific: normalizeBoolean_(getConfig_(CONFIG_KEYS.HONORIFIC_ON_PAGE1, 'TRUE')) === true,
+      nameSplitChars: String(getConfig_(CONFIG_KEYS.PERSON_NAME_SPLIT_CHARS, PERSON_NAME_SPLIT_CHARS_DEFAULT_)),
       targetDate: targetDate
     },
     config: {

@@ -64,6 +64,7 @@ function buildDutyBox_(snapshot, page, warnings, diffByKey) {
     mergeGroupRows: readSheet_(SHEETS.MERGE_GROUPS),
     personDisplayRows: readSheet_(SHEETS.PERSON_DISPLAY),
     withHonorific: normalizeBoolean_(honorificRaw) === true,
+    nameSplitChars: String(getConfig_(CONFIG_KEYS.PERSON_NAME_SPLIT_CHARS, PERSON_NAME_SPLIT_CHARS_DEFAULT_)),
     targetDate: normalizeDate_(snapshot.isoDate),
     diffByKey: diffByKey || {},
     warnings: warnings || []
@@ -173,6 +174,7 @@ function buildDutyBoxRows_(input) {
 
   var displayOptions = {
     withHonorific: input.withHonorific === true,
+    nameSplitChars: input.nameSplitChars,
     personDisplayRows: input.personDisplayRows || [],
     targetDate: input.targetDate || null,
     warnings: warnings

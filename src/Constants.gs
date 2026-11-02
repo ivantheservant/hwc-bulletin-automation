@@ -22,7 +22,7 @@ var APP_NAME = '週報系統';
 /** 「關於本系統」對話框顯示的版本字串。 */
 // 2026-11-03（多堂會／其他教會：方便日後支援和更新）：版本號＝部署日期（yyyy.MM.dd，同一日第二次部署加 -2）。
 //    每次改版要同時在 docs/更新說明.md 最上面加一段同一個版本號（tests/version.test.js 守住）。
-var APP_VERSION = '2026.11.03-2';
+var APP_VERSION = '2026.11.03-3';
 
 /** 本 repo 的網址（公開）。 */
 var REPO_URL = 'https://github.com/ivantheservant/hwc-bulletin-automation';
@@ -645,6 +645,7 @@ var CONFIG_KEYS = Object.freeze({
   DATE_FORMAT_INLINE: 'DATE_FORMAT_INLINE',
   HONORIFIC_ON_PAGE1: 'HONORIFIC_ON_PAGE1',
   HONORIFIC_ON_PAGE3: 'HONORIFIC_ON_PAGE3',
+  PERSON_NAME_SPLIT_CHARS: 'PERSON_NAME_SPLIT_CHARS',
   PRELUDE_DEFAULT: 'PRELUDE_DEFAULT',
   CANTONESE_SUBCOLUMN_LABEL: 'CANTONESE_SUBCOLUMN_LABEL',
   DIAGNOSTICS_MAX_ROWS: 'DIAGNOSTICS_MAX_ROWS',
@@ -877,6 +878,7 @@ var DEFAULTS = Object.freeze([
   { key: CONFIG_KEYS.DATE_FORMAT_INLINE, value: 'dd/MM/yyyy', note: '人數表與下週事奉標題括號內的日期' },
   { key: CONFIG_KEYS.HONORIFIC_ON_PAGE1, value: 'TRUE', note: '第 1 頁事奉框加「弟兄／姊妹」' },
   { key: CONFIG_KEYS.HONORIFIC_ON_PAGE3, value: 'FALSE', note: '第 3 頁下週事奉不加' },
+  { key: CONFIG_KEYS.PERSON_NAME_SPLIT_CHARS, value: '、', note: '職事表同一格寫了幾個名字時用的分隔字（例如「李潔慈、林敏恒」）：週報逐個名字套尊稱，再用一個空格分開，與以往週報一樣（「李潔慈姊妹 林敏恒弟兄」）。可以填多個字（例如「、，」）；留空＝不拆' },
   { key: CONFIG_KEYS.PRELUDE_DEFAULT, value: '主在聖殿中 (生命聖詩 522)', note: '68 期樣本全部相同' },
   { key: CONFIG_KEYS.CANTONESE_SUBCOLUMN_LABEL, value: '主堂', note: '人數表粵語堂子欄標題' },
   { key: CONFIG_KEYS.DIAGNOSTICS_MAX_ROWS, value: '380', note: 'Diagnostics 工作表的資料行數上限，超過會被截斷' },

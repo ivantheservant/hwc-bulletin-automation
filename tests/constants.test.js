@@ -206,7 +206,8 @@ test('CONFIG_KEYS 剛好 153 個（與 DEFAULTS 一一對應）', function () {
   // 2026-11-02：+1（YEAR_LOGO_FILE_ID，年度 logo 圖片），154 → 155。
   // 2026-11-02：+1（EMAIL_ALLOWLIST，寄送名單），155 → 156。
   // 2026-11-03：+1（CONGREGATION_NAME，多堂會），156 → 157。
-  assert.strictEqual(Object.keys(CONFIG_KEYS).length, 157);
+  // 2026-11-03：+1（PERSON_NAME_SPLIT_CHARS，同一格幾個名字逐個套尊稱），157 → 158。
+  assert.strictEqual(Object.keys(CONFIG_KEYS).length, 158);
 });
 
 test('這一輪新增的 Config 鍵 FINANCE_PERIOD_LABEL_PATTERN 有定義、有預設值', function () {
@@ -240,7 +241,7 @@ test('CONFIG_KEYS 每一個值都有對應的 DEFAULTS 項目（不會有「有�
 });
 
 test('DEFAULTS 剛好 153 筆（105 ＋ R-035 兩個 ＋ 階段 1 一個 ＋ 階段 2 兩個 ＋ 階段 3 十六個 ＋ D11 一個 ＋ 內容表 v2 一個 ＋ v3 六個 ＋ 2026-10-27 淨加兩個 ＋ 2026-10-30 五個 ＋ 2026-10-30 財政報告四個 ＋ 特別崇拜一個 ＋ 2026-10-30 第二批七個 ＋ 2026-11-02 合堂人數欄標題一個 ＋ 年度 logo 一個 ＋ 寄送名單一個）', function () {
-  assert.strictEqual(DEFAULTS.length, 157, '2026-11-03 加 CONGREGATION_NAME');
+  assert.strictEqual(DEFAULTS.length, 158, '2026-11-03 加 CONGREGATION_NAME、PERSON_NAME_SPLIT_CHARS');
 });
 
 test('內容表那 13 個 Config 鍵齊備，而且 ID 類 seed 成空字串', function () {
