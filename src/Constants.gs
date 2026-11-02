@@ -1290,7 +1290,7 @@ var CONTENT_SHEET_READONLY_FIELDS = Object.freeze({
     'ATT_ENG_WORSHIP', 'ATT_CANE_WORSHIP', 'ATT_CANN_WORSHIP', 'ATT_MAN_WORSHIP',
     'ATT_ENG_PRAYER', 'ATT_CANE_PRAYER', 'ATT_CANN_PRAYER', 'ATT_MAN_PRAYER',
     'ATT_ENG_CHILD', 'ATT_CANE_CHILD', 'ATT_CANN_CHILD', 'ATT_MAN_CHILD',
-    // 2026-11-02：合堂主日之後那一期的合堂三格（內容表「崇拜人數」第 14 至 16 行）。
+    // 2026-11-02：合堂主日之後那一期的合堂三格（內容表「崇拜人數」「有效」之前的最後三欄）。
     'ATT_COMB_WORSHIP', 'ATT_COMB_PRAYER', 'ATT_COMB_CHILD',
     // 人數統計日期跟著十二個人數欄一起由內容表決定。
     'ATTENDANCE_DATE',

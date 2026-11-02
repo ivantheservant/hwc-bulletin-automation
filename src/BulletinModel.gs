@@ -987,7 +987,7 @@ function isCombinedAttendanceMissingItem_(item) {
  */
 function attendanceMissingSummaryText_(count, combined) {
   if (combined === true) {
-    return Number(count || 0) + ' 格未填（上週是合堂崇拜：請在內容表「崇拜人數」那一日填合堂三格，其餘留空）';
+    return Number(count || 0) + ' 格未填（上週是合堂崇拜：請在內容表「崇拜人數」那一行填合堂三格，其餘留空）';
   }
   return Number(count || 0) + ' 格未填（上週崇拜人數由內容表輸入）';
 }

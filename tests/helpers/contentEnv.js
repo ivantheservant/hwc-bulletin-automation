@@ -51,11 +51,11 @@ function makeTransposedTab(def, rows, opts) {
 }
 
 /**
- * 2026-11-02：舊版「一個日期一行」的欄（分頁定義有 `legacyRowKeys` 就用那一份——合堂三格是日子橫放之後才加的，
- * 舊版沒有）。中文標題按機器鍵在現行定義的位置取。
+ * 2026-11-02：舊版「一個日期一行」的欄（分頁定義有 `legacyRowKeys` 就用那一份——合堂三格是 2026-10-30 之後才加的，
+ * 舊版沒有）。中文標題按機器鍵在現行定義的位置取。2026-11-03：`legacy` 不是 true＝現行定義（一個日期一行，有合堂三欄）。
  */
-function rowsLayoutOf(def) {
-  if (!def.legacyRowKeys) return { keys: def.keys, headers: def.headers };
+function rowsLayoutOf(def, legacy) {
+  if (!def.legacyRowKeys || legacy === false) return { keys: def.keys, headers: def.headers };
   return {
     keys: def.legacyRowKeys.slice(),
     headers: def.legacyRowKeys.map(function (k) { return def.headers[def.keys.indexOf(k)]; })
@@ -84,8 +84,9 @@ function shortTransposedDef(def) {
  * options.extraTabs：另外加的分頁 `[{tabName, keys, headers, rows}]`（例如已改名的舊分頁）。
  * options.maxColumns：每張分頁的欄數（數字，或者「分頁名稱 → 欄數」）；預設 26，與真的新分頁一樣。
  * options.contentFaults：`{failOnSetValue, failOnSetName, failOnDeleteColumns}`，第 N 次寫入格子／改名／刪欄時拋錯。
- * options.attendanceLayout：'rows'＝「崇拜人數」用舊的一個日期一行（測試轉換用）；'transposedShort'＝2026-11-02 之前
- *   建好的日子橫放（只有十二格，未有合堂三行）；預設日子橫放（現行定義）。
+ * options.attendanceLayout：2026-11-03 起預設＝現行的一個崇拜日期一行（有合堂三欄）；'rows'／'rowsLegacy'＝2026-10-30
+ *   之前的一個日期一行（未有合堂三欄）；'transposed'＝2026-10-30 至 11-03 的日子橫放（有合堂三行）；
+ *   'transposedShort'＝2026-11-02 之前建好的日子橫放（只有十二格，未有合堂三行）。
  * options.otherContentSheets：2026-10-30（「連續到」跨季）另外幾份內容表
  *   `[{quarterId, fileId, content:{分頁: 行}, missing:boolean=, layout:'current'|'v3'=}]`，會登記在 ContentSheets
  *   （ACTIVE=TRUE）；`missing:true`＝登記了但開不到。
@@ -172,10 +173,12 @@ function makeEnv(options) {
   layoutDefs.concat(o.extraTabs || []).forEach(function (def) {
     if ((o.omitTabs || []).indexOf(def.tabName) !== -1) return;
     const rows = (o.content || {})[def.tabName] || def.rows || [];
-    // 2026-10-30：現行版面的「崇拜人數」是日子橫放（src/ContentSheetTransposed.gs）；`attendanceLayout:'rows'`
-    //    或者舊版面（v1／v2／v3）＝舊的一個日期一行。
-    const transposed = def.transposed === true && !o.contentLayout && o.attendanceLayout !== 'rows';
-    const rl = rowsLayoutOf(def);
+    // 2026-11-03：「崇拜人數」現行是一個崇拜日期一行；`attendanceLayout:'transposed'／'transposedShort'`＝
+    //    2026-10-30 至 11-03 的日子橫放；`'rows'`／`'rowsLegacy'` 或者舊版面（v1／v2／v3）＝未有合堂三欄的一個日期一行。
+    const att = def.formerlyTransposed === true;
+    const transposed = att && !o.contentLayout && (o.attendanceLayout === 'transposed' || o.attendanceLayout === 'transposedShort');
+    const legacyRows = Boolean(o.contentLayout) || o.attendanceLayout === 'rows' || o.attendanceLayout === 'rowsLegacy';
+    const rl = rowsLayoutOf(def, legacyRows);
     const tab = transposed
       ? makeTransposedTab(o.attendanceLayout === 'transposedShort' ? shortTransposedDef(def) : def, rows,
         { name: def.tabName, faults: contentFaults, maxColumns: maxColumnsFor(def.tabName) })
@@ -202,12 +205,12 @@ function makeEnv(options) {
   };
 
   const otherSpreadsheets = {};
-  // 2026-10-30：另外幾份內容表的「崇拜人數」一律是舊的一個日期一行（上一季未必按過「更新本季內容表…」）。
+  // 2026-10-30：另外幾份內容表的「崇拜人數」一律是未有合堂三欄的一個日期一行（上一季未必按過「更新本季內容表…」）。
   (o.otherContentSheets || []).forEach(function (c) {
     if (c.missing) return;
     const defs = c.layout === 'v3' ? legacyContentTabDefsV3(boot.contentSheetTabDefs_()) : boot.contentSheetTabDefs_();
     const tabs = defs.map(function (def) {
-      const rl = rowsLayoutOf(def);
+      const rl = rowsLayoutOf(def, true);
       return makeContentTab(rl.keys, rl.headers, (c.content || {})[def.tabName] || [], { name: def.tabName });
     });
     otherSpreadsheets[c.fileId] = makeContentSpreadsheet({

@@ -4,8 +4,9 @@
  *
  * 2026-11-02（Ivan）：合堂主日之後那一期的人數表——印刷版（2025-10、2026-09-06、2026-10-11）不印四堂十二格，
  * 只印一欄「合堂」（崇拜／祈禱會／兒童三格）。
- *   - 內容表「崇拜人數」最後加合堂三行（ATT_COMB_WORSHIP／ATT_COMB_PRAYER／ATT_COMB_CHILD），匯入規則與十二格相同；
- *   - 已經建好的橫放分頁由「建立本季內容表」（＝更新）在最後補上三行（已有的格一格不改），補之前匯入講明要先更新；
+ *   - 內容表「崇拜人數」加合堂三欄（ATT_COMB_WORSHIP／ATT_COMB_PRAYER／ATT_COMB_CHILD，「有效」之前），匯入規則與十二格相同；
+ *   - 2026-11-03：未有合堂三欄的舊分頁照常匯入（只提示），「更新本季內容表…」重新整理加上三欄（舊分頁改名保留）；
+ *     日子橫放另見 tests/transposed.test.js；
  *   - Word：十二格那一張表每一列 {{#IF:ATTENDANCE_NORMAL_SHOW}}、一欄那一張每一列 {{#IF:ATTENDANCE_COMBINED_SHOW}}；
  *   - 待填：只列會印的那一組；全部空白而上週是合堂崇拜就講填合堂三格（填寫介面、本季待填清單、寄出前檢查同一句）。
  *
@@ -41,7 +42,7 @@ function test(name, fn) {
 }
 function plain(v) { return JSON.parse(JSON.stringify(v)); }
 
-const COMBINED_TEXT = '格未填（上週是合堂崇拜：請在內容表「崇拜人數」那一日填合堂三格，其餘留空）';
+const COMBINED_TEXT = '格未填（上週是合堂崇拜：請在內容表「崇拜人數」那一行填合堂三格，其餘留空）';
 
 console.log('\n純函式：版面判斷、人數表、待填');
 
@@ -335,10 +336,16 @@ function attRows(extra) {
     return Object.assign({ SERVICE_DATE: minus7(iso), ATT_ENG_WORSHIP: i === 1 ? '' : String(50 + i) }, (extra || {})[i] || {});
   });
 }
+/** 一個崇拜日期一行（2026-11-03 起現行）：那一日那一欄的值。 */
 function cellOf(sheet, key, iso) {
-  const r = sheet.__data.findIndex(function (row) { return row[1] === key; });
-  const c = sheet.__data[0].indexOf(iso);
+  const c = sheet.__data[1].indexOf(key);
+  const r = sheet.__data.findIndex(function (row, i) { return i >= 2 && row[0] === iso; });
   return r === -1 || c === -1 ? undefined : sheet.__data[r][c];
+}
+function setCell(sheet, key, iso, value) {
+  const c = sheet.__data[1].indexOf(key);
+  const r = sheet.__data.findIndex(function (row, i) { return i >= 2 && row[0] === iso; });
+  sheet.__data[r][c] = value;
 }
 function snapshot(env) {
   return JSON.stringify(env.contentSpreadsheet.getSheets().map(function (s) {
@@ -349,7 +356,7 @@ function attDef(env) {
   return env.sandbox.contentSheetTabDefs_().filter(function (d) { return d.tabName === '崇拜人數'; })[0];
 }
 
-test('CA-12 apiRunQuarterContentImport：合堂三格（崇拜日期那一欄）匯入「加七天」那一期，與十二格同一個規則；清空亦跟內容表', function () {
+test('CA-12 apiRunQuarterContentImport：合堂三格（崇拜日期那一行）匯入「加七天」那一期，與十二格同一個規則；清空亦跟內容表', function () {
   // DATES[1] 那一期印的是崇拜日期 minus7(DATES[1])＝DATES[0] 那一日：合堂，只填合堂三格。
   const env = contentEnv.makeEnv({
     content: { 崇拜人數: attRows({ 1: { ATT_COMB_WORSHIP: '285', ATT_COMB_PRAYER: '6', ATT_COMB_CHILD: '28' } }) }
@@ -367,33 +374,31 @@ test('CA-12 apiRunQuarterContentImport：合堂三格（崇拜日期那一欄）
   assert.strictEqual(model.attendance.combined, true);
   assert.strictEqual(model.missing.filter(function (m) { return env.sandbox.isAttendanceMissingItem_(m); }).length, 0);
   // 內容表之後把一格清空（例如填錯）：匯入照樣清空週報那一格（與十二格一樣以內容表為準）。
-  const sheet = env.contentTabs['崇拜人數'];
-  const r = sheet.__data.findIndex(function (row) { return row[1] === 'ATT_COMB_WORSHIP'; });
-  sheet.__data[r][sheet.__data[0].indexOf(DATES[0])] = '';
+  setCell(env.contentTabs['崇拜人數'], 'ATT_COMB_WORSHIP', DATES[0], '');
   assert.strictEqual(env.sandbox.apiRunQuarterContentImport(QUARTER_ID).data.ok, true);
   assert.strictEqual(String(weekOf(env, DATES[1]).ATT_COMB_WORSHIP || ''), '');
   assert.strictEqual(String(weekOf(env, DATES[1]).ATT_COMB_PRAYER), '6');
 });
 
-const ROWS_NOTICE = '內容表「崇拜人數」未有合堂三行（合堂崇拜、合堂祈禱會、合堂兒童），請按「更新本季內容表…」補上；'
+const ROWS_NOTICE = '內容表「崇拜人數」未有合堂三欄（合堂崇拜、合堂祈禱會、合堂兒童），請按「更新本季內容表…」補上；'
   + '未補之前其餘人數照常匯入，合堂三格不會匯入。';
 
-test('CA-13 2026-11-02 之前建好的橫放分頁（未有合堂三行）：apiRunQuarterContentImport 照常匯入十二格，合堂三格不碰（週報已有的值保留），結果講明要更新', function () {
-  const env = contentEnv.makeEnv({ attendanceLayout: 'transposedShort', content: { 崇拜人數: attRows() } });
-  assert.strictEqual(env.sandbox.detectTransposedTabLayout_(env.contentTabs['崇拜人數'], attDef(env)), 'TRANSPOSED_SHORT');
-  // 週報已經有一個合堂值（例如人手補的）：內容表沒有那一行 → 不可以當成空白清走。
+test('CA-13 2026-10-30 之前的一個日期一行（未有合堂三欄）：apiRunQuarterContentImport 照常匯入十二格，合堂三格不碰（週報已有的值保留），結果講明要更新', function () {
+  const env = contentEnv.makeEnv({ attendanceLayout: 'rowsLegacy', content: { 崇拜人數: attRows() } });
+  assert.strictEqual(env.sandbox.detectAttendanceTabLayout_(env.contentTabs['崇拜人數'], attDef(env)), 'ROWS_LEGACY');
+  // 週報已經有一個合堂值（例如人手補的）：內容表沒有那一欄 → 不可以當成空白清走。
   env.sandbox.writeBulletinWeekField_(DATES[3], 'ATT_COMB_WORSHIP', '199');
   const imp = env.sandbox.apiRunQuarterContentImport(QUARTER_ID);
   assert.strictEqual(imp.data.ok, true, JSON.stringify(imp.data));
   assert.ok(imp.data.lines.indexOf('⚠️ ' + ROWS_NOTICE) !== -1, imp.data.lines.join('\n'));
   assert.strictEqual(String(weekOf(env, DATES[0]).ATT_ENG_WORSHIP), '50');
   assert.strictEqual(String(weekOf(env, DATES[4]).ATT_ENG_WORSHIP), '54');
-  assert.strictEqual(String(weekOf(env, DATES[3]).ATT_COMB_WORSHIP), '199', '少了的行不讀，週報那一格不碰');
+  assert.strictEqual(String(weekOf(env, DATES[3]).ATT_COMB_WORSHIP), '199', '少了的欄不讀，週報那一格不碰');
   assertWrittenChinese(assert, '匯入提示', [ROWS_NOTICE]);
 });
 
-test('CA-13b 未有合堂三行：填寫介面載入（apiLoadWeek）時自動匯入照做，提示與內容表狀態列都講明要按「更新本季內容表…」', function () {
-  const env = contentEnv.makeEnv({ attendanceLayout: 'transposedShort', content: { 崇拜人數: attRows() } });
+test('CA-13b 未有合堂三欄：填寫介面載入（apiLoadWeek）時自動匯入照做，提示與內容表狀態列都講明要按「更新本季內容表…」', function () {
+  const env = contentEnv.makeEnv({ attendanceLayout: 'rowsLegacy', content: { 崇拜人數: attRows() } });
   const load = env.sandbox.apiLoadWeek(DATES[0]);
   assert.strictEqual(load.ok, true, JSON.stringify(load.error));
   assert.strictEqual(load.data.autoImport.reason, '', JSON.stringify(load.data.autoImport));
@@ -403,8 +408,8 @@ test('CA-13b 未有合堂三行：填寫介面載入（apiLoadWeek）時自動�
   assert.strictEqual(load.data.contentSheet.schemaNotice, ROWS_NOTICE);
 });
 
-test('CA-13c 未有合堂三行：自動同步（runContentAutoSync_）照常匯入，ErrorLog 同一季每日只記一次', function () {
-  const env = contentEnv.makeEnv({ attendanceLayout: 'transposedShort', content: { 崇拜人數: attRows() },
+test('CA-13c 未有合堂三欄：自動同步（runContentAutoSync_）照常匯入，ErrorLog 同一季每日只記一次', function () {
+  const env = contentEnv.makeEnv({ attendanceLayout: 'rowsLegacy', content: { 崇拜人數: attRows() },
     config: { WEBAPP_SIMULATED_TODAY: '2027-10-01' } });
   const sb = env.sandbox;
   const times = { FAKE_CONTENT_FILE: '2027-01-01' };
@@ -432,85 +437,86 @@ test('CA-13c 未有合堂三行：自動同步（runContentAutoSync_）照常匯
   assert.strictEqual(logged().length, 2, '翌日再記一次');
 });
 
-test('CA-14 預覽（apiPreviewContentSheetBuild）：講明會在最後加上合堂三行、已填的人數一格不改；不用人手確認；預覽一格不寫', function () {
-  const env = contentEnv.makeEnv({ attendanceLayout: 'transposedShort', content: { 崇拜人數: attRows() } });
+test('CA-14 預覽（apiPreviewContentSheetBuild）：講明會重新整理並加上合堂三欄、人數照搬；人手開行的要確認、系統鎖住的不用；預覽一格不寫', function () {
+  const env = contentEnv.makeEnv({ attendanceLayout: 'rowsLegacy', content: { 崇拜人數: attRows() } });
   const before = snapshot(env);
   const resp = env.sandbox.apiPreviewContentSheetBuild(QUARTER_ID);
   assert.strictEqual(resp.ok, true, JSON.stringify(resp));
   const text = resp.data.lines.join('\n');
-  assert.ok(text.indexOf('・「崇拜人數」會在最後加上 3 行：合堂崇拜、合堂祈禱會、合堂兒童（合堂主日那一欄只填合堂三格，其餘留空）；'
-    + '已經填好的人數一格不改。') !== -1, text);
-  assert.strictEqual(resp.data.summary.needsMigration, false, '只是加行，不用人手確認');
+  ['・「崇拜人數」會重新整理成一個崇拜日期一行（' + DATES.length + ' 行），已經填好的人數照搬。',
+    '・「崇拜人數」會加上 3 欄：合堂崇拜、合堂祈禱會、合堂兒童（在「有效」之前；合堂主日那一行只填合堂三格，其餘留空）。'].forEach(function (p) {
+    assert.ok(text.indexOf(p) !== -1, '預覽缺少：' + p + '\n' + text);
+  });
+  assert.strictEqual(resp.data.summary.needsMigration, true, '人手開行（未鎖）的要人手確認');
   assertWrittenChinese(assert, '預覽', resp.data.lines);
   assert.strictEqual(snapshot(env), before, '預覽一格不寫');
+  // 系統建的（鎖住）：自動做，不用確認。
+  const legacyLen = attDef(env).legacyRowKeys.length;
+  env.sandbox.ensureContentTabDateLock_(env.contentTabs['崇拜人數'], legacyLen, DATES.length);
+  assert.strictEqual(env.sandbox.apiPreviewContentSheetBuild(QUARTER_ID).data.summary.needsMigration, false);
 });
 
-test('CA-15 更新（apiRunContentSheetBuild）：最後補上三行（標題、機器鍵、純文字），已有的格一格不改；鎖住十五行；再按一次不變；之後匯入合堂三格', function () {
-  const env = contentEnv.makeEnv({ attendanceLayout: 'transposedShort', content: { 崇拜人數: attRows() } });
-  const sheet = env.contentTabs['崇拜人數'];
-  const old = plain(sheet.__data);
+test('CA-15 更新（apiRunContentSheetBuild）：新分頁有合堂三欄（「有效」之前）、人數照搬；舊分頁改名隱藏、一格不改；再按一次不變；之後匯入合堂三格', function () {
+  const env = contentEnv.makeEnv({ attendanceLayout: 'rowsLegacy', content: { 崇拜人數: attRows() } });
+  const old = plain(env.contentTabs['崇拜人數'].__data);
   const resp = env.sandbox.apiRunContentSheetBuild(QUARTER_ID);
   assert.strictEqual(resp.ok, true, JSON.stringify(resp));
   assert.strictEqual(resp.data.ok, true, JSON.stringify(resp.data));
+  const retired = env.contentSpreadsheet.getSheetByName('崇拜人數（整理前，已停用）');
+  assert.ok(retired && retired.isSheetHidden(), '舊分頁改名隱藏保留');
+  assert.deepStrictEqual(plain(retired.__data), old, '舊分頁一格不改');
   const now = env.contentSpreadsheet.getSheetByName('崇拜人數');
-  assert.strictEqual(now, sheet, '同一張分頁（不是重建）');
-  old.forEach(function (row, r) {
-    row.forEach(function (v, c) { assert.strictEqual(now.__data[r][c], v, '第 ' + (r + 1) + ' 行第 ' + (c + 1) + ' 欄被改了'); });
-  });
-  assert.deepStrictEqual(plain(now.__data.slice(13, 16).map(function (row) { return row.slice(0, 2); })),
-    [['合堂崇拜', 'ATT_COMB_WORSHIP'], ['合堂祈禱會', 'ATT_COMB_PRAYER'], ['合堂兒童', 'ATT_COMB_CHILD']]);
-  [14, 15, 16].forEach(function (r) {
-    [3, 2 + DATES.length].forEach(function (c) { assert.strictEqual(now.getRange(r, c).getNumberFormat(), '@', '第 ' + r + ' 行要純文字'); });
-  });
-  assert.strictEqual(env.sandbox.detectTransposedTabLayout_(now, attDef(env)), 'TRANSPOSED');
+  const def = attDef(env);
+  assert.deepStrictEqual(plain(now.__data[1].slice(0, def.keys.length)), plain(def.keys));
+  assert.deepStrictEqual(plain(now.__data[1].slice(13, 17)), ['ATT_COMB_WORSHIP', 'ATT_COMB_PRAYER', 'ATT_COMB_CHILD', 'ACTIVE']);
+  assert.deepStrictEqual(plain(now.__data[0].slice(13, 16)), ['合堂崇拜', '合堂祈禱會', '合堂兒童']);
+  DATES.forEach(function (iso, i) { assert.strictEqual(cellOf(now, 'ATT_ENG_WORSHIP', minus7(iso)), i === 1 ? '' : String(50 + i)); });
+  [14, 15, 16].forEach(function (c) { assert.strictEqual(now.getRange(3, c).getNumberFormat(), '@', '第 ' + c + ' 欄要純文字'); });
   const lock = now.__protections.filter(function (p) { return p.description === env.sandbox.CONTENT_SHEET_V4_LOCK_DESCRIPTION_; });
   assert.strictEqual(lock.length, 1);
   assert.deepStrictEqual(plain(lock[0].unprotected.map(function (r) { return [r.getRow(), r.getColumn(), r.getNumRows(), r.getNumColumns()]; })),
-    [[2, 3, 15, DATES.length]]);
-  const audits = env.sandbox.readSheet_('AuditLog').filter(function (a) { return a.ACTION === 'CONTENT_SHEET_MIGRATE_V4' && a.FIELD === '崇拜人數'; });
-  assert.strictEqual(audits.length, 1);
-  assert.strictEqual(String(audits[0].NEW_VALUE), '加上 合堂崇拜、合堂祈禱會、合堂兒童');
-  assert.strictEqual(env.contentSpreadsheet.getSheetByName('崇拜人數（整理前，已停用）'), null, '加行不用改名保留舊分頁');
-  assert.ok(resp.data.lines.join('\n').indexOf('・「崇拜人數」已在最後加上 3 行') !== -1, resp.data.lines.join('\n'));
+    [[3, 2, DATES.length, 16]]);
+  assert.ok(resp.data.lines.join('\n').indexOf('・「崇拜人數」已加上 3 欄') !== -1, resp.data.lines.join('\n'));
   // 冪等。
   const after = snapshot(env);
   assert.strictEqual(env.sandbox.apiRunContentSheetBuild(QUARTER_ID).data.ok, true);
   assert.strictEqual(snapshot(env), after, '再按一次一格不改');
-  // 同工在新行填合堂三格 → 匯入（崇拜日期 DATES[1] → 印在 DATES[2]）。
-  now.__data[13][now.__data[0].indexOf(DATES[1])] = '231';
+  // 同工在新欄填合堂三格 → 匯入（崇拜日期 DATES[1] → 印在 DATES[2]）。
+  setCell(now, 'ATT_COMB_WORSHIP', DATES[1], '231');
   const imp = env.sandbox.apiRunQuarterContentImport(QUARTER_ID);
   assert.strictEqual(imp.data.ok, true, JSON.stringify(imp.data));
-  assert.strictEqual(cellOf(now, 'ATT_COMB_WORSHIP', DATES[1]), '231');
+  assert.strictEqual(imp.data.lines.join('\n').indexOf('未有合堂三欄'), -1, '更新之後不再提示');
   assert.strictEqual(String(weekOf(env, DATES[2]).ATT_COMB_WORSHIP), '231');
   assert.strictEqual(String(weekOf(env, DATES[0]).ATT_ENG_WORSHIP), '50');
 });
 
-test('CA-16 補行的位置有字（位置不明）→ 不當作少了行：更新不碰「崇拜人數」（與其他認不出的版面一樣）、匯入整次拒絕', function () {
-  const env = contentEnv.makeEnv({ attendanceLayout: 'transposedShort', content: { 崇拜人數: attRows() } });
+test('CA-16 第 2 行（機器鍵）被改過（位置不明）→ 更新不碰「崇拜人數」（與其他認不出的版面一樣）、匯入整次拒絕', function () {
+  const env = contentEnv.makeEnv({ content: { 崇拜人數: attRows() } });
   const sheet = env.contentTabs['崇拜人數'];
-  sheet.getRange(15, 3, 1, 1).setValues([['有人填在這裏']]);
-  assert.strictEqual(env.sandbox.detectTransposedTabLayout_(sheet, attDef(env)), 'UNKNOWN');
+  sheet.__data[1][14] = '有人改了';
+  assert.strictEqual(env.sandbox.detectAttendanceTabLayout_(sheet, attDef(env)), 'UNKNOWN');
   const before = JSON.stringify(sheet.__data);
   const run = env.sandbox.apiRunContentSheetBuild(QUARTER_ID);
   assert.strictEqual(run.data.ok, true, JSON.stringify(run.data));
-  assert.strictEqual(run.data.lines.join('\n').indexOf('加上 3 行'), -1, '不可以講會加行');
+  assert.strictEqual(run.data.lines.join('\n').indexOf('加上 3 欄'), -1, '不可以講會加欄');
   assert.strictEqual(JSON.stringify(sheet.__data), before, '「崇拜人數」一格不寫');
   const imp = env.sandbox.apiRunQuarterContentImport(QUARTER_ID);
   assert.strictEqual(imp.data.ok, false, JSON.stringify(imp.data));
-  assert.ok(String(imp.data.message).indexOf('內容表「崇拜人數」第 B 欄（機器鍵，已隱藏）與系統的不符') !== -1, imp.data.message);
+  assert.ok(String(imp.data.message).indexOf('內容表「崇拜人數」第 2 行（機器鍵）第 15 欄應該是「ATT_COMB_PRAYER」') !== -1, imp.data.message);
 });
 
-test('CA-17 新建的內容表：「崇拜人數」一開始就有合堂三行；_說明 與 A1 註解講明合堂主日只填合堂三格', function () {
+test('CA-17 新建的內容表：「崇拜人數」一開始就有合堂三欄；_說明 與註解講明合堂主日只填合堂三格', function () {
   const env = contentEnv.makeEnv({ omitTabs: ['崇拜人數'] });
   const resp = env.sandbox.apiRunContentSheetBuild(QUARTER_ID);
   assert.strictEqual(resp.data.ok, true, JSON.stringify(resp.data));
   const sheet = env.contentSpreadsheet.getSheetByName('崇拜人數');
-  assert.deepStrictEqual(plain(sheet.__data.slice(13, 16).map(function (row) { return row[1]; })),
-    ['ATT_COMB_WORSHIP', 'ATT_COMB_PRAYER', 'ATT_COMB_CHILD']);
-  assert.ok(String(sheet.getRange(1, 1).getNote()).indexOf('合堂主日（三堂聯合崇拜）那一欄只填最後的合堂三格') !== -1, 'A1 註解');
+  assert.deepStrictEqual(plain(sheet.__data[1].slice(13, 16)), ['ATT_COMB_WORSHIP', 'ATT_COMB_PRAYER', 'ATT_COMB_CHILD']);
+  assert.strictEqual(sheet.__data.length, 2 + DATES.length, '每個崇拜日期一行');
+  const note = String(sheet.getRange(1, 1).getNote());
+  assert.ok(note.indexOf('合堂主日（三堂聯合崇拜）那一行只填最後的合堂三格') !== -1, '註解：' + note);
   const help = env.contentSpreadsheet.getSheetByName('_說明').__data.map(function (row) { return row[0]; }).join('\n');
-  assert.ok(help.indexOf('合堂主日（三堂聯合崇拜）那一欄只填最後的合堂三格（合堂崇拜、合堂祈禱會、合堂兒童），其餘留空') !== -1, help);
-  assertWrittenChinese(assert, '說明', [String(sheet.getRange(1, 1).getNote()), help]);
+  assert.ok(help.indexOf('合堂主日（三堂聯合崇拜）那一行只填最後的合堂三格（合堂崇拜、合堂祈禱會、合堂兒童），其餘留空') !== -1, help);
+  assertWrittenChinese(assert, '說明', [note, help]);
 });
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');

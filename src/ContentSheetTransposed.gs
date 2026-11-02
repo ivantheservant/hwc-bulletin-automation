@@ -1,23 +1,20 @@
 /**
  * src/ContentSheetTransposed.gs
  *
- * 2026-10-30（Ivan）：內容表「崇拜人數」改為**日子橫放**——第 1 行全部是崇拜日期（每一日一欄），
- * 十二格人數在日期下面；第 A 欄是中文標題，第 B 欄是機器鍵（隱藏）。其餘分頁照舊（一則一行）。
+ * 2026-10-30（Ivan）：內容表「崇拜人數」曾經改為**日子橫放**——第 1 行全部是崇拜日期（每一日一欄），
+ * 十二格人數（11-02 起再加合堂三格）在日期下面；第 A 欄是中文標題，第 B 欄是機器鍵（隱藏）。
  *
- *   版面（n＝機器鍵數目，「有效」不放在橫放的分頁）：
- *     A1「崇拜日期」　B1 SERVICE_DATE　C1、D1…＝日期（yyyy-MM-dd 文字，系統預先填好並鎖住）
+ * 2026-11-03（Ivan）：決定**改回一個崇拜日期一行**，與家事報告、代禱事項一致（合堂三格是「有效」之前的三欄）。
+ *   這個檔案只剩「認出」與「讀」橫放版面：2026-10-30 至 11-03 建好的內容表仍然是橫放——
+ *     - 匯入照讀（`readTransposedContentRows_()`），只出提示，部署之後未按「更新本季內容表…」的季度照常匯入；
+ *     - 「更新本季內容表…」先預覽，確定之後改回一個日期一行（舊分頁改名隱藏保留，一格不刪；src/ContentSheetV4.gs）。
+ *   「崇拜人數」現在是哪一個版面一律由 `detectAttendanceTabLayout_()` 判斷。
+ *
+ *   橫放版面（n＝機器鍵數目，「有效」不放在橫放的分頁）：
+ *     A1「崇拜日期」　B1 SERVICE_DATE　C1、D1…＝日期（yyyy-MM-dd 文字）
  *     A2「英語堂崇拜」B2 ATT_ENG_WORSHIP　C2、D2…＝人數（純文字）
  *     …
- *   同工只可以改 C2 至最後一欄第 n 行（分頁保護，與 v4「一個日期一行」同一個保護說明）。
- *
- *   程式內部仍然用「一個日期一筆」的資料（`parseContentTabRows_()` 的形狀）：讀的時候每一欄變成一筆
- *   （`__rowNo` 是欄號、`__colLetter` 是欄的字母），寫的時候每一筆變成一欄。匯入、v4 整理的計畫都不用改。
- *
- *   舊的「一個崇拜日期一行」分頁由「更新本季內容表…」轉換（先預覽，確定之後舊分頁改名隱藏保留，一格不刪）。
- *
- *   2026-11-02（Ivan）：最後加合堂三行（合堂崇拜、合堂祈禱會、合堂兒童；第 14 至 16 行）。已經建好的橫放分頁
- *   第 B 欄只有頭幾個機器鍵（`TRANSPOSED_SHORT`）：「建立本季內容表」（＝更新）只在最後補上那幾行的標題與
- *   純文字格式（`addTransposedContentRows_()`），已有的格一格不改；未補之前匯入講明要先更新（不讀少了的行）。
+ *   讀的時候每一欄變成一筆（`__rowNo` 是欄號、`__colLetter` 是欄的字母），形狀同 `parseContentTabRows_()`。
  */
 
 'use strict';
@@ -187,34 +184,6 @@ function transposedMissingRows_(sheet, tabDef) {
 }
 
 /**
- * 用途：在已經建好的橫放分頁最後補上新加的行（2026-11-02 合堂三行）：只寫那幾行的第 A 欄（中文標題）、
- *   第 B 欄（機器鍵），並把那幾行的日期欄設成純文字。已有的格一格不改；版面與鎖由呼叫方之後照常套
- *   （`applyTransposedContentTabLayout_()`、`ensureContentTabDateLock_()`）。IO 層；冪等（已經補好就不寫）。
- * Args:
- *   sheet {Sheet}　tabDef {Object}
- * Returns:
- *   {string[]} 補上的行的中文標題；沒有補就是空陣列。
- * Raises:
- *   Error 寫入失敗時原樣拋出。
- */
-function addTransposedContentRows_(sheet, tabDef) {
-  var missing = transposedMissingRows_(sheet, tabDef);
-  if (missing.keys.length === 0) return [];
-  var firstRow = missing.fromIndex + 1;
-  var needRows = firstRow + missing.keys.length - 1;
-  var maxRows = Number(sheet.getMaxRows()) || 0;
-  if (maxRows < needRows) sheet.insertRowsAfter(Math.max(1, maxRows), needRows - maxRows);
-  var head = sheet.getRange(firstRow, 1, missing.keys.length, 2);
-  head.setNumberFormat('@');
-  head.setValues(missing.keys.map(function (k, i) { return [missing.headers[i], k]; }));
-  var dateCols = transposedDateColumnCount_(sheet);
-  if (dateCols > 0) {
-    sheet.getRange(firstRow, CONTENT_SHEET_TRANSPOSED_FIRST_DATA_COL_, missing.keys.length, dateCols).setNumberFormat('@');
-  }
-  return missing.headers.slice();
-}
-
-/**
  * 用途：讀橫放分頁的資料：每一欄（C 起）變成一筆（形狀同 `parseContentTabRows_()`）。IO 層。
  * Args:
  *   sheet {Sheet}　tabDef {Object}
@@ -248,93 +217,81 @@ function readTransposedContentRows_(sheet, tabDef) {
 }
 
 /**
- * 用途：建立（或清空重寫）橫放分頁：先寫資料欄，**最後**才寫第 A、B 欄（提交點：中途停止的話機器鍵仍然是空的，
- *   下一次由改了名的舊分頁再建一次），然後套版面、上鎖。IO 層。
+ * 用途：2026-11-03：「崇拜人數」分頁現在是哪一個版面（改回一個崇拜日期一行之後的唯一判斷）。IO 層（唯讀）。
  * Args:
- *   spreadsheet {Spreadsheet}　tabDef {Object}　rows {Object[]} 一個日期一筆（以機器鍵為 key）。
- *   layoutOptions {Object} `owners`、`deadlineNote`。
+ *   sheet {?Sheet}　tabDef {Object} 現行定義（`formerlyTransposed:true`）。
  * Returns:
- *   {{sheet:Sheet, lock:{ok:boolean, message:string}}}
+ *   {string} `'ROWS'`（現行：一個日期一行，第 2 行是現行機器鍵）／
+ *     `'ROWS_NO_HEAD'`（現行欄位位置，但第 1、2 行被清走而下面有資料；現行版面最後一欄「有效」有值才算，
+ *       舊版「有效」在第 N 欄、最後三欄空白，不會被認成這一個）／
+ *     `'ROWS_LEGACY'`（2026-10-30 之前的一個日期一行，未有合堂三欄，`legacyRowKeys`）／
+ *     `'TRANSPOSED'`／`'TRANSPOSED_SHORT'`／`'TRANSPOSED_NO_HEAD'`（2026-10-30 至 11-03 的日子橫放，見
+ *       `detectTransposedTabLayout_()`）／`'BLANK'`／`'UNREADABLE'`／`'UNKNOWN'`／`'MISSING'`。
  * Raises:
- *   Error 寫入失敗時原樣拋出。
+ *   Error 讀取失敗時原樣拋出。
  */
-function writeTransposedContentTab_(spreadsheet, tabDef, rows, layoutOptions) {
-  var sheet = ensureContentTab_(spreadsheet, tabDef.tabName).sheet;
-  var tkeys = transposedContentKeys_(tabDef);
-  var n = tkeys.length;
-  var list = rows || [];
-  ensureContentTabColumns_(sheet, CONTENT_SHEET_TRANSPOSED_FIRST_DATA_COL_ - 1 + Math.max(1, list.length));
-  var lastCol = Number(sheet.getLastColumn()) || 0;
-  if (lastCol >= CONTENT_SHEET_TRANSPOSED_FIRST_DATA_COL_) {
-    sheet.getRange(1, CONTENT_SHEET_TRANSPOSED_FIRST_DATA_COL_, n, lastCol - CONTENT_SHEET_TRANSPOSED_FIRST_DATA_COL_ + 1).clearContent();
+function detectAttendanceTabLayout_(sheet, tabDef) {
+  if (!sheet) return 'MISSING';
+  var keys = (tabDef && tabDef.keys) || [];
+  var row2 = readContentTabHeaderKeys_(sheet, keys.length);
+  if (keys.length > 0 && keys.every(function (k, i) { return row2[i] === k; })) return 'ROWS';
+  var row2Blank = row2.every(function (v) { return v === ''; });
+  if (row2Blank && (Number(sheet.getLastRow()) || 0) >= CONTENT_SHEET_FIRST_DATA_ROW_) {
+    var state = blankHeaderDataState_(sheet, keys.length);
+    if (state.hasData && !state.beyond && attendanceLastColumnHasData_(sheet, keys.length)) return 'ROWS_NO_HEAD';
   }
-  if (list.length > 0) {
-    var range = sheet.getRange(1, CONTENT_SHEET_TRANSPOSED_FIRST_DATA_COL_, n, list.length);
-    range.setNumberFormat('@');
-    range.setValues(tkeys.map(function (k) {
-      return list.map(function (r) {
-        var v = r[k];
-        return (v === null || v === undefined) ? '' : sanitizeCellText_(String(v));
-      });
-    }));
+  var older = detectTransposedTabLayout_(sheet, tabDef);
+  return older === 'ROWS' ? 'ROWS_LEGACY' : older;
+}
+
+/**
+ * 用途：一個日期一行的分頁第 `colCount` 欄（現行版面的「有效」）由第 3 行起有沒有任何字。唯讀。
+ * Args:
+ *   sheet {Sheet}　colCount {number}
+ * Returns:
+ *   {boolean}
+ */
+function attendanceLastColumnHasData_(sheet, colCount) {
+  return readContentTabDataValues_(sheet, colCount).some(function (row) {
+    var v = row[colCount - 1];
+    return v === true || v === false || (v !== '' && v !== null && v !== undefined);
+  });
+}
+
+/**
+ * 用途：2026-11-03：「崇拜人數」的版面是不是要改回／改成現行的一個崇拜日期一行（橫放、或者未有合堂三欄的舊版）。純函式。
+ * Args:
+ *   layout {string} `detectAttendanceTabLayout_()` 的輸出。
+ * Returns:
+ *   {boolean}
+ */
+function attendanceLayoutIsTransposed_(layout) {
+  return layout === 'TRANSPOSED' || layout === 'TRANSPOSED_SHORT' || layout === 'TRANSPOSED_NO_HEAD';
+}
+
+/**
+ * 用途：2026-11-03：「崇拜人數」仍然是日子橫放、或者未有合堂三欄時，匯入照常做、只出的提示。純函式。
+ *   匯入預覽、填寫介面（內容表狀態列）、自動同步的 ErrorLog 都用這一句。
+ * Args:
+ *   tabName {string}　layout {string} `detectAttendanceTabLayout_()` 的輸出。
+ * Returns:
+ *   {?{code:string, message:string}} 現行版面回 `null`。
+ */
+function contentAttendanceLayoutNotice_(tabName, layout) {
+  if (layout === 'TRANSPOSED' || layout === 'TRANSPOSED_SHORT') {
+    return {
+      code: 'CONTENT_ATTENDANCE_TRANSPOSED',
+      message: '內容表「' + tabName + '」仍然是日子橫放（每一個崇拜日期一欄），請按「更新本季內容表…」改回一個崇拜日期一行'
+        + '（與家事報告、代禱事項一致，已經填好的人數照搬）；未改之前人數照常匯入'
+        + (layout === 'TRANSPOSED_SHORT' ? '，但合堂三格不會匯入（這張分頁未有合堂三行）' : '') + '。'
+    };
   }
-  writeTransposedContentHead_(sheet, tabDef);
-  applyTransposedContentTabLayout_(sheet, tabDef, list.length, layoutOptions || {});
-  var lock = ensureContentTabDateLock_(sheet, n, list.length, { transposed: true });
-  return { sheet: sheet, lock: lock };
-}
-
-/**
- * 用途：寫橫放分頁的第 A 欄（中文標題）與第 B 欄（機器鍵）。IO 層；冪等。
- * Args:
- *   sheet {Sheet}　tabDef {Object}
- * Returns:
- *   {void}
- * Raises:
- *   Error 寫入失敗時原樣拋出。
- */
-function writeTransposedContentHead_(sheet, tabDef) {
-  var tkeys = transposedContentKeys_(tabDef);
-  var headers = transposedContentHeaders_(tabDef);
-  var head = sheet.getRange(1, 1, tkeys.length, 2);
-  head.setNumberFormat('@');
-  head.setValues(tkeys.map(function (k, i) { return [headers[i], k]; }));
-}
-
-/**
- * 用途：橫放分頁有幾個日期欄（第 1 行 C 起最後一個有值的欄）。唯讀。
- * Args:
- *   sheet {Sheet}
- * Returns:
- *   {number}
- */
-function transposedDateColumnCount_(sheet) {
-  var lastCol = Number(sheet.getLastColumn()) || 0;
-  if (lastCol < CONTENT_SHEET_TRANSPOSED_FIRST_DATA_COL_) return 0;
-  var row1 = sheet.getRange(1, CONTENT_SHEET_TRANSPOSED_FIRST_DATA_COL_, 1, lastCol - CONTENT_SHEET_TRANSPOSED_FIRST_DATA_COL_ + 1).getValues()[0];
-  var count = 0;
-  row1.forEach(function (v, i) { if (v !== '' && v !== null && v !== undefined) count = i + 1; });
-  return count;
-}
-
-/**
- * 用途：橫放分頁的版面：凍結第 1 行與第 A、B 欄、標題粗體、隱藏機器鍵欄、欄寬、A1 說明、拿走下拉。IO 層；冪等。
- * Args:
- *   sheet {Sheet}　tabDef {Object}　dataCols {number} 日期欄數。　options {Object} `owners`、`deadlineNote`。
- * Returns:
- *   {void}
- */
-function applyTransposedContentTabLayout_(sheet, tabDef, dataCols, options) {
-  var n = transposedContentKeys_(tabDef).length;
-  var width = CONTENT_SHEET_TRANSPOSED_FIRST_DATA_COL_ - 1 + Math.max(1, dataCols);
-  sheet.getRange(1, 1, n, width).clearDataValidations();
-  sheet.setFrozenRows(1);
-  sheet.setFrozenColumns(2);
-  sheet.getRange(1, 1, 1, width).setFontWeight('bold').setBackground('#e8eef7');
-  sheet.getRange(1, 1, n, 1).setFontWeight('bold');
-  sheet.getRange(1, 2, n, 1).setFontColor('#999999').setFontSize(8);
-  sheet.setColumnWidth(1, 150);
-  for (var c = CONTENT_SHEET_TRANSPOSED_FIRST_DATA_COL_; c <= width; c++) sheet.setColumnWidth(c, 100);
-  if (typeof sheet.hideColumns === 'function') sheet.hideColumns(2);
-  sheet.getRange(1, 1).setNote(buildContentSheetTabNote_(tabDef, options.owners, options.deadlineNote));
+  if (layout === 'ROWS_LEGACY') {
+    return {
+      code: 'CONTENT_ATTENDANCE_ROWS_MISSING',
+      message: '內容表「' + tabName + '」未有合堂三欄（合堂崇拜、合堂祈禱會、合堂兒童），請按「更新本季內容表…」補上；'
+        + '未補之前其餘人數照常匯入，合堂三格不會匯入。'
+    };
+  }
+  return null;
 }

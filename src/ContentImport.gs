@@ -858,7 +858,7 @@ function computeContentImportPlan_(input) {
         // 內容表 v2：這一格被試算表轉成日期／時間，這一次不匯入（不寫、不解除覆寫、不報衝突），
         //    週報保留原值；警告已經在 plan.warnings。
         if ((sourceRow.__typeIssues || []).indexOf(sourceKey) !== -1) return;
-        // 2026-11-02：內容表根本沒有這一格（「崇拜人數」未補上合堂三行，readTransposedContentRows_() 不讀）：
+        // 2026-11-02：內容表根本沒有這一格（「崇拜人數」未有合堂三格：舊版一個日期一行、或者橫放未補上三行）：
         //    這一次不匯入、週報那一格不碰——不可以當成空白而清走週報已有的值。提示在 notices。
         if (!Object.prototype.hasOwnProperty.call(sourceRow, sourceKey)) return;
         var targetKey = def.fieldMap[sourceKey];
@@ -966,14 +966,14 @@ function compareContentTabHeaderKeys_(expectedKeys, actualKeys) {
  * Args:
  *   spreadsheet {Spreadsheet} 已經開啟的內容表。
  *   tabNames {string[]=} 2026-10-30：只核對這幾張分頁（「連續到」跨季只讀上一季的家事報告、代禱事項——上一季的
- *     崇拜人數仍然是一個日期一行也不影響）。省略＝全部分頁。
+ *     崇拜人數是哪一個版面也不影響）。省略＝全部分頁。
  * Returns:
  *   {{ok:boolean, reason:string, message:string, tabs:{tabName:string, status:string}[],
  *     notices:{code:string, message:string}[]}}
  *     `reason`：`''`／`'CONTENT_SHEET_OUTDATED'`／`'CONTENT_SHEET_HEADER_CHANGED'`
  *     （兩種同時有的話報 `HEADER_CHANGED`，那一種要人手處理）。
  *     `notices`（2026-11-02）：不阻止匯入、但要講出來的事（例如「崇拜人數」未有合堂三行：其餘照常匯入，
- *     合堂三格不匯入，見 `contentAttendanceRowsNotice_()`）。
+ *     合堂三格不匯入；2026-11-03 起亦包括仍然是日子橫放，見 `contentAttendanceLayoutNotice_()`）。
  * Raises:
  *   Error 讀取分頁失敗時原樣拋出。
  */
@@ -1003,23 +1003,22 @@ function checkContentSheetSchema_(spreadsheet, tabNames) {
     var sheet = spreadsheet.getSheetByName(tabDef.tabName);
     if (!sheet) return;
     if (tabDef.tabName === worshipTabName && worshipPending) return;
-    // 2026-10-30：日子橫放的分頁核對第 B 欄（src/ContentSheetTransposed.gs）；舊版一個日期一行＝未更新。
-    if (tabDef.transposed === true) {
-      var tLayout = detectTransposedTabLayout_(sheet, tabDef);
-      // 2026-11-02：未有合堂三行（之後才加的行）：照常匯入其餘的行（少了的行不讀、週報那幾格不碰，
-      //    見 readTransposedContentRows_()），只出提示——部署之後未按「更新本季內容表…」的季度不可以因此停止匯入。
-      if (tLayout === 'TRANSPOSED_SHORT') {
-        notices.push(contentAttendanceRowsNotice_(tabDef.tabName, transposedMissingRows_(sheet, tabDef).headers));
+    // 2026-11-03：「崇拜人數」改回一個崇拜日期一行（src/ContentSheetTransposed.gs）。2026-10-30 至 11-03 的日子橫放、
+    //    未有合堂三欄的舊版：照常匯入（按那個版面讀，少了的格不碰），只出提示——部署之後未按「更新本季內容表…」的
+    //    季度不可以因此停止匯入。現行版面（以及認不出的）照下面一般的核對。
+    if (tabDef.formerlyTransposed === true) {
+      var aLayout = detectAttendanceTabLayout_(sheet, tabDef);
+      var aNotice = contentAttendanceLayoutNotice_(tabDef.tabName, aLayout);
+      if (aNotice) {
+        notices.push(aNotice);
+        tabs.push({ tabName: tabDef.tabName, status: 'OK' });
+        return;
       }
-      var tVerdict = (tLayout === 'TRANSPOSED' || tLayout === 'TRANSPOSED_SHORT') ? { status: 'OK' }
-        : (tLayout === 'TRANSPOSED_NO_HEAD' ? { status: 'OUTDATED', noHead: true }
-        : (tLayout === 'ROWS' ? { status: 'OUTDATED', notTransposed: true }
-          : (tLayout === 'BLANK' ? { status: 'OUTDATED', missing: transposedContentKeys_(tabDef).length }
-            : { status: 'HEADER_CHANGED', transposed: true, column: 2, expected: transposedContentKeys_(tabDef)[0], actual: '' })));
-      tabs.push({ tabName: tabDef.tabName, status: tVerdict.status });
-      if (tVerdict.status === 'OUTDATED') outdated.push({ tabDef: tabDef, verdict: tVerdict });
-      if (tVerdict.status === 'HEADER_CHANGED') changed.push({ tabDef: tabDef, verdict: tVerdict });
-      return;
+      if (aLayout === 'TRANSPOSED_NO_HEAD') {
+        tabs.push({ tabName: tabDef.tabName, status: 'OUTDATED' });
+        outdated.push({ tabDef: tabDef, verdict: { status: 'OUTDATED', noHead: true } });
+        return;
+      }
     }
     var verdict = compareContentTabHeaderKeys_(tabDef.keys, readContentTabHeaderKeys_(sheet, tabDef.keys.length));
     // v3：v2 的「崇拜程序」（第 12 欄是浸禮主禮）不是「被人改過」，是未更新——當作 OUTDATED，
@@ -1049,9 +1048,6 @@ function checkContentSheetSchema_(spreadsheet, tabNames) {
     return {
       ok: false, reason: 'CONTENT_SHEET_HEADER_CHANGED', tabs: tabs,
       message: changed.map(function (c) {
-        if (c.verdict.transposed) {
-          return '內容表「' + c.tabDef.tabName + '」第 B 欄（機器鍵，已隱藏）與系統的不符，或者被清走了。';
-        }
         return '內容表「' + c.tabDef.tabName + '」第 2 行（機器鍵）第 ' + c.verdict.column + ' 欄應該是「'
           + c.verdict.expected + '」，現在是「' + (c.verdict.actual || '（空白）') + '」。';
       }).join('') + '匯入按欄位位置讀，第 2 行不符就會讀錯欄，所以這次整次拒絕，一格都沒有寫。'
@@ -1064,8 +1060,7 @@ function checkContentSheetSchema_(spreadsheet, tabNames) {
       if (o.verdict.v3) return '「' + o.tabDef.tabName + '」仍然是舊版（序樂、宣召、詩歌頌讚、詩班仍然在內容表）';
       if (o.verdict.v4Pending) return '「' + o.tabDef.tabName + '」上一次更新未做完';
       if (o.verdict.listV3) return '「' + o.tabDef.tabName + '」的「連續到」「有效」未搬到 B、C 欄';
-      if (o.verdict.noHead) return '「' + o.tabDef.tabName + '」第 A、B 欄（標題）被清走了';
-      if (o.verdict.notTransposed) return '「' + o.tabDef.tabName + '」未改為日子橫放（每一個崇拜日期一欄）';
+      if (o.verdict.noHead) return '「' + o.tabDef.tabName + '」（日子橫放）第 A、B 欄（標題）被清走了';
       return '「' + o.tabDef.tabName + '」少了 ' + o.verdict.missing + ' 欄';
     }).concat(pendingLegacy.map(function (name) {
       return '仍然有舊的「' + name + '」分頁（內容要搬入「崇拜程序」）';
@@ -1077,22 +1072,6 @@ function checkContentSheetSchema_(spreadsheet, tabNames) {
     };
   }
   return { ok: true, reason: '', message: '', tabs: tabs, notices: notices };
-}
-
-/**
- * 用途：2026-11-02：「崇拜人數」橫放分頁未有之後才加的行（合堂三行）時的提示。純函式。
- *   匯入預覽、填寫介面（載入時自動匯入、內容表狀態列）、自動同步的 ErrorLog 都用這一句。
- * Args:
- *   tabName {string} 分頁名稱。　headers {string[]} 少了的行的中文標題。
- * Returns:
- *   {{code:string, message:string}}
- */
-function contentAttendanceRowsNotice_(tabName, headers) {
-  return {
-    code: 'CONTENT_ATTENDANCE_ROWS_MISSING',
-    message: '內容表「' + tabName + '」未有合堂三行（' + (headers || []).join('、') + '），請按「更新本季內容表…」補上；'
-      + '未補之前其餘人數照常匯入，合堂三格不會匯入。'
-  };
 }
 
 /**
@@ -1158,9 +1137,17 @@ function readContentSheetTabs_(spreadsheet, tabNames) {
     if (only && only.indexOf(tabDef.tabName) === -1) return;
     var sheet = spreadsheet.getSheetByName(tabDef.tabName);
     if (!sheet) { out[tabDef.tabName] = []; return; }
-    // 2026-10-30：日子橫放（崇拜人數）每一欄一筆（src/ContentSheetTransposed.gs）。版面已經由
-    //    checkContentSheetSchema_() 核對過（舊版一個日期一行＝未更新，整次拒絕）。
-    if (tabDef.transposed === true) { out[tabDef.tabName] = readTransposedContentRows_(sheet, tabDef); return; }
+    // 2026-11-03：「崇拜人數」仍然是日子橫放（每一欄一筆）或者未有合堂三欄的舊版：按那個版面讀
+    //    （src/ContentSheetTransposed.gs；少了的格每一筆沒有那個鍵，匯入不碰）。版面已經由 checkContentSheetSchema_() 核對過。
+    if (tabDef.formerlyTransposed === true) {
+      var aLayout = detectAttendanceTabLayout_(sheet, tabDef);
+      if (attendanceLayoutIsTransposed_(aLayout)) { out[tabDef.tabName] = readTransposedContentRows_(sheet, tabDef); return; }
+      if (aLayout === 'ROWS_LEGACY') {
+        var legacyKeys = transposedLegacyRowKeys_(tabDef);
+        out[tabDef.tabName] = parseContentTabRows_(readContentTabDataValues_(sheet, legacyKeys.length), legacyKeys);
+        return;
+      }
+    }
 
     var lastRow = sheet.getLastRow();
     if (lastRow < CONTENT_SHEET_FIRST_DATA_ROW_) { out[tabDef.tabName] = []; return; }
