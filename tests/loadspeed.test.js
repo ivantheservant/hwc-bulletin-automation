@@ -91,7 +91,7 @@ test('LS-1 apiBootstrap：一次回主日清單、發佈狀態、預設主日；
   assert.strictEqual(announcementsOf(t.env, D1).length, 0, '未匯入');
   assert.strictEqual(data.timings.name, 'apiBootstrap');
   const labels = data.timings.parts.map(function (p) { return p.label; });
-  ['主日清單', '發佈狀態', '職事表與資料模型', '週報與清單', 'Word 範本格數', '內容表狀態'].forEach(function (l) {
+  ['主日清單', '發佈狀態', '資料模型：本週職事表', '資料模型：程序表', '資料模型：其餘', '週報與清單', 'Word 範本格數', '內容表狀態'].forEach(function (l) {
     assert.ok(labels.indexOf(l) !== -1, '分段缺少：' + l + '（' + labels.join('、') + '）');
   });
   assert.ok(typeof data.timings.totalMs === 'number' && data.timings.totalMs >= 0);

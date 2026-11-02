@@ -1299,7 +1299,7 @@ function previewContentImport_(quarterId, options) {
   var contentData = readContentSheetTabs_(spreadsheet);
   t.mark('內容表：讀分頁');
   // 2026-10-30：上一季「連續到」本季的家事報告、代禱事項（src/ContentCarryOver.gs）。
-  var carryOver = readContentCarryOver_(qid, allServiceDates);
+  var carryOver = readContentCarryOver_(qid, allServiceDates, { cache: opts.carryOverCache || null });
   t.mark('內容表：上一季連續到');
   // ⚠️ 「連續到」一定要用**整季**的主日展開，之後才篩出要匯入的那一個
   // 主日——否則只匯入單一主日時，一條由上一週連登過來的報告會消失。
@@ -1795,7 +1795,8 @@ function autoImportContentForWeek_(isoDate, source, options) {
     if (isSpecialServiceRow_(weekRow)) return { ran: false, changed: 0, reason: 'SPECIAL_SERVICE', message: '' };
 
     // 2026-11-03：內容表沒有改過就不打開（打開內容表、讀所有分頁是載入最慢的一段）。
-    var signature = opts.skipIfUnchanged === true ? contentWeekImportSignature_(quarterId, contentRow, weekRow) : null;
+    var signatureDetail = {};
+    var signature = opts.skipIfUnchanged === true ? contentWeekImportSignature_(quarterId, contentRow, weekRow, signatureDetail) : null;
     var markerKey = CONTENT_WEEK_IMPORT_PROPERTY_PREFIX_ + iso;
     if (signature) {
       var last = readTimedScriptProperty_(markerKey, CONTENT_WEEK_IMPORT_MAX_AGE_SEC_);
@@ -1807,7 +1808,10 @@ function autoImportContentForWeek_(isoDate, source, options) {
       }
     }
 
-    var preview = previewContentImport_(quarterId, { isoDate: iso, timer: t });
+    // 2026-11-03（提速）：只在填寫介面平常載入（skipIfUnchanged）才用「上一季連續到」的記錄；重新載入（讀最新）、選單、觸發器一律打開上一季內容表。
+    var carryOverCache = (signature && signatureDetail.prevFileId)
+      ? { fileId: signatureDetail.prevFileId, mtime: signatureDetail.prevMtime } : null;
+    var preview = previewContentImport_(quarterId, { isoDate: iso, timer: t, carryOverCache: carryOverCache });
     t.mark('內容表：比較');
     if (!preview.ok) return { ran: true, changed: 0, reason: preview.reason || 'PREVIEW_FAILED', message: preview.message || '' };
     // 2026-11-02：持續狀況（未補上合堂三行、上一季內容表讀不到等）：匯入照做，但填寫介面要講出來。
@@ -1865,7 +1869,7 @@ var CONTENT_WEEK_IMPORT_SIGNATURE_VERSION_ = '2026-11-03';
  * Returns:
  *   {?string} 任何一個修改時間讀不到就回 `null`（＝不可以略過，照樣比較）。
  */
-function contentWeekImportSignature_(quarterId, contentRow, weekRow) {
+function contentWeekImportSignature_(quarterId, contentRow, weekRow, detailOut) {
   var own = readContentSheetLastUpdatedMillis_(contentRow && contentRow.FILE_ID);
   if (own === null) return null;
   var prevRow = findContentSheetRow_(previousQuarterId_(quarterId));
@@ -1873,6 +1877,8 @@ function contentWeekImportSignature_(quarterId, contentRow, weekRow) {
   if (prevRow) {
     prev = readContentSheetLastUpdatedMillis_(prevRow.FILE_ID);
     if (prev === null) return null;
+    // 2026-11-03（提速）：上一季內容表的修改時間交給「上一季連續到」用（readContentCarryOver_() 的記錄），不用再問一次。
+    if (detailOut) { detailOut.prevFileId = String(prevRow.FILE_ID || ''); detailOut.prevMtime = prev; }
   }
   return [CONTENT_WEEK_IMPORT_SIGNATURE_VERSION_, String(contentRow.FILE_ID || ''), own,
     prevRow ? String(prevRow.FILE_ID || '') : '', prev, canonicalSaveToken_(weekRow ? weekRow.LAST_SAVED_AT : '')].join('|');

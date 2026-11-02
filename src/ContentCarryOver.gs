@@ -156,11 +156,12 @@ function expandContentCarryOverRows_(rows, serviceDates) {
 
 /**
  * 用途：讀上一季內容表要帶入本季的行（見檔頭）。IO 層。
- *   ⚠️ 不用跨執行的快取（tests/configcache.test.js：人手編輯的資料不可以這樣快取）；每次匯入都
- *   開一次上一季的內容表（約一兩秒）。
+ *   2026-11-03：填寫介面平常載入時（`options.cache` 有上一季內容表的修改時間），修改時間與上次一樣、十分鐘之內，
+ *   就用記下的結果（同職事表快取的做法，以檔案修改時間把關）；其餘情況（選單匯入、觸發器、重新載入）每次都打開。
  * Args:
  *   quarterId {string} 本季。
  *   serviceDates {string[]} 本季全部主日，由舊到新。
+ *   options {{cache:?{fileId:string, mtime:number}}=} 見上。
  * Returns:
  *   {{rowsByTab:Object<string,Object[]>, warnings:string[], sourceQuarterId:string, unreadable:boolean=,
  *     skipThrough:Object<string,string>=, managedTabs:Object<string,string>=}}
@@ -169,12 +170,23 @@ function expandContentCarryOverRows_(rows, serviceDates) {
  * Raises:
  *   （無：讀不到就在 `warnings` 講明）
  */
-function readContentCarryOver_(quarterId, serviceDates) {
+function readContentCarryOver_(quarterId, serviceDates, options) {
   var prevQid = previousQuarterId_(quarterId);
   var out = { rowsByTab: {}, warnings: [], sourceQuarterId: prevQid };
   if (!prevQid || !serviceDates || serviceDates.length === 0) return out;
   var row = findContentSheetRow_(prevQid);
   if (!row) return out; // 上一季沒有內容表：正常，沒有東西帶過來。
+
+  // 2026-11-03（提速，同職事表快取的做法）：上一季內容表的修改時間與上次一樣、而且記下未超過十分鐘，就用記下的結果，
+  //    不打開上一季內容表。只在呼叫方傳入修改時間時才用（填寫介面平常載入）；讀不到、對不上一律照舊打開。
+  var cacheSpec = (options && options.cache && String(options.cache.fileId || '') === String(row.FILE_ID || '')
+    && typeof options.cache.mtime === 'number') ? options.cache : null;
+  var cacheKey = CARRY_OVER_CACHE_PREFIX_ + String(row.FILE_ID || '');
+  var cacheMatch = cacheSpec ? { v: CARRY_OVER_CACHE_VERSION_, mtime: cacheSpec.mtime, first: String(serviceDates[0]), quarter: prevQid } : null;
+  if (cacheMatch) {
+    var hit = readCarryOverCache_(cacheKey, cacheMatch);
+    if (hit) return Object.assign(out, hit);
+  }
 
   // 獨立審查 2026-10-30 第 2 項：上一季登記了內容表但讀不到——不知道有甚麼帶過來，**不可以**當沒有
   //    （否則本季已經帶入的行會被停用）。家事報告、代禱事項這一次整季不匯入，週報保留原有的內容。
@@ -201,5 +213,76 @@ function readContentCarryOver_(quarterId, serviceDates) {
   out.warnings = selected.warnings;
   out.skipThrough = selected.skipThrough;
   out.managedTabs = selected.managedTabs;
+  if (cacheMatch) {
+    storeCarryOverCache_(cacheKey, cacheMatch, {
+      rowsByTab: out.rowsByTab, warnings: out.warnings, skipThrough: out.skipThrough, managedTabs: out.managedTabs
+    });
+  }
   return out;
+}
+
+/** 2026-11-03：「上一季連續到」記錄的指令碼屬性鍵前綴（後面接上一季內容表的檔案 ID）。 */
+var CARRY_OVER_CACHE_PREFIX_ = 'CARRY_OVER_';
+
+/** 2026-11-03：記錄的格式或者揀行規則（selectContentCarryOverRows_()）改了就改這個值，舊記錄一律作廢。 */
+var CARRY_OVER_CACHE_VERSION_ = '2026-11-03';
+
+/** 2026-11-03：記錄的有效期（秒）。真正的把關是修改時間；有效期是防雲端硬碟的修改時間偶然遲更新。 */
+var CARRY_OVER_CACHE_MAX_AGE_SEC_ = 600;
+
+/** 2026-11-03：一個指令碼屬性放得下的字數上限（再大就不記，照舊打開上一季內容表）。 */
+var CARRY_OVER_CACHE_MAX_CHARS_ = 8500;
+
+/**
+ * 用途：讀「上一季連續到」的記錄；版本、修改時間、本季第一個主日、上一季 ID 任何一項對不上，或者過期、壞了，回 `null`。
+ * Args:
+ *   key {string}　match {{v:string, mtime:number, first:string, quarter:string}}
+ * Returns:
+ *   {?{rowsByTab:Object, warnings:string[], skipThrough:Object, managedTabs:Object}}
+ */
+function readCarryOverCache_(key, match) {
+  try {
+    var raw = readTimedScriptProperty_(key, CARRY_OVER_CACHE_MAX_AGE_SEC_);
+    if (!raw) return null;
+    var obj = JSON.parse(raw);
+    if (!obj || !obj.match || !obj.result) return null;
+    if (obj.match.v !== match.v || obj.match.mtime !== match.mtime || obj.match.first !== match.first
+      || obj.match.quarter !== match.quarter) return null;
+    return obj.result;
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
+ * 用途：記下「上一季連續到」的結果。結果有日期物件（JSON 會變成文字，bug class 4）或者太大，就不記。寫不到不影響匯入。
+ * Args:
+ *   key {string}　match {Object}　result {Object}
+ * Returns:
+ *   {boolean} 有沒有記下。
+ */
+function storeCarryOverCache_(key, match, result) {
+  try {
+    if (containsDateValue_(result)) return false;
+    var raw = JSON.stringify({ match: match, result: result });
+    if (raw.length > CARRY_OVER_CACHE_MAX_CHARS_) return false;
+    writeTimedScriptProperty_(key, raw);
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+/**
+ * 用途：一個值（物件、陣列）裏面有沒有日期物件。純函式。
+ * Args: value {*}
+ * Returns: {boolean}
+ */
+function containsDateValue_(value) {
+  if (value instanceof Date) return true;
+  if (Array.isArray(value)) return value.some(containsDateValue_);
+  if (value && typeof value === 'object') {
+    return Object.keys(value).some(function (k) { return containsDateValue_(value[k]); });
+  }
+  return false;
 }

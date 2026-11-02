@@ -327,7 +327,9 @@ function readSheet_(sheetName) {
   if (READ_SHEET_MEMO_ && Object.prototype.hasOwnProperty.call(READ_SHEET_MEMO_, sheetName)) {
     return READ_SHEET_MEMO_[sheetName].map(function (r) { return Object.assign({}, r); });
   }
+  var readStart = Date.now();
   var fresh = readSheetUncached_(sheetName, sheetId);
+  recordReadSheetStat_(sheetName, Date.now() - readStart);
   if (READ_SHEET_MEMO_) READ_SHEET_MEMO_[sheetName] = fresh.map(function (r) { return Object.assign({}, r); });
   return fresh;
 }
@@ -357,6 +359,43 @@ function withReadSheetMemo_(fn) {
   } finally {
     READ_SHEET_MEMO_ = null;
   }
+}
+
+/**
+ * 2026-11-03（先量度後才改）：這一次載入讀了哪幾張週報工作表、各用多少毫秒。`null`＝不記錄（預設）。
+ *   只給填寫介面的分段用時顯示，不影響任何判斷。
+ */
+var READ_SHEET_STATS_ = null;
+
+/** 用途：開始記錄讀工作表的用時（見 READ_SHEET_STATS_）。Returns: {void} */
+function beginReadSheetStats_() {
+  READ_SHEET_STATS_ = { count: 0, ms: 0, bySheet: {} };
+}
+
+/**
+ * 用途：記一次讀工作表的用時（沒有開始記錄就甚麼都不做）。
+ * Args: sheetName {string}　ms {number}
+ * Returns: {void}
+ */
+function recordReadSheetStat_(sheetName, ms) {
+  if (!READ_SHEET_STATS_) return;
+  READ_SHEET_STATS_.count++;
+  READ_SHEET_STATS_.ms += ms;
+  READ_SHEET_STATS_.bySheet[sheetName] = (READ_SHEET_STATS_.bySheet[sheetName] || 0) + ms;
+}
+
+/**
+ * 用途：取出記錄並停止記錄，組成一句「其中」說明（最慢的三張）。純函式以外只讀 READ_SHEET_STATS_。
+ * Returns:
+ *   {?{label:string, ms:number}} 沒有記錄或者一次都沒有讀＝`null`。
+ */
+function takeReadSheetStatsNote_() {
+  var s = READ_SHEET_STATS_;
+  READ_SHEET_STATS_ = null;
+  if (!s || s.count === 0) return null;
+  var slowest = Object.keys(s.bySheet).sort(function (a, b) { return s.bySheet[b] - s.bySheet[a]; }).slice(0, 3)
+    .map(function (name) { return name + ' ' + (s.bySheet[name] / 1000).toFixed(1); });
+  return { label: '（其中讀週報試算表 ' + s.count + ' 次；最慢：' + slowest.join('、') + ' 秒）', ms: s.ms };
 }
 
 /** 2026-11-03：寫入工作表之後清走 `readSheet_()` 的記憶（在記憶範圍之內才有作用）。 */

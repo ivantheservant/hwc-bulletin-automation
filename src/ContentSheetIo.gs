@@ -109,12 +109,25 @@ function createContentSpreadsheet_(fileName, folderId, domain) {
  */
 function readContentSheetLastUpdatedMillis_(fileId) {
   if (!fileId) return null;
+  var id = String(fileId);
+  var millis = null;
+  // 2026-11-03（提速）：先用 Drive API 只取修改時間（比 DriveApp 開整個檔案物件快）；取不到才照舊用 DriveApp。
   try {
-    var updated = DriveApp.getFileById(String(fileId)).getLastUpdated();
-    return (updated instanceof Date && !isNaN(updated.getTime())) ? updated.getTime() : null;
-  } catch (err) {
-    return null;
+    var meta = Drive.Files.get(id, driveSharedOptions_({ fields: 'modifiedTime' }));
+    var parsed = meta && meta.modifiedTime ? Date.parse(String(meta.modifiedTime)) : NaN;
+    if (isFinite(parsed)) millis = parsed;
+  } catch (driveErr) {
+    millis = null;
   }
+  if (millis === null) {
+    try {
+      var updated = DriveApp.getFileById(id).getLastUpdated();
+      millis = (updated instanceof Date && !isNaN(updated.getTime())) ? updated.getTime() : null;
+    } catch (err) {
+      millis = null;
+    }
+  }
+  return millis;
 }
 
 /**

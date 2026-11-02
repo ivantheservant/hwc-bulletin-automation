@@ -101,12 +101,15 @@ function hasCombinedAttendance_(week) {
  */
 function buildBulletinModel_(isoDate, options) {
   var opts = options || {};
+  // 2026-11-03（先量度後才改）：填寫介面傳入計時器，分段看資料模型每一步用多少時間。
+  var mt = opts.timer || noopLoadTimer_();
   var targetDate = normalizeDate_(isoDate);
   if (!targetDate) {
     throw new Error('buildBulletinModel_：isoDate 必須是 yyyy-MM-dd 格式，收到：' + JSON.stringify(isoDate));
   }
 
   var snapshot = readRosterSnapshot_(isoDate);
+  mt.mark('資料模型：本週職事表');
   if (snapshot.notConfigured) {
     return emptyBulletinModel_(isoDate, { ok: false, notConfigured: true, warnings: snapshot.warnings.slice() });
   }
@@ -138,6 +141,7 @@ function buildBulletinModel_(isoDate, options) {
         + (err && err.message ? err.message : String(err)) + '　下週事奉會留白。'
     });
   }
+  mt.mark('資料模型：下週職事表');
 
   var week = findBulletinWeekRow_(weekRows, isoDate);
   if (!week) {
@@ -195,7 +199,9 @@ function buildBulletinModel_(isoDate, options) {
     nextWeek: rosterFlowerName_(nextSnapshot)
   };
 
+  mt.mark('資料模型：週報行、覆寫與人數');
   var program = buildProgramTable_(week, snapshot);
+  mt.mark('資料模型：程序表');
   (program.editWarnings || []).forEach(function (w) { warnings.push(w); });
   // 2026-10-30：職事表把這一週設為合堂，但種類代號不在 Config COMBINED_KIND_TEMPLATES（src/CombinedService.gs）。
   if (program.unknownCombinedKind) {
@@ -259,6 +265,7 @@ function buildBulletinModel_(isoDate, options) {
     });
   }
 
+  mt.mark('資料模型：事奉框');
   return assembleBulletinModel_({
     isoDate: isoDate,
     // 2026-10-30：特別崇拜的家事報告、代禱、團契、財政、人數日期跟上一個主日。平常＝targetDate。

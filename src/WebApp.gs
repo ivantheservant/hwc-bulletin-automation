@@ -570,7 +570,10 @@ function apiAutoImportWeek(isoDate, options) {
     if (callerWebAppRole_() === WEBAPP_ROLE_.VIEW) {
       return { autoImport: { ran: false, changed: 0, reason: 'VIEW_ONLY', message: '' }, week: null, timings: timer.result() };
     }
+    beginReadSheetStats_();
     var autoImport = autoImportContentForWeek_(isoDate, 'WEBAPP_LOAD', { timer: timer, skipIfUnchanged: !fresh });
+    var importReadNote = takeReadSheetStatsNote_();
+    if (importReadNote) timer.note(importReadNote.label, importReadNote.ms);
     var week = null;
     if (Number(autoImport.changed || 0) > 0 || Number(autoImport.backfilled || 0) > 0) {
       week = withReadSheetMemo_(function () { return loadWeekForWebApp_(isoDate, timer); });
@@ -1976,8 +1979,9 @@ function missingSplitForWebApp_(missing) {
 function loadWeekForWebApp_(isoDate, timer) {
   var t = timer || noopLoadTimer_();
   ROSTER_FETCH_STATS_ = null;
-  var model = buildBulletinModel_(isoDate);
-  t.mark('職事表與資料模型');
+  beginReadSheetStats_();
+  var model = buildBulletinModel_(isoDate, { timer: t });
+  t.mark('資料模型：其餘');
   if (ROSTER_FETCH_STATS_) {
     t.note('（其中讀職事表，' + ({ SHEET: '打開職事表', CACHE: '快取' })[ROSTER_FETCH_STATS_.source] + '）', ROSTER_FETCH_STATS_.ms);
   }
@@ -2151,6 +2155,8 @@ function loadWeekForWebApp_(isoDate, timer) {
       model.quarterId || String(weekRow.QUARTER_ID || ''))
   };
   t.mark('其他（預覽連結、Word 檔案、發佈時段等）');
+  var readNote = takeReadSheetStatsNote_();
+  if (readNote) t.note(readNote.label, readNote.ms);
   return result;
 }
 

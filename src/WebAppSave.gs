@@ -1286,7 +1286,9 @@ function readRowsWithRowNo_(sheetName) {
   if (lastRow < 3) return [];
 
   var colCount = def.keys.length;
+  var readStart = Date.now();
   var values = sheet.getRange(3, 1, lastRow - 2, colCount).getValues();
+  recordReadSheetStat_(sheetName, Date.now() - readStart);
   var results = [];
 
   for (var r = 0; r < values.length; r++) {
