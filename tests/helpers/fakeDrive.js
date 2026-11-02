@@ -127,6 +127,14 @@ function makeFakeUtilities(options) {
       return zipped;
     },
     newBlob: function (content, contentType, name) {
+      // 2026-11-02：真的 Blob 由位元組建立時，getDataAsString() 是 UTF-8 解碼；
+      // 假替身照做（記下原本的位元組，測試可以核對編碼）。
+      if (Array.isArray(content)) {
+        const bytes = Uint8Array.from(content.map(function (b) { return b < 0 ? b + 256 : b; }));
+        const blob = makeFakeBlob(new TextDecoder('utf-8', { fatal: true }).decode(bytes), name, contentType);
+        blob.__bytes = content.slice();
+        return blob;
+      }
       return makeFakeBlob(content, name, contentType);
     },
     formatDate: function () { return '2027-11-07 09:00'; }

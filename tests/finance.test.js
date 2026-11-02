@@ -237,6 +237,53 @@ test('F-7 這一期沒有財政報告：兩款都不印，表格全部拿走', f
   assert.strictEqual(visibleText(xml).replace(/\|/g, ''), '講題一');
 });
 
+// 2026-11-02（舊週報核對：2026-08-30 合堂沒有團契，舊範本印了只有表頭的空團契表）。
+function fellowshipTemplate() {
+  const c = function (t) { return fx.cell(fx.para(fx.run(t))); };
+  return buildFakeDocx(fx.documentXml(
+    fx.para(fx.run('{{SERMON_TITLE}}'))
+    + fx.para(fx.run('{{#IFP:FELLOWSHIP_SHOW}}本週團契聚會內容：'))
+    + fx.table([
+      fx.row([c('{{#IF:FELLOWSHIP_SHOW}}團契'), c('日期'), c('時間'), c('週會內容')]),
+      fx.row([c('{{#EACH:FELLOWSHIP}}{{FELLOWSHIP.NAME}}'), c('{{FELLOWSHIP.DATE}}'), c('{{FELLOWSHIP.TIME}}'), c('{{FELLOWSHIP.CONTENT}}')])
+    ])
+  ));
+}
+function wordEnvWithFellowships(rows) {
+  const env = makeWordEnv({
+    driveOptions: { files: { FAKE_TEMPLATE_ID_NORMAL: fellowshipTemplate() } },
+    weekRows: [
+      { SERVICE_DATE: D, QUARTER_ID: '2027T4', WEEK_OF_MONTH: 1, STATUS: 'DRAFT', SERMON_TITLE: '講題一' },
+      { SERVICE_DATE: D_NEXT, QUARTER_ID: '2027T4', WEEK_OF_MONTH: 2, STATUS: 'DRAFT', SERMON_TITLE: '講題二' }
+    ]
+  });
+  env.sandbox.writeSheet_('Fellowships', rows);
+  return env;
+}
+
+test('F-11 這一期沒有團契聚會：「本週團契聚會內容：」與團契表（連表頭）都不印', function () {
+  const env = wordEnvWithFellowships([]);
+  const r = env.sandbox.generateBulletinDocx_(D);
+  assert.strictEqual(r.ok, true, JSON.stringify(r));
+  const xml = documentXmlOf(r.blob);
+  assert.strictEqual(xml.indexOf('<w:tbl>'), -1, '空團契表要整張拿走');
+  assert.strictEqual(visibleText(xml).replace(/\|/g, ''), '講題一');
+});
+
+test('F-12 有團契聚會：標題段落、表頭與每一行照印，沒有殘留佔位符', function () {
+  const env = wordEnvWithFellowships([
+    { SERVICE_DATE: new Date(2027, 10, 7), SEQ_NO: 10, FELLOWSHIP_NAME: '彼得團', MEETING_DATE: '7/11星期日', MEETING_TIME: '4:30pm', CONTENT: '講道分享', ACTIVE: true }
+  ]);
+  const r = env.sandbox.generateBulletinDocx_(D);
+  assert.strictEqual(r.ok, true, JSON.stringify(r));
+  const xml = documentXmlOf(r.blob);
+  const text = visibleText(xml);
+  ['本週團契聚會內容：', '團契|日期|時間|週會內容', '彼得團|7/11星期日|4:30pm|講道分享'].forEach(function (p) {
+    assert.ok(text.indexOf(p) !== -1, '缺少：' + p + '\n' + text);
+  });
+  assert.ok(xml.indexOf('{{') === -1, '不可以殘留佔位符');
+});
+
 test('F-8 removeRowlessTables_：表格在儲存格內、拿走之後那一格沒有段落 → 補一個空段落；有行的表格不碰', function () {
   const sb = makeWordEnv({}).sandbox;
   const inner = '<w:tbl><w:tblPr/></w:tbl>';

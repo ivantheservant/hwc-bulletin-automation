@@ -318,6 +318,10 @@ function buildRenderContext_(model, options) {
   values.FLOWER_NEXT_WEEK = renderValueText_(flowers.nextWeek);
   // 2026-10-30：一整行（沒有名字的那一半不印；兩邊都沒有就整行不印，範本用 {{#IFP:FLOWER_LINE}}）。
   values.FLOWER_LINE = buildFlowerLine_(flowers, opts.flowerLine);
+  // 2026-11-02（舊週報核對：08-30 合堂沒有團契，印了只有表頭的空表）：這一期有團契聚會才有字。
+  //    範本的「本週團契聚會內容：」段落用 {{#IFP:FELLOWSHIP_SHOW}}、表頭列用 {{#IF:FELLOWSHIP_SHOW}}，
+  //    沒有團契時兩者都拿走，表格沒有任何一行就整個拿走（removeRowlessTables_()）。
+  values.FELLOWSHIP_SHOW = (m.fellowships && m.fellowships.length > 0) ? '有' : '';
 
   // ---- 其他 ----
   values.PRAYER_BLOCK_HEADING = renderValueText_(prayerBlock.heading);

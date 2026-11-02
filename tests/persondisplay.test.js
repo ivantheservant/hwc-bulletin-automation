@@ -96,6 +96,18 @@ test('有 PersonDisplay 行、withHonorific=false → 只有姓名（弟兄姊�
   assert.strictEqual(resolvePersonDisplay_('P9001', '陳大文', o), '陳大文');
 });
 
+test('2026-11-02：姓名快照本身已經以尊稱結尾（黃余麗貞師母）→ 不再加一次', function () {
+  var row = personRow({ PERSON_ID: 'P9002', NAME_TC: '黃余麗貞師母', HONORIFIC: '師母' });
+  var o = opts({ personDisplayRows: [row] });
+  assert.strictEqual(resolvePersonDisplay_('P9002', '黃余麗貞師母', o), '黃余麗貞師母');
+  var o2 = opts({ withHonorific: false, personDisplayRows: [row] });
+  assert.strictEqual(resolvePersonDisplay_('P9002', '黃余麗貞師母', o2), '黃余麗貞師母', '第 3 頁（不加弟兄姊妹）職稱類亦不可以重複');
+  var slot = { postId: 'PIANIST', state: ROSTER_SLOT_STATE_.ASSIGNED, personId: 'P9002', personName: '黃余麗貞師母' };
+  assert.strictEqual(resolveSlotDisplay_(slot, opts({ personDisplayRows: [row] })), '黃余麗貞師母', '經 resolveSlotDisplay_() 亦一樣');
+  // 姓名剛好就是尊稱兩個字以外的情況照舊加。
+  assert.strictEqual(resolvePersonDisplay_('P9001', '陳大文', opts({ personDisplayRows: [personRow()] })), '陳大文弟兄');
+});
+
 test('找不到 PersonDisplay 行 → 用原名，並記一筆 NO_PERSON_DISPLAY 警告（不可以靜靜當成沒有尊稱）', function () {
   var o = opts({ personDisplayRows: [] });
   assert.strictEqual(resolvePersonDisplay_('P9002', '李小明', o), '李小明');

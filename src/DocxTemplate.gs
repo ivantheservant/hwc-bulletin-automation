@@ -219,6 +219,48 @@ function escapeXmlText_(s) {
 }
 
 /**
+ * 用途：把字串編成 UTF-8 位元組（Java 的有號 byte，-128..127），給 `Utilities.newBlob()` 用。純函式。
+ *
+ *   ⚠️ 2026-11-02（舊週報核對）：`Utilities.newBlob(字串, …)` 把 BMP 以外的字（例如「愛𥚃同行」的
+ *   U+25683、emoji）逐個代理對（surrogate）各自編成三個位元組（CESU-8），Word／雲端硬碟讀出來是
+ *   兩個「�」。工作表裏的字是對的，壞在寫 document.xml 那一步。所以 document.xml 一律由這裏
+ *   按「碼位」自己編好位元組再交給 `Utilities.newBlob()`。落單的代理（不成對）編成 U+FFFD。
+ * Args:
+ *   s {*} 任意值（`null`／`undefined` 當空字串）。
+ * Returns:
+ *   {number[]} 有號位元組。
+ */
+function encodeUtf8Bytes_(s) {
+  var str = String(s === null || s === undefined ? '' : s);
+  var out = [];
+  function push(b) { out.push(b > 127 ? b - 256 : b); }
+  for (var i = 0; i < str.length; i++) {
+    var c = str.charCodeAt(i);
+    if (c >= 0xD800 && c <= 0xDBFF && i + 1 < str.length) {
+      var d = str.charCodeAt(i + 1);
+      if (d >= 0xDC00 && d <= 0xDFFF) {
+        c = 0x10000 + ((c - 0xD800) << 10) + (d - 0xDC00);
+        i++;
+      } else {
+        c = 0xFFFD;
+      }
+    } else if (c >= 0xD800 && c <= 0xDFFF) {
+      c = 0xFFFD;
+    }
+    if (c < 0x80) {
+      push(c);
+    } else if (c < 0x800) {
+      push(0xC0 | (c >> 6)); push(0x80 | (c & 0x3F));
+    } else if (c < 0x10000) {
+      push(0xE0 | (c >> 12)); push(0x80 | ((c >> 6) & 0x3F)); push(0x80 | (c & 0x3F));
+    } else {
+      push(0xF0 | (c >> 18)); push(0x80 | ((c >> 12) & 0x3F)); push(0x80 | ((c >> 6) & 0x3F)); push(0x80 | (c & 0x3F));
+    }
+  }
+  return out;
+}
+
+/**
  * 用途：把一個**要填進範本的值**轉成可以直接塞進 `<w:t>` 的 Word 文字。
  *   全部值一律經過這個函式，不可以繞過。
  *

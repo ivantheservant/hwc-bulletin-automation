@@ -410,7 +410,8 @@ function renderDocxFromTemplate_(fileId, filename, transformXml) {
   // ⚠️ 只換這一個 entry，其餘保持原物件不動。
   entries[documentIndex] = {
     name: originalName,
-    blob: Utilities.newBlob(renderedXml, 'application/xml', originalName)
+    // ⚠️ 2026-11-02：不可以直接傳字串（BMP 以外的字會變成兩個「�」），見 encodeUtf8Bytes_()。
+    blob: Utilities.newBlob(encodeUtf8Bytes_(renderedXml), 'application/xml', originalName)
   };
 
   return {

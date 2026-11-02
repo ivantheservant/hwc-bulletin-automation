@@ -122,6 +122,10 @@ function resolvePersonDisplay_(personId, nameSnapshot, options) {
   var honorific = String(row.HONORIFIC || '').trim();
   if (!honorific) return baseName;
   if (!opts.withHonorific && !isTitleHonorific_(honorific)) return baseName;
+  // 2026-11-02（舊週報核對）：職事表的姓名快照本身已經帶尊稱（例如「黃余麗貞師母」）
+  // 就不再加一次，否則會印出「黃余麗貞師母師母」。
+  if (baseName.length > honorific.length
+    && baseName.slice(baseName.length - honorific.length) === honorific) return baseName;
 
   return baseName + honorific;
 }
