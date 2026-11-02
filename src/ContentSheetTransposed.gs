@@ -238,7 +238,12 @@ function detectAttendanceTabLayout_(sheet, tabDef) {
   var row2Blank = row2.every(function (v) { return v === ''; });
   if (row2Blank && (Number(sheet.getLastRow()) || 0) >= CONTENT_SHEET_FIRST_DATA_ROW_) {
     var state = blankHeaderDataState_(sheet, keys.length);
-    if (state.hasData && !state.beyond && attendanceLastColumnHasData_(sheet, keys.length)) return 'ROWS_NO_HEAD';
+    // 第 1 行亦要空白、第 3 行 A 欄要是日期（橫放的資料由第 1 行起，A 欄是標題），才當作現行位置（獨立審查 2026-11-03）。
+    var row1 = sheet.getRange(1, 1, 1, keys.length).getValues()[0];
+    var row1Blank = row1.every(function (v) { return v === '' || v === null || v === undefined; });
+    var a3 = sheet.getRange(CONTENT_SHEET_FIRST_DATA_ROW_, 1, 1, 1).getValues()[0][0];
+    var a3Date = (a3 instanceof Date) || /^\d{4}-\d{2}-\d{2}$/.test(String(a3 || '').trim());
+    if (state.hasData && !state.beyond && row1Blank && a3Date && attendanceLastColumnHasData_(sheet, keys.length)) return 'ROWS_NO_HEAD';
   }
   var older = detectTransposedTabLayout_(sheet, tabDef);
   return older === 'ROWS' ? 'ROWS_LEGACY' : older;

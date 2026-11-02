@@ -1762,7 +1762,7 @@ function buildContentImportReportLines_(result) {
  *   options {{timer:Object=, skipIfUnchanged:boolean=}=} 2026-11-03：`timer` 見 src/LoadTiming.gs；
  *     `skipIfUnchanged:true`＝這一季與上一季內容表的修改時間、這一週的最後儲存時間都與上一次（成功預覽）一樣，
  *     就不打開內容表，回 `reason:'UNCHANGED'`（連上一次的 `notices`，持續狀況照樣講出來）。記錄只是省時間、
- *     不是真相來源：讀不到修改時間、過期（一日）、系統更新了匯入規則（`CONTENT_WEEK_IMPORT_SIGNATURE_VERSION_`）
+ *     不是真相來源：讀不到修改時間、過期（三十分鐘）、系統更新了匯入規則（`CONTENT_WEEK_IMPORT_SIGNATURE_VERSION_`）
  *     都照樣匯入一次。
  * Returns:
  *   {{ran:boolean, changed:number, reason:string, message:string, notices:string[]=}}
@@ -1823,11 +1823,9 @@ function autoImportContentForWeek_(isoDate, source, options) {
       newValue: '+' + applied.plan.added + ' ~' + applied.plan.updated + ' -' + applied.plan.removed,
       notes: '自動由內容表匯入 ' + iso + '（季度 ' + quarterId + '，' + String(source || '') + '）。'
     });
-    if (signature) {
-      // 寫入之後這一週的最後儲存時間可能變了：按寫入之後的樣子再算一次。
-      var after = contentWeekImportSignature_(quarterId, contentRow, findBulletinWeekRow_(readSheet_(SHEETS.BULLETIN_WEEKS), iso));
-      if (after) rememberContentWeekImport_(markerKey, after, notices);
-    }
+    // ⚠️ 記下的是預覽**之前**讀的指紋（獨立審查 2026-11-03）：寫入之後再讀修改時間的話，預覽與寫入之間有人改了內容表，
+    //    那一次改動會被當成已經匯入。匯入不改這一週的最後儲存時間，所以用同一個指紋沒有問題。
+    if (signature) rememberContentWeekImport_(markerKey, signature, notices);
     return { ran: true, changed: changeCount, backfilled: backfilled, reason: '', message: '', notices: notices };
   } catch (err) {
     appendErrorLog_({
@@ -1844,8 +1842,9 @@ function autoImportContentForWeek_(isoDate, source, options) {
 /** 2026-11-03：指令碼屬性鍵前綴：每一個主日上一次（成功預覽）自動匯入時的內容表修改時間與最後儲存時間。 */
 var CONTENT_WEEK_IMPORT_PROPERTY_PREFIX_ = 'CS_WEEK_IMPORT_';
 
-/** 2026-11-03：上面那個記錄的有效期（秒）：一日。過期就照樣打開內容表比較一次。 */
-var CONTENT_WEEK_IMPORT_MAX_AGE_SEC_ = 24 * 3600;
+/** 2026-11-03：上面那個記錄的有效期（秒）：三十分鐘（與內容表自動同步同一個間隔）。過期就照樣打開內容表比較一次——
+ *   人手直接改週報試算表（不經填寫介面、不改最後儲存時間）的話，最多三十分鐘之內由內容表再匯入一次（獨立審查 2026-11-03）。 */
+var CONTENT_WEEK_IMPORT_MAX_AGE_SEC_ = 30 * 60;
 
 /** 2026-11-03：匯入規則的版本。系統改了匯入規則（例如加了欄）就改這個值，所有主日下一次載入都會照樣比較一次。 */
 var CONTENT_WEEK_IMPORT_SIGNATURE_VERSION_ = '2026-11-03';

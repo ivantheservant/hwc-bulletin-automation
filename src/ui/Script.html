@@ -206,6 +206,9 @@
 
     var mainContent = document.getElementById('mainContent');
     if (busy) mainContent.classList.add('is-busy'); else mainContent.classList.remove('is-busy');
+    // 2026-11-03（獨立審查）：遮罩只擋滑鼠；鍵盤（Tab）仍然可以進入輸入框打字，背景匯入回來重畫時會蓋走。
+    //    處理中把整個內容區設為 inert（不可以聚焦、不可以輸入）。
+    mainContent.inert = busy;
 
     document.getElementById('weekSelect').disabled = busy;
     document.getElementById('quarterSelect').disabled = busy;
@@ -3096,7 +3099,9 @@
       busyText: '已顯示週報現有的內容；仍在載入：正在由內容表匯入最新內容（第 2 步，共 2 步）。完成之前不可以修改或按按鈕。',
       onError: function (message) {
         renderLoadTimings([firstTimings]);
-        showMessage('info', '這一週未能自動由內容表匯入：' + message + '　畫面顯示的是週報現有的內容。');
+        // 2026-11-03（獨立審查）：沒有回應不等於沒有做——伺服器可能仍在匯入。
+        showMessage('info', '這一週未能確認是否已由內容表匯入：' + message + '　畫面顯示的是週報現有的內容；'
+          + '伺服器可能仍在匯入，請過一兩分鐘再重新載入這一週核對。');
       }
     });
   }
@@ -3104,7 +3109,7 @@
   /**
    * 用途：2026-11-03：頂部統計列旁邊顯示這一次載入用了多少時間（滑鼠停留看分段），並寫入瀏覽器主控台。只是量度。
    * Args:
-   *   list {Array<?{name:string, totalMs:number, parts:{label:string, ms:number}[]}>} 伺服器各次呼叫的 `timings`。
+   *   list {Object[]} 伺服器各次呼叫的 `timings`（name、totalMs、parts）；空的一項略過。
    * Returns:
    *   {void}
    */

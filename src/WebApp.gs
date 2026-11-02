@@ -2364,7 +2364,14 @@ function buildListOriginNote_(originDate, originUntil, listIso, weekRows, thisQu
   var until = normalizeContentCompareValue_(originUntil);
   var fromRow = findBulletinWeekRow_(weekRows || [], from);
   var fromQuarter = fromRow ? String(fromRow.QUARTER_ID || '').trim() : '';
-  var otherQuarter = fromQuarter ? (fromQuarter !== String(thisQuarterId || '')) : (from < String(listIso || ''));
+  // 週報試算表沒有那一日（例如上一季未建立）：早過本季第一個主日才算上一季（獨立審查 2026-11-03）。
+  var firstOfQuarter = '';
+  (weekRows || []).forEach(function (r) {
+    if (String(r.QUARTER_ID || '').trim() !== String(thisQuarterId || '')) return;
+    var iso = normalizeContentCompareValue_(r.SERVICE_DATE);
+    if (iso && (!firstOfQuarter || iso < firstOfQuarter)) firstOfQuarter = iso;
+  });
+  var otherQuarter = fromQuarter ? (fromQuarter !== String(thisQuarterId || '')) : (firstOfQuarter ? from < firstOfQuarter : false);
   return '連續項目：由 ' + from + ' 起' + (until ? '，連續到 ' + until : '')
     + (otherQuarter ? '（' + (fromQuarter ? '上一季 ' + fromQuarter : '上一季') + '的內容表）' : '（本季內容表）');
 }

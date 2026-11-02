@@ -566,6 +566,9 @@ function planContentSheetV4_(input) {
         if (k === 'SERVICE_DATE') return;
         if (k === 'ACTIVE') { row[k] = 'TRUE'; return; }
         if (!src) { row[k] = ''; return; }
+        // 2026-11-03（獨立審查）：舊分頁根本沒有這一格（未有合堂三格的舊版、或者未補三行的橫放）：用週報那一期現有的值，
+        //    不可以寫空白——之後匯入會以內容表為準，把週報已有的值清走。
+        if (!Object.prototype.hasOwnProperty.call(src, k)) { row[k] = printedIn ? migrationText_(printedIn[k]) : ''; return; }
         row[k] = srcCell(src, k, printedIn ? migrationText_(printedIn[k]) : '', plan.attendance.cellIssues, att.tabName || '崇拜人數', iso);
       });
       plan.attendance.rows.push(row);

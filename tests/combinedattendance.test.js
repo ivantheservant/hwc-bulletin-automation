@@ -458,6 +458,8 @@ test('CA-14 預覽（apiPreviewContentSheetBuild）：講明會重新整理並�
 
 test('CA-15 更新（apiRunContentSheetBuild）：新分頁有合堂三欄（「有效」之前）、人數照搬；舊分頁改名隱藏、一格不改；再按一次不變；之後匯入合堂三格', function () {
   const env = contentEnv.makeEnv({ attendanceLayout: 'rowsLegacy', content: { 崇拜人數: attRows() } });
+  // 獨立審查 2026-11-03：週報已經有一個合堂值（人手補的）→ 重新整理時帶入新分頁，之後匯入不清走。
+  env.sandbox.writeBulletinWeekField_(DATES[4], 'ATT_COMB_PRAYER', '7');
   const old = plain(env.contentTabs['崇拜人數'].__data);
   const resp = env.sandbox.apiRunContentSheetBuild(QUARTER_ID);
   assert.strictEqual(resp.ok, true, JSON.stringify(resp));
@@ -488,6 +490,8 @@ test('CA-15 更新（apiRunContentSheetBuild）：新分頁有合堂三欄（「
   assert.strictEqual(imp.data.lines.join('\n').indexOf('未有合堂三欄'), -1, '更新之後不再提示');
   assert.strictEqual(String(weekOf(env, DATES[2]).ATT_COMB_WORSHIP), '231');
   assert.strictEqual(String(weekOf(env, DATES[0]).ATT_ENG_WORSHIP), '50');
+  assert.strictEqual(cellOf(now, 'ATT_COMB_PRAYER', DATES[3]), '7', '週報已有的合堂值帶入新分頁');
+  assert.strictEqual(String(weekOf(env, DATES[4]).ATT_COMB_PRAYER), '7', '匯入不清走');
 });
 
 test('CA-16 第 2 行（機器鍵）被改過（位置不明）→ 更新不碰「崇拜人數」（與其他認不出的版面一樣）、匯入整次拒絕', function () {

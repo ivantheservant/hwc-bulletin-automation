@@ -194,6 +194,9 @@ function readTemplateDutySlots_(fileId) {
 /** 2026-11-03：指令碼屬性鍵前綴：Word 範本的事奉格數（連範本的修改時間）。 */
 var DUTY_SLOTS_PROPERTY_PREFIX_ = 'DUTY_SLOTS_';
 
+/** 2026-11-03：格數的計法（templateDutySlotsFromXml_()）改了就改這個值，舊記錄一律作廢（獨立審查）。 */
+var DUTY_SLOTS_CACHE_VERSION_ = '2026-11-03';
+
 /** 2026-11-03：上面那個記錄的有效期（秒）：三十日。真正的把關是範本的修改時間，有效期只是清走很久沒用的記錄。 */
 var DUTY_SLOTS_MAX_AGE_SEC_ = 30 * 24 * 3600;
 
@@ -217,12 +220,12 @@ function readTemplateDutySlotsCached_(fileId) {
     if (hit) {
       try {
         var obj = JSON.parse(hit);
-        if (obj && obj.mtime === mtime && obj.slots) return obj.slots;
+        if (obj && obj.mtime === mtime && obj.version === DUTY_SLOTS_CACHE_VERSION_ && obj.slots) return obj.slots;
       } catch (parseErr) { /* 照樣讀範本 */ }
     }
   }
   var slots = readTemplateDutySlots_(fileId);
-  if (mtime !== null) writeTimedScriptProperty_(key, JSON.stringify({ mtime: mtime, slots: slots }));
+  if (mtime !== null) writeTimedScriptProperty_(key, JSON.stringify({ mtime: mtime, version: DUTY_SLOTS_CACHE_VERSION_, slots: slots }));
   return slots;
 }
 

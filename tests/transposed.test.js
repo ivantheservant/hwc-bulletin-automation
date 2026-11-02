@@ -191,7 +191,10 @@ test('R-6 2026-11-02 之前的橫放（未有合堂三行）：匯入照常、�
   assert.strictEqual(env.sandbox.apiRunContentSheetBuild(QUARTER_ID).data.ok, true);
   const sheet = env.contentSpreadsheet.getSheetByName('崇拜人數');
   assert.strictEqual(env.sandbox.detectAttendanceTabLayout_(sheet, attDef(env)), 'ROWS');
-  assert.strictEqual(rowCell(sheet, 'ATT_COMB_WORSHIP', minus7(DATES[3])), '');
+  // 獨立審查 2026-11-03：舊分頁沒有合堂三格 → 新分頁用週報那一期現有的值，之後匯入不會清走。
+  assert.strictEqual(rowCell(sheet, 'ATT_COMB_WORSHIP', minus7(DATES[3])), '199');
+  assert.strictEqual(env.sandbox.apiRunQuarterContentImport(QUARTER_ID).data.ok, true);
+  assert.strictEqual(String(weekOf(env, DATES[3]).ATT_COMB_WORSHIP), '199');
   assert.strictEqual(rowCell(sheet, 'ATT_ENG_WORSHIP', minus7(DATES[3])), '53');
 });
 

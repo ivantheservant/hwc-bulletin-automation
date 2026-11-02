@@ -27,9 +27,12 @@ function maskConfigValueForReport_(key, value) {
     var count = v.split(/[,，\s]+/).filter(function (x) { return /@/.test(x); }).length;
     return '（已填 ' + count + ' 個電郵）';
   }
-  if (/(_ID|_FOLDER_ID|_FILE_ID|SPREADSHEET_ID)$/.test(String(key || '')) && /^[A-Za-z0-9_-]{15,}$/.test(v)) {
+  // 2026-11-03（獨立審查）：鍵名任何位置有 _ID（例如 TEMPLATE_FILE_ID_NORMAL）都當 ID；網址只顯示網域。
+  if (/_ID(_|$)/.test(String(key || '')) && /^[A-Za-z0-9_-]{15,}$/.test(v)) {
     return v.slice(0, 6) + '…（ID）';
   }
+  var url = /^https?:\/\/([^\/?#]+)/i.exec(v);
+  if (url) return url[1] + '/…（網址）';
   v = v.replace(/\r?\n/g, '⏎');
   return v.length > 80 ? v.slice(0, 80) + '…' : v;
 }

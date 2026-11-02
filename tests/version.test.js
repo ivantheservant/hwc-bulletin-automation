@@ -42,17 +42,23 @@ test('V-2 設定差異檢查：缺少、不認識、與預設值不同、匯出�
   ];
   const rows = [
     { KEY: 'A_NAME', VALUE: '英語堂' }, { KEY: 'B_FOLDER_ID', VALUE: '1AbCdEfGhIjKlMnOpQrStUv' },
-    { KEY: 'C_EMAILS', VALUE: 'a@x.org, b@x.org' }, { KEY: 'OLD_KEY', VALUE: 'y' }
+    { KEY: 'C_EMAILS', VALUE: 'a@x.org, b@x.org' }, { KEY: 'OLD_KEY', VALUE: 'y' },
+    { KEY: 'TEMPLATE_FILE_ID_NORMAL', VALUE: '1CaOXqCmkvz8NSjAzBmDSlJaRU5dBIkN4' },
+    { KEY: 'WEBAPP_URL', VALUE: 'https://script.google.com/a/macros/x.org/s/AKfycbwSECRETSECRETSECRET/exec' }
   ];
   const r = sb.buildConfigDiffReport_(rows, defaults, { version: '2026.11.03', congregation: '英語堂', generatedAt: 'now' });
   assert.deepStrictEqual(JSON.parse(JSON.stringify(r.missing)), ['D_MISSING']);
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(r.unknown)), ['OLD_KEY']);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(r.unknown)), ['OLD_KEY', 'TEMPLATE_FILE_ID_NORMAL', 'WEBAPP_URL']);
   assert.deepStrictEqual(JSON.parse(JSON.stringify(r.differs)), ['A_NAME', 'B_FOLDER_ID', 'C_EMAILS']);
   const text = r.lines.join('\n');
   ['系統版本：2026.11.03　堂會：英語堂', 'A_NAME：現在「英語堂」，預設「粵語堂」', 'B_FOLDER_ID＝1AbCdE…（ID）', 'C_EMAILS＝（已填 2 個電郵）',
     '【缺少的設定（1 個）】', 'OLD_KEY＝y'].forEach(function (p) { assert.ok(text.indexOf(p) !== -1, '缺少：' + p + '\n' + text); });
   assert.strictEqual(text.indexOf('a@x.org'), -1, '電郵不可以出現在報告');
   assert.strictEqual(text.indexOf('1AbCdEfGhIjKlMnOpQrStUv'), -1, '完整 ID 不可以出現在報告');
+  assert.strictEqual(text.indexOf('1CaOXqCmkvz8NSjAzBmDSlJaRU5dBIkN4'), -1, '鍵名中間有 _ID 亦要遮蔽');
+  assert.ok(text.indexOf('TEMPLATE_FILE_ID_NORMAL＝1CaOXq…（ID）') !== -1, text);
+  assert.strictEqual(text.indexOf('AKfycbwSECRET'), -1, '網址只顯示網域');
+  assert.ok(text.indexOf('WEBAPP_URL＝script.google.com/…（網址）') !== -1, text);
 });
 
 test('V-3 堂會名稱：Config 改了，Word 檔名的 {{CONGREGATION}}、電郵範本的 {{CongregationName}}、填寫介面頁底跟着變；舊的字面檔名樣式照舊', function () {

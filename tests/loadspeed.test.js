@@ -202,5 +202,48 @@ test('LS-9 內容表狀態列（版面是不是最新）：內容表沒有改過
   assert.strictEqual(t.opened.content, base + 1, '改了要重新檢查');
 });
 
+test('LS-10 獨立審查：預覽與寫入之間有人改了內容表 → 下一次不可以當作 UNCHANGED（記下的是預覽之前的指紋）', function () {
+  const t = makeSpeedEnv();
+  const sb = t.sb;
+  const realWrite = sb.writeContentImportPlan_;
+  let edited = false;
+  sb.writeContentImportPlan_ = function () {
+    realWrite.apply(this, arguments);
+    if (edited) return;
+    edited = true;
+    const tab = t.env.contentTabs['家事報告'];
+    tab.__data[2][tab.__data[1].indexOf('TEXT')] = '改過的家事';
+    t.mtimes.FAKE_CONTENT_FILE += 60000;
+  };
+  assert.ok(sb.apiAutoImportWeek(D1).data.autoImport.changed > 0);
+  const second = sb.apiAutoImportWeek(D1);
+  assert.notStrictEqual(second.data.autoImport.reason, 'UNCHANGED', JSON.stringify(second.data.autoImport));
+  assert.ok(announcementsOf(t.env, D1).some(function (a) { return a.TEXT === '改過的家事'; }), '改動要匯入');
+});
+
+test('LS-11 獨立審查：記錄三十分鐘之後過期（人手直接改週報試算表時，最多三十分鐘內再比較一次）', function () {
+  const t = makeSpeedEnv();
+  t.sb.apiAutoImportWeek(D1);
+  assert.strictEqual(t.sb.apiAutoImportWeek(D1).data.autoImport.reason, 'UNCHANGED');
+  Object.keys(t.props).forEach(function (k) {
+    if (k.indexOf('CS_WEEK_IMPORT_') !== 0) return;
+    const rec = JSON.parse(t.props[k]);
+    rec.at -= 31 * 60 * 1000;
+    t.props[k] = JSON.stringify(rec);
+  });
+  assert.strictEqual(t.sb.apiAutoImportWeek(D1).data.autoImport.reason, '', '過期之後照樣比較');
+});
+
+test('LS-12 獨立審查：Script.html、Style.html 一個「<?」都不可以有（include() 經樣板引擎，註解亦會被讀）', function () {
+  const fs = require('fs');
+  const path = require('path');
+  ['Script.html', 'Style.html'].forEach(function (f) {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'ui', f), 'utf8');
+    assert.strictEqual(src.indexOf('<?'), -1, f + ' 有「<?」');
+  });
+  const index = fs.readFileSync(path.join(__dirname, '..', 'src', 'ui', 'Index.html'), 'utf8');
+  (index.match(/<!--[\s\S]*?-->/g) || []).forEach(function (c) { assert.strictEqual(c.indexOf('<?'), -1, '註解內有樣板標籤：' + c); });
+});
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail === 0 ? 0 : 1);
