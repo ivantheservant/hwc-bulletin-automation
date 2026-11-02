@@ -622,6 +622,23 @@ test('T7-1 v4 甲區塊（worship）狀態列講明三欄在內容表「崇拜�
   assertWrittenChinese(assert, '狀態列', [text, barText(none), barText(old)]);
 });
 
+test('T7-1b 特別崇拜（非主日）：甲區塊狀態列講明讀經經文、證道講題、回應詩歌在這裏填（不是「只顯示」）；清單區塊照舊講跟上一個主日、只顯示', function () {
+  const t = loadBarRegion();
+  const info = { exists: true, fileUrl: 'https://example.invalid/x', lastImportedAt: '2027-10-01 10:00',
+    specialService: { title: '受苦節', contentSourceIso: '2027-10-03', nextSundayIso: '2027-10-10' } };
+  const worship = t.makeEl('div');
+  worship.attrs['data-content-sheet-bar'] = 'worship';
+  t.render(worship, info);
+  const text = barText(worship);
+  assert.strictEqual(text, '特別崇拜：內容表沒有這一日，本區各欄（包括讀經經文、證道講題、回應詩歌）都在這裏填。');
+  assert.strictEqual(text.indexOf('只顯示'), -1);
+  const list = t.makeEl('div');
+  list.attrs['data-content-sheet-bar'] = '';
+  t.render(list, info);
+  assert.ok(barText(list).indexOf('特別崇拜：本區跟 2027-10-03 那一個主日（只顯示；要改請改那一個主日的內容表）。') !== -1, barText(list));
+  assertWrittenChinese(assert, '特別崇拜狀態列', [text, barText(list)]);
+});
+
 test('T7-2 Index.html：甲區塊頂有 worship 狀態列；舊的「宣召由內容表接管」註解已拿走；v3 浸禮提示講明只在這裏填；註解內沒有樣板標籤', function () {
   const html = readSrc('src/ui/Index.html');
   const blockA = html.slice(html.indexOf('<h2>甲、崇拜程序</h2>'), html.indexOf('<h2>乙、上週崇拜人數</h2>'));

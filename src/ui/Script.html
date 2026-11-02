@@ -1092,6 +1092,12 @@
     + '（序樂、宣召、詩歌頌讚、詩班、程序範本與程序增刪在這裏填）';
 
   /**
+   * 用途：2026-11-02：特別崇拜（非主日）那一期甲區塊的狀態列：內容表沒有這一日，讀經經文、證道講題、回應詩歌
+   *   亦在這裏填（以前沿用清單區塊的「只顯示」，與實際可以修改不符）。
+   */
+  var CONTENT_SHEET_BAR_WORSHIP_SPECIAL = '特別崇拜：內容表沒有這一日，本區各欄（包括讀經經文、證道講題、回應詩歌）都在這裏填。';
+
+  /**
    * 用途：渲染一個區塊上方那一行。四種狀態的文案不同（未建立內容表／內容表比系統舊，要先更新／
    *   已建立但未匯入／已匯入）。甲區塊那一條（`data-content-sheet-bar="worship"`）講明哪三欄在內容表填。
    *   「季度作業」區塊已經由填寫介面拿走：未建立內容表時講明系統會自動建立；內容表比系統舊時在這裏
@@ -1107,6 +1113,14 @@
     bar.classList.add('content-sheet-bar');
     var worship = bar.getAttribute('data-content-sheet-bar') === 'worship';
     var source = worship ? CONTENT_SHEET_BAR_WORSHIP_SOURCE : '本區內容來自內容表';
+
+    // 2026-11-02：特別崇拜的甲區塊全部在這裏填（不是「只顯示」），內容表、匯入與它無關。
+    if (worship && info && info.specialService) {
+      var specialWorship = el('span');
+      specialWorship.textContent = CONTENT_SHEET_BAR_WORSHIP_SPECIAL;
+      bar.appendChild(specialWorship);
+      return;
+    }
 
     if (!info.exists) {
       var warn = el('span');
