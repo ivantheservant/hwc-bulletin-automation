@@ -1219,6 +1219,8 @@ function readContentSheetTabs_(spreadsheet, tabNames) {
  */
 function previewContentImport_(quarterId, options) {
   var opts = options || {};
+  // 2026-11-03（職事表提速經驗「先量度後才改」）：分段計時，填寫介面「伺服器用時」按一下看得到。
+  var t = opts.timer || noopLoadTimer_();
   var qid = String(quarterId || '').trim();
   if (!qid) {
     return { ok: false, quarterId: qid, scope: 'QUARTER', reason: 'NO_QUARTER_ID', message: '季度 ID 不可以是空的。' };
@@ -1234,6 +1236,7 @@ function previewContentImport_(quarterId, options) {
   }
 
   var spreadsheet = openContentSpreadsheet_(row.FILE_ID);
+  t.mark('內容表：打開檔案');
   if (!spreadsheet) {
     return {
       ok: false, quarterId: qid, scope: 'QUARTER', reason: 'FILE_MISSING',
@@ -1253,6 +1256,7 @@ function previewContentImport_(quarterId, options) {
   //    一個都不會跨季。見 docs/已知bug類型.md 事故四十一。
   var dateResolution = resolveQuarterServiceDateEntries_(qid);
   var allServiceDates = dateResolution.dates;
+  t.mark('內容表：本季主日清單');
 
   if (allServiceDates.length === 0) {
     return {
@@ -1287,13 +1291,16 @@ function previewContentImport_(quarterId, options) {
 
   // 內容表 v2：讀資料之前先核對第 2 行，不符就整次拒絕（見 checkContentSheetSchema_()）。
   var schema = checkContentSheetSchema_(spreadsheet);
+  t.mark('內容表：核對欄位');
   if (!schema.ok) {
     return { ok: false, quarterId: qid, scope: scope, reason: schema.reason, message: schema.message };
   }
 
   var contentData = readContentSheetTabs_(spreadsheet);
+  t.mark('內容表：讀分頁');
   // 2026-10-30：上一季「連續到」本季的家事報告、代禱事項（src/ContentCarryOver.gs）。
   var carryOver = readContentCarryOver_(qid, allServiceDates);
+  t.mark('內容表：上一季連續到');
   // ⚠️ 「連續到」一定要用**整季**的主日展開，之後才篩出要匯入的那一個
   // 主日——否則只匯入單一主日時，一條由上一週連登過來的報告會消失。
   var built = buildContentImportTargets_(contentData, allServiceDates, carryOver);
@@ -1310,6 +1317,7 @@ function previewContentImport_(quarterId, options) {
     existingLists[def.targetSheet] = readRowsWithRowNo_(def.targetSheet);
   });
 
+  t.mark('內容表：讀週報清單');
   var plan = computeContentImportPlan_({
     targets: built.targets,
     skippedTabs: built.skippedTabs,
@@ -1799,8 +1807,8 @@ function autoImportContentForWeek_(isoDate, source, options) {
       }
     }
 
-    var preview = previewContentImport_(quarterId, { isoDate: iso });
-    t.mark('打開內容表並比較');
+    var preview = previewContentImport_(quarterId, { isoDate: iso, timer: t });
+    t.mark('內容表：比較');
     if (!preview.ok) return { ran: true, changed: 0, reason: preview.reason || 'PREVIEW_FAILED', message: preview.message || '' };
     // 2026-11-02：持續狀況（未補上合堂三行、上一季內容表讀不到等）：匯入照做，但填寫介面要講出來。
     var notices = (preview.notices || []).map(function (n) { return n.message; });

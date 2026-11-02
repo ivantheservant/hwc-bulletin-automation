@@ -28,6 +28,10 @@ function createLoadTimer_(name) {
       parts.push({ label: String(label || ''), ms: now - last });
       last = now;
     },
+    // 2026-11-03：「其中」一項（已經算在某一段之內，不另計時間、不移動計時起點），例如「（其中讀職事表）」。
+    note: function (label, ms) {
+      parts.push({ label: String(label || ''), ms: Math.max(0, Number(ms) || 0), note: true });
+    },
     result: function () {
       return { name: String(name || ''), totalMs: Date.now() - start, parts: parts.slice() };
     }
@@ -40,5 +44,5 @@ function createLoadTimer_(name) {
  *   {{mark:function(string):void, result:function():Object}}
  */
 function noopLoadTimer_() {
-  return { mark: function () {}, result: function () { return { name: '', totalMs: 0, parts: [] }; } };
+  return { mark: function () {}, note: function () {}, result: function () { return { name: '', totalMs: 0, parts: [] }; } };
 }

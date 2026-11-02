@@ -22,7 +22,7 @@ var APP_NAME = '週報系統';
 /** 「關於本系統」對話框顯示的版本字串。 */
 // 2026-11-03（多堂會／其他教會：方便日後支援和更新）：版本號＝部署日期（yyyy.MM.dd，同一日第二次部署加 -2）。
 //    每次改版要同時在 docs/更新說明.md 最上面加一段同一個版本號（tests/version.test.js 守住）。
-var APP_VERSION = '2026.11.03-4';
+var APP_VERSION = '2026.11.03-5';
 
 /** 本 repo 的網址（公開）。 */
 var REPO_URL = 'https://github.com/ivantheservant/hwc-bulletin-automation';
@@ -1386,6 +1386,9 @@ var CONDITION_TYPE = Object.freeze({
   WEEK_IN_PREFIX: 'WEEK_IN:',
   WEEK_NOT_IN_PREFIX: 'WEEK_NOT_IN:',
   IF_FIELD_PREFIX: 'IF_FIELD:',
+  // 2026-11-03：`IF_DUTY:<PostID>|<後備條件>`——職事表那個崗位有人就出現、「不設」就不出現，其餘（未排定、職事表沒有這一日）
+  //    按後備條件（見 evaluateProgramCondition_()）。聖餐用 `IF_DUTY:COMMUNION|WEEK_IN:1`。
+  IF_DUTY_PREFIX: 'IF_DUTY:',
   NEVER: 'NEVER'
 });
 

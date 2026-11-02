@@ -1975,8 +1975,12 @@ function missingSplitForWebApp_(missing) {
  */
 function loadWeekForWebApp_(isoDate, timer) {
   var t = timer || noopLoadTimer_();
+  ROSTER_FETCH_STATS_ = null;
   var model = buildBulletinModel_(isoDate);
   t.mark('職事表與資料模型');
+  if (ROSTER_FETCH_STATS_) {
+    t.note('（其中讀職事表，' + ({ SHEET: '打開職事表', CACHE: '快取' })[ROSTER_FETCH_STATS_.source] + '）', ROSTER_FETCH_STATS_.ms);
+  }
   if (model.notConfigured) {
     var err = new Error('職事表尚未設定（Config 的 ROSTER_SPREADSHEET_ID 是空的），請先設定後再使用填寫介面。');
     err.code = 'NOT_CONFIGURED';

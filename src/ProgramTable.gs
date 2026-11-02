@@ -316,7 +316,8 @@ function buildProgramTableRows_(input) {
 
   var result = [];
   rows.forEach(function (row) {
-    if (!evaluateProgramCondition_(row.CONDITION, { week: week, weekOfMonth: weekOfMonth, row: row })) return;
+    if (!evaluateProgramCondition_(row.CONDITION, { week: week, weekOfMonth: weekOfMonth, row: row,
+      slotsByPost: input.snapshot ? input.snapshot.slotsByPost : null })) return;
 
     var content = evaluateProgramContent_(row.CONTENT_SOURCE, {
       week: week,
@@ -381,6 +382,8 @@ function programRowItemName_(row, week) {
  *   | `WEEK_IN:2,4` | 只在 `weekOfMonth` 屬於清單時出現 |
  *   | `WEEK_NOT_IN:1` | 只在 `weekOfMonth` **不**屬於清單時出現 |
  *   | `IF_FIELD:CHOIR_TITLE` | 只在 `BulletinWeeks` 該欄有值（非空白）時出現 |
+ *   | `IF_DUTY:COMMUNION|WEEK_IN:1` | 職事表那個崗位（PostID）這一週有人→出現；職事表講明「不設」→不出現；
+ *   |   | 其餘（未排定、職事表沒有這一日）→ 按 `|` 之後的後備條件（省略＝NEVER） |
  *
  *   ⚠️ 第八輪起，`FellowshipDefaults.RECURRENCE`（團契常設時間表的出現
  *   規則）**共用這一個求值器**，不是另外寫一套——「第 2、4 個主日」這種
@@ -389,7 +392,8 @@ function programRowItemName_(row, week) {
  *   `programRowLocation_()` 兩種都要講得出位置。
  * Args:
  *   condition {string} `ProgramTemplates.CONDITION` 的值。
- *   ctx {{week:Object, weekOfMonth:?number, row:Object}}
+ *   ctx {{week:Object, weekOfMonth:?number, row:Object, slotsByPost:?Object}}
+ *     `slotsByPost`＝職事表快照的崗位 slot（`IF_DUTY:` 用；團契常設時間表沒有，一律按後備條件）。
  * Returns:
  *   {boolean}
  * Raises:
@@ -424,10 +428,62 @@ function evaluateProgramCondition_(condition, ctx) {
     return String(ctx.week[fieldKey] === null || ctx.week[fieldKey] === undefined ? '' : ctx.week[fieldKey]).trim() !== '';
   }
 
+  // 2026-11-03（職事表那邊核對 09-27）：聖餐跟職事表「聖餐襄禮」有沒有人，不要週報自己判斷。
+  if (raw.indexOf(CONDITION_TYPE.IF_DUTY_PREFIX) === 0) {
+    var dutySpec = parseIfDutyCondition_(raw, where);
+    var dutyState = programConditionDutyState_(ctx.slotsByPost, dutySpec.postId);
+    if (dutyState === ROSTER_SLOT_STATE_.ASSIGNED) return true;
+    if (dutyState === ROSTER_SLOT_STATE_.NOT_APPLICABLE) return false;
+    return evaluateProgramCondition_(dutySpec.fallback, ctx);
+  }
+
   throw new Error(
     '程序範本 ' + where + ' 的 CONDITION「' + raw + '」無法辨識。'
-    + '可用語法：ALWAYS、NEVER、WEEK_IN:<逗號分隔週次>、WEEK_NOT_IN:<逗號分隔週次>、IF_FIELD:<BulletinWeeks 機器鍵>。'
+    + '可用語法：ALWAYS、NEVER、WEEK_IN:<逗號分隔週次>、WEEK_NOT_IN:<逗號分隔週次>、IF_FIELD:<BulletinWeeks 機器鍵>、'
+    + 'IF_DUTY:<職事表 PostID>|<後備條件>。'
   );
+}
+
+/**
+ * 用途：拆開 `IF_DUTY:<PostID>|<後備條件>`。純函式。
+ * Args:
+ *   raw {string} 整個 CONDITION（已 trim）。
+ *   where {string} 出錯時講明是哪一行（programRowLocation_()）。
+ * Returns:
+ *   {{postId:string, fallback:string}} 沒有 `|`＝後備條件 `NEVER`。
+ * Raises:
+ *   Error PostID 空白，或後備條件又是 `IF_DUTY:`（不准一層包一層）。
+ */
+function parseIfDutyCondition_(raw, where) {
+  var rest = String(raw || '').slice(CONDITION_TYPE.IF_DUTY_PREFIX.length);
+  var bar = rest.indexOf('|');
+  var postId = (bar === -1 ? rest : rest.slice(0, bar)).trim();
+  var fallback = bar === -1 ? CONDITION_TYPE.NEVER : rest.slice(bar + 1).trim();
+  if (!postId) {
+    throw new Error('程序範本 ' + where + ' 的 CONDITION「' + raw + '」：IF_DUTY: 之後要寫職事表的 PostID（例如 IF_DUTY:COMMUNION|WEEK_IN:1）。');
+  }
+  if (!fallback) fallback = CONDITION_TYPE.NEVER;
+  if (fallback.indexOf(CONDITION_TYPE.IF_DUTY_PREFIX) === 0) {
+    throw new Error('程序範本 ' + where + ' 的 CONDITION「' + raw + '」：後備條件不可以再是 IF_DUTY:。');
+  }
+  return { postId: postId, fallback: fallback };
+}
+
+/**
+ * 用途：職事表快照裏某一個崗位這一週的狀態（`IF_DUTY:` 用）。純函式。
+ * Args:
+ *   slotsByPost {?Object<string, Object[]>} 快照的 `slotsByPost`（slot 帶 `state`）。
+ *   postId {string} 職事表的 PostID。
+ * Returns:
+ *   {?string} 任何一格有人＝`ASSIGNED`；每一格都「不設」＝`NOT_APPLICABLE`；有格未排人＝`PENDING`；
+ *     快照沒有這個崗位（或沒有快照）＝`null`。
+ */
+function programConditionDutyState_(slotsByPost, postId) {
+  var slots = (slotsByPost && Array.isArray(slotsByPost[postId])) ? slotsByPost[postId] : [];
+  if (slots.length === 0) return null;
+  if (slots.some(function (s) { return s && s.state === ROSTER_SLOT_STATE_.ASSIGNED; })) return ROSTER_SLOT_STATE_.ASSIGNED;
+  if (slots.every(function (s) { return s && s.state === ROSTER_SLOT_STATE_.NOT_APPLICABLE; })) return ROSTER_SLOT_STATE_.NOT_APPLICABLE;
+  return ROSTER_SLOT_STATE_.PENDING;
 }
 
 /**

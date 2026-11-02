@@ -132,6 +132,11 @@ var ROSTER_TABLE_DEFS_ = Object.freeze({
 /** 同一次執行內的職事表資料快取（memoize）。見 fetchRosterTablesCached_()。 */
 var ROSTER_TABLES_CACHE_ = null;
 var ROSTER_TABLES_CACHE_KEY_ = null;
+/**
+ * 2026-11-03（先量度後才改）：這一次執行讀職事表用了多少毫秒、由哪裏來（`SHEET`＝打開職事表、`CACHE`＝快取工作表、
+ * `MEMO`＝同一次執行已經讀過）。只給填寫介面的分段用時顯示，不影響任何判斷。
+ */
+var ROSTER_FETCH_STATS_ = null;
 
 /**
  * 用途：按一個主日日期，從職事表試算表取得該主日的事奉名單與特別主日
@@ -449,6 +454,7 @@ function fetchRosterTablesCached_(spreadsheetId, sheetNames) {
   if (ROSTER_TABLES_CACHE_ && ROSTER_TABLES_CACHE_KEY_ === cacheKey) {
     return ROSTER_TABLES_CACHE_;
   }
+  var fetchStart = Date.now();
   // 2026-11-03：跨執行的快取（src/RosterCache.gs）：職事表檔案沒有改過（修改時間一樣、十分鐘之內）就不開職事表。
   //    修改時間一定要在讀職事表**之前**取，讀的時候有人改了，下一次就會對不上而重新讀。
   var cached = readRosterCache_(spreadsheetId, sheetNames);
@@ -457,6 +463,7 @@ function fetchRosterTablesCached_(spreadsheetId, sheetNames) {
     result = fetchRosterTables_(spreadsheetId, sheetNames);
     storeRosterCache_(spreadsheetId, sheetNames, result, cached.mtime);
   }
+  ROSTER_FETCH_STATS_ = { ms: Date.now() - fetchStart, source: cached.result ? 'CACHE' : 'SHEET' };
   ROSTER_TABLES_CACHE_ = result;
   ROSTER_TABLES_CACHE_KEY_ = cacheKey;
   return result;
