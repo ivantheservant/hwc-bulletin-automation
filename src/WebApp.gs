@@ -2128,7 +2128,9 @@ function buildContentSheetStatusForWebApp_(quarterId) {
     fileUrl: String(row.FILE_URL || ''),
     lastImportedAt: lastImported,
     schemaStatus: schema.status,
-    schemaMessage: schema.message
+    schemaMessage: schema.message,
+    // 2026-11-02：可以匯入、但要提醒按「更新本季內容表…」的事（例如「崇拜人數」未有合堂三行）。
+    schemaNotice: schema.notice || ''
   };
 }
 
@@ -2143,13 +2145,14 @@ var CONTENT_SHEET_SCHEMA_CACHE_PREFIX_ = 'CS_SCHEMA_V3_';
  * Args:
  *   fileId {string} 內容表檔案 ID。
  * Returns:
- *   {{status:string, message:string}} `status`：`'OK'`／`'OUTDATED'`／`'HEADER_CHANGED'`。
+ *   {{status:string, message:string, notice:string}} `status`：`'OK'`／`'OUTDATED'`／`'HEADER_CHANGED'`。
+ *     `notice`（2026-11-02）：可以匯入、但要提醒更新的事（例如「崇拜人數」未有合堂三行）；沒有就空字串。
  * Raises:
  *   （無）
  */
 function contentSheetSchemaStatusCached_(fileId) {
   var id = String(fileId || '').trim();
-  var ok = { status: 'OK', message: '' };
+  var ok = { status: 'OK', message: '', notice: '' };
   if (!id) return ok;
   var hit = readTimedScriptProperty_(CONTENT_SHEET_SCHEMA_CACHE_PREFIX_ + id, 600);
   if (hit) {
@@ -2160,9 +2163,12 @@ function contentSheetSchemaStatusCached_(fileId) {
     var spreadsheet = openContentSpreadsheet_(id);
     if (!spreadsheet) return ok;
     var schema = checkContentSheetSchema_(spreadsheet);
-    result = schema.ok ? ok : {
+    result = schema.ok ? {
+      status: 'OK', message: '',
+      notice: (schema.notices || []).map(function (n) { return n.message; }).join('　')
+    } : {
       status: schema.reason === 'CONTENT_SHEET_HEADER_CHANGED' ? 'HEADER_CHANGED' : 'OUTDATED',
-      message: String(schema.message || '')
+      message: String(schema.message || ''), notice: ''
     };
   } catch (err) {
     return ok;

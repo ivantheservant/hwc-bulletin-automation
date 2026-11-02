@@ -858,6 +858,9 @@ function computeContentImportPlan_(input) {
         // 內容表 v2：這一格被試算表轉成日期／時間，這一次不匯入（不寫、不解除覆寫、不報衝突），
         //    週報保留原值；警告已經在 plan.warnings。
         if ((sourceRow.__typeIssues || []).indexOf(sourceKey) !== -1) return;
+        // 2026-11-02：內容表根本沒有這一格（「崇拜人數」未補上合堂三行，readTransposedContentRows_() 不讀）：
+        //    這一次不匯入、週報那一格不碰——不可以當成空白而清走週報已有的值。提示在 notices。
+        if (!Object.prototype.hasOwnProperty.call(sourceRow, sourceKey)) return;
         var targetKey = def.fieldMap[sourceKey];
         var newValue = sourceRow[sourceKey];
 
@@ -965,14 +968,18 @@ function compareContentTabHeaderKeys_(expectedKeys, actualKeys) {
  *   tabNames {string[]=} 2026-10-30：只核對這幾張分頁（「連續到」跨季只讀上一季的家事報告、代禱事項——上一季的
  *     崇拜人數仍然是一個日期一行也不影響）。省略＝全部分頁。
  * Returns:
- *   {{ok:boolean, reason:string, message:string, tabs:{tabName:string, status:string}[]}}
+ *   {{ok:boolean, reason:string, message:string, tabs:{tabName:string, status:string}[],
+ *     notices:{code:string, message:string}[]}}
  *     `reason`：`''`／`'CONTENT_SHEET_OUTDATED'`／`'CONTENT_SHEET_HEADER_CHANGED'`
  *     （兩種同時有的話報 `HEADER_CHANGED`，那一種要人手處理）。
+ *     `notices`（2026-11-02）：不阻止匯入、但要講出來的事（例如「崇拜人數」未有合堂三行：其餘照常匯入，
+ *     合堂三格不匯入，見 `contentAttendanceRowsNotice_()`）。
  * Raises:
  *   Error 讀取分頁失敗時原樣拋出。
  */
 function checkContentSheetSchema_(spreadsheet, tabNames) {
   var tabs = [];
+  var notices = [];
   var outdated = [];
   var changed = [];
   var only = Array.isArray(tabNames) ? tabNames : null;
@@ -999,13 +1006,16 @@ function checkContentSheetSchema_(spreadsheet, tabNames) {
     // 2026-10-30：日子橫放的分頁核對第 B 欄（src/ContentSheetTransposed.gs）；舊版一個日期一行＝未更新。
     if (tabDef.transposed === true) {
       var tLayout = detectTransposedTabLayout_(sheet, tabDef);
-      // 2026-11-02：未有合堂三行（之後才加的行）＝未更新。照讀的話那幾行當作空白，會把週報已有的值清走。
-      var tVerdict = tLayout === 'TRANSPOSED' ? { status: 'OK' }
-        : (tLayout === 'TRANSPOSED_SHORT' ? { status: 'OUTDATED', shortRows: transposedMissingRows_(sheet, tabDef).headers }
+      // 2026-11-02：未有合堂三行（之後才加的行）：照常匯入其餘的行（少了的行不讀、週報那幾格不碰，
+      //    見 readTransposedContentRows_()），只出提示——部署之後未按「更新本季內容表…」的季度不可以因此停止匯入。
+      if (tLayout === 'TRANSPOSED_SHORT') {
+        notices.push(contentAttendanceRowsNotice_(tabDef.tabName, transposedMissingRows_(sheet, tabDef).headers));
+      }
+      var tVerdict = (tLayout === 'TRANSPOSED' || tLayout === 'TRANSPOSED_SHORT') ? { status: 'OK' }
         : (tLayout === 'TRANSPOSED_NO_HEAD' ? { status: 'OUTDATED', noHead: true }
         : (tLayout === 'ROWS' ? { status: 'OUTDATED', notTransposed: true }
           : (tLayout === 'BLANK' ? { status: 'OUTDATED', missing: transposedContentKeys_(tabDef).length }
-            : { status: 'HEADER_CHANGED', transposed: true, column: 2, expected: transposedContentKeys_(tabDef)[0], actual: '' }))));
+            : { status: 'HEADER_CHANGED', transposed: true, column: 2, expected: transposedContentKeys_(tabDef)[0], actual: '' })));
       tabs.push({ tabName: tabDef.tabName, status: tVerdict.status });
       if (tVerdict.status === 'OUTDATED') outdated.push({ tabDef: tabDef, verdict: tVerdict });
       if (tVerdict.status === 'HEADER_CHANGED') changed.push({ tabDef: tabDef, verdict: tVerdict });
@@ -1056,8 +1066,6 @@ function checkContentSheetSchema_(spreadsheet, tabNames) {
       if (o.verdict.listV3) return '「' + o.tabDef.tabName + '」的「連續到」「有效」未搬到 B、C 欄';
       if (o.verdict.noHead) return '「' + o.tabDef.tabName + '」第 A、B 欄（標題）被清走了';
       if (o.verdict.notTransposed) return '「' + o.tabDef.tabName + '」未改為日子橫放（每一個崇拜日期一欄）';
-      if (o.verdict.shortRows) return '「' + o.tabDef.tabName + '」未有最後 ' + o.verdict.shortRows.length + ' 行（'
-        + o.verdict.shortRows.join('、') + '）';
       return '「' + o.tabDef.tabName + '」少了 ' + o.verdict.missing + ' 欄';
     }).concat(pendingLegacy.map(function (name) {
       return '仍然有舊的「' + name + '」分頁（內容要搬入「崇拜程序」）';
@@ -1068,7 +1076,51 @@ function checkContentSheetSchema_(spreadsheet, tabNames) {
         + '請先在填寫介面按內容表狀態列的「更新本季內容表…」（或者試算表選單的「建立本季內容表」），再匯入。'
     };
   }
-  return { ok: true, reason: '', message: '', tabs: tabs };
+  return { ok: true, reason: '', message: '', tabs: tabs, notices: notices };
+}
+
+/**
+ * 用途：2026-11-02：「崇拜人數」橫放分頁未有之後才加的行（合堂三行）時的提示。純函式。
+ *   匯入預覽、填寫介面（載入時自動匯入、內容表狀態列）、自動同步的 ErrorLog 都用這一句。
+ * Args:
+ *   tabName {string} 分頁名稱。　headers {string[]} 少了的行的中文標題。
+ * Returns:
+ *   {{code:string, message:string}}
+ */
+function contentAttendanceRowsNotice_(tabName, headers) {
+  return {
+    code: 'CONTENT_ATTENDANCE_ROWS_MISSING',
+    message: '內容表「' + tabName + '」未有合堂三行（' + (headers || []).join('、') + '），請按「更新本季內容表…」補上；'
+      + '未補之前其餘人數照常匯入，合堂三格不會匯入。'
+  };
+}
+
+/**
+ * 用途：2026-11-02：匯入的「持續狀況」提示（`previewContentImport_()` 的 `notices`）寫入 ErrorLog——同一季同一種提示
+ *   每日只寫一次（自動同步每半小時跑一次，不可以洗版）。寫不到不影響匯入。
+ * Args:
+ *   quarterId {string}　notices {{code:string, message:string}[]}　functionName {string} 記在 ErrorLog 的來源函式。
+ *   todayIso {string} 今日 yyyy-MM-dd。
+ * Returns:
+ *   {number} 這一次寫了幾筆。
+ */
+function recordContentImportNotices_(quarterId, notices, functionName, todayIso) {
+  var written = 0;
+  (notices || []).forEach(function (n) {
+    var key = 'CS_IMPORT_NOTICE_' + String(quarterId || '') + '_' + String(n.code || '');
+    try {
+      if (readTimedScriptProperty_(key, 2 * 86400) === String(todayIso || '')) return;
+      appendErrorLog_({
+        source: ERROR_LOG_SOURCE.TRIGGER, functionName: functionName, errorCode: n.code,
+        message: '內容表匯入（季度 ' + quarterId + '）：' + n.message + '（同一項每日只記一次）'
+      });
+      writeTimedScriptProperty_(key, String(todayIso || ''));
+      written++;
+    } catch (err) {
+      // 提示寫不到不阻止匯入（下一次再寫）。
+    }
+  });
+  return written;
 }
 
 /**
@@ -1246,10 +1298,18 @@ function previewContentImport_(quarterId, options) {
     fieldOverrideIndex: buildFieldOverrideIndex_(readRowsWithRowNo_(SHEETS.FIELD_OVERRIDE))
   });
 
+  // 2026-11-02：「持續狀況」的提示（不阻止匯入，但匯入有沒有改動都要講出來）：「崇拜人數」未有合堂三行；
+  //    上一季的內容表讀不到或版面未更新（「連續到」本季的家事報告、代禱事項這一次不匯入）。自動同步沒有改動時
+  //    plan.warnings 不會有人看，所以另外帶出來（填寫介面、自動同步的 ErrorLog 用）。
+  var notices = (schema.notices || []).slice();
+  if (carryOver.unreadable === true) {
+    (carryOver.warnings || []).forEach(function (w) { notices.push({ code: 'CONTENT_CARRY_OVER_UNREADABLE', message: w }); });
+  }
+
   // ⚠️ 主日清單由哪裏來一定要講出來。用了退而求其次的來源而不講，
   //    下一個人看到數字對不上會查錯方向。
   return {
-    ok: true, quarterId: qid, scope: scope, plan: plan,
+    ok: true, quarterId: qid, scope: scope, plan: plan, notices: notices,
     fileUrl: String(row.FILE_URL || ''),
     serviceDateSource: dateResolution.source,
     serviceDateNote: dateResolution.message
@@ -1476,6 +1536,10 @@ function buildContentImportDialogLines_(result, options) {
     + verb + '修改 ' + plan.updated + ' 行　'
     + verb + '刪除 ' + plan.removed + ' 行　不變 ' + plan.unchanged + ' 行');
   lines.push('（「刪除」是把「有效」改為 FALSE，不會真的刪走任何一行。）');
+  // 2026-11-02：持續狀況（未補上合堂三行等），排在數字之後。上一季讀不到那一句已經在下面的提示，不重複。
+  (result.notices || []).filter(function (n) { return n.code !== 'CONTENT_CARRY_OVER_UNREADABLE'; }).forEach(function (n) {
+    lines.push('⚠️ ' + n.message);
+  });
 
   // ⚠️ R-043／R-045：覆寫過的欄位排喺**最前**（緊接住四個數字），
   //    因為它答的是「內容表明明改咗，點解週報冇變」——那是幹事最容易
@@ -1665,9 +1729,10 @@ function buildContentImportReportLines_(result) {
  *   isoDate {string} 主日日期，yyyy-MM-dd。
  *   source {string} 誰叫的（AuditLog 備註用），例如 `'WEBAPP_LOAD'`、`'TRIGGER'`。
  * Returns:
- *   {{ran:boolean, changed:number, reason:string, message:string}}
+ *   {{ran:boolean, changed:number, reason:string, message:string, notices:string[]=}}
  *     `ran`＝有試過匯入（找得到季度與內容表）；`changed`＝寫了幾項（新增＋修改＋刪除＋解除覆寫）；
  *     `reason` 為空字串＝正常，否則是 `previewContentImport_()` 的原因代碼或 `ERROR`／`ARCHIVED`。
+ *     `notices`（2026-11-02）：預覽的持續狀況提示（未補上合堂三行、上一季內容表讀不到等），填寫介面照列。
  * Raises:
  *   （無）任何錯誤都轉成 `reason:'ERROR'` 並記 ErrorLog。
  */
@@ -1684,19 +1749,21 @@ function autoImportContentForWeek_(isoDate, source) {
 
     var preview = previewContentImport_(quarterId, { isoDate: iso });
     if (!preview.ok) return { ran: true, changed: 0, reason: preview.reason || 'PREVIEW_FAILED', message: preview.message || '' };
+    // 2026-11-02：持續狀況（未補上合堂三行、上一季內容表讀不到等）：匯入照做，但填寫介面要講出來。
+    var notices = (preview.notices || []).map(function (n) { return n.message; });
     var plan = preview.plan || {};
     var changeCount = Number(plan.added || 0) + Number(plan.updated || 0) + Number(plan.removed || 0)
       + ((plan.releases || []).length);
-    if (changeCount === 0) return { ran: true, changed: 0, reason: '', message: '' };
+    if (changeCount === 0) return { ran: true, changed: 0, reason: '', message: '', notices: notices };
 
     var applied = applyContentImport_(quarterId, { isoDate: iso });
-    if (!applied.ok) return { ran: true, changed: 0, reason: applied.reason || 'APPLY_FAILED', message: applied.message || '' };
+    if (!applied.ok) return { ran: true, changed: 0, reason: applied.reason || 'APPLY_FAILED', message: applied.message || '', notices: notices };
     appendAuditLog_({
       action: 'CONTENT_AUTO_IMPORT_WEEK', sheetName: SHEETS.CONTENT_SHEETS, rowKey: iso,
       newValue: '+' + applied.plan.added + ' ~' + applied.plan.updated + ' -' + applied.plan.removed,
       notes: '自動由內容表匯入 ' + iso + '（季度 ' + quarterId + '，' + String(source || '') + '）。'
     });
-    return { ran: true, changed: changeCount, reason: '', message: '' };
+    return { ran: true, changed: changeCount, reason: '', message: '', notices: notices };
   } catch (err) {
     appendErrorLog_({
       source: source === 'TRIGGER' ? ERROR_LOG_SOURCE.TRIGGER : ERROR_LOG_SOURCE.SERVER,

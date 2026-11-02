@@ -219,10 +219,14 @@ function addTransposedContentRows_(sheet, tabDef) {
  * Args:
  *   sheet {Sheet}　tabDef {Object}
  * Returns:
- *   {Object[]} 每筆多 `__colLetter`；`__rowNo` 是欄號。整欄空白的略過。
+ *   {Object[]} 每筆多 `__colLetter`；`__rowNo` 是欄號。整欄空白的略過。分頁未補上之後才加的行時，每一筆沒有那幾個鍵。
  */
 function readTransposedContentRows_(sheet, tabDef) {
   var tkeys = transposedContentKeys_(tabDef);
+  // 2026-11-02：未補上之後才加的行（TRANSPOSED_SHORT，例如合堂三行）：只讀有的那幾行——每一筆就沒有那幾個鍵，
+  //    匯入不碰週報那幾格（computeContentImportPlan_()），不會當成空白清走。
+  var prefix = transposedKeyPrefixLength_(readTransposedHeaderKeys_(sheet, tkeys.length), tkeys);
+  if (prefix > 0) tkeys = tkeys.slice(0, prefix);
   var n = tkeys.length;
   var lastCol = Number(sheet.getLastColumn()) || 0;
   if (lastCol < CONTENT_SHEET_TRANSPOSED_FIRST_DATA_COL_ || n === 0) return [];

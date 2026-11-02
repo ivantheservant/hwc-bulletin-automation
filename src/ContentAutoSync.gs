@@ -160,6 +160,9 @@ function runContentAutoSync_(options) {
         if (mtime !== null) writeTimedScriptProperty_(propertyKey, String(mtime));
         return;
       }
+      // 2026-11-02：持續狀況（未補上合堂三行、上一季內容表讀不到等）：沒有改動亦要留痕跡（ErrorLog，每日一次）。
+      entry.notices = (preview.notices || []).map(function (n) { return n.message; });
+      recordContentImportNotices_(qid, preview.notices, 'runContentAutoSync_', todayIso);
       var plan = preview.plan || {};
       var changeCount = Number(plan.added || 0) + Number(plan.updated || 0) + Number(plan.removed || 0)
         + ((plan.releases || []).length);

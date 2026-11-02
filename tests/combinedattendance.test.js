@@ -375,16 +375,61 @@ test('CA-12 apiRunQuarterContentImport：合堂三格（崇拜日期那一欄）
   assert.strictEqual(String(weekOf(env, DATES[1]).ATT_COMB_PRAYER), '6');
 });
 
-test('CA-13 2026-11-02 之前建好的橫放分頁（未有合堂三行）：匯入整次拒絕，講明少了哪三行、要按「更新本季內容表…」；週報一格不寫', function () {
+const ROWS_NOTICE = '內容表「崇拜人數」未有合堂三行（合堂崇拜、合堂祈禱會、合堂兒童），請按「更新本季內容表…」補上；'
+  + '未補之前其餘人數照常匯入，合堂三格不會匯入。';
+
+test('CA-13 2026-11-02 之前建好的橫放分頁（未有合堂三行）：apiRunQuarterContentImport 照常匯入十二格，合堂三格不碰（週報已有的值保留），結果講明要更新', function () {
   const env = contentEnv.makeEnv({ attendanceLayout: 'transposedShort', content: { 崇拜人數: attRows() } });
   assert.strictEqual(env.sandbox.detectTransposedTabLayout_(env.contentTabs['崇拜人數'], attDef(env)), 'TRANSPOSED_SHORT');
+  // 週報已經有一個合堂值（例如人手補的）：內容表沒有那一行 → 不可以當成空白清走。
+  env.sandbox.writeBulletinWeekField_(DATES[3], 'ATT_COMB_WORSHIP', '199');
   const imp = env.sandbox.apiRunQuarterContentImport(QUARTER_ID);
-  assert.strictEqual(imp.data.ok, false, JSON.stringify(imp.data));
-  ['「崇拜人數」未有最後 3 行（合堂崇拜、合堂祈禱會、合堂兒童）', '更新本季內容表…'].forEach(function (p) {
-    assert.ok(String(imp.data.message).indexOf(p) !== -1, imp.data.message);
-  });
-  assert.strictEqual(String(weekOf(env, DATES[0]).ATT_ENG_WORSHIP || ''), '');
-  assertWrittenChinese(assert, '匯入訊息', [imp.data.message]);
+  assert.strictEqual(imp.data.ok, true, JSON.stringify(imp.data));
+  assert.ok(imp.data.lines.indexOf('⚠️ ' + ROWS_NOTICE) !== -1, imp.data.lines.join('\n'));
+  assert.strictEqual(String(weekOf(env, DATES[0]).ATT_ENG_WORSHIP), '50');
+  assert.strictEqual(String(weekOf(env, DATES[4]).ATT_ENG_WORSHIP), '54');
+  assert.strictEqual(String(weekOf(env, DATES[3]).ATT_COMB_WORSHIP), '199', '少了的行不讀，週報那一格不碰');
+  assertWrittenChinese(assert, '匯入提示', [ROWS_NOTICE]);
+});
+
+test('CA-13b 未有合堂三行：填寫介面載入（apiLoadWeek）時自動匯入照做，提示與內容表狀態列都講明要按「更新本季內容表…」', function () {
+  const env = contentEnv.makeEnv({ attendanceLayout: 'transposedShort', content: { 崇拜人數: attRows() } });
+  const load = env.sandbox.apiLoadWeek(DATES[0]);
+  assert.strictEqual(load.ok, true, JSON.stringify(load.error));
+  assert.strictEqual(load.data.autoImport.reason, '', JSON.stringify(load.data.autoImport));
+  assert.deepStrictEqual(plain(load.data.autoImport.notices), [ROWS_NOTICE]);
+  assert.strictEqual(String(weekOf(env, DATES[0]).ATT_ENG_WORSHIP), '50', '照常匯入');
+  assert.strictEqual(load.data.contentSheet.schemaStatus, 'OK');
+  assert.strictEqual(load.data.contentSheet.schemaNotice, ROWS_NOTICE);
+});
+
+test('CA-13c 未有合堂三行：自動同步（runContentAutoSync_）照常匯入，ErrorLog 同一季每日只記一次', function () {
+  const env = contentEnv.makeEnv({ attendanceLayout: 'transposedShort', content: { 崇拜人數: attRows() },
+    config: { WEBAPP_SIMULATED_TODAY: '2027-10-01' } });
+  const sb = env.sandbox;
+  const times = { FAKE_CONTENT_FILE: '2027-01-01' };
+  sb.DriveApp.getFileById = function (id) { return { getLastUpdated: function () { return sb.normalizeDate_(times[id]); } }; };
+  const props = {};
+  sb.PropertiesService = { getScriptProperties: function () {
+    return { getProperty: function (k) { return props[k] === undefined ? null : props[k]; }, setProperty: function (k, v) { props[k] = String(v); },
+      deleteProperty: function (k) { delete props[k]; } };
+  } };
+  function logged() { return sb.readSheet_('ErrorLog').filter(function (r) { return r.ERROR_CODE === 'CONTENT_ATTENDANCE_ROWS_MISSING'; }); }
+  const first = sb.runContentAutoSync_({ todayIso: '2027-10-01' });
+  const q = first.quarters.filter(function (e) { return e.quarterId === QUARTER_ID; })[0];
+  assert.strictEqual(q.status, 'IMPORTED', JSON.stringify(first));
+  assert.deepStrictEqual(plain(q.notices), [ROWS_NOTICE]);
+  assert.strictEqual(String(weekOf(env, DATES[0]).ATT_ENG_WORSHIP), '50');
+  assert.strictEqual(logged().length, 1);
+  assert.ok(String(logged()[0].MESSAGE).indexOf(ROWS_NOTICE) !== -1, logged()[0].MESSAGE);
+  // 內容表再改（沒有改動要匯入）→ 同一日不再記；翌日再記一次。
+  times.FAKE_CONTENT_FILE = '2027-01-02';
+  const second = sb.runContentAutoSync_({ todayIso: '2027-10-01' });
+  assert.strictEqual(second.quarters.filter(function (e) { return e.quarterId === QUARTER_ID; })[0].status, 'NO_CHANGE');
+  assert.strictEqual(logged().length, 1, '同一日只記一次');
+  times.FAKE_CONTENT_FILE = '2027-01-03';
+  sb.runContentAutoSync_({ todayIso: '2027-10-02' });
+  assert.strictEqual(logged().length, 2, '翌日再記一次');
 });
 
 test('CA-14 預覽（apiPreviewContentSheetBuild）：講明會在最後加上合堂三行、已填的人數一格不改；不用人手確認；預覽一格不寫', function () {

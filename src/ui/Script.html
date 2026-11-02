@@ -1099,8 +1099,8 @@
    * Args:
    *   bar {Element} 狀態列。
    *   info {{exists:boolean, fileUrl:string, lastImportedAt:string, schemaStatus:string=,
-   *     schemaMessage:string=}} 內容表現況。`schemaStatus` 是 `'OK'`／`'OUTDATED'`／`'HEADER_CHANGED'`；
-   *     沒有就當 `'OK'`。
+   *     schemaMessage:string=, schemaNotice:string=}} 內容表現況。`schemaStatus` 是 `'OK'`／`'OUTDATED'`／`'HEADER_CHANGED'`；
+   *     沒有就當 `'OK'`。`schemaNotice`（2026-11-02）：可以匯入、但要按「更新本季內容表…」補上的事。
    */
   function renderContentSheetBar(bar, info) {
     bar.innerHTML = '';
@@ -1138,6 +1138,15 @@
       upgradeBtn.title = '先列出會做甚麼（加欄、搬資料），你確認之後才會更新；同工填過的內容一格都不會刪除。';
       bar.appendChild(upgradeBtn);
       return;
+    }
+    // 2026-11-02：可以照常匯入，但要更新（例如「崇拜人數」未有合堂三行）：講明，並給「更新本季內容表…」。
+    if (info.schemaNotice && info.schemaStatus !== 'OUTDATED' && info.schemaStatus !== 'HEADER_CHANGED') {
+      var notice = el('span', 'hint');
+      notice.textContent = '　' + info.schemaNotice;
+      bar.appendChild(notice);
+      var noticeBtn = makeSmallButton('更新本季內容表…', function () { startContentSheetUpgrade(); });
+      noticeBtn.title = '先列出會做甚麼，你確認之後才會更新；同工填過的內容一格都不會改。';
+      bar.appendChild(noticeBtn);
     }
     if (info.schemaStatus === 'HEADER_CHANGED') {
       var changed = el('span', 'hint');
@@ -3109,8 +3118,15 @@
     var a = autoImport || {};
     // 特別崇拜沒有內容表的行（清單跟上一個主日），不是「未能匯入」。
     var quietReasons = ['', 'NO_QUARTER', 'NO_CONTENT_SHEET', 'ARCHIVED', 'SPECIAL_SERVICE', 'VIEW_ONLY'];
+    // 2026-11-02：持續狀況（內容表未補上合堂三行、上一季內容表讀不到等）：匯入照做，但一定要講出來。
+    var notices = (a.notices || []).join('　');
     if (Number(a.changed || 0) > 0) {
-      showMessage('info', '已自動由內容表更新這一週 ' + a.changed + ' 項（內容表最新的內容）。');
+      showMessage(notices ? 'warning' : 'info', '已自動由內容表更新這一週 ' + a.changed + ' 項（內容表最新的內容）。'
+        + (notices ? '　' + notices : ''));
+      return;
+    }
+    if (notices && !a.reason) {
+      showMessage('warning', notices);
       return;
     }
     if (quietReasons.indexOf(String(a.reason || '')) === -1) {
