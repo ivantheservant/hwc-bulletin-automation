@@ -321,6 +321,8 @@ function loadPublishResultRegion(startIsoDate, options) {
     syncSelectorsTo: function () {},
     confirmWeekChange: function (proceed) { proceed(); },
     callServer: function (name, args, onOk) {
+      // 2026-11-03：載入之後前端在背景叫 apiAutoImportWeek；這裏只看換週的那一次載入，背景匯入另外記下、不回應。
+      if (name === 'apiAutoImportWeek') { (calls.background = calls.background || []).push({ name: name, args: args }); return; }
       calls.server.push({ name: name, args: args });
       onOk({ ok: true, data: {} });
     },

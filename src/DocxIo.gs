@@ -245,6 +245,26 @@ function applyYearLogoToEntries_(entries, documentIndex, documentXml, image) {
 }
 
 /**
+ * 用途：2026-11-03：Word 範本檔案的最後修改時間（毫秒）。唯讀。填寫介面載入時用來判斷範本有沒有改過
+ *   （src/DutySlots.gs `readTemplateDutySlotsCached_()`）。放在這個檔案是因為 DriveApp 只准出現在這裏等幾個檔案。
+ * Args:
+ *   fileId {string} 範本檔案 ID。
+ * Returns:
+ *   {?number} 讀不到回 `null`（呼叫方當作「有改過」，照樣讀範本）。
+ * Raises:
+ *   （無）
+ */
+function readTemplateLastUpdatedMillis_(fileId) {
+  if (!fileId) return null;
+  try {
+    var updated = DriveApp.getFileById(String(fileId)).getLastUpdated();
+    return (updated instanceof Date && !isNaN(updated.getTime())) ? updated.getTime() : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
  * 用途：由 Drive 讀出範本檔的 blob。
  * Args:
  *   fileId {string} 範本 `.docx` 在雲端硬碟的檔案 ID。

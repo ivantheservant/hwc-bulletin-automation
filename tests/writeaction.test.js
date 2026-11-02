@@ -30,6 +30,8 @@
 
 'use strict';
 
+function plain(v) { return JSON.parse(JSON.stringify(v)); }
+
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
@@ -210,6 +212,8 @@ function makeUi(options) {
     },
     // ---- 替身：只記錄有沒有被叫 ----
     onWeekLoaded: function (isoDate) { log.weekLoaded.push(isoDate); ctx.state.isoDate = isoDate; ctx.setLoaded(true); },
+    // 2026-11-03：背景匯入內容表沒有改動時講不講（與這裏的測試無關）。
+    renderAutoImportNotice: function () {},
     refreshWeekSelectorLabels: function () { log.selectorLabels++; },
     loadPublishPanel: function () { log.publishPanel++; },
     refreshQuarterOpsPanel: function () { log.quarterOpsPanel++; },
@@ -416,14 +420,19 @@ test('G13-2 還原對話框按「確定」→ apiRestoreWeekSnapshot 收到 HTTP
   assert.strictEqual(ui.timers.run(ui.delayMs), 1);
   assert.deepStrictEqual(ui.message(), { type: 'error', text: expectedWeekMessage('apiRestoreWeekSnapshot') });
   const reload = ui.take('apiLoadWeek');
-  assert.deepStrictEqual(reload.args, [D], '重新載入同一個主日');
+  assert.deepStrictEqual(plain(reload.args), [D, { deferImport: true }], '重新載入同一個主日（內容表匯入之後在背景做）');
   reload.ok({ ok: true, data: {} });
   assert.deepStrictEqual(ui.log.weekLoaded, [D]);
   assert.strictEqual(ui.log.selectorLabels, 1, '主日下拉的標籤一併刷新');
   assert.deepStrictEqual(ui.message(), { type: 'error', text: expectedWeekMessage('apiRestoreWeekSnapshot') }, '重新載入之後訊息要保留');
   assert.strictEqual(ui.els.publishResult.classList.contains('hidden'), false, '同一主日重新載入，發佈結果保留');
   assert.strictEqual(ui.ctx.state.publish.pdfBase64, 'QUFB', '同一主日重新載入，已選的 PDF 保留');
+  // 2026-11-03：載入之後在背景匯入內容表，完成之前介面仍然忙碌。
+  assert.strictEqual(ui.ctx.state.inFlight, 1, '背景匯入完成之前仍然鎖住');
+  assert.strictEqual(ui.els.saveBtn.disabled, true, '背景匯入完成之前不可以按儲存');
+  ui.take('apiAutoImportWeek').ok({ ok: true, data: { autoImport: { ran: false, changed: 0, reason: 'UNCHANGED', message: '' }, week: null } });
   assert.strictEqual(ui.ctx.state.inFlight, 0);
+  assert.deepStrictEqual(ui.message(), { type: 'error', text: expectedWeekMessage('apiRestoreWeekSnapshot') }, '沒有改動不蓋走訊息');
   assertWrittenChinese(assert, 'G13 訊息', [ui.message().text, ui.els.busyBarText.textContent]);
 });
 
@@ -434,7 +443,7 @@ test('G13-3 「重設這一週」按「確定」→ apiResetWeek 收到 HTTP 502
   ui.take('apiResetWeek').fail(new Error(NETWORK_502));
   ui.timers.run(ui.delayMs);
   assert.deepStrictEqual(ui.message(), { type: 'error', text: expectedWeekMessage('apiResetWeek') });
-  assert.deepStrictEqual(ui.take('apiLoadWeek').args, [D]);
+  assert.deepStrictEqual(plain(ui.take('apiLoadWeek').args), [D, { deferImport: true }]);
 });
 
 test('G13-4 發佈區按「執行」（只寄出）→ apiRunPublish 收到 HTTP 502：等候期間兩顆按鈕仍然停用；時間到視窗內、結果格、頁頂都出新訊息，重新載入頁頂「目前已發佈」（G21：不重新載入主日）', function () {
@@ -525,7 +534,7 @@ test('G13-5 「更新本季內容表…」按「確定」→ apiRunContentSheetB
   assert.strictEqual(ui.count('apiLoadWeek'), 0, '未等完不可以重新載入');
   ui.timers.run(ui.delayMs);
   assert.deepStrictEqual(ui.message(), { type: 'error', text: expectedWeekMessage('apiRunContentSheetBuild') });
-  assert.deepStrictEqual(ui.take('apiLoadWeek').args, [D]);
+  assert.deepStrictEqual(plain(ui.take('apiLoadWeek').args), [D, { deferImport: true }]);
 });
 
 // 內容表 v2：G13-6（「建立講員表格」沒有回應）拿走——講員表格已停用，填寫介面沒有那粒按鈕，
@@ -620,7 +629,10 @@ test('G13-10 分類：Script.html 用到的每一個 api 名稱都分了寫入�
     // 2026-10-30：建立特別崇拜的預覽（唯讀）。
     'apiPreviewCreateSpecialService',
     // 2026-10-30：取消特別崇拜的預覽（唯讀）。
-    'apiPreviewCancelSpecialService'
+    'apiPreviewCancelSpecialService',
+    // 2026-11-03：開頁的一次呼叫（主日清單、發佈狀態、預設主日，與 apiListWeeks 同一類）；背景匯入內容表
+    //    （與載入時的自動匯入同一類：有改動才寫、再做一次無害，沒有回應只講「畫面顯示的是週報現有的內容」）。
+    'apiBootstrap', 'apiAutoImportWeek'
   ];
   const used = {};
   (js.match(/'api[A-Z][A-Za-z]+'/g) || []).forEach(function (s) { used[s.slice(1, -1)] = true; });
@@ -2016,7 +2028,7 @@ test('G17-4 寫入類逾時不跟讀取類：「還原到這個版本」按確�
   assertReportedAsNoResponse(ui, 'apiRestoreWeekSnapshot', '這一次的動作可能已經做了、也可能沒有做', true);
   assert.strictEqual(ui.timers.run(ui.delayMs), 1, '寫入類照舊等候之後重新載入');
   assert.deepStrictEqual(ui.message(), { type: 'error', text: expectedTimeoutMessage('apiRestoreWeekSnapshot', '「最後儲存時間」和「版本記錄」') });
-  assert.deepStrictEqual(ui.take('apiLoadWeek').args, [D]);
+  assert.deepStrictEqual(plain(ui.take('apiLoadWeek').args), [D, { deferImport: true }]);
 });
 
 test('G17-5 分類：讀取類每一個都是 read、三個例外各有自己的一類、寫入類是 write；逾時秒數跟 Config（data-call-timeout-sec）走', function () {
@@ -2096,6 +2108,100 @@ test('RV4-5 只寄出：按「執行」→ 伺服器 NEEDS_CONFIRM（寄出前�
   assert.strictEqual(confirmed.args[0].confirmed, true);
   assert.strictEqual(Object.prototype.hasOwnProperty.call(confirmed.args[0], 'confirmedMasterIssue'), false);
   assert.strictEqual(readSrc('src/ui/Script.html').indexOf('confirmedMasterIssue'), -1, '前端不再有這一套');
+});
+
+// =====================================================================
+// 2026-11-03：載入速度（開頁只叫一次 apiBootstrap；背景匯入完成之前鎖住）
+// =====================================================================
+
+function makeBootUi() {
+  const ui = makeUi({ extra: [['function onBootstrapLoaded(', "document.addEventListener('DOMContentLoaded'"]] });
+  ui.log.publishLoaded = 0;
+  ui.ctx.onPublishPanelLoaded = function () { ui.log.publishLoaded++; };
+  ui.ctx.renderAutoCreateNotice = function () {};
+  ui.ctx.renderQuarterEmptyHint = function () {};
+  ui.ctx.populateWeekSelectors = function () {};
+  ui.ctx.resetPublishPanelIfWeekChanged = function () {};
+  ui.ctx.state.loaded = false;
+  ui.ctx.state.isoDate = null;
+  ui.ctx.applyBusyState();
+  return ui;
+}
+
+const BOOT_TIMINGS = { name: 'apiBootstrap', totalMs: 4200, parts: [{ label: '職事表與資料模型', ms: 3000 }, { label: '其他', ms: 1200 }] };
+
+test('LS-UI-1 開頁只叫 apiBootstrap（不再分開叫 apiListWeeks、apiGetPublishStatus、apiLoadWeek）', function () {
+  const js = readSrc('src/ui/Script.html');
+  const init = js.slice(js.indexOf('function init()'), js.indexOf('function onBootstrapLoaded('));
+  assert.ok(init.indexOf("callServer('apiBootstrap'") !== -1, init);
+  ['apiListWeeks', 'apiGetPublishStatus', 'apiLoadWeek', 'loadPublishPanel()'].forEach(function (name) {
+    assert.strictEqual(init.indexOf(name), -1, 'init 不可以再叫 ' + name);
+  });
+});
+
+test('LS-UI-2 apiBootstrap 回來 → 畫好主日，立即在背景叫 apiAutoImportWeek；未完成之前：儲存、開啟預覽、建立特別崇拜都停用，忙碌列講「仍在載入」；完成之後解鎖，顯示伺服器用時', function () {
+  const ui = makeBootUi();
+  ui.ctx.callServer('apiBootstrap', [false, { autoCreate: true }], ui.ctx.onBootstrapLoaded, { busyText: '載入中…' });
+  assert.strictEqual(ui.els.saveBtn.disabled, true, '載入中不可以儲存');
+  ui.take('apiBootstrap').ok({ ok: true, data: { weeks: { defaultIsoDate: D }, publish: { status: {} }, publishError: '', week: {}, timings: BOOT_TIMINGS } });
+  assert.deepStrictEqual(ui.log.weekLoaded, [D]);
+  assert.strictEqual(ui.log.publishLoaded, 1, '發佈狀態一併畫好');
+  assert.strictEqual(ui.count('apiAutoImportWeek'), 1, '背景匯入');
+  assert.deepStrictEqual(plain(ui.calls.filter(function (c) { return c.name === 'apiAutoImportWeek'; })[0].args), [D]);
+  assert.strictEqual(ui.ctx.state.inFlight, 1);
+  ['saveBtn', 'previewLink', 'specialServiceBtn', 'cancelSpecialServiceBtn', 'weekSelect', 'nextWeekBtn', 'fetchFromRosterBtn'].forEach(function (id) {
+    assert.strictEqual(ui.els[id].disabled, true, id + ' 背景匯入完成之前要停用');
+  });
+  assert.ok(ui.els.busyBarText.textContent.indexOf('仍在載入') !== -1, ui.els.busyBarText.textContent);
+  assert.strictEqual(ui.els.busyBar.classList.contains('hidden'), false, '忙碌列要看得見');
+  ui.take('apiAutoImportWeek').ok({ ok: true, data: { autoImport: { ran: false, changed: 0, reason: 'UNCHANGED', message: '' }, week: null,
+    timings: { name: 'apiAutoImportWeek', totalMs: 800, parts: [{ label: '內容表修改時間', ms: 800 }] } } });
+  assert.strictEqual(ui.ctx.state.inFlight, 0);
+  ['saveBtn', 'previewLink', 'specialServiceBtn', 'weekSelect'].forEach(function (id) {
+    assert.strictEqual(ui.els[id].disabled, false, id + ' 完成之後要可以用');
+  });
+  assert.strictEqual(ui.els.statLoadTime.textContent, '伺服器用時 5.0 秒');
+  assert.ok(ui.els.statLoadTime.title.indexOf('職事表與資料模型：3.0 秒') !== -1, ui.els.statLoadTime.title);
+  assertWrittenChinese(assert, '忙碌列', [ui.els.busyBarText.textContent]);
+});
+
+test('LS-UI-3 背景匯入有改動 → 用伺服器回的新資料重畫（onWeekLoaded 第二次）；匯入失敗 → 講一句，畫面保留週報現有的內容並解鎖', function () {
+  const ui = makeBootUi();
+  ui.ctx.callServer('apiBootstrap', [false, {}], ui.ctx.onBootstrapLoaded, { busyText: '載入中…' });
+  ui.take('apiBootstrap').ok({ ok: true, data: { weeks: { defaultIsoDate: D }, publish: null, publishError: 'x', week: {}, timings: BOOT_TIMINGS } });
+  ui.take('apiAutoImportWeek').ok({ ok: true, data: { autoImport: { ran: true, changed: 2, reason: '', message: '' }, week: { autoImport: { changed: 2 } } } });
+  assert.deepStrictEqual(ui.log.weekLoaded, [D, D], '有改動要重畫');
+  assert.strictEqual(ui.ctx.state.inFlight, 0);
+
+  const ui2 = makeBootUi();
+  ui2.ctx.callServer('apiBootstrap', [false, {}], ui2.ctx.onBootstrapLoaded, { busyText: '載入中…' });
+  ui2.take('apiBootstrap').ok({ ok: true, data: { weeks: { defaultIsoDate: D }, publish: {}, week: {}, timings: BOOT_TIMINGS } });
+  ui2.take('apiAutoImportWeek').ok({ ok: false, error: { code: 'ERROR', message: '內容表開不到' } });
+  assert.strictEqual(ui2.ctx.state.inFlight, 0);
+  assert.strictEqual(ui2.els.saveBtn.disabled, false);
+  assert.ok(ui2.message().text.indexOf('內容表開不到') !== -1, JSON.stringify(ui2.message()));
+});
+
+test('LS-UI-4 apiBootstrap 讀不到預設主日（weekError）→ 講原因、不叫背景匯入、不可以儲存', function () {
+  const ui = makeBootUi();
+  ui.ctx.callServer('apiBootstrap', [false, {}], ui.ctx.onBootstrapLoaded, { busyText: '載入中…' });
+  ui.take('apiBootstrap').ok({ ok: true, data: { weeks: { defaultIsoDate: D }, publish: {}, week: null,
+    weekError: { code: 'NOT_CONFIGURED', message: '職事表尚未設定' }, timings: BOOT_TIMINGS } });
+  assert.strictEqual(ui.count('apiAutoImportWeek'), 0);
+  assert.strictEqual(ui.els.saveBtn.disabled, true);
+  assert.ok(ui.message().text.indexOf('職事表尚未設定') !== -1);
+});
+
+test('LS-UI-5 轉主日（loadWeek）一樣分兩步：apiLoadWeek 帶 deferImport，回來之後背景匯入；兩步之間沒有空檔可以按', function () {
+  const ui = makeUi();
+  ui.ctx.loadWeek(D);
+  const load = ui.take('apiLoadWeek');
+  assert.deepStrictEqual(plain(load.args), [D, { deferImport: true }]);
+  load.ok({ ok: true, data: { timings: BOOT_TIMINGS } });
+  assert.strictEqual(ui.ctx.state.inFlight, 1, '回來之後同一個回呼之內接上背景匯入');
+  assert.strictEqual(ui.els.saveBtn.disabled, true);
+  ui.take('apiAutoImportWeek').ok({ ok: true, data: { autoImport: { reason: 'UNCHANGED' }, week: null } });
+  assert.strictEqual(ui.els.saveBtn.disabled, false);
 });
 
 console.log('\n通過 ' + pass + ' 項，失敗 ' + fail + ' 項。');

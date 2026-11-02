@@ -332,7 +332,7 @@ function callerWebAppRole_() {
  *   「版本預覽」子資料夾，不覆寫最新 Word。apiLogClientError 只寫 ErrorLog。
  */
 var VIEW_ONLY_ALLOWED_APIS_ = Object.freeze([
-  'apiListWeeks', 'apiLoadWeek', 'apiPreviewProgram', 'apiListWeekSnapshots', 'apiDiffWeekSnapshot',
+  'apiListWeeks', 'apiLoadWeek', 'apiBootstrap', 'apiAutoImportWeek', 'apiPreviewProgram', 'apiListWeekSnapshots', 'apiDiffWeekSnapshot',
   'apiGetPublishStatus', 'apiDownloadBulletinDocx', 'apiOpenWordPreview', 'apiLogClientError',
   'apiQuarterMissingReport', 'apiRosterDiffReport', 'apiGetRosterFetchCandidates', 'apiGetQuarterOpsPanel',
   'apiGoLiveReport', 'apiPublishRevisionsReport', 'apiGetSpeakerFormStatus'
@@ -468,18 +468,105 @@ function apiBackfillRoster(quarterId) {
  *   {{ok:boolean, data:Object, error?:Object}} `data` 形狀見
  *     `loadWeekForWebApp_()`。
  */
-function apiLoadWeek(isoDate) {
+function apiLoadWeek(isoDate, options) {
+  // 2026-11-03：`options.deferImport:true`＝先回週報現有的內容，內容表匯入之後由前端另外叫 apiAutoImportWeek
+  //    （畫面先顯示、匯入在背景做；匯入完成之前前端鎖住所有按鈕）。不傳＝舊做法（先匯入再載入）。
+  var deferImport = Boolean(options && options.deferImport === true);
   return withApiResult_(function () {
+    var timer = createLoadTimer_('apiLoadWeek');
     // 2026-10-28（Ivan 測試結果 B）：載入之前先自動由內容表匯入這一個主日（有改動才寫），
     //    幹事不用再按「重新匯入」。內容表出問題不影響載入，只在結果帶一句說明。
     // 2026-10-30（獨立審查第 3 項）：只可以看的用戶不觸發寫入（內容表自動同步觸發器照樣每 30 分鐘做）。
     var autoImport = callerWebAppRole_() === WEBAPP_ROLE_.VIEW
       ? { ran: false, changed: 0, reason: 'VIEW_ONLY', message: '' }
-      : autoImportContentForWeek_(isoDate, 'WEBAPP_LOAD');
-    var data = loadWeekForWebApp_(isoDate);
+      : (deferImport ? { ran: false, changed: 0, reason: 'DEFERRED', message: '' }
+        : autoImportContentForWeek_(isoDate, 'WEBAPP_LOAD', { timer: timer }));
+    var data = loadWeekForWebApp_(isoDate, timer);
     data.autoImport = autoImport;
+    data.timings = timer.result();
     return data;
-  }, { functionName: 'apiLoadWeek', argsSummary: 'isoDate=' + isoDate });
+  }, { functionName: 'apiLoadWeek', argsSummary: 'isoDate=' + isoDate + (deferImport ? ' deferImport' : '') });
+}
+
+/**
+ * 用途：2026-11-03：填寫介面開頁時的**唯一**一次伺服器呼叫——以前是三次（主日清單、發佈狀態、載入預設主日），
+ *   每次都要重新驗證、讀 Config。內容表匯入不在這裏做（`apiAutoImportWeek`，畫面顯示之後在背景做）。
+ *   發佈狀態或者預設主日讀不到，不影響主日清單：各自帶錯誤訊息，前端分開顯示。
+ * Args:
+ *   includeArchived {boolean} 主日清單包不包括已封存。
+ *   options {{autoCreate:boolean}=} 同 `apiListWeeks`。
+ * Returns:
+ *   {{ok:boolean, data:{weeks:Object, publish:?Object, publishError:string, week:?Object,
+ *     weekError:?{code:string, message:string}, timings:Object}, error?:Object}}
+ *     `weeks` 同 `apiListWeeks` 的 data；`publish` 同 `apiGetPublishStatus` 的 data；`week` 同
+ *     `apiLoadWeek(…, {deferImport:true})` 的 data（沒有預設主日就是 null）。
+ */
+function apiBootstrap(includeArchived, options) {
+  var autoCreate = Boolean(options && options.autoCreate === true);
+  return withApiResult_(function () {
+    var timer = createLoadTimer_('apiBootstrap');
+    var viewer = callerWebAppRole_() === WEBAPP_ROLE_.VIEW;
+    var notice = (autoCreate && !viewer) ? autoCreateQuartersForWebApp_() : '';
+    timer.mark('檢查新季度');
+    var weeks = listWeeksForWebApp_(includeArchived === true);
+    weeks.autoCreateNotice = notice;
+    timer.mark('主日清單');
+    var publish = null;
+    var publishError = '';
+    try {
+      publish = publishPanelDataForWebApp_();
+    } catch (pubErr) {
+      publishError = (pubErr && pubErr.message) ? pubErr.message : String(pubErr);
+      appendErrorLog_({ source: ERROR_LOG_SOURCE.SERVER, functionName: 'apiBootstrap', errorCode: (pubErr && pubErr.code) || 'ERROR',
+        message: '開頁時讀發佈狀態失敗：' + publishError, detail: buildErrorDetail_(pubErr, { argsSummary: 'publish' }) });
+    }
+    timer.mark('發佈狀態');
+    var week = null;
+    var weekError = null;
+    if (weeks.defaultIsoDate) {
+      try {
+        week = loadWeekForWebApp_(weeks.defaultIsoDate, timer);
+        week.autoImport = { ran: false, changed: 0, reason: viewer ? 'VIEW_ONLY' : 'DEFERRED', message: '' };
+      } catch (weekErr) {
+        var code = (weekErr && weekErr.code) || 'ERROR';
+        weekError = { code: code, message: enrichAuthError_(weekErr) };
+        if (EXPECTED_USER_ERROR_CODES_.indexOf(code) === -1) {
+          appendErrorLog_({ source: ERROR_LOG_SOURCE.SERVER, functionName: 'apiBootstrap', errorCode: code,
+            message: weekError.message, detail: buildErrorDetail_(weekErr, { argsSummary: 'isoDate=' + weeks.defaultIsoDate }) });
+        }
+      }
+    }
+    var timings = timer.result();
+    if (week) week.timings = timings;
+    return { weeks: weeks, publish: publish, publishError: publishError, week: week, weekError: weekError, timings: timings };
+  }, { functionName: 'apiBootstrap', argsSummary: 'includeArchived=' + (includeArchived === true) + ' autoCreate=' + autoCreate });
+}
+
+/**
+ * 用途：2026-11-03：畫面顯示之後在背景由內容表匯入這一個主日（有改動才寫）。內容表與上一季內容表的修改時間、
+ *   這一週的最後儲存時間都與上一次匯入時一樣，就不打開內容表（`autoImportContentForWeek_()` 的 `skipIfUnchanged`）。
+ *   有改動時一併回這一週重新載入的資料，前端重畫；沒有改動回 `week:null`。只可以看的用戶不寫（`VIEW_ONLY`）。
+ * Args:
+ *   isoDate {string} 主日日期，yyyy-MM-dd。
+ * Returns:
+ *   {{ok:boolean, data:{autoImport:Object, week:?Object, timings:Object}, error?:Object}}
+ */
+function apiAutoImportWeek(isoDate) {
+  return withApiResult_(function () {
+    var timer = createLoadTimer_('apiAutoImportWeek');
+    if (callerWebAppRole_() === WEBAPP_ROLE_.VIEW) {
+      return { autoImport: { ran: false, changed: 0, reason: 'VIEW_ONLY', message: '' }, week: null, timings: timer.result() };
+    }
+    var autoImport = autoImportContentForWeek_(isoDate, 'WEBAPP_LOAD', { timer: timer, skipIfUnchanged: true });
+    var week = null;
+    if (Number(autoImport.changed || 0) > 0) {
+      week = loadWeekForWebApp_(isoDate, timer);
+      week.autoImport = autoImport;
+    }
+    var timings = timer.result();
+    if (week) week.timings = timings;
+    return { autoImport: autoImport, week: week, timings: timings };
+  }, { functionName: 'apiAutoImportWeek', argsSummary: 'isoDate=' + isoDate });
 }
 
 /**
@@ -1868,11 +1955,14 @@ function missingSplitForWebApp_(missing) {
  *     docs/已知bug類型.md。`rosterReloadMessage` 是
  *     `buildRosterReloadMessage_()` 算好的文案，只在「重新讀取職事表」
  *     按鈕的情境下使用。
+ *   2026-11-03：`timer`（選填，`createLoadTimer_()`）記下各段用了多少時間（只是量度）。
  * Raises:
  *   Error（`code:'NOT_CONFIGURED'`）如果 `ROSTER_SPREADSHEET_ID` 未設定。
  */
-function loadWeekForWebApp_(isoDate) {
+function loadWeekForWebApp_(isoDate, timer) {
+  var t = timer || noopLoadTimer_();
   var model = buildBulletinModel_(isoDate);
+  t.mark('職事表與資料模型');
   if (model.notConfigured) {
     var err = new Error('職事表尚未設定（Config 的 ROSTER_SPREADSHEET_ID 是空的），請先設定後再使用填寫介面。');
     err.code = 'NOT_CONFIGURED';
@@ -1913,18 +2003,28 @@ function loadWeekForWebApp_(isoDate) {
       return Object.assign({}, a.item, { arrangeKey: a.key, hidden: a.hidden === true, sourceIndex: a.sourceIndex });
     });
   }
+  var lists = {
+    announcements: arrangedForUi('announcements', pickWebAppListItems_(readSheet_(SHEETS.ANNOUNCEMENTS), listIso, ['TEXT'])),
+    prayers: arrangedForUi('prayers', pickWebAppListItems_(readSheet_(SHEETS.PRAYERS), listIso, ['TEXT'])),
+    fellowships: arrangedForUi('fellowships', pickWebAppListItems_(readSheet_(SHEETS.FELLOWSHIPS), listIso,
+      ['FELLOWSHIP_NAME', 'MEETING_DATE', 'MEETING_TIME', 'CONTENT'])),
+    // 2026-10-30：財政報告兩款，全部欄都顯示（唯讀）。鍵由 webAppListDefs_() 決定（與 Script.html LIST_DEFS.finance 相同）。
+    finance: pickWebAppListItems_(readSheet_(SHEETS.FINANCE), listIso, webAppListDefs_().finance.fieldKeys)
+  };
+  t.mark('週報與清單');
+  // 2026-10-28：事奉項目多過 Word 範本格數會漏印——載入時就按這一週的範本核對（src/DutySlots.gs）。
+  //    2026-11-03：範本格數按範本的修改時間記住（src/DutySlots.gs），範本沒有改就不用再下載。
+  var dutySlotWarnings = dutySlotCheckForModel_(model, { cached: true }).warnings;
+  t.mark('Word 範本格數');
+  // 2026-10-30：職事表沒有這一日（特別崇拜、職事表未有的季度）時 model.quarterId 是空的，用這一行自己的季度。
+  var contentSheetStatus = Object.assign({}, buildContentSheetStatusForWebApp_(model.quarterId || String(weekRow.QUARTER_ID || '').trim()),
+    specialService ? { specialService: { contentSourceIso: listIso } } : {});
+  t.mark('內容表狀態');
 
-  return {
+  var result = {
     isoDate: isoDate,
     week: week,
-    lists: {
-      announcements: arrangedForUi('announcements', pickWebAppListItems_(readSheet_(SHEETS.ANNOUNCEMENTS), listIso, ['TEXT'])),
-      prayers: arrangedForUi('prayers', pickWebAppListItems_(readSheet_(SHEETS.PRAYERS), listIso, ['TEXT'])),
-      fellowships: arrangedForUi('fellowships', pickWebAppListItems_(readSheet_(SHEETS.FELLOWSHIPS), listIso,
-        ['FELLOWSHIP_NAME', 'MEETING_DATE', 'MEETING_TIME', 'CONTENT'])),
-      // 2026-10-30：財政報告兩款，全部欄都顯示（唯讀）。鍵由 webAppListDefs_() 決定（與 Script.html LIST_DEFS.finance 相同）。
-      finance: pickWebAppListItems_(readSheet_(SHEETS.FINANCE), listIso, webAppListDefs_().finance.fieldKeys)
-    },
+    lists: lists,
     lastSavedAt: canonicalSaveToken_(weekRow.LAST_SAVED_AT),
     readOnly: {
       dutyBoxPage1: model.dutyBoxPage1,
@@ -1980,17 +2080,14 @@ function loadWeekForWebApp_(isoDate) {
     // 前端不可以再自己 filter 一次 `optional`——那是第三份分類。
     // G14：另附面板顯示用、人數合併成一行的清單（見 missingSplitForWebApp_()）。
     missingSplit: missingSplitForWebApp_(model.missing),
-    // 2026-10-28：事奉項目多過 Word 範本格數會漏印——載入時就按這一週的範本核對（src/DutySlots.gs）。
-    warnings: (model.warnings || []).concat(dutySlotCheckForModel_(model).warnings),
+    warnings: (model.warnings || []).concat(dutySlotWarnings),
     options: webAppFieldOptions_(),
     // 第六輪：週報與職事表的比對結果。前端用 `conflictCount` 顯示頂部
     // 的「衝突 N 項」，用 `rows` 展開比對清單。
     rosterDiff: model.rosterDiff,
     // 內容表 v2：季度填寫表已停用，不再送「開啟本季填寫表」的連結（以前的 fillGridUrl）。
     // R-011：七個唯讀區塊上方那一行要用的資料（內容表連結、最後匯入時間）。
-    // 2026-10-30：職事表沒有這一日（特別崇拜、職事表未有的季度）時 model.quarterId 是空的，用這一行自己的季度。
-    contentSheet: Object.assign({}, buildContentSheetStatusForWebApp_(model.quarterId || String(weekRow.QUARTER_ID || '').trim()),
-      specialService ? { specialService: { contentSourceIso: listIso } } : {}),
+    contentSheet: contentSheetStatus,
     // 「重新讀取職事表」按鈕成功之後要顯示的文案；一律算好給前端，
     // 前端只在那個按鈕的情境下使用，一般切換主日時不理會這個欄位。
     rosterReloadMessage: buildRosterReloadMessage_(model.rosterVersionUsed, model.rosterIsOfficial),
@@ -2022,6 +2119,8 @@ function loadWeekForWebApp_(isoDate) {
     rosterChoirUrl: buildRosterViewUrl_(rosterWebAppUrlForButton_(), 'choir',
       model.quarterId || String(weekRow.QUARTER_ID || ''))
   };
+  t.mark('其他（預覽連結、Word 檔案、發佈時段等）');
+  return result;
 }
 
 /**
@@ -2138,8 +2237,8 @@ function buildContentSheetStatusForWebApp_(quarterId) {
 var CONTENT_SHEET_SCHEMA_CACHE_PREFIX_ = 'CS_SCHEMA_V3_';
 
 /**
- * 用途：v3：內容表的版面是不是最新（`checkContentSheetSchema_()`），結果記十分鐘（指令碼屬性）——每次載入一個主日都
- *   開一次內容表太慢。建立／刷新內容表之後由 `forgetContentSheetSchemaStatus_()` 清走記錄。
+ * 用途：v3：內容表的版面是不是最新（`checkContentSheetSchema_()`），結果記住（指令碼屬性）——每次載入一個主日都
+ *   開一次內容表太慢。2026-11-03：記錄連內容表的修改時間，修改時間不變就一直用（一日之內）；讀不到修改時間就只信十分鐘。建立／刷新內容表之後由 `forgetContentSheetSchemaStatus_()` 清走記錄。
  *   讀不到（檔案開不到、讀取失敗）一律當作 `'OK'`：這只是介面上的提示，真正把關在匯入
  *   （`previewContentImport_()` 會整次拒絕並講明原因）。
  * Args:
@@ -2154,9 +2253,16 @@ function contentSheetSchemaStatusCached_(fileId) {
   var id = String(fileId || '').trim();
   var ok = { status: 'OK', message: '', notice: '' };
   if (!id) return ok;
-  var hit = readTimedScriptProperty_(CONTENT_SHEET_SCHEMA_CACHE_PREFIX_ + id, 600);
+  // 2026-11-03：記錄連內容表的修改時間：修改時間一樣（內容表沒有人改過）就用記錄（一日之內），不打開內容表；
+  //    讀不到修改時間就照舊只信十分鐘之內的記錄。
+  var mtime = readContentSheetLastUpdatedMillis_(id);
+  var hit = readTimedScriptProperty_(CONTENT_SHEET_SCHEMA_CACHE_PREFIX_ + id, mtime === null ? 600 : 24 * 3600);
   if (hit) {
-    try { return JSON.parse(hit); } catch (parseErr) { /* 重新檢查 */ }
+    try {
+      var cached = JSON.parse(hit);
+      if (cached && cached.result && cached.version === CONTENT_WEEK_IMPORT_SIGNATURE_VERSION_
+        && (mtime === null || cached.mtime === mtime)) return cached.result;
+    } catch (parseErr) { /* 重新檢查 */ }
   }
   var result = ok;
   try {
@@ -2173,7 +2279,8 @@ function contentSheetSchemaStatusCached_(fileId) {
   } catch (err) {
     return ok;
   }
-  writeTimedScriptProperty_(CONTENT_SHEET_SCHEMA_CACHE_PREFIX_ + id, JSON.stringify(result));
+  writeTimedScriptProperty_(CONTENT_SHEET_SCHEMA_CACHE_PREFIX_ + id,
+    JSON.stringify({ version: CONTENT_WEEK_IMPORT_SIGNATURE_VERSION_, mtime: mtime, result: result }));
   return result;
 }
 

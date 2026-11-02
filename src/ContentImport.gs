@@ -1326,7 +1326,9 @@ function previewContentImport_(quarterId, options) {
  *   Error 如果拿不到鎖（30 秒內）——寧可失敗也不要與同步觸發器同時寫。
  */
 function applyContentImport_(quarterId, options) {
-  var preview = previewContentImport_(quarterId, options);
+  // 2026-11-03：自動匯入剛剛已經預覽過（autoImportContentForWeek_()），用回那一份，不再打開內容表一次。
+  var pre = options && options.precomputedPreview;
+  var preview = (pre && pre.ok === true && pre.plan) ? pre : previewContentImport_(quarterId, options);
   if (!preview.ok) return preview;
   var skipSnapshot = Boolean(options && options.skipSnapshot === true);
 
@@ -1715,6 +1717,11 @@ function buildContentImportReportLines_(result) {
  * Args:
  *   isoDate {string} 主日日期，yyyy-MM-dd。
  *   source {string} 誰叫的（AuditLog 備註用），例如 `'WEBAPP_LOAD'`、`'TRIGGER'`。
+ *   options {{timer:Object=, skipIfUnchanged:boolean=}=} 2026-11-03：`timer` 見 src/LoadTiming.gs；
+ *     `skipIfUnchanged:true`＝這一季與上一季內容表的修改時間、這一週的最後儲存時間都與上一次（成功預覽）一樣，
+ *     就不打開內容表，回 `reason:'UNCHANGED'`（連上一次的 `notices`，持續狀況照樣講出來）。記錄只是省時間、
+ *     不是真相來源：讀不到修改時間、過期（一日）、系統更新了匯入規則（`CONTENT_WEEK_IMPORT_SIGNATURE_VERSION_`）
+ *     都照樣匯入一次。
  * Returns:
  *   {{ran:boolean, changed:number, reason:string, message:string, notices:string[]=}}
  *     `ran`＝有試過匯入（找得到季度與內容表）；`changed`＝寫了幾項（新增＋修改＋刪除＋解除覆寫）；
@@ -1723,33 +1730,60 @@ function buildContentImportReportLines_(result) {
  * Raises:
  *   （無）任何錯誤都轉成 `reason:'ERROR'` 並記 ErrorLog。
  */
-function autoImportContentForWeek_(isoDate, source) {
+function autoImportContentForWeek_(isoDate, source, options) {
   var iso = String(isoDate || '').trim();
+  var opts = options || {};
+  var t = opts.timer || noopLoadTimer_();
   try {
     var quarterId = lookupQuarterIdForIsoDate_(iso);
     if (!quarterId) return { ran: false, changed: 0, reason: 'NO_QUARTER', message: '' };
-    if (!findContentSheetRow_(quarterId)) return { ran: false, changed: 0, reason: 'NO_CONTENT_SHEET', message: '' };
+    var contentRow = findContentSheetRow_(quarterId);
+    if (!contentRow) return { ran: false, changed: 0, reason: 'NO_CONTENT_SHEET', message: '' };
     var weekRow = findBulletinWeekRow_(readSheet_(SHEETS.BULLETIN_WEEKS), iso);
     if (weekRow && weekRow.ARCHIVED === true) return { ran: false, changed: 0, reason: 'ARCHIVED', message: '' };
     // 2026-10-30：特別崇拜沒有內容表的行（src/SpecialService.gs）。
     if (isSpecialServiceRow_(weekRow)) return { ran: false, changed: 0, reason: 'SPECIAL_SERVICE', message: '' };
 
+    // 2026-11-03：內容表沒有改過就不打開（打開內容表、讀所有分頁是載入最慢的一段）。
+    var signature = opts.skipIfUnchanged === true ? contentWeekImportSignature_(quarterId, contentRow, weekRow) : null;
+    var markerKey = CONTENT_WEEK_IMPORT_PROPERTY_PREFIX_ + iso;
+    if (signature) {
+      var last = readTimedScriptProperty_(markerKey, CONTENT_WEEK_IMPORT_MAX_AGE_SEC_);
+      var lastObj = null;
+      try { lastObj = last ? JSON.parse(last) : null; } catch (parseErr) { lastObj = null; }
+      t.mark('內容表修改時間');
+      if (lastObj && lastObj.signature === signature) {
+        return { ran: false, changed: 0, reason: 'UNCHANGED', message: '', notices: lastObj.notices || [] };
+      }
+    }
+
     var preview = previewContentImport_(quarterId, { isoDate: iso });
+    t.mark('打開內容表並比較');
     if (!preview.ok) return { ran: true, changed: 0, reason: preview.reason || 'PREVIEW_FAILED', message: preview.message || '' };
     // 2026-11-02：持續狀況（未補上合堂三行、上一季內容表讀不到等）：匯入照做，但填寫介面要講出來。
     var notices = (preview.notices || []).map(function (n) { return n.message; });
     var plan = preview.plan || {};
     var changeCount = Number(plan.added || 0) + Number(plan.updated || 0) + Number(plan.removed || 0)
       + ((plan.releases || []).length);
-    if (changeCount === 0) return { ran: true, changed: 0, reason: '', message: '', notices: notices };
+    if (changeCount === 0) {
+      if (signature) rememberContentWeekImport_(markerKey, signature, notices);
+      return { ran: true, changed: 0, reason: '', message: '', notices: notices };
+    }
 
-    var applied = applyContentImport_(quarterId, { isoDate: iso });
+    // 2026-11-03：用剛算好的預覽寫入，不再打開內容表一次（以前 applyContentImport_() 會重新預覽）。
+    var applied = applyContentImport_(quarterId, { isoDate: iso, precomputedPreview: preview });
+    t.mark('寫入週報');
     if (!applied.ok) return { ran: true, changed: 0, reason: applied.reason || 'APPLY_FAILED', message: applied.message || '', notices: notices };
     appendAuditLog_({
       action: 'CONTENT_AUTO_IMPORT_WEEK', sheetName: SHEETS.CONTENT_SHEETS, rowKey: iso,
       newValue: '+' + applied.plan.added + ' ~' + applied.plan.updated + ' -' + applied.plan.removed,
       notes: '自動由內容表匯入 ' + iso + '（季度 ' + quarterId + '，' + String(source || '') + '）。'
     });
+    if (signature) {
+      // 寫入之後這一週的最後儲存時間可能變了：按寫入之後的樣子再算一次。
+      var after = contentWeekImportSignature_(quarterId, contentRow, findBulletinWeekRow_(readSheet_(SHEETS.BULLETIN_WEEKS), iso));
+      if (after) rememberContentWeekImport_(markerKey, after, notices);
+    }
     return { ran: true, changed: changeCount, reason: '', message: '', notices: notices };
   } catch (err) {
     appendErrorLog_({
@@ -1760,5 +1794,50 @@ function autoImportContentForWeek_(isoDate, source) {
       detail: buildErrorDetail_(err, { argsSummary: 'isoDate=' + iso + ' source=' + source })
     });
     return { ran: true, changed: 0, reason: 'ERROR', message: (err && err.message) ? err.message : String(err) };
+  }
+}
+
+/** 2026-11-03：指令碼屬性鍵前綴：每一個主日上一次（成功預覽）自動匯入時的內容表修改時間與最後儲存時間。 */
+var CONTENT_WEEK_IMPORT_PROPERTY_PREFIX_ = 'CS_WEEK_IMPORT_';
+
+/** 2026-11-03：上面那個記錄的有效期（秒）：一日。過期就照樣打開內容表比較一次。 */
+var CONTENT_WEEK_IMPORT_MAX_AGE_SEC_ = 24 * 3600;
+
+/** 2026-11-03：匯入規則的版本。系統改了匯入規則（例如加了欄）就改這個值，所有主日下一次載入都會照樣比較一次。 */
+var CONTENT_WEEK_IMPORT_SIGNATURE_VERSION_ = '2026-11-03';
+
+/**
+ * 用途：2026-11-03：「這一週上一次比較之後有沒有東西改過」的指紋：這一季與上一季內容表的修改時間（「連續到」
+ *   會帶入上一季的家事報告、代禱事項）、這一週的最後儲存時間（儲存、重設、還原版本都會改）、匯入規則版本。IO 層（讀 Drive 修改時間）。
+ * Args:
+ *   quarterId {string}　contentRow {Object} `ContentSheets` 這一季那一行。　weekRow {?Object} `BulletinWeeks` 這一週那一行。
+ * Returns:
+ *   {?string} 任何一個修改時間讀不到就回 `null`（＝不可以略過，照樣比較）。
+ */
+function contentWeekImportSignature_(quarterId, contentRow, weekRow) {
+  var own = readContentSheetLastUpdatedMillis_(contentRow && contentRow.FILE_ID);
+  if (own === null) return null;
+  var prevRow = findContentSheetRow_(previousQuarterId_(quarterId));
+  var prev = '';
+  if (prevRow) {
+    prev = readContentSheetLastUpdatedMillis_(prevRow.FILE_ID);
+    if (prev === null) return null;
+  }
+  return [CONTENT_WEEK_IMPORT_SIGNATURE_VERSION_, String(contentRow.FILE_ID || ''), own,
+    prevRow ? String(prevRow.FILE_ID || '') : '', prev, canonicalSaveToken_(weekRow ? weekRow.LAST_SAVED_AT : '')].join('|');
+}
+
+/**
+ * 用途：2026-11-03：記下這一週剛比較過（連持續狀況提示）。寫不到不影響匯入（下一次照樣比較）。
+ * Args:
+ *   key {string}　signature {string}　notices {string[]}
+ * Returns:
+ *   {void}
+ */
+function rememberContentWeekImport_(key, signature, notices) {
+  try {
+    writeTimedScriptProperty_(key, JSON.stringify({ signature: signature, notices: (notices || []).slice(0, 5) }));
+  } catch (err) {
+    // 只是省時間的記錄。
   }
 }

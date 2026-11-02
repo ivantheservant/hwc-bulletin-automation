@@ -191,6 +191,41 @@ function readTemplateDutySlots_(fileId) {
   );
 }
 
+/** 2026-11-03：指令碼屬性鍵前綴：Word 範本的事奉格數（連範本的修改時間）。 */
+var DUTY_SLOTS_PROPERTY_PREFIX_ = 'DUTY_SLOTS_';
+
+/** 2026-11-03：上面那個記錄的有效期（秒）：三十日。真正的把關是範本的修改時間，有效期只是清走很久沒用的記錄。 */
+var DUTY_SLOTS_MAX_AGE_SEC_ = 30 * 24 * 3600;
+
+/**
+ * 用途：2026-11-03：同 `readTemplateDutySlots_()`，但記住結果：範本檔案的修改時間與上一次讀的時候一樣，
+ *   就用記下的格數，不用再下載、解壓範本（填寫介面每次載入都要核對，範本很少改）。記錄只是省時間，
+ *   不是真相來源：修改時間讀不到、記錄讀不到或者壞了，一律照樣讀範本。「檢查範本佔位符」與「預覽本週週報資料」
+ *   不經這一支（一定讀範本本身）。IO 層。
+ * Args:
+ *   fileId {string} 範本檔案 ID。
+ * Returns:
+ *   {Object} 同 `readTemplateDutySlots_()`。
+ * Raises:
+ *   Error 讀範本失敗時原樣拋出。
+ */
+function readTemplateDutySlotsCached_(fileId) {
+  var mtime = readTemplateLastUpdatedMillis_(fileId);
+  var key = DUTY_SLOTS_PROPERTY_PREFIX_ + String(fileId);
+  if (mtime !== null) {
+    var hit = readTimedScriptProperty_(key, DUTY_SLOTS_MAX_AGE_SEC_);
+    if (hit) {
+      try {
+        var obj = JSON.parse(hit);
+        if (obj && obj.mtime === mtime && obj.slots) return obj.slots;
+      } catch (parseErr) { /* 照樣讀範本 */ }
+    }
+  }
+  var slots = readTemplateDutySlots_(fileId);
+  if (mtime !== null) writeTimedScriptProperty_(key, JSON.stringify({ mtime: mtime, slots: slots }));
+  return slots;
+}
+
 /**
  * 用途：按這一週用的 Word 範本核對事奉格。IO 層（讀範本）。填寫介面載入與「預覽本週週報資料」用；
  *   產生 Word 不經這一支（那裏已經有範本 XML，直接用 `templateDutySlotsFromXml_()`）。
@@ -202,13 +237,15 @@ function readTemplateDutySlots_(fileId) {
  * Returns:
  *   {{templateLabel:string, slots:?Object, error:string, warnings:Object[]}}
  */
-function dutySlotCheckForModel_(model) {
+function dutySlotCheckForModel_(model, options) {
   var template = resolveWordTemplate_(model && model.templateId);
   if (!template.fileId) {
     return { templateLabel: template.label, slots: null, error: '', warnings: [] };
   }
   try {
-    var slots = readTemplateDutySlots_(template.fileId);
+    // 2026-11-03：填寫介面載入用 `cached:true`（範本沒有改就不再下載，見 readTemplateDutySlotsCached_()）。
+    var slots = (options && options.cached === true)
+      ? readTemplateDutySlotsCached_(template.fileId) : readTemplateDutySlots_(template.fileId);
     return {
       templateLabel: template.label,
       slots: slots,

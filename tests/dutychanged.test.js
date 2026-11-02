@@ -563,7 +563,10 @@ function makeUi(sb) {
   /** 回應前端剛送出的 apiLoadWeek（真正入口的回應）。 */
   function answerLoad() {
     const c = take('apiLoadWeek');
-    c.ok(plain(sb.apiLoadWeek(c.args[0])));
+    c.ok(plain(sb.apiLoadWeek.apply(null, c.args)));
+    // 2026-11-03：載入之後前端在背景叫 apiAutoImportWeek（完成之前介面鎖住），一併回應。
+    const imp = calls.filter(function (x) { return x.name === 'apiAutoImportWeek' && !x.taken; })[0];
+    if (imp) { imp.taken = true; imp.ok(plain(sb.apiAutoImportWeek(imp.args[0]))); }
   }
   return {
     ctx: ctx, dom: dom, calls: calls, take: take,

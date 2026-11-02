@@ -216,6 +216,13 @@
     document.getElementById('fetchFromRosterBtn').disabled = busy || !state.loaded;
     document.getElementById('overwriteFromRosterBtn').disabled = busy || !state.loaded;
     document.getElementById('saveBtn').disabled = busy || !state.loaded;
+    // 2026-11-03：頂部其餘按鈕（在 #mainContent 以外，遮罩擋不到）：載入未完成（包括背景匯入內容表）一律停用，
+    //    免得一部分載入完、背景仍在載入時已經可以按。
+    ['previewLink', 'specialServiceBtn', 'specialServicePreviewBtn', 'specialServiceCancelBtn', 'cancelSpecialServiceBtn']
+      .forEach(function (id) {
+        var b = document.getElementById(id);
+        if (b) b.disabled = busy || (id === 'previewLink' && !state.loaded);
+      });
     // v3：每一個區塊右上角的「儲存」與頂部那一粒同一個狀態。
     var sectionSaves = document.querySelectorAll('[data-save-button]');
     for (var si = 0; si < sectionSaves.length; si++) sectionSaves[si].disabled = busy || !state.loaded;
@@ -3027,7 +3034,9 @@
     resetPublishPanelIfWeekChanged(state.isoDate, isoDate);
     setLoaded(false);
     var notice = opts.failureNotice ? String(opts.failureNotice) : '';
-    callServer('apiLoadWeek', [isoDate],
+    // 2026-11-03：先載入週報現有的內容（不等內容表匯入），畫面顯示之後再在背景匯入（startBackgroundImport()）；
+    //    兩段之間不會有空檔讓人按掣（同一個回呼之內接上，忙碌計數一直大於零）。
+    callServer('apiLoadWeek', [isoDate, { deferImport: true }],
       function (resp) {
         if (notice && (!resp || !resp.ok)) {
           setLoaded(false);
@@ -3035,9 +3044,10 @@
           return;
         }
         onWeekLoaded(isoDate, resp);
+        if (resp && resp.ok) startBackgroundImport(isoDate, resp.data && resp.data.timings);
       },
       {
-        busyText: '載入中…',
+        busyText: '載入中…（第 1 步，共 2 步：讀取週報與職事表）',
         onError: function (message) {
           setLoaded(false);
           showMessage('error', notice ? notice + RELOAD_AFTER_NO_RESPONSE_FAILED : message);
@@ -3047,6 +3057,68 @@
 
   /** 第二批測試修正 G27：沒有回應之後自動重新載入亦失敗時，在原本那一句後面加的一句。 */
   var RELOAD_AFTER_NO_RESPONSE_FAILED = '重新載入亦失敗，請稍後按 F5 重新整理。';
+
+  /**
+   * 用途：2026-11-03：畫面已經顯示週報現有的內容之後，在背景由內容表匯入這一週（apiAutoImportWeek）。
+   *   匯入完成之前整個介面維持「處理中」（callServer 的忙碌狀態：遮罩、頂部按鈕停用），忙碌列講明仍在載入；
+   *   有改動就用伺服器回的新資料重畫。只可以看的用戶不匯入（伺服器亦會擋）。
+   * Args:
+   *   isoDate {string} 剛載入的主日。
+   *   firstTimings {?Object} 第 1 步的量度（apiLoadWeek／apiBootstrap 的 timings），與第 2 步一併顯示。
+   * Returns:
+   *   {void}
+   */
+  function startBackgroundImport(isoDate, firstTimings) {
+    if (typeof isViewOnlyUser === 'function' && isViewOnlyUser()) { renderLoadTimings([firstTimings]); return; }
+    callServer('apiAutoImportWeek', [isoDate], function (resp) {
+      // 期間不可能轉主日（介面鎖住），仍然保險：已經不是這一週就不理。
+      if (state.isoDate !== isoDate) return;
+      if (!resp || !resp.ok) {
+        renderLoadTimings([firstTimings]);
+        showMessage('info', '這一週未能自動由內容表匯入：' + ((resp && resp.error && resp.error.message) || '未知原因')
+          + '　畫面顯示的是週報現有的內容。');
+        return;
+      }
+      var data = resp.data || {};
+      if (data.week) {
+        onWeekLoaded(isoDate, { ok: true, data: data.week });
+      } else {
+        renderAutoImportNotice(data.autoImport);
+      }
+      renderLoadTimings([firstTimings, data.timings]);
+    }, {
+      busyText: '已顯示週報現有的內容；仍在載入：正在由內容表匯入最新內容（第 2 步，共 2 步）。完成之前不可以修改或按按鈕。',
+      onError: function (message) {
+        renderLoadTimings([firstTimings]);
+        showMessage('info', '這一週未能自動由內容表匯入：' + message + '　畫面顯示的是週報現有的內容。');
+      }
+    });
+  }
+
+  /**
+   * 用途：2026-11-03：頂部統計列旁邊顯示這一次載入用了多少時間（滑鼠停留看分段），並寫入瀏覽器主控台。只是量度。
+   * Args:
+   *   list {Array<?{name:string, totalMs:number, parts:{label:string, ms:number}[]}>} 伺服器各次呼叫的 `timings`。
+   * Returns:
+   *   {void}
+   */
+  function renderLoadTimings(list) {
+    var box = document.getElementById('statLoadTime');
+    if (!box) return;
+    var items = (list || []).filter(function (t) { return t && typeof t.totalMs === 'number'; });
+    if (items.length === 0) { box.classList.add('hidden'); return; }
+    var total = 0;
+    var detail = [];
+    items.forEach(function (t) {
+      total += t.totalMs;
+      detail.push(t.name + '：' + (t.totalMs / 1000).toFixed(1) + ' 秒');
+      (t.parts || []).forEach(function (p) { detail.push('　' + p.label + '：' + (p.ms / 1000).toFixed(1) + ' 秒'); });
+    });
+    box.textContent = '伺服器用時 ' + (total / 1000).toFixed(1) + ' 秒';
+    box.title = detail.join('\n');
+    box.classList.remove('hidden');
+    try { console.log('[LoadTiming] ' + detail.join(' | ')); } catch (e) { /* 只是記錄 */ }
+  }
   // END load-week
 
   /**
@@ -3131,7 +3203,8 @@
   function renderAutoImportNotice(autoImport) {
     var a = autoImport || {};
     // 特別崇拜沒有內容表的行（清單跟上一個主日），不是「未能匯入」。
-    var quietReasons = ['', 'NO_QUARTER', 'NO_CONTENT_SHEET', 'ARCHIVED', 'SPECIAL_SERVICE', 'VIEW_ONLY'];
+    // 2026-11-03：DEFERRED＝匯入改在背景做（未做）；UNCHANGED＝內容表沒有改過，不用打開。
+    var quietReasons = ['', 'NO_QUARTER', 'NO_CONTENT_SHEET', 'ARCHIVED', 'SPECIAL_SERVICE', 'VIEW_ONLY', 'DEFERRED', 'UNCHANGED'];
     // 2026-11-02：持續狀況（內容表未補上合堂三行、上一季內容表讀不到等）：匯入照做，但一定要講出來。
     var notices = (a.notices || []).join('　');
     if (Number(a.changed || 0) > 0) {
@@ -3139,7 +3212,7 @@
         + (notices ? '　' + notices : ''));
       return;
     }
-    if (notices && !a.reason) {
+    if (notices && (!a.reason || a.reason === 'UNCHANGED')) {
       showMessage('warning', notices);
       return;
     }
@@ -4893,10 +4966,43 @@
     document.getElementById('missingPanel').classList.add('hidden');
     document.getElementById('conflictPanel').classList.add('hidden');
     applyBusyState();
-    loadPublishPanel();
-    // v3：第一次載入時順手檢查職事表有沒有新季度（有就自動建立該季週報與內容表）。
-    callServer('apiListWeeks', [state.showArchived, { autoCreate: true }], onWeeksLoaded,
-      { busyText: '載入中…（順便檢查職事表有沒有新的季度）' });
+    // 2026-11-03：開頁只叫一次伺服器（apiBootstrap：主日清單、發佈狀態、預設主日），內容表匯入之後在背景做。
+    //    v3：順手檢查職事表有沒有新季度（有就自動建立該季週報與內容表）。
+    callServer('apiBootstrap', [state.showArchived, { autoCreate: true }], onBootstrapLoaded,
+      { busyText: '載入中…（第 1 步，共 2 步：讀取主日清單、週報與職事表，順便檢查有沒有新的季度）' });
+  }
+
+  /**
+   * 用途：2026-11-03：開頁那一次 apiBootstrap 回來之後：畫主日清單、發佈區塊、預設主日，再開始背景匯入。
+   *   三樣各自有錯誤訊息，互不影響（以前是三次呼叫，各自失敗）。
+   * Args:
+   *   resp {{ok:boolean, data:Object, error:Object}}
+   * Returns:
+   *   {void}
+   */
+  function onBootstrapLoaded(resp) {
+    if (!resp || !resp.ok) { showMessage('error', (resp && resp.error && resp.error.message) || '載入失敗。'); return; }
+    var data = resp.data || {};
+    if (data.publish) onPublishPanelLoaded({ ok: true, data: data.publish });
+    else onPublishPanelLoaded({ ok: false });
+    var weeks = data.weeks || {};
+    renderAutoCreateNotice(weeks.autoCreateNotice);
+    renderQuarterEmptyHint(weeks);
+    populateWeekSelectors(weeks, weeks.defaultIsoDate);
+    if (weeks.defaultIsoDate) {
+      if (data.week) {
+        resetPublishPanelIfWeekChanged(state.isoDate, weeks.defaultIsoDate);
+        onWeekLoaded(weeks.defaultIsoDate, { ok: true, data: data.week });
+        startBackgroundImport(weeks.defaultIsoDate, data.timings);
+      } else {
+        setLoaded(false);
+        showMessage('error', (data.weekError && data.weekError.message) || '未能載入 ' + weeks.defaultIsoDate + '。');
+      }
+    } else if (weeks.emptyHint) {
+      showMessage('info', weeks.emptyHint);
+    } else {
+      showMessage('error', '目前沒有任何主日資料。請先在試算表用選單「建立本季空白週報」建立骨架。');
+    }
   }
 
   function onWeeksLoaded(resp) {

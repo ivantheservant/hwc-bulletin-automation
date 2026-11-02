@@ -141,9 +141,13 @@ test('RB1-5 前端 renderAutoImportNotice：有改動講「已自動由內容表
 
 test('RB1-6 apiLoadWeek 的後端（WebApp.gs）先自動匯入再讀；星期一觸發器在寄預覽通知之前亦先自動匯入', function () {
   const web = readSrc('src/WebApp.gs');
-  const load = web.slice(web.indexOf('function apiLoadWeek('), web.indexOf('function apiLoadWeek(') + 500);
-  assert.ok(load.indexOf("autoImportContentForWeek_(isoDate, 'WEBAPP_LOAD')") !== -1
-    && load.indexOf("autoImportContentForWeek_(isoDate, 'WEBAPP_LOAD')") < load.indexOf('loadWeekForWebApp_(isoDate)'));
+  // 2026-11-03：不傳 deferImport 時照舊先匯入再讀；填寫介面改為先讀、再在背景匯入（apiAutoImportWeek，tests/loadspeed.test.js）。
+  const load = web.slice(web.indexOf('function apiLoadWeek('), web.indexOf('function apiBootstrap('));
+  assert.ok(load.indexOf("autoImportContentForWeek_(isoDate, 'WEBAPP_LOAD'") !== -1
+    && load.indexOf("autoImportContentForWeek_(isoDate, 'WEBAPP_LOAD'") < load.indexOf('loadWeekForWebApp_(isoDate'));
+  const bg = web.slice(web.indexOf('function apiAutoImportWeek('), web.indexOf('function apiAutoImportWeek(') + 1500);
+  assert.ok(bg.indexOf("autoImportContentForWeek_(isoDate, 'WEBAPP_LOAD'") !== -1
+    && bg.indexOf("autoImportContentForWeek_(isoDate, 'WEBAPP_LOAD'") < bg.indexOf('loadWeekForWebApp_(isoDate'));
   assert.ok(readSrc('src/Trigger.gs').indexOf("autoImportContentForWeek_(targetIso, 'TRIGGER')") !== -1);
 });
 
