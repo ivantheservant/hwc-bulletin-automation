@@ -998,7 +998,7 @@ function buildContentSheetResultLines_(result) {
     lines.push('本季主日：' + result.serviceDateCount + ' 個');
     lines.push('已建立分頁：' + result.tabsCreated.join('、'));
     if (result.seededSample) {
-      lines.push('已預填樣本（首個主日）——確認格式之後請自行修改，或把「有效」改為 FALSE。');
+      lines.push('已預填示範行（首個主日，「有效」＝FALSE，不會印出）——只用來示範格式，要用請另加一行。');
     }
     if (result.sharingError) {
       lines.push('⚠️ 分享權限設定失敗：' + result.sharingError + '　請人手設定。');

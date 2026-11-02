@@ -760,7 +760,24 @@ test('11. 樣本嘅「連續到」指向該季第四個主日', function () {
   // 內容表 v4：「連續到」第 B 欄、「有效」第 C 欄。
   assert.strictEqual(cell(sheet, 5, 2), SERVICE_DATES[3], '第三行示範連登四週');
   assert.strictEqual(cell(sheet, 3, 2), '', '頭兩行冇「連續到」');
-  assert.strictEqual(cell(sheet, 3, 3), true, '樣本嘅「有效」要係 TRUE');
+  // 2026-11-02：示範行「有效」一律 FALSE（以前 TRUE，2027-01-03 那一期把示範行匯入了真週報）。
+  [3, 4, 5].forEach(function (r) { assert.strictEqual(cell(sheet, r, 3), false, '第 ' + r + ' 行示範行的「有效」要係 FALSE'); });
+  assert.ok(String(cell(sheet, 3, 5)).indexOf('示範行（有效＝FALSE，不會印出）：') === 0, cell(sheet, 3, 5));
+});
+
+test('11d. 新建內容表的示範行（有效＝FALSE）：經真正的匯入入口（applyContentImport_）一行都不會入週報；_說明 講明', function () {
+  const env = makeEnv({});
+  const built = env.sandbox.buildOrRefreshContentSheet_(QUARTER_ID);
+  assert.strictEqual(built.seededSample, true);
+  const imp = env.sandbox.applyContentImport_(QUARTER_ID);
+  assert.strictEqual(imp.ok, true, JSON.stringify(imp).slice(0, 300));
+  ['Announcements', 'Prayers', 'Finance'].forEach(function (name) {
+    const active = env.sandbox.readSheet_(name).filter(function (r) { return r.ACTIVE === true; });
+    assert.strictEqual(active.length, 0, name + ' 不可以有示範行：' + JSON.stringify(active).slice(0, 200));
+  });
+  const help = env.contentSpreadsheet().getSheetByName('_說明').__data.map(function (r) { return r[0]; }).join('\n');
+  assert.ok(help.indexOf('「示範行（有效＝FALSE，不會印出）」的幾行只用來示範格式與長度') !== -1, help);
+  assert.ok(env.sandbox.buildContentSheetResultLines_(built).join('\n').indexOf('已預填示範行（首個主日，「有效」＝FALSE，不會印出）') !== -1);
 });
 
 test('11b. 樣本：崇拜人數填喺第一個主日減七天、財政都有；內容表 v2 起冇宣召樣本', function () {
@@ -1126,7 +1143,8 @@ test('補充 c. _說明 分頁列出負責人、截止日期、三條規則、�
   assert.ok(text.indexOf('請勿修改第 1、2 行') !== -1);
   assert.ok(text.indexOf('下拉選單') !== -1);
   assert.ok(text.indexOf('幹事（測試用聯絡方法）') !== -1, '聯絡方法要由 Config 讀，唔可以寫死');
-  assert.ok(text.indexOf('樣本') !== -1, '有預填樣本時要註明');
+  // 2026-11-02：「樣本」改稱「示範行」（有效＝FALSE，不會印出）。
+  assert.ok(text.indexOf('示範行（有效＝FALSE，不會印出）') !== -1, '有預填示範行時要註明');
   assert.ok(text.indexOf('2027-11-07') !== -1, '要列出本季主日');
 });
 

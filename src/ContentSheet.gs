@@ -583,8 +583,8 @@ function buildContentSheetInstructionLines_(input) {
 
   if (input.seededSample) {
     lines.push('【關於首個主日的幾行資料】');
-    lines.push('　首個主日的資料是樣本，用來示範格式與長度。');
-    lines.push('　確認格式之後，請自行修改，或將「有效」改為 FALSE。');
+    lines.push('　首個主日開頭寫著「示範行（有效＝FALSE，不會印出）」的幾行只用來示範格式與長度，「有效」是 FALSE，');
+    lines.push('　不會匯入週報，亦不會印出。要用的話，另加一行照樣填；示範行可以留着，不用刪。');
     lines.push('');
   }
 
@@ -594,11 +594,14 @@ function buildContentSheetInstructionLines_(input) {
   return lines;
 }
 
+/** 2026-11-02：示範行每一行開頭的一句（示範行「有效」＝FALSE，不會匯入、不會印）。 */
+var CONTENT_SHEET_SAMPLE_PREFIX_ = '示範行（有效＝FALSE，不會印出）：';
+
 /**
  * 用途：組出「建立內容表時預填嘅樣本資料」。純函式。
  *
- *   ⚠️ 樣本一律填喺**該季第一個主日**，而且「有效」全部 `TRUE`——樣本要
- *   真係睇得到先有示範作用。`_說明` 會註明嗰幾行係樣本。
+ *   ⚠️ 樣本一律填喺**該季第一個主日**。2026-11-02 起「有效」全部 `FALSE`（以前是 `TRUE`，示範行被匯入真週報），
+ *   每一行開頭寫「示範行（有效＝FALSE，不會印出）」；格式照樣看得到。`_說明` 會註明嗰幾行係示範行。
  *
  *   ⚠️ 樣本內容係**通用嘅教會用語**，冇任何真實姓名、電郵、日期——本 repo
  *   會公開上 GitHub（見 Constants.gs 檔頭嘅硬規則）。
@@ -618,6 +621,9 @@ function buildContentSheetSampleRows_(serviceDates) {
   var attendanceDate = addDaysToIsoDate_(first, -7);
 
   var rows = {};
+  // 2026-11-02：示範行一律「有效」＝FALSE（以前是 TRUE，2027-01-03 那一期把示範行匯入了真週報）。內容照樣看得到格式，
+  //    但不會匯入、不會印；每一行開頭講明。
+  var SAMPLE_PREFIX = CONTENT_SHEET_SAMPLE_PREFIX_;
 
   // ⚠️ R-047：第一行本來播種住「熱烈歡迎來賓，請留下姓名、通訊地址和
   //    電話以便聯絡。」——而**三個 Word 範本本身已經硬寫住同一句**
@@ -629,36 +635,36 @@ function buildContentSheetSampleRows_(serviceDates) {
   //    真正解決問題的一步。
   rows['家事報告'] = [
     {
-      SERVICE_DATE: first, SEQ_NO: 10, ACTIVE: true, REPEAT_UNTIL: '',
-      TEXT: '（示範用，請自行修改或把「有效」改為 FALSE）差傳部主日下午二時舉行祈禱會，'
+      SERVICE_DATE: first, SEQ_NO: 10, ACTIVE: false, REPEAT_UNTIL: '',
+      TEXT: SAMPLE_PREFIX + '差傳部主日下午二時舉行祈禱會，'
         + '地點：副堂，歡迎各位弟兄姊妹參加。'
     },
     {
-      SERVICE_DATE: first, SEQ_NO: 20, ACTIVE: true, REPEAT_UNTIL: '',
-      TEXT: '關顧部於下主日舉辦愛筵，請大家到司事枱報名，今天截止報名，歡迎會眾踴躍參加，'
+      SERVICE_DATE: first, SEQ_NO: 20, ACTIVE: false, REPEAT_UNTIL: '',
+      TEXT: SAMPLE_PREFIX + '關顧部於下主日舉辦愛筵，請大家到司事枱報名，今天截止報名，歡迎會眾踴躍參加，'
         + '在這家裡共享午餐，分享主愛。費用：自由奉獻。注意：請自備餐具！'
     },
     {
-      SERVICE_DATE: first, SEQ_NO: 30, ACTIVE: true, REPEAT_UNTIL: fourth,
-      TEXT: '主日學課程：《信徒關係建立：個人》。日期：主日早上9:15 – 10:15（共4堂）；'
+      SERVICE_DATE: first, SEQ_NO: 30, ACTIVE: false, REPEAT_UNTIL: fourth,
+      TEXT: SAMPLE_PREFIX + '主日學課程：《信徒關係建立：個人》。日期：主日早上9:15 – 10:15（共4堂）；'
         + '導師：林立文牧師；對象：所有信徒。'
     }
   ];
 
   rows['代禱事項'] = [
     {
-      SERVICE_DATE: first, SEQ_NO: 10, ACTIVE: true, REPEAT_UNTIL: '',
-      TEXT: '為各堂申請浸禮、入會、轉會及孩童奉獻禮的肢體禱告，求主堅固他們的信心，'
+      SERVICE_DATE: first, SEQ_NO: 10, ACTIVE: false, REPEAT_UNTIL: '',
+      TEXT: SAMPLE_PREFIX + '為各堂申請浸禮、入會、轉會及孩童奉獻禮的肢體禱告，求主堅固他們的信心，'
         + '使他們更明白這些屬靈禮儀的意義，甘心將自己及兒女獻上歸主。'
     },
     {
-      SERVICE_DATE: first, SEQ_NO: 20, ACTIVE: true, REPEAT_UNTIL: '',
-      TEXT: '為身心靈軟弱的肢體禱告，求主施恩醫治，賜下平安與力量。'
+      SERVICE_DATE: first, SEQ_NO: 20, ACTIVE: false, REPEAT_UNTIL: '',
+      TEXT: SAMPLE_PREFIX + '為身心靈軟弱的肢體禱告，求主施恩醫治，賜下平安與力量。'
     }
   ];
 
   rows['崇拜人數'] = [{
-    SERVICE_DATE: attendanceDate, ACTIVE: true,
+    SERVICE_DATE: attendanceDate, ACTIVE: false,
     ATT_ENG_WORSHIP: '57', ATT_CANE_WORSHIP: '156', ATT_CANN_WORSHIP: '25', ATT_MAN_WORSHIP: '43',
     ATT_ENG_PRAYER: '--', ATT_CANE_PRAYER: '8', ATT_CANN_PRAYER: '5', ATT_MAN_PRAYER: '15',
     ATT_ENG_CHILD: '27', ATT_CANE_CHILD: '--', ATT_CANN_CHILD: '5', ATT_MAN_CHILD: '10'
@@ -669,12 +675,12 @@ function buildContentSheetSampleRows_(serviceDates) {
 
   rows['財政報告'] = [
     {
-      SERVICE_DATE: first, SEQ_NO: 10, ACTIVE: true, TITLE_OVERRIDE: '',
-      ROW_LABEL: '奉獻收入', COL1: '42,150', COL2: '380,220', COL3: '375,000', COL4: '500,000'
+      SERVICE_DATE: first, SEQ_NO: 10, ACTIVE: false, TITLE_OVERRIDE: '',
+      ROW_LABEL: SAMPLE_PREFIX + '奉獻收入', COL1: '42,150', COL2: '380,220', COL3: '375,000', COL4: '500,000'
     },
     {
-      SERVICE_DATE: first, SEQ_NO: 20, ACTIVE: true, TITLE_OVERRIDE: '',
-      ROW_LABEL: '支出總額', COL1: '38,900', COL2: '352,110', COL3: '360,000', COL4: '480,000'
+      SERVICE_DATE: first, SEQ_NO: 20, ACTIVE: false, TITLE_OVERRIDE: '',
+      ROW_LABEL: SAMPLE_PREFIX + '支出總額', COL1: '38,900', COL2: '352,110', COL3: '360,000', COL4: '480,000'
     }
   ];
 
