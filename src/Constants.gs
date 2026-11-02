@@ -20,7 +20,9 @@
 var APP_NAME = '週報系統';
 
 /** 「關於本系統」對話框顯示的版本字串。 */
-var APP_VERSION = '0.1.0（第一輪：地基）';
+// 2026-11-03（多堂會／其他教會：方便日後支援和更新）：版本號＝部署日期（yyyy.MM.dd，同一日第二次部署加 -2）。
+//    每次改版要同時在 docs/更新說明.md 最上面加一段同一個版本號（tests/version.test.js 守住）。
+var APP_VERSION = '2026.11.03';
 
 /** 本 repo 的網址（公開）。 */
 var REPO_URL = 'https://github.com/ivantheservant/hwc-bulletin-automation';
@@ -665,6 +667,8 @@ var CONFIG_KEYS = Object.freeze({
   PRAYER_BLOCK_HEADING_OPTIONS: 'PRAYER_BLOCK_HEADING_OPTIONS',
   // ---- 第五輪新增：電郵與自動寄送 ----
   CHURCH_NAME: 'CHURCH_NAME',
+  // 2026-11-03（多堂會：同一份程式碼、多個部署）：這一個部署屬於哪一個堂會（例如「粵語堂」）。
+  CONGREGATION_NAME: 'CONGREGATION_NAME',
   SEND_MINUTE: 'SEND_MINUTE',
   SEND_GROUPS: 'SEND_GROUPS',
   SEND_INCLUDE_MISSING_LIST: 'SEND_INCLUDE_MISSING_LIST',
@@ -895,6 +899,7 @@ var DEFAULTS = Object.freeze([
   { key: CONFIG_KEYS.PRAYER_BLOCK_HEADING_OPTIONS, value: '代禱事項,宣教消息,宣教代禱消息,宣教代禱事項', note: '代禱區塊標題欄位的建議值清單（逗號分隔）' },
   // ---- 第五輪新增：電郵與自動寄送 ----
   { key: CONFIG_KEYS.CHURCH_NAME, value: '基督教中國佈道會奧克蘭聖道堂', note: '電郵範本 {{ChurchName}} 用；EmailTemplates 內文一直用這個佔位符但先前沒有對應設定，會渲染成空字串' },
+  { key: CONFIG_KEYS.CONGREGATION_NAME, value: '粵語堂', note: '（多堂會）這一個部署屬於哪一個堂會，例如「粵語堂」「英語堂」。用在填寫介面標題、電郵範本 {{CongregationName}}、內容表邀請信標題，以及檔名樣式的 {{CONGREGATION}}。同一份程式碼部署給另一個堂會時，只要改這裏（及其他設定），不用改程式' },
   { key: CONFIG_KEYS.SEND_MINUTE, value: '0', note: '自動寄送的分鐘（0–59），配合 SEND_WEEKDAY／SEND_HOUR；⚠️ 僅供顯示規劃用，Apps Script 的時間觸發器實際上不能指定分鐘' },
   { key: CONFIG_KEYS.SEND_GROUPS, value: 'CC,DB,ADMIN', note: '要寄給哪幾個 Recipients.GROUP_NAME（逗號分隔）' },
   { key: CONFIG_KEYS.SEND_INCLUDE_MISSING_LIST, value: 'TRUE', note: '郵件內是否附上「本週待填欄位」清單' },
@@ -907,7 +912,7 @@ var DEFAULTS = Object.freeze([
   { key: CONFIG_KEYS.TEMPLATE_FILE_ID_COMBINED_BAPTISM, value: '', note: '浸禮三堂聯合崇拜 Word 範本的雲端硬碟檔案 ID' },
   { key: CONFIG_KEYS.TEMPLATE_FILE_ID_ANNIVERSARY, value: '', note: '堂慶三堂聯合崇拜 Word 範本的雲端硬碟檔案 ID' },
   { key: CONFIG_KEYS.TEMPLATE_MISSING_VALUE_MODE, value: 'BLANK', note: '範本佔位符找不到值時：BLANK 換成空字串／KEEP 原樣保留／ERROR 拋錯' },
-  { key: CONFIG_KEYS.OUTPUT_FILE_NAME_PATTERN, value: '{{SERVICE_DATE}}_粵語堂週報.docx', note: '產生的 Word 檔名樣式，可用 {{SERVICE_DATE}} 佔位符' },
+  { key: CONFIG_KEYS.OUTPUT_FILE_NAME_PATTERN, value: '{{SERVICE_DATE}}_{{CONGREGATION}}週報.docx', note: '產生的 Word 檔名樣式，可用 {{SERVICE_DATE}}、{{CONGREGATION}}（＝CONGREGATION_NAME）佔位符' },
   { key: CONFIG_KEYS.RENDER_BLOCK_IF_MISSING_FIELDS, value: 'FALSE', note: '有待填欄位時是否拒絕產生 Word 週報' },
   // ---- 第八輪新增：季度集中填寫表、雙向同步、版本備份、填寫邀請 ----
   { key: CONFIG_KEYS.FILL_BACKUP_KEEP, value: '20', note: 'FillBackup 每一季保留幾多個備份，超過就刪最舊的' },
@@ -984,7 +989,7 @@ var DEFAULTS = Object.freeze([
   // ---- 發佈及匯出（R-001 至 R-009）----
   { key: CONFIG_KEYS.PUBLISHED_PDF_FILE_ID, value: '', note: 'master 發佈檔案（固定連結那一個 PDF）的檔案 ID。⚠️ 由選單「建立 master 發佈檔案」自動填，不需要人手填' },
   { key: CONFIG_KEYS.PUBLISHED_PDF_FOLDER_ID, value: '', note: '⚠️ 必填：master 發佈檔案要建立在哪一個資料夾（資料夾 ID）' },
-  { key: CONFIG_KEYS.PUBLISHED_PDF_NAME, value: '粵語堂週報（最新一期）.pdf', note: 'master 發佈檔案的檔名。每次發佈都會設回這個名（檔案 ID 不變，所以連結不變）' },
+  { key: CONFIG_KEYS.PUBLISHED_PDF_NAME, value: '{{CONGREGATION}}週報（最新一期）.pdf', note: 'master 發佈檔案的檔名（可用 {{CONGREGATION}}）。每次發佈都會設回這個名（檔案 ID 不變，所以連結不變）' },
   { key: CONFIG_KEYS.PUBLISHED_ARCHIVE_FOLDER_ID, value: '', note: '⚠️ 必填：每次發佈存一份帶日期與版本號的副本到哪一個資料夾（資料夾 ID）' },
   { key: CONFIG_KEYS.PUBLISH_SEND_GROUPS, value: 'CC,DB,ADMIN', note: '「發佈及匯出」內收件組別的預設勾選（逗號分隔的 Recipients.GROUP_NAME）' },
   { key: CONFIG_KEYS.PUBLISH_ATTACH_PDF, value: 'TRUE', note: '發佈通知郵件要不要把 PDF 一併附上（FALSE 就只放連結）' },
@@ -1028,7 +1033,7 @@ var DEFAULTS = Object.freeze([
   { key: CONFIG_KEYS.SPEAKER_FORM_ID, value: '', note: '講員表格：表格的檔案 ID。由填寫介面「建立講員表格」自動寫入，一般不需要人手填。留空代表還沒有建立' },
   { key: CONFIG_KEYS.SPEAKER_FORM_URL, value: '', note: '講員表格：給講員填寫的固定連結（長期使用，不是每季一個）。由系統建立表格時寫入，講員收藏這一條即可' },
   { key: CONFIG_KEYS.SPEAKER_FORM_FOLDER_ID, value: '', note: '講員表格：表格檔案放在哪一個資料夾（資料夾 ID，必須在 Shared Drive 內）。留空就用 CONTENT_SHEET_FOLDER_ID（內容表的資料夾）' },
-  { key: CONFIG_KEYS.SPEAKER_FORM_TITLE, value: '粵語堂主日講員資料', note: '講員表格：表格標題。只在建立表格時使用；之後要改請直接在表格上改' },
+  { key: CONFIG_KEYS.SPEAKER_FORM_TITLE, value: '{{CONGREGATION}}主日講員資料', note: '講員表格：表格標題。只在建立表格時使用；之後要改請直接在表格上改' },
   { key: CONFIG_KEYS.SPEAKER_FORM_DESCRIPTION, value: '請講員填寫主日的證道講題與讀經經文。每一份答案會直接寫進該主日的週報；填錯了可以再填一次，以最後一份為準。只限教會帳戶填寫。', note: '講員表格：表格說明文字。只在建立表格時使用' },
   { key: CONFIG_KEYS.SPEAKER_FORM_CONFIRMATION, value: '多謝填寫！你的答案已經記下，教會同工會核對。', note: '講員表格：講員按「提交」之後看到的確認文字。只在建立表格時使用' },
   { key: CONFIG_KEYS.SPEAKER_FORM_WEEKS_AHEAD, value: '16', note: '講員表格：「主日日期」下拉列出從今日起未來幾多個主日（以週報工作表內未封存的主日為準）' },

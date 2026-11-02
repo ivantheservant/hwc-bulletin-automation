@@ -890,7 +890,7 @@ function seedEmailTemplatesRows_() {
     seedSendNoticeRow_(),
     {
       TEMPLATE_ID: 'PREVIEW_NOTICE',
-      SUBJECT: '{{ChurchName}}粵語堂週報草稿預覽 — {{ServiceDate}}',
+      SUBJECT: '{{ChurchName}}{{CongregationName}}週報草稿預覽 — {{ServiceDate}}',
       BODY: [
         '各位主內肢體：',
         '',
@@ -913,7 +913,7 @@ function seedEmailTemplatesRows_() {
         '',
         '謝謝！',
         '',
-        '粵語堂週報系統　敬上'
+        '{{CongregationName}}週報系統　敬上'
       ].join('\n'),
       ACTIVE: true,
       NOTES: 'R-033：星期一自動寄出的草稿預覽連結。'
@@ -922,19 +922,19 @@ function seedEmailTemplatesRows_() {
     },
     {
       TEMPLATE_ID: 'TPL_WEEKLY_BULLETIN',
-      SUBJECT: '{{ChurchName}}粵語堂週報 — {{ServiceDate}}',
+      SUBJECT: '{{ChurchName}}{{CongregationName}}週報 — {{ServiceDate}}',
       BODY: [
         '各位主內肢體：',
         '',
         '平安！',
         '',
-        '隨函附上 {{ServiceDate}} 主日的{{ChurchName}}粵語堂週報，敬請查收。',
+        '隨函附上 {{ServiceDate}} 主日的{{ChurchName}}{{CongregationName}}週報，敬請查收。',
         '',
         '如發現資料有任何錯漏，請回覆此郵件告知，以便盡快更正。',
         '',
         '謝謝！',
         '',
-        '粵語堂週報系統　敬上'
+        '{{CongregationName}}週報系統　敬上'
       ].join('\n'),
       ACTIVE: true,
       NOTES: ''
@@ -1062,13 +1062,13 @@ function seedNumberRegistryRows_() {
 function seedSendNoticeRow_() {
   return {
     TEMPLATE_ID: 'SEND_NOTICE',
-    SUBJECT: '{{ChurchName}}粵語堂週報 — {{ServiceDate}}',
+    SUBJECT: '{{ChurchName}}{{CongregationName}}週報 — {{ServiceDate}}',
     BODY: [
       '各位主內肢體：',
       '',
       '平安！',
       '',
-      '{{ServiceDate}} 主日的{{ChurchName}}粵語堂週報，預覽連結如下（只供核對內容，版面與印刷版不同）：',
+      '{{ServiceDate}} 主日的{{ChurchName}}{{CongregationName}}週報，預覽連結如下（只供核對內容，版面與印刷版不同）：',
       '',
       '{{PreviewUrl}}',
       '',
@@ -1084,7 +1084,7 @@ function seedSendNoticeRow_() {
       '',
       '謝謝！',
       '',
-      '粵語堂週報系統　敬上'
+      '{{CongregationName}}週報系統　敬上'
     ].join('\n'),
     ACTIVE: true,
     NOTES: 'v3：填寫介面「寄出」的通知信（不論有沒有同時發佈）。{{PreviewUrl}} 是這一個主日的預覽連結；'
@@ -1112,13 +1112,13 @@ function seedSendNoticeRow_() {
 function seedPublishNoticeRow_() {
   return {
     TEMPLATE_ID: PUBLISH_TEMPLATE_ID_,
-    SUBJECT: '{{ChurchName}}粵語堂週報已發佈 — {{ServiceDate}}',
+    SUBJECT: '{{ChurchName}}{{CongregationName}}週報已發佈 — {{ServiceDate}}',
     BODY: [
       '各位主內肢體：',
       '',
       '平安！',
       '',
-      '{{ServiceDate}} 主日的{{ChurchName}}粵語堂週報已經發佈，可以在以下連結閱讀：',
+      '{{ServiceDate}} 主日的{{ChurchName}}{{CongregationName}}週報已經發佈，可以在以下連結閱讀：',
       '',
       '{{MasterLink}}',
       '',
@@ -1128,7 +1128,7 @@ function seedPublishNoticeRow_() {
       '',
       '謝謝！',
       '',
-      '粵語堂週報系統　敬上'
+      '{{CongregationName}}週報系統　敬上'
     ].join('\n'),
     ACTIVE: true,
     NOTES: '發佈通知（R-001）。{{MasterLink}} 是永遠不變的 master 連結，由系統代入。'

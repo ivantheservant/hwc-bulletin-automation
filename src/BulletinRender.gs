@@ -644,9 +644,9 @@ function resolveWordTemplate_(templateId) {
  */
 function buildOutputFileName_(isoDate, pattern) {
   var raw = pattern === undefined
-    ? getConfig_(CONFIG_KEYS.OUTPUT_FILE_NAME_PATTERN, '{{SERVICE_DATE}}_粵語堂週報.docx')
+    ? getConfig_(CONFIG_KEYS.OUTPUT_FILE_NAME_PATTERN, '{{SERVICE_DATE}}_{{CONGREGATION}}週報.docx')
     : pattern;
-  var name = String(raw || '').split('{{SERVICE_DATE}}').join(String(isoDate || ''));
+  var name = applyCongregationToken_(String(raw || '').split('{{SERVICE_DATE}}').join(String(isoDate || '')));
   if (!name) name = String(isoDate || 'bulletin') + '.docx';
   if (name.slice(-5).toLowerCase() !== '.docx') name += '.docx';
   return name;

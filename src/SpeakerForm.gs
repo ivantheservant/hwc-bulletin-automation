@@ -539,7 +539,7 @@ function createSpeakerFormForWebApp_() {
 
   var titles = speakerFormQuestionTitles_();
   var created = createSpeakerFormFile_({
-    title: String(getConfig_(CONFIG_KEYS.SPEAKER_FORM_TITLE, '') || '').trim() || '主日講員資料',
+    title: applyCongregationToken_(String(getConfig_(CONFIG_KEYS.SPEAKER_FORM_TITLE, '') || '').trim()) || '主日講員資料',
     description: String(getConfig_(CONFIG_KEYS.SPEAKER_FORM_DESCRIPTION, '') || ''),
     confirmation: String(getConfig_(CONFIG_KEYS.SPEAKER_FORM_CONFIRMATION, '') || ''),
     questions: titles,

@@ -672,6 +672,7 @@ function sendPreviewNotice_(isoDate) {
   var contentSheetUrl = contentSheet.url;
   var vars = {
     ChurchName: getConfig_(CONFIG_KEYS.CHURCH_NAME, ''),
+    CongregationName: congregationName_(),
     ServiceDate: isoDate,
     PreviewUrl: previewUrl,
     ContentSheetUrl: contentSheet.text,

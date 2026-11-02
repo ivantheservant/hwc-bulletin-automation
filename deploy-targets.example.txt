@@ -1,0 +1,4 @@
+# deploy-targets.txt -- copy this file to deploy-targets.txt (that file is never committed).
+# One line per congregation (option A: same code, separate Apps Script project, spreadsheet and Drive folders).
+# NAME (no spaces)   SCRIPT_ID (Apps Script project ID)   DEPLOYMENT_ID (Web App deployment ID, AKfy...)
+# english   1AbCdEf...   AKfycb...

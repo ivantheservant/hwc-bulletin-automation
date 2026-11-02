@@ -73,7 +73,7 @@ function doGet(e) {
   template.callTimeoutSec = webAppCallTimeoutSec_();
 
   return template.evaluate()
-    .setTitle(APP_NAME + '－填寫介面')
+    .setTitle(congregationName_() + APP_NAME + '－填寫介面')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
@@ -112,7 +112,7 @@ function renderPreviewResponse_(e) {
   var params = (e && e.parameter) ? e.parameter : {};
   var page = buildPreviewPage_(params.date, { snapshotId: params.snapshot });
   return HtmlService.createHtmlOutput(page.html)
-    .setTitle(APP_NAME + '－草稿預覽')
+    .setTitle(congregationName_() + APP_NAME + '－草稿預覽')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 /**
@@ -538,7 +538,9 @@ function apiBootstrap(includeArchived, options) {
     }
     var timings = timer.result();
     if (week) week.timings = timings;
-    return { weeks: weeks, publish: publish, publishError: publishError, week: week, weekError: weekError, timings: timings };
+    return { weeks: weeks, publish: publish, publishError: publishError, week: week, weekError: weekError, timings: timings,
+      // 2026-11-03：頁底顯示（日後支援、更新時核對用）。
+      systemVersion: APP_VERSION, congregationName: congregationName_() };
   }, { functionName: 'apiBootstrap', argsSummary: 'includeArchived=' + (includeArchived === true) + ' autoCreate=' + autoCreate });
 }
 

@@ -48,6 +48,7 @@ function onOpen() {
     .addItem('重新載入設定（唯讀）', 'menuReloadConfig_')
     .addItem('檢查工作表結構', 'menuCheckSheetSchema_')
     .addItem('關於本系統', 'menuAbout_')
+    .addItem('設定差異檢查（唯讀）', 'menuConfigDiffReport_')
     .addItem('測試讀取職事表', 'menuTestReadRoster_')
     .addItem('測試讀取職事表（全季）', 'menuTestReadRosterQuarter_')
     .addItem('建立本季空白週報', 'menuCreateBlankBulletinWeeks_')
@@ -224,10 +225,11 @@ function menuReloadConfig_() {
 function menuAbout_() {
   var ui = SpreadsheetApp.getUi();
   var lines = [
-    APP_NAME + '　版本 ' + APP_VERSION,
+    congregationName_() + APP_NAME + '　版本 ' + APP_VERSION,
+    '（更新說明：repo 的 docs/更新說明.md；設定與預設值的分別：選單「設定差異檢查」）',
     '',
     'Repo：' + REPO_URL,
-    '姊妹專案（粵語堂職事表系統）：' + ROSTER_REPO_URL
+    '姊妹專案（職事表系統）：' + ROSTER_REPO_URL
   ];
   ui.alert('關於本系統', lines.join('\n'), ui.ButtonSet.OK);
 }

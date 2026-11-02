@@ -64,7 +64,7 @@ function contentSheetUrlForIsoDate_(isoDate) {
  *     masterUrl:string, masterOnThisWeek:boolean, attachedPdf:boolean, attachedWord:boolean}}
  *     `contentSheetText`：信內內容表那一格要寫的字（`contentSheetLinkForIsoDate_()`）；省略就用網址。
  * Returns:
- *   {Object<string,string>} `ChurchName`、`ServiceDate`、`PreviewUrl`、`ContentSheetUrl`、`MasterLink`、
+ *   {Object<string,string>} `ChurchName`、`CongregationName`、`ServiceDate`、`PreviewUrl`、`ContentSheetUrl`、`MasterLink`、
  *     `MasterLinkLine`、`AttachmentLine`。
  * Raises:
  *   （無）
@@ -79,6 +79,8 @@ function buildSendNoticeVars_(input) {
   if (o.attachedWord) attach.push('最新已儲存的 Word 檔');
   return {
     ChurchName: String(o.churchName || ''),
+    // 2026-11-03：多堂會。呼叫方沒有傳就讀 Config（純函式的測試可以傳入）。
+    CongregationName: String(o.congregationName === undefined ? congregationName_() : o.congregationName),
     ServiceDate: String(o.isoDate || ''),
     PreviewUrl: String(o.previewUrl || '（取不到預覽連結）'),
     ContentSheetUrl: String(o.contentSheetText || o.contentSheetUrl || '（本季未有內容表）'),

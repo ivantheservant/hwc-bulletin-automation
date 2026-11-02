@@ -4989,6 +4989,10 @@
   function onBootstrapLoaded(resp) {
     if (!resp || !resp.ok) { showMessage('error', (resp && resp.error && resp.error.message) || '載入失敗。'); return; }
     var data = resp.data || {};
+    var versionBox = document.getElementById('systemVersionText');
+    if (versionBox && data.systemVersion) {
+      versionBox.textContent = (data.congregationName || '') + '週報系統　版本 ' + data.systemVersion;
+    }
     if (data.publish) onPublishPanelLoaded({ ok: true, data: data.publish });
     else onPublishPanelLoaded({ ok: false });
     var weeks = data.weeks || {};

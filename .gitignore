@@ -18,6 +18,9 @@
 # 一鍵部署批次檔。檔案內**沒有**任何 ID——部署 ID 另外放在
 # deployment-id.txt（見下面「不可公開」那一節），所以這個檔案可以公開。
 !/deploy.bat
+# 2026-11-03（多堂會）：同一份程式碼部署到多個堂會。批次檔與範例都沒有任何 ID；真正的清單在 deploy-targets.txt（不公開）。
+!/deploy_multi.bat
+!/deploy-targets.example.txt
 
 # ------------------------------------------------------------
 # 以下明確列出「已知」不可公開的項目。
@@ -59,3 +62,7 @@ node_modules/
 
 # ⚠️ 日後在 tools/ 或 docs/ 新增檔案時記住：這兩個資料夾**會公開**。
 # 任何含真實姓名、電郵、試算表 ID、資料夾 ID 的內容，一律不可放進去。
+
+# 2026-11-03：多堂會部署清單（scriptId、部署 ID）與每個堂會的 .clasp.json
+deploy-targets.txt
+deploy-targets/

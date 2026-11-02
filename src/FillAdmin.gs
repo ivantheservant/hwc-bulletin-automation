@@ -335,7 +335,7 @@ function buildFillInviteHtml_(input) {
 
   parts.push('<h2 style="margin:0 0 0.6em;">' + esc(input.quarterId) + ' 季度週報填寫邀請</h2>');
   parts.push('<p>各位主內肢體，平安！</p>');
-  parts.push('<p>' + esc(input.churchName || '') + '粵語堂 ' + esc(input.quarterId)
+  parts.push('<p>' + esc(input.churchName || '') + esc(input.congregationName || '') + ' ' + esc(input.quarterId)
     + ' 季度的週報填寫表已經準備好，敬請協助填寫。</p>');
 
   if (input.responsibilityNote) {
@@ -410,6 +410,7 @@ function sendFillInvite_(quarterId) {
   var churchName = getConfig_(CONFIG_KEYS.CHURCH_NAME, '');
   var htmlBody = buildFillInviteHtml_({
     quarterId: quarterId,
+    congregationName: congregationName_(),
     serviceDates: gridRows.map(function (r) { return r.isoDate; }),
     progress: buildFillProgressByGroup_(gridRows),
     links: {
@@ -423,7 +424,7 @@ function sendFillInvite_(quarterId) {
     churchName: churchName
   });
 
-  var subject = churchName + '粵語堂週報：' + quarterId + ' 季度填寫邀請';
+  var subject = churchName + congregationName_() + '週報：' + quarterId + ' 季度填寫邀請';
   var plainBody = htmlBody.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 
   var sendLogRows = [];
@@ -778,7 +779,7 @@ function sendFillConflictNotice_(result) {
 
   var esc = escapeHtmlEmail_;
   var churchName = getConfig_(CONFIG_KEYS.CHURCH_NAME, '');
-  var subject = churchName + '粵語堂週報：季度填寫表有 ' + fresh.length + ' 格衝突';
+  var subject = churchName + congregationName_() + '週報：季度填寫表有 ' + fresh.length + ' 格衝突';
   var htmlBody = [
     '<h2 style="margin:0 0 0.6em;">季度填寫表衝突提醒</h2>',
     '<p>以下欄位在季度填寫表與系統兩邊都被改過，系統<strong>沒有</strong>改動任何一邊：</p>',

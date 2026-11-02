@@ -32,7 +32,7 @@
 'use strict';
 
 /** 存檔副本檔名嘅格式。`{{SERVICE_DATE}}` 同 `{{VERSION_NO}}` 會被代入。 */
-var PUBLISH_ARCHIVE_NAME_PATTERN_ = '{{SERVICE_DATE}}_粵語堂週報_v{{VERSION_NO}}.pdf';
+var PUBLISH_ARCHIVE_NAME_PATTERN_ = '{{SERVICE_DATE}}_{{CONGREGATION}}週報_v{{VERSION_NO}}.pdf';
 
 /** `EmailTemplates` 入面發佈通知嗰個範本嘅鍵。 */
 var PUBLISH_TEMPLATE_ID_ = 'PUBLISH_NOTICE';
@@ -164,7 +164,7 @@ function publishConfig_() {
     //    不會碰 Config 那一格。理由見 PUBLISH_MASTER_FILE_ID_OVERRIDE_。
     masterFileId: effectivePublishMasterFileId_(),
     masterFolderId: String(getConfig_(CONFIG_KEYS.PUBLISHED_PDF_FOLDER_ID, '') || '').trim(),
-    masterFileName: getConfig_(CONFIG_KEYS.PUBLISHED_PDF_NAME, '粵語堂週報（最新一期）.pdf'),
+    masterFileName: applyCongregationToken_(getConfig_(CONFIG_KEYS.PUBLISHED_PDF_NAME, '{{CONGREGATION}}週報（最新一期）.pdf')),
     archiveFolderId: String(getConfig_(CONFIG_KEYS.PUBLISHED_ARCHIVE_FOLDER_ID, '') || '').trim(),
     sendGroups: getConfigTextList_(CONFIG_KEYS.PUBLISH_SEND_GROUPS, 'CC,DB,ADMIN'),
     attachPdf: normalizeBoolean_(getConfig_(CONFIG_KEYS.PUBLISH_ATTACH_PDF, 'TRUE')) === true,
@@ -232,7 +232,7 @@ function masterPdfLinks_(fileId) {
  *   {string} 例如 `2027-11-07_粵語堂週報_v3.pdf`。
  */
 function buildArchiveFileName_(isoDate, versionNo) {
-  return PUBLISH_ARCHIVE_NAME_PATTERN_
+  return applyCongregationToken_(PUBLISH_ARCHIVE_NAME_PATTERN_)
     .replace('{{SERVICE_DATE}}', String(isoDate || ''))
     .replace('{{VERSION_NO}}', String(versionNo || 1));
 }

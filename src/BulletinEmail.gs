@@ -148,7 +148,7 @@ function renderEmailTemplate_(templateString, vars, warningsOut) {
       warningsOut.push({
         code: 'UNKNOWN_PLACEHOLDER',
         message: '範本內的佔位符「{{' + key + '}}」不在已知清單內，原樣保留，不會變成空字串；'
-          + '已知清單：ChurchName、ServiceDate、SpecialType、MissingCount、RosterVersion。'
+          + '已知清單：ChurchName、CongregationName、ServiceDate、SpecialType、MissingCount、RosterVersion。'
       });
     }
     return whole;

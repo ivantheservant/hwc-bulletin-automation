@@ -130,6 +130,7 @@ function sendBulletinForDate_(isoDate, options) {
   var templateWarnings = [];
   var vars = {
     ChurchName: getConfig_(CONFIG_KEYS.CHURCH_NAME, ''),
+    CongregationName: congregationName_(),
     ServiceDate: model.isoDate,
     SpecialType: model.special ? model.special.title : '',
     MissingCount: String(missingCountSummary_(model.missing).requiredCount),

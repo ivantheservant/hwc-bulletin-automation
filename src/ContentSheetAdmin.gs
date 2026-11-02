@@ -698,7 +698,7 @@ function sendContentSheetInvite_(quarterId) {
     churchName: churchName
   });
 
-  var subject = churchName + '粵語堂週報：' + qid + ' 季度內容表';
+  var subject = churchName + congregationName_() + '週報：' + qid + ' 季度內容表';
   var plainBody = htmlBody.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 
   var sendLogRows = [];
