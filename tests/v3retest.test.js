@@ -46,6 +46,8 @@ function makeEnv(todayIso, options) {
   const base = loadAllSrcFilesInOrder(stubs);
   const cfg = {};
   base.DEFAULTS.forEach(function (i) { cfg[i.key] = i.value; });
+  // 2026-11-02：舊測試的收件人不在預設寄送名單（Config EMAIL_ALLOWLIST）；寄送名單本身見 tests/mailguard.test.js。
+  cfg.EMAIL_ALLOWLIST = '';
   Object.assign(cfg, o.config || {});
   function weekRow(qid, iso, extra) {
     const r = {};

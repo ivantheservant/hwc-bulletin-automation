@@ -523,10 +523,12 @@ function runContentSheetInvite_(quarterId) {
       '季度：' + qid,
       '收件人數：' + result.recipientCount,
       '是否試行（DRY_RUN）：'
-        + (result.dryRun ? '是——並未實際寄出任何郵件，只寫了 SendLog' : '否——已經真的寄出'),
+        + (result.dryRun ? '是——並未實際寄出任何郵件，只寫了 SendLog' : '否——已經真的寄出')
+    ].concat(result.allowlistNote ? [result.allowlistNote] : []).concat([
+      // 2026-11-02：上面一行是不在 Config EMAIL_ALLOWLIST 的收件人（src/MailGuard.gs）；沒有就不加。
       '',
       '逐封的結果見 SendLog 工作表。'
-    ]
+    ])
   };
 }
 

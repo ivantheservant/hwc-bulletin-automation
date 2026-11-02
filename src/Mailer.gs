@@ -160,6 +160,8 @@ function sendBulletinForDate_(isoDate, options) {
 
   var sentCount = 0;
   var failedCount = 0;
+  // 2026-11-02：不在 Config EMAIL_ALLOWLIST 的收件人（src/MailGuard.gs），SendLog 記 NOT_ALLOWED。
+  var blockedCount = 0;
   var sendLogRows = [];
 
   recipientsResult.recipients.forEach(function (recipient) {
@@ -174,9 +176,15 @@ function sendBulletinForDate_(isoDate, options) {
         if (attachment.ok && attachment.blob) {
           message.attachments = [attachment.blob];
         }
-        MailApp.sendEmail(message);
-        status = 'SENT';
-        sentCount++;
+        var mailOutcome = sendEmailAllowlisted_(message, 'sendBulletinForDate_');
+        if (mailOutcome.sent) {
+          status = 'SENT';
+          sentCount++;
+        } else {
+          status = 'NOT_ALLOWED';
+          errorMessage = mailOutcome.message;
+          blockedCount++;
+        }
       } catch (mailErr) {
         status = 'FAILED';
         errorMessage = (mailErr && mailErr.message) ? mailErr.message : String(mailErr);
@@ -202,7 +210,8 @@ function sendBulletinForDate_(isoDate, options) {
 
   writeSendLogRows_(sendLogRows);
 
-  if (!dryRun && failedCount === 0) {
+  // 2026-11-02：一封都沒有寄（全部不在寄送名單）就不可以標成已寄出。
+  if (!dryRun && failedCount === 0 && sentCount > 0) {
     markBulletinAsSent_(isoDate);
   }
 
@@ -213,6 +222,8 @@ function sendBulletinForDate_(isoDate, options) {
     totalRecipients: recipientsResult.recipients.length,
     sentCount: sentCount,
     failedCount: failedCount,
+    blockedCount: blockedCount,
+    allowlistNote: emailAllowlistResultNote_(blockedCount),
     attachment: attachment,
     recipientWarnings: recipientsResult.warnings,
     templateWarnings: templateWarnings
@@ -379,6 +390,7 @@ function menuTestSendBulletin_() {
         '收件人數：' + result.totalRecipients,
         '成功：' + result.sentCount,
         '失敗：' + result.failedCount,
+        '不在寄送名單（Config EMAIL_ALLOWLIST，沒有寄）：' + (result.blockedCount || 0),
         '是否試行（DRY_RUN）：' + (result.dryRun ? '是（沒有真的寄出任何郵件）' : '否'),
         '附件是否可用：' + (result.attachment.ok ? '是' : '否（原因：' + attachmentReasonText_(result.attachment.reason) + '）'),
         '',

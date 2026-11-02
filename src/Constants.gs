@@ -817,7 +817,9 @@ var CONFIG_KEYS = Object.freeze({
   // 2026-11-02：合堂主日之後那一期人數表（一欄）的欄標題（{{ATTENDANCE_COMBINED_LABEL}}）。
   ATTENDANCE_COMBINED_COLUMN_LABEL: 'ATTENDANCE_COMBINED_COLUMN_LABEL',
   // 2026-11-02：年度 logo 圖片（雲端硬碟檔案 ID）；產生 Word 時換走範本內替代文字 YEAR_LOGO 那張圖（src/YearLogo.gs）。
-  YEAR_LOGO_FILE_ID: 'YEAR_LOGO_FILE_ID'
+  YEAR_LOGO_FILE_ID: 'YEAR_LOGO_FILE_ID',
+  // 2026-11-02（Ivan 第 8 項）：寄出電郵的白名單（src/MailGuard.gs）。
+  EMAIL_ALLOWLIST: 'EMAIL_ALLOWLIST'
 });
 
 // =====================================================================
@@ -1064,7 +1066,10 @@ var DEFAULTS = Object.freeze([
   { key: CONFIG_KEYS.CONTENT_SHEET_FINANCE_EDITOR_GROUPS, value: 'DB,ADMIN,IT', note: '內容表「財政報告」分頁可以修改的 Recipients 組別（逗號分隔）。留空＝不另外限制（與其他分頁相同）' },
   // ---- 2026-11-02 ----
   { key: CONFIG_KEYS.ATTENDANCE_COMBINED_COLUMN_LABEL, value: '合堂', note: '合堂主日之後那一期，人數表只印一欄（崇拜／祈禱會／兒童三格）時那一欄的標題（Word 範本 {{ATTENDANCE_COMBINED_LABEL}}；2025 年的週報用過「三堂聯合」）。內容表「崇拜人數」那一日填了合堂三格就印這一欄，十二格那一張表不印' },
-  { key: CONFIG_KEYS.YEAR_LOGO_FILE_ID, value: '', note: '雲端硬碟上年度 logo 圖片（JPG／PNG）的檔案 ID；留空＝用範本內的圖。圖片會縮放到範本原本的框（8.43×3.24 cm，約 2.6:1），比例不同會變形，請先裁好。' }
+  { key: CONFIG_KEYS.YEAR_LOGO_FILE_ID, value: '', note: '雲端硬碟上年度 logo 圖片（JPG／PNG）的檔案 ID；留空＝用範本內的圖。圖片會縮放到範本原本的框（8.43×3.24 cm，約 2.6:1），比例不同會變形，請先裁好。' },
+  // ⚠️ 預設名單不可以寫死在程式（公開 repo 不可以有真實電郵）：「初始化工作表」寫入 Config 時、以及 Config 未有這個鍵時，
+  //    由 emailAllowlistSeedValue_()（src/MailGuard.gs）即時算出——本系統帳戶，加同一個網域的 hwc 信箱。
+  { key: CONFIG_KEYS.EMAIL_ALLOWLIST, value: '', note: '所有寄出的電郵只會寄給這個名單內的地址；留空＝不限制。DRY_RUN 仍然是總開關' }
 ]);
 
 // =====================================================================

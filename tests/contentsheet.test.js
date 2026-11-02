@@ -289,6 +289,8 @@ function makeEnv(options) {
 
   const cfg = {};
   boot.DEFAULTS.forEach(function (d) { cfg[d.key] = d.value; });
+  // 2026-11-02：舊測試的收件人不在預設寄送名單（Config EMAIL_ALLOWLIST）；寄送名單本身見 tests/mailguard.test.js。
+  cfg.EMAIL_ALLOWLIST = '';
   cfg.ROSTER_SPREADSHEET_ID = FAKE_ROSTER_ID;
   cfg.CONTENT_SHEET_FOLDER_ID = FAKE_FOLDER_ID;
   cfg.CONTENT_SHEET_ADMIN_CONTACT = '幹事（測試用聯絡方法）';

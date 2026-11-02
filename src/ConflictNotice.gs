@@ -228,7 +228,13 @@ function sendConflictNoticeIfNeeded_(isoDate) {
 
     if (!dryRun) {
       try {
-        MailApp.sendEmail({ to: recipient.email, subject: subject, body: plainBody, htmlBody: htmlBody });
+        // 2026-11-02：經寄送名單（Config EMAIL_ALLOWLIST，src/MailGuard.gs）。
+        var mailOutcome = sendEmailAllowlisted_({ to: recipient.email, subject: subject, body: plainBody, htmlBody: htmlBody },
+          'sendConflictNoticeIfNeeded_');
+        if (!mailOutcome.sent) {
+          status = 'NOT_ALLOWED';
+          errorMessage = mailOutcome.message;
+        }
       } catch (mailErr) {
         status = 'FAILED';
         errorMessage = (mailErr && mailErr.message) ? mailErr.message : String(mailErr);

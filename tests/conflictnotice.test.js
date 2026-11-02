@@ -82,6 +82,8 @@ function makeEnv(o) {
 
   const configBase = {};
   freshSandbox.DEFAULTS.forEach(function (d) { configBase[d.key] = d.value; });
+  // 2026-11-02：舊測試的收件人不在預設寄送名單（Config EMAIL_ALLOWLIST）；寄送名單本身見 tests/mailguard.test.js。
+  configBase.EMAIL_ALLOWLIST = '';
   configBase.ROSTER_SPREADSHEET_ID = FAKE_ROSTER_ID;
   Object.assign(configBase, o.config || {});
 

@@ -96,6 +96,8 @@ function rosterSheetFor(sandboxRef, defKey, rows) {
 function configRows(sandboxRef, overrides) {
   const base = {};
   sandboxRef.DEFAULTS.forEach(function (item) { base[item.key] = item.value; });
+  // 2026-11-02：舊測試的收件人不在預設寄送名單（Config EMAIL_ALLOWLIST）；寄送名單本身見 tests/mailguard.test.js。
+  base.EMAIL_ALLOWLIST = '';
   base.ROSTER_SPREADSHEET_ID = FAKE_ROSTER_ID;
   Object.assign(base, overrides || {});
   return Object.keys(base).map(function (key) {

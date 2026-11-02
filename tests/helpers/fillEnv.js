@@ -224,8 +224,12 @@ function makeFillEnv(options) {
 
   const cfg = {};
   boot.DEFAULTS.forEach(function (d) { cfg[d.key] = d.value; });
+  // 2026-11-02：舊測試的收件人不在預設寄送名單（Config EMAIL_ALLOWLIST）；寄送名單本身見 tests/mailguard.test.js。
+  cfg.EMAIL_ALLOWLIST = '';
   cfg.ROSTER_SPREADSHEET_ID = FAKE_ROSTER_ID;
   Object.assign(cfg, o.config || {});
+  // 2026-11-02：`omitConfigKeys`＝Config 沒有這幾個鍵（模擬未按「初始化工作表」）。
+  (o.omitConfigKeys || []).forEach(function (k) { delete cfg[k]; });
 
   function ownSheet(sheetId, rows) {
     const def = boot.COLUMNS[sheetId];

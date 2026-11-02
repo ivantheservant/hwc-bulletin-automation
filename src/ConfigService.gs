@@ -221,7 +221,9 @@ function seedConfigDefaults_() {
   if (missing.length === 0) return 0;
 
   var rows = missing.map(function (d) {
-    return { KEY: d.key, VALUE: d.value, NOTE: d.note || '', EDITABLE: true };
+    // 2026-11-02：寄送名單的預設值要即時算（本系統帳戶＋同網域的 hwc 信箱），不可以寫死在程式（src/MailGuard.gs）。
+    var value = d.key === CONFIG_KEYS.EMAIL_ALLOWLIST ? emailAllowlistSeedValue_() : d.value;
+    return { KEY: d.key, VALUE: value, NOTE: d.note || '', EDITABLE: true };
   });
   writeSheet_(SHEETS.CONFIG, rows);
   clearConfigCache_();

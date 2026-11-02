@@ -1519,6 +1519,8 @@ function sendPublishNotice_(isoDate, options) {
 
   var sendLogRows = [];
   var failed = [];
+  // 2026-11-02：不在 Config EMAIL_ALLOWLIST 的收件人（包括「另外寄給」的電郵，src/MailGuard.gs）。
+  var blocked = 0;
   resolved.recipients.forEach(function (recipient) {
     var status = sendStatus;
     var errorMessage = '';
@@ -1527,7 +1529,12 @@ function sendPublishNotice_(isoDate, options) {
       try {
         var payload = { to: recipient.email, subject: subject, body: body };
         if (attachments.length > 0) payload.attachments = attachments;
-        MailApp.sendEmail(payload);
+        var mailOutcome = sendEmailAllowlisted_(payload, 'sendPublishNotice_');
+        if (!mailOutcome.sent) {
+          status = 'NOT_ALLOWED';
+          errorMessage = mailOutcome.message;
+          blocked++;
+        }
       } catch (mailErr) {
         status = 'FAILED';
         errorMessage = (mailErr && mailErr.message) ? mailErr.message : String(mailErr);
@@ -1557,12 +1564,22 @@ function sendPublishNotice_(isoDate, options) {
       message: '全部 ' + failed.length + ' 個收件人都寄不出（第一個錯誤：' + failed[0] + '），詳情見 SendLog。'
     };
   }
+  // 2026-11-02：一封都沒有寄（其餘全部不在寄送名單）＝不算寄出。
+  if (!config.dryRun && failed.length + blocked === resolved.recipients.length) {
+    return {
+      ok: false, reason: 'NOT_ALLOWED',
+      message: '通知沒有寄出：' + emailAllowlistResultNote_(blocked)
+        + (failed.length > 0 ? '另有 ' + failed.length + ' 個寄不出，詳情見 SendLog。' : '')
+    };
+  }
 
   return {
     ok: true,
     dryRun: config.dryRun,
-    recipientCount: resolved.recipients.length - failed.length,
+    recipientCount: resolved.recipients.length - failed.length - blocked,
     failedCount: failed.length,
+    blockedCount: blocked,
+    allowlistNote: emailAllowlistResultNote_(blocked),
     groups: (o.groups || []).slice(),
     attached: attachedPdf,
     attachedWord: attachedWord,
@@ -2101,7 +2118,9 @@ function buildPublishResultLines_(result) {
     lines.push(o.sent.dryRun
       ? '⚠️ 模擬模式開啟中：已記錄 ' + o.sent.recipientCount + ' 個收件人，但沒有真的寄出。'
       : '已寄出：' + o.sent.recipientCount + ' 個收件人。'
-        + (Number(o.sent.failedCount) > 0 ? '⚠️ 另有 ' + o.sent.failedCount + ' 個寄不出，詳情見 SendLog。' : ''));
+        + (Number(o.sent.failedCount) > 0 ? '⚠️ 另有 ' + o.sent.failedCount + ' 個寄不出，詳情見 SendLog。' : '')
+        // 2026-11-02：不在 Config EMAIL_ALLOWLIST 的收件人（src/MailGuard.gs）。
+        + (o.sent.allowlistNote || ''));
     // v3：通知信講選中的主日：預覽連結、本季內容表連結；這一期已發佈才有 master 連結。
     lines.push('通知信內容：' + (o.sent.noticeIsoDate || '') + ' 的預覽連結、本季內容表連結'
       + (o.sent.masterIncluded ? '、master 連結（這一期已發佈）。' : '（這一期未發佈，所以沒有 master 連結）。'));

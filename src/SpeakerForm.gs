@@ -957,7 +957,13 @@ function notifySpeakerFormAnswer_(answer, outcome) {
     var errorMessage = '';
     if (!dryRun) {
       try {
-        MailApp.sendEmail({ to: recipient.email, subject: notice.subject, body: notice.plain, htmlBody: notice.html });
+        // 2026-11-02：經寄送名單（Config EMAIL_ALLOWLIST，src/MailGuard.gs）；講員表格已停用，仍然不可以繞過。
+        var mailOutcome = sendEmailAllowlisted_({ to: recipient.email, subject: notice.subject, body: notice.plain, htmlBody: notice.html },
+          'notifySpeakerFormAnswer_');
+        if (!mailOutcome.sent) {
+          status = 'NOT_ALLOWED';
+          errorMessage = mailOutcome.message;
+        }
       } catch (mailErr) {
         status = 'FAILED';
         errorMessage = (mailErr && mailErr.message) ? mailErr.message : String(mailErr);

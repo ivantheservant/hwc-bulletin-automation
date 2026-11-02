@@ -690,13 +690,20 @@ function sendPreviewNotice_(isoDate) {
 
   var sendLogRows = [];
   var failed = [];
+  // 2026-11-02：不在 Config EMAIL_ALLOWLIST 的收件人（src/MailGuard.gs）。
+  var blocked = 0;
   recipientsResult.recipients.forEach(function (recipient) {
     var status = 'PREVIEW';
     var errorMessage = '';
 
     if (!dryRun) {
       try {
-        MailApp.sendEmail({ to: recipient.email, subject: subject, body: plainBody });
+        var mailOutcome = sendEmailAllowlisted_({ to: recipient.email, subject: subject, body: plainBody }, 'sendPreviewNotice_');
+        if (!mailOutcome.sent) {
+          status = 'NOT_ALLOWED';
+          errorMessage = mailOutcome.message;
+          blocked++;
+        }
       } catch (mailErr) {
         status = 'FAILED';
         errorMessage = (mailErr && mailErr.message) ? mailErr.message : String(mailErr);
@@ -726,11 +733,19 @@ function sendPreviewNotice_(isoDate) {
     out.message = '草稿預覽信全部 ' + total + ' 個收件人都寄不出（第一個錯誤：' + failed[0] + '），詳情見 SendLog。';
     return out;
   }
+  // 2026-11-02：一封都沒有寄（其餘全部不在寄送名單）＝不算寄出。
+  if (!dryRun && failed.length + blocked === total) {
+    out.reason = 'NOT_ALLOWED';
+    out.message = '草稿預覽信沒有寄出：' + emailAllowlistResultNote_(blocked)
+      + (failed.length > 0 ? '另有 ' + failed.length + ' 個寄不出，詳情見 SendLog。' : '');
+    return out;
+  }
   out.sent = true;
   out.reason = 'OK';
-  out.recipientCount = total - failed.length;
-  out.message = (dryRun ? '（試行）' : '') + '草稿預覽連結已寄給 ' + (total - failed.length) + ' 個收件人。'
-    + (failed.length > 0 ? '⚠️ 另有 ' + failed.length + ' 個寄不出，詳情見 SendLog。' : '');
+  out.recipientCount = total - failed.length - blocked;
+  out.message = (dryRun ? '（試行）' : '') + '草稿預覽連結已寄給 ' + (total - failed.length - blocked) + ' 個收件人。'
+    + (failed.length > 0 ? '⚠️ 另有 ' + failed.length + ' 個寄不出，詳情見 SendLog。' : '')
+    + emailAllowlistResultNote_(blocked);
   return out;
 }
 

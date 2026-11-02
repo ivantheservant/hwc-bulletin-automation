@@ -433,7 +433,13 @@ function sendFillInvite_(quarterId) {
 
     if (!dryRun) {
       try {
-        MailApp.sendEmail({ to: recipient.email, subject: subject, body: plainBody, htmlBody: htmlBody });
+        // 2026-11-02：經寄送名單（Config EMAIL_ALLOWLIST，src/MailGuard.gs）；季度填寫表已停用，仍然不可以繞過。
+        var mailOutcome = sendEmailAllowlisted_({ to: recipient.email, subject: subject, body: plainBody, htmlBody: htmlBody },
+          'sendFillInvite_');
+        if (!mailOutcome.sent) {
+          status = 'NOT_ALLOWED';
+          errorMessage = mailOutcome.message;
+        }
       } catch (mailErr) {
         status = 'FAILED';
         errorMessage = (mailErr && mailErr.message) ? mailErr.message : String(mailErr);
@@ -807,7 +813,13 @@ function sendFillConflictNotice_(result) {
     var errorMessage = '';
     if (!dryRun) {
       try {
-        MailApp.sendEmail({ to: recipient.email, subject: subject, body: plainBody, htmlBody: htmlBody });
+        // 2026-11-02：經寄送名單（Config EMAIL_ALLOWLIST，src/MailGuard.gs）；季度填寫表已停用，仍然不可以繞過。
+        var mailOutcome = sendEmailAllowlisted_({ to: recipient.email, subject: subject, body: plainBody, htmlBody: htmlBody },
+          'sendFillConflictNotice_');
+        if (!mailOutcome.sent) {
+          status = 'NOT_ALLOWED';
+          errorMessage = mailOutcome.message;
+        }
       } catch (mailErr) {
         status = 'FAILED';
         errorMessage = (mailErr && mailErr.message) ? mailErr.message : String(mailErr);

@@ -707,13 +707,21 @@ function sendContentSheetInvite_(quarterId) {
 
   var sendLogRows = [];
   var failed = [];
+  // 2026-11-02：不在 Config EMAIL_ALLOWLIST 的收件人（src/MailGuard.gs）。
+  var blocked = 0;
   recipientsResult.recipients.forEach(function (recipient) {
     var status = 'CONTENT_SHEET_INVITE';
     var errorMessage = '';
 
     if (!dryRun) {
       try {
-        MailApp.sendEmail({ to: recipient.email, subject: subject, body: plainBody, htmlBody: htmlBody });
+        var mailOutcome = sendEmailAllowlisted_({ to: recipient.email, subject: subject, body: plainBody, htmlBody: htmlBody },
+          'sendContentSheetInvite_');
+        if (!mailOutcome.sent) {
+          status = 'NOT_ALLOWED';
+          errorMessage = mailOutcome.message;
+          blocked++;
+        }
       } catch (mailErr) {
         status = 'FAILED';
         errorMessage = (mailErr && mailErr.message) ? mailErr.message : String(mailErr);
@@ -743,13 +751,20 @@ function sendContentSheetInvite_(quarterId) {
       message: '全部 ' + failed.length + ' 個收件人都寄不出（第一個錯誤：' + failed[0] + '），詳情見 SendLog。'
     };
   }
+  // 2026-11-02：一封都沒有寄（其餘全部不在寄送名單）＝不算寄出，亦不記「已寄出」。
+  if (!dryRun && failed.length + blocked === recipientsResult.recipients.length) {
+    return {
+      sent: false, dryRun: dryRun, recipientCount: 0, reason: 'NOT_ALLOWED',
+      message: '內容表通知沒有寄出：' + emailAllowlistResultNote_(blocked)
+    };
+  }
   updateContentSheetField_(qid, 'INVITE_SENT_AT', new Date());
   // v3 重測（獨立審查）：真的寄出（不論經選單、季度作業還是星期一自動流程）都記指紋，星期一自動流程
   //    才不會再寄一次。以前只有自動流程記，人手寄過的季度到了提前期仍然會再收到一封。
   if (!dryRun) recordContentSheetInviteFingerprint_(qid, contentSheetInviteFingerprint_(qid));
 
-  return { sent: true, dryRun: dryRun, recipientCount: recipientsResult.recipients.length - failed.length,
-    failedCount: failed.length };
+  return { sent: true, dryRun: dryRun, recipientCount: recipientsResult.recipients.length - failed.length - blocked,
+    failedCount: failed.length, blockedCount: blocked, allowlistNote: emailAllowlistResultNote_(blocked) };
 }
 
 /**
@@ -1137,10 +1152,12 @@ function menuSendContentSheetInvite_() {
       [
         '季度：' + quarterId,
         '收件人數：' + result.recipientCount,
-        '是否試行（DRY_RUN）：' + (result.dryRun ? '是（並未實際寄出任何郵件）' : '否'),
+        '是否試行（DRY_RUN）：' + (result.dryRun ? '是（並未實際寄出任何郵件）' : '否')
+      ].concat(result.allowlistNote ? [result.allowlistNote] : []).concat([
+        // 2026-11-02：上面一行是不在 Config EMAIL_ALLOWLIST 的收件人（src/MailGuard.gs）；沒有就不加。
         '',
         '詳情見 SendLog 工作表。'
-      ].join('\n'),
+      ]).join('\n'),
       ui.ButtonSet.OK
     );
   } catch (err) {
