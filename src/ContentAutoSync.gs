@@ -166,7 +166,8 @@ function runContentAutoSync_(options) {
       var plan = preview.plan || {};
       var changeCount = Number(plan.added || 0) + Number(plan.updated || 0) + Number(plan.removed || 0)
         + ((plan.releases || []).length);
-      if (changeCount === 0) {
+      // 2026-11-03：只補寫家事報告、代禱事項的來源欄亦要寫一次（src/ContentImport.gs diffContentListForDate_()）。
+      if (changeCount === 0 && Number(plan.backfilled || 0) === 0) {
         entry.status = 'NO_CHANGE';
         if (mtime !== null) writeTimedScriptProperty_(propertyKey, String(mtime));
         return;

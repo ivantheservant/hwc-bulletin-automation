@@ -193,8 +193,13 @@ test('2h. applyTextFormatToRange_ 回報設過多少欄；沒有 textFormatColum
   const env = makeFillEnv({});
   assert.strictEqual(
     env.sandbox.applyTextFormatToRange_(env.sheets.Finance, env.sandbox.COLUMNS.FINANCE, 3, 5), 8);
+  // 2026-11-03：Announcements 最後加了兩欄來源（純文字）。
   assert.strictEqual(
-    env.sandbox.applyTextFormatToRange_(env.sheets.Announcements, env.sandbox.COLUMNS.ANNOUNCEMENTS, 3, 5), 0);
+    env.sandbox.applyTextFormatToRange_(env.sheets.Announcements, env.sandbox.COLUMNS.ANNOUNCEMENTS, 3, 5), 2);
+  assert.strictEqual(
+    env.sandbox.applyTextFormatToRange_(env.sheets.Fellowships, env.sandbox.COLUMNS.FELLOWSHIPS, 3, 5), 2);
+  assert.strictEqual(
+    env.sandbox.applyTextFormatToRange_(env.sheets.Recipients, env.sandbox.COLUMNS.RECIPIENTS, 3, 5), 0);
   assert.strictEqual(
     env.sandbox.applyTextFormatToRange_(env.sheets.Finance, env.sandbox.COLUMNS.FINANCE, 3, 0), 0,
     '0 行不需要設格式');

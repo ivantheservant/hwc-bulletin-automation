@@ -61,11 +61,11 @@ function contentImportTargets_() {
   return [
     {
       tabName: '家事報告', kind: 'LIST', targetSheet: SHEETS.ANNOUNCEMENTS,
-      fieldMap: { TEXT: 'TEXT' }, repeatUntil: true
+      fieldMap: { TEXT: 'TEXT' }, repeatUntil: true, originMap: contentListOriginMap_()
     },
     {
       tabName: '代禱事項', kind: 'LIST', targetSheet: SHEETS.PRAYERS,
-      fieldMap: { TEXT: 'TEXT' }, repeatUntil: true
+      fieldMap: { TEXT: 'TEXT' }, repeatUntil: true, originMap: contentListOriginMap_()
     },
     {
       tabName: '團契聚會', kind: 'LIST', targetSheet: SHEETS.FELLOWSHIPS,
@@ -665,11 +665,16 @@ function compareContentRowsBySeq_(a, b) {
  *     unchanged:number}}
  */
 function diffContentListForDate_(existingRows, targetRows, def, isoDate) {
+  // 2026-11-03：來源欄（內容表那一行的主日日期、連續到）與內容一樣比較、一樣寫，摘要不列（summariseContentRow_() 只看 fieldMap）。
+  var originMap = def.originMap || {};
+  var originKeys = Object.keys(originMap);
   var updates = [];
   var appends = [];
   var deactivations = [];
   var details = [];
   var unchanged = 0;
+  // 2026-11-03：舊行未有來源欄（部署之前匯入的）：只是補寫來源，不算「修改」，不列入明細；照樣寫入（見呼叫方）。
+  var backfills = [];
 
   var sourceKeys = Object.keys(def.fieldMap);
   var max = Math.max(existingRows.length, targetRows.length);
@@ -693,10 +698,23 @@ function diffContentListForDate_(existingRows, targetRows, def, isoDate) {
           changes.push({ field: targetKey, oldValue: existing[targetKey], newValue: target[sourceKey] });
         }
       });
+      var originFills = [];
+      originKeys.forEach(function (sourceKey) {
+        var targetKey = originMap[sourceKey];
+        var v = contentListOriginValue_(target[sourceKey]);
+        if (contentValuesEqual_(existing[targetKey], v)) return;
+        if (normalizeContentCompareValue_(existing[targetKey]) === '') {
+          originFills.push({ field: targetKey, oldValue: existing[targetKey], newValue: v });
+        } else {
+          changes.push({ field: targetKey, oldValue: existing[targetKey], newValue: v });
+        }
+      });
 
       if (changes.length === 0) {
         unchanged++;
+        if (originFills.length > 0) backfills.push({ rowNo: existing.__rowNo, isoDate: isoDate, changes: originFills });
       } else {
+        changes = changes.concat(originFills);
         updates.push({ rowNo: existing.__rowNo, isoDate: isoDate, changes: changes });
         changes.forEach(function (c) {
           details.push({
@@ -708,6 +726,7 @@ function diffContentListForDate_(existingRows, targetRows, def, isoDate) {
     } else if (target) {
       var row = { SERVICE_DATE: isoDate, SEQ_NO: seqNo, ACTIVE: true };
       sourceKeys.forEach(function (sourceKey) { row[def.fieldMap[sourceKey]] = target[sourceKey]; });
+      originKeys.forEach(function (sourceKey) { row[originMap[sourceKey]] = contentListOriginValue_(target[sourceKey]); });
       appends.push(row);
       details.push({
         action: 'ADD', sheet: def.targetSheet, isoDate: isoDate,
@@ -724,7 +743,28 @@ function diffContentListForDate_(existingRows, targetRows, def, isoDate) {
     }
   }
 
-  return { updates: updates, appends: appends, deactivations: deactivations, details: details, unchanged: unchanged };
+  return { updates: updates, appends: appends, deactivations: deactivations, details: details, unchanged: unchanged,
+    backfills: backfills };
+}
+
+/**
+ * 用途：2026-11-03：家事報告、代禱事項的來源欄對照（內容表機器鍵 → 週報工作表機器鍵）。純函式。
+ * Returns:
+ *   {Object<string,string>}
+ */
+function contentListOriginMap_() {
+  return { SERVICE_DATE: 'ORIGIN_DATE', REPEAT_UNTIL: 'ORIGIN_UNTIL' };
+}
+
+/**
+ * 用途：2026-11-03：來源欄要寫的值：日期一律寫成 yyyy-MM-dd 文字（工作表那兩欄是純文字）。純函式。
+ * Args:
+ *   value {*} 內容表那一格（文字，或者被試算表轉了的 Date）。
+ * Returns:
+ *   {string}
+ */
+function contentListOriginValue_(value) {
+  return normalizeContentCompareValue_(value);
 }
 
 /**
@@ -773,7 +813,7 @@ function summariseContentRow_(row, def) {
  */
 function computeContentImportPlan_(input) {
   var plan = {
-    added: 0, updated: 0, removed: 0, unchanged: 0,
+    added: 0, updated: 0, removed: 0, unchanged: 0, backfilled: 0,
     details: [], warnings: (input.warnings || []).slice(),
     skippedTabs: (input.skippedTabs || []).slice(),
     listPlans: {}, weekUpdates: [],
@@ -824,7 +864,9 @@ function computeContentImportPlan_(input) {
           .sort(function (a, b) { return Number(a.SEQ_NO || 0) - Number(b.SEQ_NO || 0); });
 
         var result = diffContentListForDate_(existingForDate, byDate[iso] || [], def, iso);
-        listPlan.updates = listPlan.updates.concat(result.updates);
+        // 2026-11-03：只補寫來源欄的行一併寫（與修改同一條路，逐格 AuditLog），但數字另計（plan.backfilled）。
+        listPlan.updates = listPlan.updates.concat(result.updates, result.backfills || []);
+        plan.backfilled += (result.backfills || []).length;
         listPlan.appends = listPlan.appends.concat(result.appends);
         listPlan.deactivations = listPlan.deactivations.concat(result.deactivations);
         plan.details = plan.details.concat(result.details);
@@ -1765,7 +1807,9 @@ function autoImportContentForWeek_(isoDate, source, options) {
     var plan = preview.plan || {};
     var changeCount = Number(plan.added || 0) + Number(plan.updated || 0) + Number(plan.removed || 0)
       + ((plan.releases || []).length);
-    if (changeCount === 0) {
+    // 2026-11-03：只是補寫家事報告、代禱事項的來源欄（部署之前匯入的行）：照樣寫，但不算改動（不講「已更新 N 項」）。
+    var backfilled = Number(plan.backfilled || 0);
+    if (changeCount === 0 && backfilled === 0) {
       if (signature) rememberContentWeekImport_(markerKey, signature, notices);
       return { ran: true, changed: 0, reason: '', message: '', notices: notices };
     }
@@ -1784,7 +1828,7 @@ function autoImportContentForWeek_(isoDate, source, options) {
       var after = contentWeekImportSignature_(quarterId, contentRow, findBulletinWeekRow_(readSheet_(SHEETS.BULLETIN_WEEKS), iso));
       if (after) rememberContentWeekImport_(markerKey, after, notices);
     }
-    return { ran: true, changed: changeCount, reason: '', message: '', notices: notices };
+    return { ran: true, changed: changeCount, backfilled: backfilled, reason: '', message: '', notices: notices };
   } catch (err) {
     appendErrorLog_({
       source: source === 'TRIGGER' ? ERROR_LOG_SOURCE.TRIGGER : ERROR_LOG_SOURCE.SERVER,

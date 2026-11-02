@@ -2775,6 +2775,12 @@
         ? '—' : String(item[f.key]);
       fieldsWrap.appendChild(cell);
     });
+    // 2026-11-03：「連續到」帶入的一則：講明由哪一日起、是不是上一季的內容表（伺服器 buildListOriginNote_() 算好）。
+    if (item.originNote) {
+      var origin = el('div', 'list-origin-note');
+      origin.textContent = String(item.originNote);
+      fieldsWrap.appendChild(origin);
+    }
     row.appendChild(fieldsWrap);
     return row;
   }

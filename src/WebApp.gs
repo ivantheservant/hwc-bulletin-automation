@@ -559,7 +559,7 @@ function apiAutoImportWeek(isoDate) {
     }
     var autoImport = autoImportContentForWeek_(isoDate, 'WEBAPP_LOAD', { timer: timer, skipIfUnchanged: true });
     var week = null;
-    if (Number(autoImport.changed || 0) > 0) {
+    if (Number(autoImport.changed || 0) > 0 || Number(autoImport.backfilled || 0) > 0) {
       week = loadWeekForWebApp_(isoDate, timer);
       week.autoImport = autoImport;
     }
@@ -2003,9 +2003,22 @@ function loadWeekForWebApp_(isoDate, timer) {
       return Object.assign({}, a.item, { arrangeKey: a.key, hidden: a.hidden === true, sourceIndex: a.sourceIndex });
     });
   }
+  // 2026-11-03：家事報告、代禱事項帶「由某日起連續」的來源（內容表那一行的主日日期與連續到），介面在那一則下面講明。
+  var thisQuarterId = String(weekRow.QUARTER_ID || '').trim();
+  function withOrigin(items) {
+    return items.map(function (item) {
+      var note = buildListOriginNote_(item.ORIGIN_DATE, item.ORIGIN_UNTIL, listIso, weekRows, thisQuarterId);
+      var out = Object.assign({}, item, { originNote: note });
+      delete out.ORIGIN_DATE;
+      delete out.ORIGIN_UNTIL;
+      return out;
+    });
+  }
   var lists = {
-    announcements: arrangedForUi('announcements', pickWebAppListItems_(readSheet_(SHEETS.ANNOUNCEMENTS), listIso, ['TEXT'])),
-    prayers: arrangedForUi('prayers', pickWebAppListItems_(readSheet_(SHEETS.PRAYERS), listIso, ['TEXT'])),
+    announcements: arrangedForUi('announcements', withOrigin(pickWebAppListItems_(readSheet_(SHEETS.ANNOUNCEMENTS), listIso,
+      ['TEXT', 'ORIGIN_DATE', 'ORIGIN_UNTIL']))),
+    prayers: arrangedForUi('prayers', withOrigin(pickWebAppListItems_(readSheet_(SHEETS.PRAYERS), listIso,
+      ['TEXT', 'ORIGIN_DATE', 'ORIGIN_UNTIL']))),
     fellowships: arrangedForUi('fellowships', pickWebAppListItems_(readSheet_(SHEETS.FELLOWSHIPS), listIso,
       ['FELLOWSHIP_NAME', 'MEETING_DATE', 'MEETING_TIME', 'CONTENT'])),
     // 2026-10-30：財政報告兩款，全部欄都顯示（唯讀）。鍵由 webAppListDefs_() 決定（與 Script.html LIST_DEFS.finance 相同）。
@@ -2330,6 +2343,28 @@ function pickWebAppListItems_(rows, isoDate, fieldKeys) {
       });
       return item;
     });
+}
+
+/**
+ * 用途：2026-11-03：家事報告、代禱事項一則的來源說明：內容表那一行的主日日期不是這一期＝「連續到」帶入的，
+ *   講明由哪一日起、連續到哪一日、是不是上一季的內容表。這一期自己的一則（或者舊資料沒有來源）回空字串。純函式。
+ * Args:
+ *   originDate {*} 工作表「內容表主日日期」（文字或 Date）。　originUntil {*} 「內容表連續到」。
+ *   listIso {string} 這一期清單跟的主日（特別崇拜＝上一個主日）。
+ *   weekRows {Object[]} `BulletinWeeks` 的資料列（查來源主日屬於哪一季）。
+ *   thisQuarterId {string} 這一期的季度。
+ * Returns:
+ *   {string} 例如「連續項目：由 2027-12-26 起，連續到 2028-01-16（上一季 2027T4 的內容表）」。
+ */
+function buildListOriginNote_(originDate, originUntil, listIso, weekRows, thisQuarterId) {
+  var from = normalizeContentCompareValue_(originDate);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || from === String(listIso || '')) return '';
+  var until = normalizeContentCompareValue_(originUntil);
+  var fromRow = findBulletinWeekRow_(weekRows || [], from);
+  var fromQuarter = fromRow ? String(fromRow.QUARTER_ID || '').trim() : '';
+  var otherQuarter = fromQuarter ? (fromQuarter !== String(thisQuarterId || '')) : (from < String(listIso || ''));
+  return '連續項目：由 ' + from + ' 起' + (until ? '，連續到 ' + until : '')
+    + (otherQuarter ? '（' + (fromQuarter ? '上一季 ' + fromQuarter : '上一季') + '的內容表）' : '（本季內容表）');
 }
 
 /**

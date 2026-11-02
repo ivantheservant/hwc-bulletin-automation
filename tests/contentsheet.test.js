@@ -1089,8 +1089,8 @@ test('20. 週報試算表嘅五張舊表完全冇被改動', function () {
 test('20b. 五張舊表嘅欄位定義完全冇改（結構層面）', function () {
   const env = makeEnv({});
   const cols = env.sandbox.COLUMNS;
-  assert.strictEqual(cols.ANNOUNCEMENTS.keys.length, 4);
-  assert.strictEqual(cols.PRAYERS.keys.length, 4);
+  assert.strictEqual(cols.ANNOUNCEMENTS.keys.length, 6, 'Announcements 2026-11-03 最後加內容表主日日期、內容表連續到');
+  assert.strictEqual(cols.PRAYERS.keys.length, 6, 'Prayers 同上');
   assert.strictEqual(cols.FELLOWSHIPS.keys.length, 7);
   assert.strictEqual(cols.FINANCE.keys.length, 12, 'Finance 2026-10-30 最後加報告標題、附註、銀行結餘');
   assert.strictEqual(cols.BULLETIN_WEEKS.keys.length, 61, 'BulletinWeeks 欄數（浸禮六欄 ＋ R-036 的 ROSTER_STATUS ＋ R-035 ＋ v3 兩欄 ＋ 2026-10-30 崇拜類別 ＋ 2026-11-02 合堂三格）');

@@ -227,16 +227,21 @@ var COLUMNS = Object.freeze({
     ]
   },
 
+  // 2026-11-03：最後加「內容表主日日期」「內容表連續到」（匯入時寫內容表那一行的主日日期與連續到）：
+  //    填寫介面靠它講「由某日起連續」的行是由哪一日、哪一季的內容表帶入的。加在最尾，舊資料位置不變；
+  //    純文字（不可以被試算表轉成日期）。
   ANNOUNCEMENTS: {
-    headers: ['主日日期', '次序', '內容', '有效'],
-    keys: ['SERVICE_DATE', 'SEQ_NO', 'TEXT', 'ACTIVE'],
-    types: ['DATE', 'INT', 'TEXT', 'BOOLEAN']
+    headers: ['主日日期', '次序', '內容', '有效', '內容表主日日期', '內容表連續到'],
+    keys: ['SERVICE_DATE', 'SEQ_NO', 'TEXT', 'ACTIVE', 'ORIGIN_DATE', 'ORIGIN_UNTIL'],
+    types: ['DATE', 'INT', 'TEXT', 'BOOLEAN', 'TEXT', 'TEXT'],
+    textFormatColumns: ['ORIGIN_DATE', 'ORIGIN_UNTIL']
   },
 
   PRAYERS: {
-    headers: ['主日日期', '次序', '內容', '有效'],
-    keys: ['SERVICE_DATE', 'SEQ_NO', 'TEXT', 'ACTIVE'],
-    types: ['DATE', 'INT', 'TEXT', 'BOOLEAN']
+    headers: ['主日日期', '次序', '內容', '有效', '內容表主日日期', '內容表連續到'],
+    keys: ['SERVICE_DATE', 'SEQ_NO', 'TEXT', 'ACTIVE', 'ORIGIN_DATE', 'ORIGIN_UNTIL'],
+    types: ['DATE', 'INT', 'TEXT', 'BOOLEAN', 'TEXT', 'TEXT'],
+    textFormatColumns: ['ORIGIN_DATE', 'ORIGIN_UNTIL']
   },
 
   FELLOWSHIPS: {
