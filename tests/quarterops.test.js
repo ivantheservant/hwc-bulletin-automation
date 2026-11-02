@@ -417,6 +417,18 @@ test('B 預覽：未有內容表 → 講明會建立一個新的', function () {
   assert.ok(result.lines.join('\n').indexOf('建立') !== -1);
 });
 
+test('B 預覽（2026-11-02）：未有內容表、網域已填、預設只可以看 → 不可以再寫「網域內可編輯」', function () {
+  // 以前建立一句寫死「（網域 網域內可編輯）」，與上面「內容表權限：教會網域內只可以看」矛盾。
+  const env = makeEnv({ contentSheets: [], config: { CONTENT_SHEET_DOMAIN: 'example.org', CONTENT_SHEET_LINK_ACCESS: 'VIEW' } });
+  const result = env.sandbox.previewContentSheetBuild_(QUARTER_ID);
+
+  assert.strictEqual(result.ok, true, result.message);
+  const text = result.lines.join('\n');
+  assert.strictEqual(text.indexOf('網域內可編輯'), -1, text);
+  assert.ok(text.indexOf('按上面「內容表權限」一行') !== -1, text);
+  assert.ok(/內容表權限：/.test(text), '真正的權限計畫一行要在：' + text);
+});
+
 test('B：CONTENT_SHEET_FOLDER_ID 未填 → 明確講要去 Config 填哪一條', function () {
   const env = makeEnv({ config: { CONTENT_SHEET_FOLDER_ID: '' } });
   const result = env.sandbox.previewContentSheetBuild_(QUARTER_ID);

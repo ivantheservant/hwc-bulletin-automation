@@ -349,7 +349,8 @@ function previewContentSheetBuild_(quarterId) {
     lines.push('');
     lines.push('這一季未有內容表，會在雲端硬碟建立一個新的試算表。');
     lines.push('建立之後會把連結記入 ContentSheets，並自動設定分享權限'
-      + (config.domain ? ('（' + config.domain + ' 網域內可編輯）')
+      // 2026-11-02：以前這裏寫死「網域內可編輯」，與上面「內容表權限」一行（真正會套用的計畫，預設只可以看）矛盾。
+      + (config.domain ? '（按上面「內容表權限」一行）'
         : ('（⚠️ 未設定 ' + CONFIG_KEYS.CONTENT_SHEET_DOMAIN + '，要人手分享）')));
     v4Lines.forEach(function (l) { lines.push(l); });
   }

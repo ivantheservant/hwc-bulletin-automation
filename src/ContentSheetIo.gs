@@ -22,8 +22,10 @@
  *   邏輯。結構、欄位定義、樣本內容、邀請信全部喺 `src/ContentSheet.gs`。
  *   呢度淨係做「開檔、寫格、設權限」。
  *
- * ⚠️ 分享權限一律係**網域內可編輯**（`DriveApp.Access.DOMAIN`），
+ * ⚠️ 分享權限一律限於教會網域（`DriveApp.Access.DOMAIN`），
  * **絕對唔可以**用 `ANYONE_WITH_LINK`——內容表有會友姓名同教會內部資料。
+ * 建立時先設網域可編輯，之後由 `applyContentSheetSharing_()`（src/ContentSheetSharing.gs）
+ * 按 Config `CONTENT_SHEET_LINK_ACCESS` 改成真正的設定（預設 VIEW ＋ 逐個加編輯者）。
  */
 
 'use strict';
