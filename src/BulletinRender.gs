@@ -748,6 +748,19 @@ function generateBulletinDocx_(isoDate, options) {
   var renderWarnings = [];
   var dutySlots = null;
 
+  // 2026-11-02：年度 logo（Config YEAR_LOGO_FILE_ID，src/YearLogo.gs）。換不到不阻止產生，但一定出警告。
+  var yearLogoId = String(getConfig_(CONFIG_KEYS.YEAR_LOGO_FILE_ID, '') || '').trim();
+  var yearLogoImage = null;
+  if (yearLogoId) {
+    var logoRead = readYearLogoImage_(yearLogoId);
+    if (logoRead.ok) {
+      yearLogoImage = logoRead;
+    } else {
+      renderWarnings.push(buildYearLogoWarning_(logoRead.reason,
+        { maskedId: logoRead.maskedId, error: logoRead.error, contentType: logoRead.contentType }));
+    }
+  }
+
   var rendered = renderDocxFromTemplate_(template.fileId, fileName, function (xml) {
     // 2026-10-28：用正在渲染的這一份範本數事奉格（不經快取），漏印的項目列入警告（src/DutySlots.gs）。
     dutySlots = templateDutySlotsFromXml_(prepareXmlForPlaceholders_(xml).xml);
@@ -762,9 +775,12 @@ function generateBulletinDocx_(isoDate, options) {
       missingValueMode: getConfig_(CONFIG_KEYS.TEMPLATE_MISSING_VALUE_MODE, 'BLANK')
     });
     renderStats = result.stats;
-    renderWarnings = result.warnings;
+    renderWarnings = renderWarnings.concat(result.warnings);
     return result.xml;
-  });
+  }, { yearLogo: yearLogoImage });
+  if (rendered.yearLogo && !rendered.yearLogo.applied) {
+    renderWarnings.push(buildYearLogoWarning_(rendered.yearLogo.reason, { templateLabel: template.label }));
+  }
   if (dutySlots) {
     renderWarnings = renderWarnings.concat(buildDutySlotWarnings_(dutySlots, model, template.label));
   }
@@ -1303,6 +1319,8 @@ function buildGenerateResultDialogLines_(isoDate, result) {
     + ((stats.broken || []).length > 0 ? '　⚠️ 這些會原樣印出來，請檢查範本' : ''));
   lines.push('待填欄位：' + (result.modelMissingCount || 0) + ' 個'
     + ((result.modelOptionalCount || 0) > 0 ? ('（另有 ' + result.modelOptionalCount + ' 項通常空白）') : ''));
+  // 2026-11-02：年度 logo 換不到（Config YEAR_LOGO_FILE_ID 填了）——產生照做，但要講出來。
+  yearLogoWarningMessages_(result.warnings).forEach(function (m) { lines.push('⚠️ ' + m); });
   lines.push('');
 
   // ---- R-032：內容份量估算 ----

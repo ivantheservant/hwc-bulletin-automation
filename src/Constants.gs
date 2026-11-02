@@ -815,7 +815,9 @@ var CONFIG_KEYS = Object.freeze({
   CONTENT_SHEET_EDITOR_GROUPS: 'CONTENT_SHEET_EDITOR_GROUPS',
   CONTENT_SHEET_FINANCE_EDITOR_GROUPS: 'CONTENT_SHEET_FINANCE_EDITOR_GROUPS',
   // 2026-11-02：合堂主日之後那一期人數表（一欄）的欄標題（{{ATTENDANCE_COMBINED_LABEL}}）。
-  ATTENDANCE_COMBINED_COLUMN_LABEL: 'ATTENDANCE_COMBINED_COLUMN_LABEL'
+  ATTENDANCE_COMBINED_COLUMN_LABEL: 'ATTENDANCE_COMBINED_COLUMN_LABEL',
+  // 2026-11-02：年度 logo 圖片（雲端硬碟檔案 ID）；產生 Word 時換走範本內替代文字 YEAR_LOGO 那張圖（src/YearLogo.gs）。
+  YEAR_LOGO_FILE_ID: 'YEAR_LOGO_FILE_ID'
 });
 
 // =====================================================================
@@ -1061,7 +1063,8 @@ var DEFAULTS = Object.freeze([
   { key: CONFIG_KEYS.CONTENT_SHEET_EDITOR_GROUPS, value: 'CC,DB,ADMIN,IT,WORSHIP', note: '內容表可以修改的 Recipients 組別（逗號分隔，按 GROUP_NAME；只計 ACTIVE=TRUE）。CONTENT_SHEET_LINK_ACCESS=VIEW 時才有作用' },
   { key: CONFIG_KEYS.CONTENT_SHEET_FINANCE_EDITOR_GROUPS, value: 'DB,ADMIN,IT', note: '內容表「財政報告」分頁可以修改的 Recipients 組別（逗號分隔）。留空＝不另外限制（與其他分頁相同）' },
   // ---- 2026-11-02 ----
-  { key: CONFIG_KEYS.ATTENDANCE_COMBINED_COLUMN_LABEL, value: '合堂', note: '合堂主日之後那一期，人數表只印一欄（崇拜／祈禱會／兒童三格）時那一欄的標題（Word 範本 {{ATTENDANCE_COMBINED_LABEL}}；2025 年的週報用過「三堂聯合」）。內容表「崇拜人數」那一日填了合堂三格就印這一欄，十二格那一張表不印' }
+  { key: CONFIG_KEYS.ATTENDANCE_COMBINED_COLUMN_LABEL, value: '合堂', note: '合堂主日之後那一期，人數表只印一欄（崇拜／祈禱會／兒童三格）時那一欄的標題（Word 範本 {{ATTENDANCE_COMBINED_LABEL}}；2025 年的週報用過「三堂聯合」）。內容表「崇拜人數」那一日填了合堂三格就印這一欄，十二格那一張表不印' },
+  { key: CONFIG_KEYS.YEAR_LOGO_FILE_ID, value: '', note: '雲端硬碟上年度 logo 圖片（JPG／PNG）的檔案 ID；留空＝用範本內的圖。圖片會縮放到範本原本的框（8.43×3.24 cm，約 2.6:1），比例不同會變形，請先裁好。' }
 ]);
 
 // =====================================================================

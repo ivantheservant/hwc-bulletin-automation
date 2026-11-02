@@ -27,6 +27,10 @@
  *
  * 我們的做法從來不是「重畫版面」，只是「換字」——所以除了裝文字的
  * `word/document.xml` 之外，沒有任何理由碰其他檔案。
+ *
+ * 唯一的例外（2026-11-02，Ivan 批准）：Config `YEAR_LOGO_FILE_ID` 填了時，年度 logo 要換圖——加一個
+ * `word/media/year_logo.*`、改 `word/_rels/document.xml.rels` 那一個關係的 Target、`[Content_Types].xml` 補副檔名
+ * （見 src/YearLogo.gs）。只在 Config 填了、而且範本有 YEAR_LOGO 圖時才做；其餘檔案仍然一個位元都不碰。
  */
 
 'use strict';
@@ -159,6 +163,85 @@ function readOutputDocxById_(fileId) {
         + scrubFileId_((err && err.message) ? err.message : String(err), id)
     };
   }
+}
+
+/**
+ * 用途：2026-11-02：讀 Config `YEAR_LOGO_FILE_ID` 指向的年度 logo 圖片（src/YearLogo.gs）。只接受 PNG、JPEG。
+ *   讀不到或不是圖片**不拋錯**——產生 Word 照做（用範本原本的圖），由呼叫方出警告。
+ * Args:
+ *   fileId {string} 圖片在雲端硬碟的檔案 ID。
+ * Returns:
+ *   {{ok:boolean, blob:?Blob, contentType:string, ext:string, reason:string, error:string, maskedId:string}}
+ *     `reason`（`ok:false` 時）：`UNREADABLE`（開不到）／`NOT_IMAGE`（不是 PNG／JPEG）。`error` 不含完整檔案 ID。
+ */
+function readYearLogoImage_(fileId) {
+  var id = String(fileId || '').trim();
+  var out = { ok: false, blob: null, contentType: '', ext: '', reason: '', error: '', maskedId: maskFileId_(id) };
+  var blob;
+  try {
+    blob = DriveApp.getFileById(id).getBlob();
+  } catch (err) {
+    out.reason = 'UNREADABLE';
+    out.error = scrubFileId_((err && err.message) ? err.message : String(err), id);
+    return out;
+  }
+  out.contentType = String(blob.getContentType() || '');
+  out.ext = yearLogoImageExtension_(out.contentType);
+  if (!out.ext) { out.reason = 'NOT_IMAGE'; return out; }
+  out.ok = true;
+  out.blob = blob;
+  return out;
+}
+
+/**
+ * 用途：在 zip entry 清單找某一個檔名（不分大小寫、`\` 當 `/`）。純函式。
+ * Args:
+ *   entries {{name:string}[]}　name {string}
+ * Returns:
+ *   {number} 索引；找不到回 -1。
+ */
+function findDocxEntryIndex_(entries, name) {
+  var target = String(name || '').toLowerCase();
+  for (var i = 0; i < (entries || []).length; i++) {
+    if (String(entries[i].name || '').toLowerCase().replace(/\\/g, '/') === target) return i;
+  }
+  return -1;
+}
+
+/**
+ * 用途：2026-11-02：把年度 logo 換成新圖（改 entry 清單：主文件、關係檔、內容類型，加一個圖片 entry）。
+ *   XML 的改法全部在純函式 `applyYearLogoToDocxParts_()`。換不到就一個 entry 都不改。
+ * Args:
+ *   entries {{name:string, blob:Blob}[]} 會被改（換掉三個 entry、加一個）。
+ *   documentIndex {number}　documentXml {string} 已經渲染好的主文件。
+ *   image {{blob:Blob, contentType:string}} `readYearLogoImage_()` 成功的結果。
+ * Returns:
+ *   {{applied:boolean, reason:string, documentXml:string, drawingCount:number, mediaPath:string}}
+ *     `documentXml`：換了之後的主文件（同一個關係 ID 被其他圖用到時 r:embed 會改）；換不到就是原本那一份。
+ */
+function applyYearLogoToEntries_(entries, documentIndex, documentXml, image) {
+  var relsIndex = findDocxEntryIndex_(entries, DOCX_DOCUMENT_RELS_ENTRY_);
+  var typesIndex = findDocxEntryIndex_(entries, DOCX_CONTENT_TYPES_ENTRY_.toLowerCase());
+  if (relsIndex === -1 || typesIndex === -1) {
+    return { applied: false, reason: relsIndex === -1 ? 'NO_RELS' : 'NO_CONTENT_TYPES', documentXml: documentXml,
+      drawingCount: findYearLogoDrawings_(documentXml).length, mediaPath: '' };
+  }
+  var plan = applyYearLogoToDocxParts_({
+    documentXml: documentXml,
+    relsXml: entries[relsIndex].blob.getDataAsString('UTF-8'),
+    contentTypesXml: entries[typesIndex].blob.getDataAsString('UTF-8'),
+    entryNames: entries.map(function (e) { return e.name; }),
+    contentType: image.contentType
+  });
+  if (!plan.ok) {
+    return { applied: false, reason: plan.reason, documentXml: documentXml, drawingCount: plan.drawingCount, mediaPath: '' };
+  }
+  var relsName = entries[relsIndex].name;
+  var typesName = entries[typesIndex].name;
+  entries[relsIndex] = { name: relsName, blob: Utilities.newBlob(encodeUtf8Bytes_(plan.relsXml), 'application/xml', relsName) };
+  entries[typesIndex] = { name: typesName, blob: Utilities.newBlob(encodeUtf8Bytes_(plan.contentTypesXml), 'application/xml', typesName) };
+  entries.push({ name: plan.mediaPath, blob: image.blob.copyBlob().setName(plan.mediaPath) });
+  return { applied: true, reason: '', documentXml: plan.documentXml, drawingCount: plan.drawingCount, mediaPath: plan.mediaPath };
 }
 
 /**
@@ -385,12 +468,15 @@ function zipDocx_(entries, filename) {
  *   filename {string} 產生的檔名。
  *   transformXml {function(string): string} 輸入原始
  *     `word/document.xml`、輸出渲染後的 XML。
+ *   options {{yearLogo:?Object=}=} 2026-11-02：`yearLogo`＝`readYearLogoImage_()` 成功的結果，有就把 YEAR_LOGO 圖換成它
+ *     （`applyYearLogoToEntries_()`）；省略或 null＝不換（與以前一樣只改主文件）。
  * Returns:
- *   {{blob:Blob, entryCount:number, documentEntryName:string}}
+ *   {{blob:Blob, entryCount:number, documentEntryName:string, yearLogo:?Object}}
+ *     `yearLogo`：有傳 `options.yearLogo` 時是 `applyYearLogoToEntries_()` 的結果，否則 null。
  * Raises:
  *   Error 如果讀檔／解壓／壓縮失敗，或 zip 內找不到 `word/document.xml`。
  */
-function renderDocxFromTemplate_(fileId, filename, transformXml) {
+function renderDocxFromTemplate_(fileId, filename, transformXml, options) {
   var entries = unzipDocx_(readTemplateBlob_(fileId));
 
   var documentIndex = findDocumentEntryIndex_(entries);
@@ -407,6 +493,13 @@ function renderDocxFromTemplate_(fileId, filename, transformXml) {
   var originalXml = entries[documentIndex].blob.getDataAsString('UTF-8');
   var renderedXml = transformXml(originalXml);
 
+  // 2026-11-02：年度 logo（只在呼叫方傳了圖片時）。換不到就一個 entry 都不改，由呼叫方出警告。
+  var yearLogo = null;
+  if (options && options.yearLogo) {
+    yearLogo = applyYearLogoToEntries_(entries, documentIndex, renderedXml, options.yearLogo);
+    renderedXml = yearLogo.documentXml;
+  }
+
   // ⚠️ 只換這一個 entry，其餘保持原物件不動。
   entries[documentIndex] = {
     name: originalName,
@@ -417,7 +510,8 @@ function renderDocxFromTemplate_(fileId, filename, transformXml) {
   return {
     blob: zipDocx_(entries, filename),
     entryCount: entries.length,
-    documentEntryName: originalName
+    documentEntryName: originalName,
+    yearLogo: yearLogo
   };
 }
 

@@ -189,6 +189,8 @@ function generateQuarterBulletinsBatch_(quarterId, options) {
         isoDate: isoDate, status: 'OK',
         message: '已產生：' + result.file.fileName
           + (recorded ? '' : '　⚠️ BulletinWeeks 沒有這一行，DOC_ID／LAST_GENERATED_AT 未能寫回（檔案本身已經產生成功）。')
+          // 2026-11-02：年度 logo 換不到（Config YEAR_LOGO_FILE_ID 填了）。
+          + yearLogoWarningMessages_(result.warnings).map(function (m) { return '　⚠️ ' + m; }).join('')
       });
     } catch (err) {
       failed++;

@@ -68,6 +68,8 @@ function makeFakeBlob(text, name, contentType) {
  *     `Utilities.unzip()` 次序不保證的情況）；`templateContentType` 用來
  *     測 MIME 檢查（例如傳 Google 文件的 MIME，模擬範本被 Drive 自動
  *     轉換的情況）。
+ *     2026-11-02（年度 logo）：`relsXml`＝加一個 `word/_rels/document.xml.rels`（內容是這一段）；
+ *     `contentTypesXml`＝`[Content_Types].xml` 的內容（預設 `<Types/>`）。
  * Returns:
  *   {Object} 假的 `.docx` blob，`__entries` 是 entry 清單。
  */
@@ -83,10 +85,11 @@ function buildFakeDocx(documentXml, options) {
   entries.push(makeFakeBlob('THEME-BINARY', 'word/theme/theme1.xml'));
   entries.push(makeFakeBlob('PNG-BINARY-DATA', 'word/media/image1.png'));
   entries.push(makeFakeBlob('JPEG-BINARY-DATA', 'word/media/image2.jpeg'));
+  if (opts.relsXml !== undefined) entries.push(makeFakeBlob(opts.relsXml, 'word/_rels/document.xml.rels'));
 
   if (!opts.omitContentTypes) {
     var insertAt = opts.contentTypesIndex === undefined ? 0 : opts.contentTypesIndex;
-    entries.splice(insertAt, 0, makeFakeBlob('<Types/>', '[Content_Types].xml'));
+    entries.splice(insertAt, 0, makeFakeBlob(opts.contentTypesXml === undefined ? '<Types/>' : opts.contentTypesXml, '[Content_Types].xml'));
   }
 
   const blob = makeFakeBlob('FAKE-DOCX-ZIP', 'template.docx',
