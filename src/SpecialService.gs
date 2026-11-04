@@ -138,6 +138,66 @@ function contentSourceIsoForWeek_(weekRow, isoDate) {
   return isSpecialServiceRow_(weekRow) ? previousSundayBeforeIso_(isoDate) : String(isoDate || '');
 }
 
+/** `BulletinWeeks.SPECIAL_CONTENT_SOURCE` 的值：特別崇拜的家事報告等在內容表另外填這一日。留空＝跟上一個主日。 */
+var SPECIAL_CONTENT_SOURCE_OWN_ = 'OWN';
+
+/**
+ * 用途：2026-11-04（Ivan 測試結果 C）：這一行是不是「家事報告等另外填寫」的特別崇拜（未取消）。純函式。
+ *   判斷只有這一處（bug class 3）。
+ * Args:
+ *   row {?Object} BulletinWeeks 那一行。
+ * Returns:
+ *   {boolean}
+ */
+function isOwnContentSpecialRow_(row) {
+  if (!isSpecialServiceRow_(row) || isCancelledSpecialServiceRow_(row)) return false;
+  var v = row.SPECIAL_CONTENT_SOURCE;
+  return String(v === null || v === undefined ? '' : v).trim().toUpperCase() === SPECIAL_CONTENT_SOURCE_OWN_;
+}
+
+/**
+ * 用途：家事報告、代禱事項、團契、財政報告讀哪一日。另外填寫的特別崇拜＝自己；其餘同 `contentSourceIsoForWeek_()`
+ *   （上週崇拜人數一律跟 `contentSourceIsoForWeek_()`，即特別崇拜仍然跟上一個主日）。純函式。
+ * Args:
+ *   weekRow {?Object}　isoDate {string}
+ * Returns:
+ *   {string}
+ */
+function listSourceIsoForWeek_(weekRow, isoDate) {
+  return isOwnContentSpecialRow_(weekRow) ? String(isoDate || '') : contentSourceIsoForWeek_(weekRow, isoDate);
+}
+
+/**
+ * 用途：某一季「家事報告等另外填寫」的特別崇拜日期（內容表清單分頁的主日下拉、匯入用）。純函式。
+ * Args:
+ *   weekRows {Object[]} BulletinWeeks 全部行。
+ *   quarterId {string}
+ * Returns:
+ *   {string[]} yyyy-MM-dd，由早到遲。
+ */
+function ownContentSpecialDatesForQuarter_(weekRows, quarterId) {
+  var qid = String(quarterId || '').trim();
+  return (weekRows || []).filter(function (r) {
+    return isOwnContentSpecialRow_(r) && String(r.QUARTER_ID || '').trim() === qid && r.ARCHIVED !== true;
+  }).map(function (r) { return formatIsoDate_(normalizeDate_(r.SERVICE_DATE)); }).sort();
+}
+
+/**
+ * 用途：特別崇拜「家事報告等」兩種做法的說明句（建立、恢復、更改的預覽共用，字眼只有一處）。純函式。
+ * Args:
+ *   own {boolean} 另外填寫。
+ *   isoDate {string} 特別崇拜日期。
+ *   sourceIso {string} 上一個主日。
+ * Returns:
+ *   {string}
+ */
+function specialContentSourceLine_(own, isoDate, sourceIso) {
+  return own
+    ? '家事報告、代禱事項、團契、財政報告：另外填寫——在內容表那四張分頁的「主日」選 ' + isoDate
+      + ' 填寫（「連續到」包括這一日的行亦會出現）；上週崇拜人數跟上一個主日（' + sourceIso + '）。'
+    : '家事報告、代禱事項、團契、財政報告、上週崇拜人數：跟上一個主日（' + sourceIso + '）的內容表。';
+}
+
 /**
  * 用途：特別崇拜在填寫介面填、平常只在內容表填的欄（讀經經文、證道講題、回應詩歌）。由「崇拜程序」分頁定義
  *   衍生，不另抄。純函式。
@@ -274,6 +334,9 @@ function planSpecialServiceCreate_(input) {
 
   var defaults = o.defaults || {};
   var templateId = String(o.templateId || '').trim();
+  // 2026-11-04：家事報告等跟上一個主日（預設）或者另外填寫（OWN）。
+  var own = String(o.contentSource || '').trim().toUpperCase() === SPECIAL_CONTENT_SOURCE_OWN_;
+  out.contentSource = own ? SPECIAL_CONTENT_SOURCE_OWN_ : '';
   out.ok = true;
   out.sourceIso = sourceIso;
   out.nextSundayIso = nextSundayAfterIso_(iso);
@@ -281,12 +344,12 @@ function planSpecialServiceCreate_(input) {
   out.restore = restoring;
   if (restoring) {
     // 恢復只改這三格，其餘（事奉、讀經經文、程序等）保留取消之前的內容。
-    out.row = { SERVICE_KIND: SERVICE_KIND_SPECIAL_, SPECIAL_TYPE: title, PAGE_TITLE: title };
+    out.row = { SERVICE_KIND: SERVICE_KIND_SPECIAL_, SPECIAL_TYPE: title, PAGE_TITLE: title, SPECIAL_CONTENT_SOURCE: out.contentSource };
     out.lines = [
       '恢復：' + iso + ' 之前建立過的特別崇拜「' + String(existing.SPECIAL_TYPE || '') + '」已經取消，這一次會恢復那一期。',
       '名稱：' + title + '（程序表大標題亦改用這個名稱，之後可以改）',
       '之前填過的事奉人員、讀經經文、講題與程序會保留。',
-      '家事報告、代禱事項、團契、財政報告、上週崇拜人數：跟上一個主日（' + sourceIso + '）的內容表。',
+      specialContentSourceLine_(own, iso, sourceIso),
       '第 3 頁下週事奉：下一個主日（' + out.nextSundayIso + '）的職事表。',
       '不會自動寄出；發佈只限當週。'
     ];
@@ -305,14 +368,15 @@ function planSpecialServiceCreate_(input) {
     PRAYER_BLOCK_HEADING: defaults.prayerBlockHeading || '',
     STATUS: BULLETIN_WEEK_STATUS.DRAFT,
     ROSTER_STATUS: '',
-    SERVICE_KIND: SERVICE_KIND_SPECIAL_
+    SERVICE_KIND: SERVICE_KIND_SPECIAL_,
+    SPECIAL_CONTENT_SOURCE: out.contentSource
   };
   out.lines = [
     '日期：' + iso + '（' + ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'][new Date(isoDateToTime_(iso)).getDay()] + '）',
     '名稱：' + title + '（程序表大標題亦用這個名稱，之後可以改）',
     '程序範本：' + (templateId || '（自動）') + '（之後可以在程序範本下拉改）',
     '季度：' + out.quarterId,
-    '家事報告、代禱事項、團契、財政報告、上週崇拜人數：跟上一個主日（' + sourceIso + '）的內容表。',
+    specialContentSourceLine_(own, iso, sourceIso),
     '事奉人員：職事表沒有這一日，請在「本週事奉」逐格填（沒有名字的崗位不印）。',
     '讀經經文、證道講題、回應詩歌：在這裏填（平常主日在內容表填）。',
     '第 3 頁下週事奉：下一個主日（' + out.nextSundayIso + '）的職事表。',
@@ -330,8 +394,8 @@ function planSpecialServiceCreate_(input) {
  * Raises:
  *   Error 讀工作表失敗時原樣拋出。
  */
-function previewSpecialServiceCreate_(isoDate, title) {
-  var plan = planSpecialServiceCreate_(specialServicePlanInput_(isoDate, title));
+function previewSpecialServiceCreate_(isoDate, title, contentSource) {
+  var plan = planSpecialServiceCreate_(specialServicePlanInput_(isoDate, title, contentSource));
   return Object.assign({}, plan, { row: null });
 }
 
@@ -342,9 +406,9 @@ function previewSpecialServiceCreate_(isoDate, title) {
  * Returns:
  *   {Object}
  */
-function specialServicePlanInput_(isoDate, title) {
+function specialServicePlanInput_(isoDate, title, contentSource) {
   return {
-    isoDate: isoDate, title: title,
+    isoDate: isoDate, title: title, contentSource: contentSource || '',
     weekRows: readSheet_(SHEETS.BULLETIN_WEEKS),
     templateId: getConfig_(CONFIG_KEYS.SPECIAL_SERVICE_TEMPLATE_DEFAULT, 'TPL_NORMAL'),
     defaults: readBlankWeekSettings_().defaults
@@ -353,31 +417,35 @@ function specialServicePlanInput_(isoDate, title) {
 
 /**
  * 用途：建立特別崇拜（加一行 BulletinWeeks）。在指令碼鎖之內重新算一次計畫（與預覽同一支）。
+ *   2026-11-04：家事報告等「另外填寫」（`contentSource:'OWN'`）時，建立之後把這一日加入本季內容表四張清單分頁的
+ *   「主日」下拉（失敗不影響建立，`contentSheetNote` 講明）。
  * Args:
- *   isoDate {string}　title {string}
+ *   isoDate {string}　title {string}　contentSource {string=} `'OWN'`＝另外填寫；其他＝跟上一個主日。
  * Returns:
- *   {Object} 同 `planSpecialServiceCreate_()`（不含 `row`），另有 `created:boolean`。
+ *   {Object} 同 `planSpecialServiceCreate_()`（不含 `row`），另有 `created:boolean`、`contentSheetNote:string`。
  * Raises:
  *   Error（`code:'LOCK_TIMEOUT'`）拿不到鎖；寫入失敗原樣拋出。
  */
-function createSpecialService_(isoDate, title) {
+function createSpecialService_(isoDate, title, contentSource) {
   return withScriptLock_('createSpecialService_', SAVE_LOCK_WAIT_MS_, function () {
-    var plan = planSpecialServiceCreate_(specialServicePlanInput_(isoDate, title));
+    var plan = planSpecialServiceCreate_(specialServicePlanInput_(isoDate, title, contentSource));
     if (!plan.ok) return Object.assign({}, plan, { row: null, created: false });
+    var own = plan.contentSource === SPECIAL_CONTENT_SOURCE_OWN_;
     if (plan.restore) {
       writeSpecialServiceRowCells_(plan.isoDate, plan.row, 'RESTORE_SPECIAL_SERVICE',
         '恢復已取消的特別崇拜「' + plan.title + '」（季度 ' + plan.quarterId + '）。');
       touchWeeksLastSavedAt_([plan.isoDate], new Date());
-      return Object.assign({}, plan, { row: null, created: true });
+    } else {
+      writeSheet_(SHEETS.BULLETIN_WEEKS, [plan.row]);
+      appendAuditLog_({
+        action: 'CREATE_SPECIAL_SERVICE', sheetName: SHEETS.BULLETIN_WEEKS, rowKey: plan.isoDate,
+        newValue: plan.title,
+        notes: '建立特別崇拜「' + plan.title + '」（季度 ' + plan.quarterId + '；家事報告等'
+          + (own ? '另外填寫' : '跟 ' + plan.sourceIso) + '；程序範本 ' + (plan.row.PROGRAM_TEMPLATE_ID || '自動') + '）。'
+      });
     }
-    writeSheet_(SHEETS.BULLETIN_WEEKS, [plan.row]);
-    appendAuditLog_({
-      action: 'CREATE_SPECIAL_SERVICE', sheetName: SHEETS.BULLETIN_WEEKS, rowKey: plan.isoDate,
-      newValue: plan.title,
-      notes: '建立特別崇拜「' + plan.title + '」（季度 ' + plan.quarterId + '；家事報告等跟 ' + plan.sourceIso
-        + '；程序範本 ' + (plan.row.PROGRAM_TEMPLATE_ID || '自動') + '）。'
-    });
-    return Object.assign({}, plan, { row: null, created: true });
+    var note = own ? refreshContentSheetListDatesSafe_(plan.quarterId) : '';
+    return Object.assign({}, plan, { row: null, created: true, contentSheetNote: note });
   }, function () {
     throw buildLockTimeoutError_(SAVE_LOCK_WAIT_MS_, '請稍等再按一次「建立特別崇拜」。');
   });
@@ -510,3 +578,114 @@ function writeSpecialServiceRowCells_(isoDate, values, action, notes) {
     });
   });
 }
+
+// =====================================================================
+// 特別崇拜的家事報告等：跟上一個主日／另外填寫（2026-11-04 Ivan 測試結果 C）
+// =====================================================================
+
+/**
+ * 用途：算出「改為另外填寫／改回跟上一個主日」會做甚麼（預覽與執行共用）。純函式。
+ * Args:
+ *   input {{isoDate:string, contentSource:string, weekRows:Object[]}} `contentSource`：`'OWN'`＝另外填寫；空白＝跟上一個主日。
+ * Returns:
+ *   {{ok:boolean, reason:string, message:string, isoDate:string, title:string, quarterId:string,
+ *     contentSource:string, sourceIso:string, lines:string[]}}
+ *   `reason`：`BAD_DATE`／`NOT_FOUND`／`NOT_SPECIAL`／`CANCELLED`／`UNCHANGED`。
+ * Raises:
+ *   （無）
+ */
+function planSpecialContentSourceChange_(input) {
+  var o = input || {};
+  var iso = String(o.isoDate || '').trim();
+  var own = String(o.contentSource || '').trim().toUpperCase() === SPECIAL_CONTENT_SOURCE_OWN_;
+  var out = { ok: false, reason: '', message: '', isoDate: iso, title: '', quarterId: '',
+    contentSource: own ? SPECIAL_CONTENT_SOURCE_OWN_ : '', sourceIso: '', lines: [] };
+  function fail(reason, message) { out.reason = reason; out.message = message; return out; }
+
+  if (!isIsoDateShape_(iso)) return fail('BAD_DATE', '日期要用 YYYY-MM-DD，例如 2027-03-26。');
+  var row = findBulletinWeekRow_(o.weekRows || [], iso);
+  if (!row) return fail('NOT_FOUND', iso + ' 沒有週報。');
+  if (!isSpecialServiceRow_(row)) return fail('NOT_SPECIAL', iso + ' 是主日的週報；這個選擇只用於特別崇拜。');
+  out.title = String(row.SPECIAL_TYPE || '');
+  if (isCancelledSpecialServiceRow_(row)) return fail('CANCELLED', '特別崇拜「' + out.title + '」（' + iso + '）已經取消。');
+  if (isOwnContentSpecialRow_(row) === own) {
+    return fail('UNCHANGED', own ? '這一期的家事報告等已經是另外填寫。' : '這一期的家事報告等已經是跟上一個主日。');
+  }
+  out.ok = true;
+  out.quarterId = String(row.QUARTER_ID || '').trim();
+  out.sourceIso = previousSundayBeforeIso_(iso);
+  out.lines = own
+    ? [
+      '改為另外填寫：特別崇拜「' + out.title + '」（' + iso + '）。',
+      specialContentSourceLine_(true, iso, out.sourceIso),
+      '系統會把 ' + iso + ' 加入本季內容表四張清單分頁的「主日」下拉。內容表未填之前，這一期的家事報告等是空白。',
+      '上一個主日（' + out.sourceIso + '）的內容表一格都不會改。'
+    ]
+    : [
+      '改回跟上一個主日：特別崇拜「' + out.title + '」（' + iso + '）。',
+      specialContentSourceLine_(false, iso, out.sourceIso),
+      '內容表內 ' + iso + ' 的行不會刪除，只是這一期不再用；之後再改為另外填寫就會再用。'
+    ];
+  return out;
+}
+
+/**
+ * 用途：預覽「改為另外填寫／改回跟上一個主日」。唯讀。
+ * Args:
+ *   isoDate {string}　contentSource {string}
+ * Returns:
+ *   {Object} 同 `planSpecialContentSourceChange_()`。
+ */
+function previewSpecialContentSourceChange_(isoDate, contentSource) {
+  return planSpecialContentSourceChange_({ isoDate: isoDate, contentSource: contentSource,
+    weekRows: readSheet_(SHEETS.BULLETIN_WEEKS) });
+}
+
+/**
+ * 用途：執行「改為另外填寫／改回跟上一個主日」：寫 `SPECIAL_CONTENT_SOURCE` 一格（AuditLog）、更新最後儲存時間；
+ *   改為另外填寫時把這一日加入內容表清單分頁的「主日」下拉（失敗不影響這一格，`contentSheetNote` 講明）。
+ *   在指令碼鎖之內重新算一次計畫。
+ * Args:
+ *   isoDate {string}　contentSource {string}
+ * Returns:
+ *   {Object} 同 `planSpecialContentSourceChange_()`，另有 `changed:boolean`、`contentSheetNote:string`。
+ * Raises:
+ *   Error（`code:'LOCK_TIMEOUT'`）拿不到鎖；寫入失敗原樣拋出。
+ */
+function changeSpecialContentSource_(isoDate, contentSource) {
+  return withScriptLock_('changeSpecialContentSource_', SAVE_LOCK_WAIT_MS_, function () {
+    var plan = previewSpecialContentSourceChange_(isoDate, contentSource);
+    if (!plan.ok) return Object.assign({}, plan, { changed: false, contentSheetNote: '' });
+    var own = plan.contentSource === SPECIAL_CONTENT_SOURCE_OWN_;
+    writeSpecialServiceRowCells_(plan.isoDate, { SPECIAL_CONTENT_SOURCE: plan.contentSource }, 'SPECIAL_CONTENT_SOURCE',
+      '特別崇拜「' + plan.title + '」的家事報告等' + (own ? '改為另外填寫。' : '改回跟上一個主日（' + plan.sourceIso + '）。'));
+    touchWeeksLastSavedAt_([plan.isoDate], new Date());
+    var note = own ? refreshContentSheetListDatesSafe_(plan.quarterId) : '';
+    return Object.assign({}, plan, { changed: true, contentSheetNote: note });
+  }, function () {
+    throw buildLockTimeoutError_(SAVE_LOCK_WAIT_MS_, '請稍等再按一次。');
+  });
+}
+
+/**
+ * 用途：把本季「另外填寫」的特別崇拜日期加入內容表清單分頁的「主日」下拉。失敗不拋錯（記 ErrorLog），回一句給介面。
+ * Args:
+ *   quarterId {string}
+ * Returns:
+ *   {string} 成功＝空字串；未有內容表或失敗＝說明句。
+ */
+function refreshContentSheetListDatesSafe_(quarterId) {
+  try {
+    var r = refreshContentSheetListDateValidation_(quarterId);
+    if (r.ok) return '';
+    return r.message || '';
+  } catch (err) {
+    appendErrorLog_({
+      source: ERROR_LOG_SOURCE.SERVER, functionName: 'refreshContentSheetListDatesSafe_',
+      errorCode: 'CONTENT_SHEET_DATES_FAILED', message: (err && err.message) ? err.message : String(err),
+      detail: 'quarterId=' + quarterId
+    });
+    return '未能把這一日加入內容表的「主日」下拉（系統已記錄），請通知管理員。';
+  }
+}
+

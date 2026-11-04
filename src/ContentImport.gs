@@ -305,8 +305,10 @@ function attendanceDateToServiceDate_(attendanceIso, serviceDates) {
  *     `skippedTabs` 是「整張空白、本次不改動」的分頁名稱；`skipListDates` 是清單類分頁內
  *     有格被試算表轉成日期／時間、這一次不比對的主日（分頁名稱 → 主日 → true）。
  */
-function buildContentImportTargets_(contentData, serviceDates, carryOver) {
+function buildContentImportTargets_(contentData, serviceDates, carryOver, listDates) {
   var carry = carryOver || { rowsByTab: {}, warnings: [], sourceQuarterId: '' };
+  // 2026-11-04：清單類分頁另外包括「家事報告等另外填寫」的特別崇拜日期（src/SpecialService.gs）；其餘分頁只看主日。
+  var listServiceDates = Array.isArray(listDates) ? listDates : serviceDates;
   var targets = {};
   var warnings = [];
   var skippedTabs = [];
@@ -414,10 +416,10 @@ function buildContentImportTargets_(contentData, serviceDates, carryOver) {
       dropDuplicateDates('主日');
     } else {
       var expandedResult = def.repeatUntil
-        ? expandRepeatUntilRows_(activeRows, serviceDates)
+        ? expandRepeatUntilRows_(activeRows, listServiceDates)
         : expandRepeatUntilRows_(activeRows.map(function (r) {
           return Object.assign({}, r, { REPEAT_UNTIL: '' });
-        }), serviceDates);
+        }), listServiceDates);
 
       expandedResult.warnings.forEach(function (w) { warnings.push(def.tabName + '：' + w); });
 
@@ -431,14 +433,14 @@ function buildContentImportTargets_(contentData, serviceDates, carryOver) {
       });
 
       // 2026-10-30：上一季帶過來的行（行號屬於上一季的內容表，不可以跟本季的 skipRowNos 混在一起）。
-      expandContentCarryOverRows_(carriedRows, serviceDates).forEach(function (row) {
+      expandContentCarryOverRows_(carriedRows, listServiceDates).forEach(function (row) {
         if (!byDate[row.__isoDate]) byDate[row.__isoDate] = [];
         byDate[row.__isoDate].push(row);
       });
       if (rows.length === 0) {
         // 本季這張分頁整張空白（安全規則 1）：只比對上一季連到本季的那幾個主日（包括已停用的行，停用之後要拿走），
         //    其餘主日週報原有的行不動。
-        (serviceDates || []).forEach(function (iso) {
+        (listServiceDates || []).forEach(function (iso) {
           if (carryManagedUntil && iso <= carryManagedUntil) return;
           if (byDate[iso]) return;
           if (!skipListDates[def.tabName]) skipListDates[def.tabName] = {};
@@ -449,7 +451,7 @@ function buildContentImportTargets_(contentData, serviceDates, carryOver) {
       if (def.kind === 'LIST' && def.repeatUntil === true) {
         var skipUntil = carry.unreadable === true ? 'ALL' : ((carry.skipThrough || {})[def.tabName] || '');
         if (skipUntil) {
-          (serviceDates || []).forEach(function (iso) {
+          (listServiceDates || []).forEach(function (iso) {
             if (skipUntil !== 'ALL' && iso > skipUntil) return;
             if (!skipListDates[def.tabName]) skipListDates[def.tabName] = {};
             skipListDates[def.tabName][iso] = true;
@@ -847,7 +849,8 @@ function computeContentImportPlan_(input) {
       var existingAll = (input.existingLists || {})[def.targetSheet] || [];
       var listPlan = { updates: [], appends: [], deactivations: [] };
 
-      (input.serviceDates || []).forEach(function (iso) {
+      // 2026-11-04：清單另外包括「家事報告等另外填寫」的特別崇拜日期（`listServiceDates`）。
+      (input.listServiceDates || input.serviceDates || []).forEach(function (iso) {
         // ⚠️ **範圍內每一個主日都要比對**，包括內容表完全沒有提到的那些
         // ——那代表「那一週沒有任何一則」，所以既有的行要停用。
         //
@@ -1265,13 +1268,18 @@ function previewContentImport_(quarterId, options) {
         + '　請先按選單「建立本季空白週報」。'
     };
   }
+  // 2026-11-04：「家事報告等另外填寫」的特別崇拜（src/SpecialService.gs）：只有四張清單分頁匯入這一日。
+  var specialListDates = ownContentSpecialDatesForQuarter_(readSheet_(SHEETS.BULLETIN_WEEKS), qid);
+  var allListDates = contentListDateOptions_(allServiceDates, specialListDates);
   // 2026-10-30：`isoDates`＝只匯入其中幾個主日（內容表自動同步：今日及之後的主日，見 src/ContentAutoSync.gs）。
   var someDates = Array.isArray(opts.isoDates) ? opts.isoDates.map(function (d) { return String(d || '').trim(); }) : null;
   var scope = opts.isoDate ? 'ONE_WEEK' : (someDates ? 'SOME_WEEKS' : 'QUARTER');
   var serviceDates = allServiceDates;
+  var listServiceDates = allListDates;
   if (!opts.isoDate && someDates) {
     serviceDates = allServiceDates.filter(function (d) { return someDates.indexOf(d) !== -1; });
-    if (serviceDates.length === 0) {
+    listServiceDates = allListDates.filter(function (d) { return someDates.indexOf(d) !== -1; });
+    if (listServiceDates.length === 0) {
       return {
         ok: false, quarterId: qid, scope: scope, reason: 'NO_DATES_IN_SCOPE',
         message: '指定的主日都不屬於季度「' + qid + '」，沒有東西要匯入。'
@@ -1280,13 +1288,16 @@ function previewContentImport_(quarterId, options) {
   }
 
   if (opts.isoDate) {
-    if (allServiceDates.indexOf(opts.isoDate) === -1) {
+    var isSunday = allServiceDates.indexOf(opts.isoDate) !== -1;
+    if (!isSunday && specialListDates.indexOf(opts.isoDate) === -1) {
       return {
         ok: false, quarterId: qid, scope: scope, reason: 'DATE_NOT_IN_QUARTER',
         message: '主日 ' + opts.isoDate + ' 不屬於季度「' + qid + '」，無法只匯入這一個主日。'
       };
     }
-    serviceDates = [opts.isoDate];
+    // 特別崇拜（另外填寫）：崇拜程序、崇拜人數一格都不碰（serviceDates 空白），只比對四張清單分頁。
+    serviceDates = isSunday ? [opts.isoDate] : [];
+    listServiceDates = [opts.isoDate];
   }
 
   // 內容表 v2：讀資料之前先核對第 2 行，不符就整次拒絕（見 checkContentSheetSchema_()）。
@@ -1303,7 +1314,7 @@ function previewContentImport_(quarterId, options) {
   t.mark('內容表：上一季連續到');
   // ⚠️ 「連續到」一定要用**整季**的主日展開，之後才篩出要匯入的那一個
   // 主日——否則只匯入單一主日時，一條由上一週連登過來的報告會消失。
-  var built = buildContentImportTargets_(contentData, allServiceDates, carryOver);
+  var built = buildContentImportTargets_(contentData, allServiceDates, carryOver, allListDates);
   // 分頁篩選：沒有被選中的分頁連「整張空白」的提示也不要出（它們根本不在這次範圍內）。
   var tabNames = Array.isArray(opts.tabNames) ? opts.tabNames : null;
   if (tabNames) {
@@ -1327,6 +1338,7 @@ function previewContentImport_(quarterId, options) {
     existingLists: existingLists,
     existingWeeks: readRowsWithRowNo_(SHEETS.BULLETIN_WEEKS),
     serviceDates: serviceDates,
+    listServiceDates: listServiceDates,
     tabNames: tabNames,
     // R-043／R-045：第三種模式要知道邊幾格已經被人手覆寫。
     // ⚠️ 讀**整季**的覆寫，不是只讀 serviceDates 那幾個——單一主日匯入時
@@ -1792,7 +1804,8 @@ function autoImportContentForWeek_(isoDate, source, options) {
     var weekRow = findBulletinWeekRow_(readSheet_(SHEETS.BULLETIN_WEEKS), iso);
     if (weekRow && weekRow.ARCHIVED === true) return { ran: false, changed: 0, reason: 'ARCHIVED', message: '' };
     // 2026-10-30：特別崇拜沒有內容表的行（src/SpecialService.gs）。
-    if (isSpecialServiceRow_(weekRow)) return { ran: false, changed: 0, reason: 'SPECIAL_SERVICE', message: '' };
+    // 2026-11-04：家事報告等另外填寫的特別崇拜照常匯入（只限四張清單分頁，見 previewContentImport_()）。
+    if (isSpecialServiceRow_(weekRow) && !isOwnContentSpecialRow_(weekRow)) return { ran: false, changed: 0, reason: 'SPECIAL_SERVICE', message: '' };
 
     // 2026-11-03：內容表沒有改過就不打開（打開內容表、讀所有分頁是載入最慢的一段）。
     var signatureDetail = {};

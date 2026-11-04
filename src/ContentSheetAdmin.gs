@@ -114,6 +114,8 @@ function applyContentTabLayout_(sheet, tabDef, options) {
     if (col <= 0) return;
     // 2026-10-30：「連續到」可以選到下一季的頭幾個主日（src/ContentCarryOver.gs）。
     var columnValues = (key === 'REPEAT_UNTIL' && options.repeatUntilOptions) ? options.repeatUntilOptions : dateValues;
+    // 2026-11-04：清單分頁的「主日」另加「家事報告等另外填寫」的特別崇拜日期（src/SpecialService.gs）。
+    if (key === 'SERVICE_DATE' && options.listDateOptions && isContentListTabName_(tabDef.tabName)) columnValues = options.listDateOptions;
     var range = sheet.getRange(CONTENT_SHEET_FIRST_DATA_ROW_, col, blankRows, 1);
     // 日期欄一律純文字：下拉選項係 `yyyy-MM-dd` 字串，唔設純文字嘅話
     // Sheets 會自動轉成 Date，之後匯入讀返出嚟就唔係字串。
@@ -368,6 +370,7 @@ function buildOrRefreshContentSheetLocked_(quarterId, options) {
   var tabsCreated = [];
   var layoutOptions = {
     dateOptions: dateOptions,
+    listDateOptions: contentListDateOptions_(serviceDates, ownContentSpecialDatesForQuarter_(readSheet_(SHEETS.BULLETIN_WEEKS), qid)),
     repeatUntilOptions: contentRepeatUntilOptions_(serviceDates, contentRepeatUntilExtraWeeks_()),
     attendanceDateOptions: attendanceDateOptions,
     owners: config.owners,
@@ -1168,3 +1171,73 @@ function menuSendContentSheetInvite_() {
     ui.alert('寄出內容表連結失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
 }
+
+// =====================================================================
+// 2026-11-04：特別崇拜「家事報告等另外填寫」——清單分頁的「主日」下拉加入那一日
+// =====================================================================
+
+/**
+ * 用途：是不是清單類分頁（家事報告、代禱事項、團契聚會、財政報告）。由匯入定義衍生，不另抄。純函式。
+ * Args:
+ *   tabName {string}
+ * Returns:
+ *   {boolean}
+ */
+function isContentListTabName_(tabName) {
+  return contentImportTargets_().some(function (d) { return d.kind === 'LIST' && d.tabName === tabName; });
+}
+
+/**
+ * 用途：清單分頁「主日」下拉的選項：本季主日加上另外填寫的特別崇拜日期，由早到遲、不重複。純函式。
+ * Args:
+ *   serviceDates {string[]}　specialDates {string[]}
+ * Returns:
+ *   {string[]}
+ */
+function contentListDateOptions_(serviceDates, specialDates) {
+  var seen = {};
+  return (serviceDates || []).concat(specialDates || []).filter(function (d) {
+    var k = String(d || '');
+    if (!k || seen[k]) return false;
+    seen[k] = true;
+    return true;
+  }).sort();
+}
+
+/**
+ * 用途：只更新本季內容表四張清單分頁「主日」欄的下拉（不改標題、欄寬、保護、內容）。IO 層。
+ *   建立特別崇拜（另外填寫）或改為另外填寫時叫；「更新本季內容表…」重新套版面時亦會用同一份選項。
+ * Args:
+ *   quarterId {string}
+ * Returns:
+ *   {{ok:boolean, message:string, dates:string[]}} 未有內容表＝`ok:false`（之後建立內容表時會包括這一日）。
+ * Raises:
+ *   Error 打開或寫入內容表失敗時原樣拋出（呼叫方 `refreshContentSheetListDatesSafe_()` 接住）。
+ */
+function refreshContentSheetListDateValidation_(quarterId) {
+  var qid = String(quarterId || '').trim();
+  var row = findContentSheetRow_(qid);
+  if (!row) return { ok: true, message: '', dates: [] };
+  var spreadsheet = openContentSpreadsheet_(row.FILE_ID);
+  if (!spreadsheet) {
+    return { ok: false, message: '本季內容表現在打不開，未能把這一日加入「主日」下拉，請通知管理員。', dates: [] };
+  }
+  var dates = contentListDateOptions_(resolveQuarterServiceDateEntries_(qid).dates,
+    ownContentSpecialDatesForQuarter_(readSheet_(SHEETS.BULLETIN_WEEKS), qid));
+  contentSheetTabDefs_().forEach(function (tabDef) {
+    if (!isContentListTabName_(tabDef.tabName)) return;
+    var sheet = spreadsheet.getSheetByName(tabDef.tabName);
+    if (!sheet) return;
+    var col = tabDef.keys.indexOf('SERVICE_DATE') + 1;
+    if (col <= 0) return;
+    sheet.getRange(CONTENT_SHEET_FIRST_DATA_ROW_, col, CONTENT_SHEET_BLANK_ROWS_, 1).setDataValidation(
+      SpreadsheetApp.newDataValidation().requireValueInList(dates, true).setAllowInvalid(false).build()
+    );
+  });
+  appendAuditLog_({
+    action: 'CONTENT_SHEET_LIST_DATES', sheetName: SHEETS.CONTENT_SHEETS, rowKey: qid,
+    newValue: dates.join(','), notes: '內容表四張清單分頁的「主日」下拉：本季主日加另外填寫的特別崇拜日期。'
+  });
+  return { ok: true, message: '', dates: dates };
+}
+

@@ -236,7 +236,8 @@ function makeUi(options) {
     copyPreviewLink: function () {}, confirmProgramAdd: function () {}, closeProgramAddForm: function () {},
     refreshUnsavedIndicator: function () {}, updateSnapshotButtons: function () {}, onSnapshotDiffClicked: function () {},
     // 2026-10-30：特別崇拜（與這裏驗的寫入動作無關）。
-    toggleSpecialServiceForm: function () {}, startCreateSpecialService: function () {}, startCancelSpecialService: function () {}, renderSpecialServiceBanner: function () {}
+    toggleSpecialServiceForm: function () {}, startCreateSpecialService: function () {}, startCancelSpecialService: function () {}, renderSpecialServiceBanner: function () {},
+    startSpecialContentSourceChange: function () {}
   };
   vm.createContext(ctx);
   const code = [
@@ -515,8 +516,9 @@ test('G21-3 其他種類與成功時一致：還原、重設、匯入、補抓�
   const reloadsWeek = Object.keys(table).filter(function (k) { return table[k] === 'week'; }).sort();
   // v3：季度作業（包括整季匯入）已經由填寫介面拿走；「更新本季內容表…」在內容表狀態列，成功之後重新載入主日。
   // 2026-10-30：加「建立特別崇拜」（成功之後打開新建的那一期）。
+  // 2026-11-04：加特別崇拜「改為另外填寫／改回跟上一個主日」（成功之後重新載入這一期）。
   assert.deepStrictEqual(reloadsWeek, ['apiBackfillRoster', 'apiCancelSpecialService', 'apiCreateSpecialService', 'apiFetchFromRoster', 'apiResetWeek',
-    'apiRestoreWeekSnapshot', 'apiRunContentImport', 'apiRunContentSheetBuild']);
+    'apiRestoreWeekSnapshot', 'apiRunContentImport', 'apiRunContentSheetBuild', 'apiSetSpecialContentSource']);
   // 這六個成功處理都會叫 loadWeek()（逐個核對 Script.html 的成功路徑）。
   const js = readSrc('src/ui/Script.html');
   [['function onContentImportDone(', 'function applyBaptismPanelVisibility('],
@@ -643,6 +645,8 @@ test('G13-10 分類：Script.html 用到的每一個 api 名稱都分了寫入�
     'apiPreviewCreateSpecialService',
     // 2026-10-30：取消特別崇拜的預覽（唯讀）。
     'apiPreviewCancelSpecialService',
+    // 2026-11-04：特別崇拜「改為另外填寫／改回跟上一個主日」的預覽（唯讀）。
+    'apiPreviewSpecialContentSource',
     // 2026-11-03：開頁的一次呼叫（主日清單、發佈狀態、預設主日，與 apiListWeeks 同一類）；背景匯入內容表
     //    （與載入時的自動匯入同一類：有改動才寫、再做一次無害，沒有回應只講「畫面顯示的是週報現有的內容」）。
     'apiBootstrap', 'apiAutoImportWeek'
@@ -667,7 +671,9 @@ test('G13-10 分類：Script.html 用到的每一個 api 名稱都分了寫入�
     // 2026-10-30：apiCreateSpecialService（建立特別崇拜）。
     'apiBackfillRoster', 'apiCancelSpecialService', 'apiCreateSpecialService', 'apiFetchFromRoster', 'apiResetWeek',
     'apiRestoreWeekSnapshot', 'apiRunContentImport', 'apiRunContentSheetBuild',
-    'apiRunPublish', 'apiSaveWeek'
+    'apiRunPublish', 'apiSaveWeek',
+    // 2026-11-04：特別崇拜「改為另外填寫／改回跟上一個主日」。
+    'apiSetSpecialContentSource'
   ]);
   assertWrittenChinese(assert, 'G13 提示句', Object.keys(hints).map(function (k) { return hints[k]; }));
   // 等候時間要比 2026-10-22 那一次多出的 10.6 秒長，亦要比 callServer() 的逾時短。
@@ -1445,7 +1451,7 @@ test('G19-4 Script.html 內每一個 openConfirmDialog() 的取消分支：會�
   // 2026-10-30：加「建立特別崇拜」「取消特別崇拜」。
   // 2026-11-03：加「重新載入」（讀最新）。
   assert.deepStrictEqual(titles, ["'由內容表匯入'", "'更新本季內容表'", "'還原到這個版本'", "'重設這一週'", "'換週'", "'重新載入'", "'重新讀取職事表'",
-    "'建立特別崇拜'", "'取消特別崇拜'"],
+    "'建立特別崇拜'", "'取消特別崇拜'", "target === 'OWN' ? '改為另外填寫' : '改回跟上一個主日'"],
     '對話框有增減：先檢查取消分支，再更新這裏');
   // 三選一對話框只有「下載 Word」一處，取消甚麼都不做（不是寫入，不講「一格都沒有寫」）。
   // 2026-10-28：加「開啟預覽」（Word 預覽，有未儲存修改時問用哪一個版本；取消甚麼都不做）。

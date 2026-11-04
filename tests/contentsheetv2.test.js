@@ -635,8 +635,27 @@ test('T7-1b 特別崇拜（非主日）：甲區塊狀態列講明讀經經文�
   const list = t.makeEl('div');
   list.attrs['data-content-sheet-bar'] = '';
   t.render(list, info);
-  assert.ok(barText(list).indexOf('特別崇拜：本區跟 2027-10-03 那一個主日（只顯示；要改請改那一個主日的內容表）。') !== -1, barText(list));
+  // 2026-11-04（Ivan 測試結果 C）：不再叫人改上一個主日的內容表，改講可以按〔改為另外填寫…〕。
+  assert.ok(barText(list).indexOf('特別崇拜：本區跟 2027-10-03 那一個主日（只顯示）。要另外填寫，按頂部的〔改為另外填寫…〕，不用改那一個主日的內容表。') !== -1, barText(list));
   assertWrittenChinese(assert, '特別崇拜狀態列', [text, barText(list)]);
+});
+
+test('T7-1c 2026-11-04：特別崇拜「家事報告等另外填寫」：清單區塊講明在內容表選這一日、有「重新匯入」；人數區塊照舊跟上一個主日', function () {
+  const t = loadBarRegion();
+  const info = { exists: true, fileUrl: 'https://example.invalid/x', lastImportedAt: '2027-10-01 10:00',
+    specialService: { contentSourceIso: '2027-10-03', ownContent: true, isoDate: '2027-10-08' } };
+  const list = t.makeEl('div');
+  list.attrs['data-content-sheet-bar'] = '';
+  t.render(list, info);
+  assert.ok(barText(list).indexOf('特別崇拜：本區另外填寫——在內容表這一張分頁的「主日」選 2027-10-08。') !== -1, barText(list));
+  assert.ok(barText(list).indexOf('重新匯入（只限這一個主日）') !== -1, '另外填寫時可以重新匯入：' + barText(list));
+  const att = t.makeEl('div');
+  att.attrs['data-content-sheet-bar'] = 'attendance';
+  t.render(att, info);
+  assert.ok(barText(att).indexOf('特別崇拜：本區跟 2027-10-03 那一個主日（只顯示）。') !== -1, barText(att));
+  assert.strictEqual(barText(att).indexOf('重新匯入'), -1);
+  assert.strictEqual(barText(att).indexOf('改為另外填寫'), -1, '已經另外填寫，人數區塊不再提');
+  assertWrittenChinese(assert, '另外填寫狀態列', [barText(list), barText(att)]);
 });
 
 test('T7-2 Index.html：甲區塊頂有 worship 狀態列；舊的「宣召由內容表接管」註解已拿走；v3 浸禮提示講明只在這裏填；註解內沒有樣板標籤', function () {

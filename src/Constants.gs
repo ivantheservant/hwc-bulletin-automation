@@ -171,7 +171,7 @@ var COLUMNS = Object.freeze({
       '崇拜類別',
       // 2026-11-02（Ivan）：合堂主日之後那一期的人數表只有一欄「合堂」三格（崇拜／祈禱會／兒童），
       //    由內容表「崇拜人數」匯入，與十二格同一個規則。加在**最尾**。
-      '合堂崇拜', '合堂祈禱會', '合堂兒童'
+      '合堂崇拜', '合堂祈禱會', '合堂兒童', '特別崇拜的家事報告等'
     ],
     keys: [
       'SERVICE_DATE', 'QUARTER_ID', 'WEEK_OF_MONTH', 'SPECIAL_TYPE', 'PAGE_TITLE',
@@ -191,7 +191,8 @@ var COLUMNS = Object.freeze({
       'ROSTER_STATUS', 'ARCHIVED',
       'PROGRAM_EDITS', 'LIST_ARRANGEMENT',
       'SERVICE_KIND',
-      'ATT_COMB_WORSHIP', 'ATT_COMB_PRAYER', 'ATT_COMB_CHILD'
+      'ATT_COMB_WORSHIP', 'ATT_COMB_PRAYER', 'ATT_COMB_CHILD',
+      'SPECIAL_CONTENT_SOURCE'
     ],
     types: [
       'DATE', 'TEXT', 'INT', 'TEXT', 'TEXT',
@@ -217,7 +218,9 @@ var COLUMNS = Object.freeze({
       // 2026-10-30：崇拜類別。
       'TEXT',
       // 2026-11-02：合堂三格（與十二格一樣是文字，可以是「--」）。
-      'TEXT', 'TEXT', 'TEXT'
+      'TEXT', 'TEXT', 'TEXT',
+      // 2026-11-04：特別崇拜的家事報告等：空白＝跟上一個主日；OWN＝在內容表另外填這一日（src/SpecialService.gs）。
+      'TEXT'
     ],
     textFormatColumns: [
       'ATT_ENG_WORSHIP', 'ATT_CANE_WORSHIP', 'ATT_CANN_WORSHIP', 'ATT_MAN_WORSHIP',

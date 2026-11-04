@@ -480,8 +480,11 @@ function buildPreviewFooterLines_(isoDate, model, timezone) {
   }
   lines.push('內容表最後匯入：' + (importedAt || '（未匯入過，或者本季未建立內容表）'));
   if ((model || {}).specialService === true) {
-    lines.push('特別崇拜：家事報告、代禱事項、團契、財政報告與上週崇拜人數跟 '
-      + contentSourceIsoForWeek_(weekRow, isoDate) + ' 那一個主日。');
+    lines.push(isOwnContentSpecialRow_(weekRow)
+      ? '特別崇拜：家事報告、代禱事項、團契、財政報告另外填寫（內容表 ' + isoDate + '）；上週崇拜人數跟 '
+        + contentSourceIsoForWeek_(weekRow, isoDate) + ' 那一個主日。'
+      : '特別崇拜：家事報告、代禱事項、團契、財政報告與上週崇拜人數跟 '
+        + contentSourceIsoForWeek_(weekRow, isoDate) + ' 那一個主日。');
   }
 
   var published = readSheet_(SHEETS.PUBLISH_LOG).filter(function (r) {

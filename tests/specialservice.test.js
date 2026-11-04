@@ -131,7 +131,7 @@ test('S-3 apiListWeeks：下拉顯示名稱；apiLoadWeek：說明、讀經經�
   const load = env.sandbox.apiLoadWeek(FRI);
   assert.strictEqual(load.ok, true, JSON.stringify(load.error));
   const ro = load.data.readOnly;
-  assert.deepStrictEqual(plain(ro.specialService), { title: '受苦節崇拜', contentSourceIso: SOURCE, nextSundayIso: NEXT });
+  assert.deepStrictEqual(plain(ro.specialService), { title: '受苦節崇拜', contentSourceIso: SOURCE, ownContent: false, nextSundayIso: NEXT });
   const readOnly = Array.from(ro.readOnlyFields.week);
   ['SCRIPTURE_REF', 'SERMON_TITLE', 'RESPONSE_HYMN'].forEach(function (k) { assert.strictEqual(readOnly.indexOf(k), -1, k); });
   assert.ok(readOnly.indexOf('ATT_ENG_WORSHIP') !== -1, '人數仍然唯讀');
@@ -415,7 +415,8 @@ test('S-16 同一日再建立＝恢復那一行（不加第二行）：名稱用
   assert.strictEqual(rows.length, 1, '同一日只有一行');
   assert.deepStrictEqual([rows[0].SERVICE_KIND, rows[0].SPECIAL_TYPE, rows[0].PAGE_TITLE, rows[0].SERMON_TITLE],
     ['SPECIAL', '受難節崇拜', '受難節崇拜', '十架七言']);
-  assert.strictEqual(sb.readSheet_('AuditLog').filter(function (a) { return a.ACTION === 'RESTORE_SPECIAL_SERVICE'; }).length, 3);
+  // 2026-11-04：恢復時亦寫「家事報告等」那一格（SPECIAL_CONTENT_SOURCE），共四格。
+  assert.strictEqual(sb.readSheet_('AuditLog').filter(function (a) { return a.ACTION === 'RESTORE_SPECIAL_SERVICE'; }).length, 4);
   assert.strictEqual(plain(sb.apiListWeeks(false).data.weeks).filter(function (w) { return w.isoDate === FRI; }).length, 1);
   assert.strictEqual(sb.apiLoadWeek(FRI).ok, true);
   // 恢復之後再建立 → EXISTS

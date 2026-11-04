@@ -147,12 +147,13 @@ test('Fellowships 的 MEETING_DATE／MEETING_TIME 是 TEXT 型別（不是 DATE�
   });
 });
 
-test('BulletinWeeks 剛好 61 欄（54 ＋ R-035 的 ARCHIVED ＋ v3 兩欄 ＋ 2026-10-30 崇拜類別 ＋ 2026-11-02 合堂三格）', function () {
+test('BulletinWeeks 剛好 62 欄（54 ＋ R-035 的 ARCHIVED ＋ v3 兩欄 ＋ 2026-10-30 崇拜類別 ＋ 2026-11-02 合堂三格 ＋ 2026-11-04 特別崇拜的家事報告等）', function () {
   // 2026-08-27 由 54 變 55：R-035 加了 ARCHIVED（已封存），同樣加在最後面。
   // v3（2026-10-26）由 55 變 57：PROGRAM_EDITS、LIST_ARRANGEMENT（這一週的程序增刪、清單次序與刪除）。
   // 2026-10-30 由 57 變 58：SERVICE_KIND（特別崇拜，src/SpecialService.gs）。
   // 2026-11-02 由 58 變 61：ATT_COMB_WORSHIP、ATT_COMB_PRAYER、ATT_COMB_CHILD（合堂主日之後那一期的一欄人數表）。
-  assert.strictEqual(COLUMNS.BULLETIN_WEEKS.keys.length, 61);
+  // 2026-11-04 由 61 變 62：SPECIAL_CONTENT_SOURCE（特別崇拜的家事報告等：跟上一個主日／另外填寫）。
+  assert.strictEqual(COLUMNS.BULLETIN_WEEKS.keys.length, 62);
 });
 
 test('BulletinWeeks：新欄位一律加在**最後面**（中間插欄會令既有資料整排錯開）', function () {
@@ -163,12 +164,12 @@ test('BulletinWeeks：新欄位一律加在**最後面**（中間插欄會令既
     'BAPTISM_OFFICIANT', 'MEMBERSHIP_OFFICIANT', 'CHILD_DEDICATION_OFFICIANT',
     'BAPTISM_MEMBERS', 'MEMBERSHIP_MEMBERS', 'CHILD_DEDICATION_CHILDREN',
     'ROSTER_STATUS', 'ARCHIVED', 'PROGRAM_EDITS', 'LIST_ARRANGEMENT', 'SERVICE_KIND',
-    'ATT_COMB_WORSHIP', 'ATT_COMB_PRAYER', 'ATT_COMB_CHILD'
+    'ATT_COMB_WORSHIP', 'ATT_COMB_PRAYER', 'ATT_COMB_CHILD', 'SPECIAL_CONTENT_SOURCE'
   ];
-  assert.strictEqual(JSON.stringify(def.keys.slice(-14)), JSON.stringify(expected));
-  assert.strictEqual(JSON.stringify(def.headers.slice(-3)), JSON.stringify(['合堂崇拜', '合堂祈禱會', '合堂兒童']));
+  assert.strictEqual(JSON.stringify(def.keys.slice(-15)), JSON.stringify(expected));
+  assert.strictEqual(JSON.stringify(def.headers.slice(-4)), JSON.stringify(['合堂崇拜', '合堂祈禱會', '合堂兒童', '特別崇拜的家事報告等']));
   // 除 ARCHIVED 以外一律 TEXT（多人欄位是一串用空格分隔的姓名，絕對不可以是 DATE／INT；v3 兩欄是 JSON 文字）。
-  def.keys.slice(-14).filter(function (k) { return k !== 'ARCHIVED'; }).forEach(function (k) {
+  def.keys.slice(-15).filter(function (k) { return k !== 'ARCHIVED'; }).forEach(function (k) {
     assert.strictEqual(def.types[def.keys.indexOf(k)], 'TEXT', k + ' 必須是 TEXT 型別');
   });
   // ⚠️ ARCHIVED 刻意是 BOOLEAN 不是 TEXT：它只有兩個值，而且 UI 與
@@ -180,7 +181,7 @@ test('BulletinWeeks：新欄位一律加在**最後面**（中間插欄會令既
 test('BulletinWeeks：浸禮副框六欄的中文標題與機器鍵一一對應，沒有錯位', function () {
   const def = COLUMNS.BULLETIN_WEEKS;
   const expectedHeaders = ['浸禮主禮', '入會禮主禮', '孩童奉獻禮主禮', '受浸肢體', '入會肢體', '奉獻孩童'];
-  assert.strictEqual(JSON.stringify(def.headers.slice(-14, -8)), JSON.stringify(expectedHeaders));
+  assert.strictEqual(JSON.stringify(def.headers.slice(-15, -9)), JSON.stringify(expectedHeaders));
 });
 
 test('CONFIG_KEYS 剛好 153 個（與 DEFAULTS 一一對應）', function () {

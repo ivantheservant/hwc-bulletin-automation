@@ -1284,7 +1284,8 @@ function resetWeekLocked_(isoDate, lastSavedAt) {
   var importMessage = '';
   var hasContentSheet = false;
   try {
-    hasContentSheet = !specialService && Boolean(quarterId && findContentSheetRow_(quarterId));
+    // 2026-11-04：家事報告等另外填寫的特別崇拜照常由內容表匯入（只限四張清單分頁）。
+    hasContentSheet = (!specialService || isOwnContentSpecialRow_(state.weekRow)) && Boolean(quarterId && findContentSheetRow_(quarterId));
   } catch (lookupErr) {
     importMessage = '查不到本季有沒有內容表（' + ((lookupErr && lookupErr.message) ? lookupErr.message : String(lookupErr)) + '），沒有重新匯入。';
   }

@@ -80,9 +80,14 @@
     <div id="specialServiceForm" class="special-service-form hidden">
       <label>日期 <input type="date" id="specialServiceDate"></label>
       <label>名稱 <input type="text" id="specialServiceTitle" maxlength="40" placeholder="例如：受苦節崇拜"></label>
+      <!-- 2026-11-04（Ivan 測試結果 C）：家事報告等可以另外填寫（內容表選這一日），不用改上一個主日的內容表。 -->
+      <label>家事報告等 <select id="specialServiceContentSource">
+        <option value="">跟上一個主日</option>
+        <option value="OWN">另外填寫（在內容表選這一日）</option>
+      </select></label>
       <button id="specialServicePreviewBtn" type="button" class="btn btn-small">預覽並建立…</button>
       <button id="specialServiceCancelBtn" type="button" class="btn btn-small btn-secondary">取消</button>
-      <span class="hint">不可以是主日。建立之後在這一期填事奉人員、讀經經文、講題與程序；家事報告等跟上一個主日。</span>
+      <span class="hint">不可以是主日。建立之後在這一期填事奉人員、讀經經文、講題與程序；家事報告、代禱事項、團契、財政報告可以跟上一個主日，或者另外填寫。</span>
     </div>
     <!--
       R-008：「目前已發佈」那一行。v3：只在畫面上是「該週」（上一個主日翌日至該主日）時才顯示，
@@ -108,6 +113,8 @@
     <div id="rosterGapBar" class="roster-gap-bar hidden"></div>
     <!-- 2026-10-30：這一期是特別崇拜（非主日）時的說明（由 Script.html 的 renderSpecialServiceBanner() 填）。 -->
     <div id="specialServiceBar" class="roster-gap-bar hidden"><span id="specialServiceBarText"></span>
+      <button id="specialContentSourceBtn" type="button" class="btn btn-small btn-secondary"
+              title="家事報告、代禱事項、團契、財政報告：跟上一個主日，或者另外在內容表填這一日。先看會做甚麼，確定之後才改。">改為另外填寫…</button>
       <button id="cancelSpecialServiceBtn" type="button" class="btn btn-small btn-secondary"
               title="取消這一期特別崇拜：週報那一行不會刪除，只會標記為已取消；同一日再建立就會恢復。">取消這個特別崇拜…</button></div>
     <div id="autoCreateBar" class="roster-gap-bar hidden"></div>
@@ -285,7 +292,7 @@
         <h2>乙、上週崇拜人數</h2>
         <button type="button" class="btn btn-small btn-primary section-save-btn" data-save-button>儲存</button>
       </div>
-      <div data-content-sheet-bar></div>
+      <div data-content-sheet-bar="attendance"></div>
       <div class="field-grid">
         <label>人數表標題
           <input type="text" data-field="ATTENDANCE_HEADING">

@@ -171,7 +171,13 @@ function buildBulletinModel_(isoDate, options) {
 
   // 2026-10-30：特別崇拜的上週崇拜人數、清單次序跟上一個主日（內容來源主日）。
   var contentSourceIso = contentSourceIsoForWeek_(week, isoDate);
-  if (specialService) week = applySpecialServiceSourceWeek_(week, findBulletinWeekRow_(weekRows, contentSourceIso) || {});
+  // 2026-11-04：家事報告等另外填寫的特別崇拜：清單讀自己這一日、次序只用自己的；人數仍然跟上一個主日。
+  var listSourceIso = listSourceIsoForWeek_(week, isoDate);
+  var ownLists = listSourceIso !== contentSourceIso;
+  if (specialService) {
+    week = applySpecialServiceSourceWeek_(week, findBulletinWeekRow_(weekRows, contentSourceIso) || {},
+      { inheritArrangement: !ownLists });
+  }
 
   // 2026-11-02：人數十五格全部空白時，待填要講填十二格還是合堂三格——看人數那一日（上一個主日）是不是合堂崇拜。
   //    有任何一格有字就不用知道（版面由填了哪一組決定），所以只在全部空白時才讀那一日的職事表快照。
@@ -270,6 +276,7 @@ function buildBulletinModel_(isoDate, options) {
     isoDate: isoDate,
     // 2026-10-30：特別崇拜的家事報告、代禱、團契、財政、人數日期跟上一個主日。平常＝targetDate。
     contentSourceDate: normalizeDate_(contentSourceIso),
+    listSourceDate: normalizeDate_(listSourceIso),
     specialService: specialService,
     flowerRoster: flowerRoster,
     // R-040：下週事奉那一格寫的是**下一個主日**那一筆 DutyOverride，
@@ -449,8 +456,10 @@ function assembleBulletinModel_(input) {
   var formatDate = input.formatDate || formatDatePatternSimple_;
 
   // 2026-10-30：特別崇拜的清單與上週崇拜人數跟上一個主日（`contentSourceDate`）；平常＝主日本身。
-  var listDate = input.contentSourceDate instanceof Date ? input.contentSourceDate : input.targetDate;
-  var attendanceDate = addDays_(listDate, -7);
+  var contentDate = input.contentSourceDate instanceof Date ? input.contentSourceDate : input.targetDate;
+  // 2026-11-04：清單（家事報告、代禱、團契、財政）讀哪一日：另外填寫的特別崇拜＝自己；其餘同上。人數一律跟 contentDate。
+  var listDate = input.listSourceDate instanceof Date ? input.listSourceDate : contentDate;
+  var attendanceDate = addDays_(contentDate, -7);
   // 下週事奉那一個主日：特別崇拜是下一個主日（input.nextIsoDate），平常＝加七天（兩者同一日）。
   var nextWeekDate = (input.nextIsoDate && normalizeDate_(input.nextIsoDate)) || addDays_(input.targetDate, 7);
 
