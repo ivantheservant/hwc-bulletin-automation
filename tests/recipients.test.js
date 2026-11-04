@@ -120,6 +120,29 @@ test('buildRecipientList_：同一個電郵出現多次 → 去重，保留第�
   assert.ok(result.warnings.some(function (w) { return w.code === 'DUPLICATE_EMAIL'; }));
 });
 
+test('buildRecipientList_：同一個人屬於兩個組別（一組一行）→ 只算一次，不出警告', function () {
+  const rows = [
+    recipientRow({ RECIPIENT_ID: 'R1', NAME: '陳大文', EMAIL: 'a@x.com', GROUP_NAME: 'CC' }),
+    recipientRow({ RECIPIENT_ID: 'R2', NAME: '陳大文', EMAIL: 'a@x.com', GROUP_NAME: 'DB' }),
+    recipientRow({ RECIPIENT_ID: 'R3', NAME: '陳大文', EMAIL: 'A@x.com', GROUP_NAME: 'ADMIN' })
+  ];
+  const result = buildRecipientList_(rows, ['CC', 'DB', 'ADMIN'], d('2027-10-03'));
+  assert.strictEqual(result.recipients.length, 1);
+  assert.strictEqual(result.warnings.length, 0, JSON.stringify(result.warnings));
+});
+
+test('buildRecipientList_：不同組別之後再有同一組重複 → 仍然警告，句子講明組別', function () {
+  const rows = [
+    recipientRow({ RECIPIENT_ID: 'R1', EMAIL: 'a@x.com', GROUP_NAME: 'CC' }),
+    recipientRow({ RECIPIENT_ID: 'R2', EMAIL: 'a@x.com', GROUP_NAME: 'DB' }),
+    recipientRow({ RECIPIENT_ID: 'R3', EMAIL: 'a@x.com', GROUP_NAME: 'DB' })
+  ];
+  const result = buildRecipientList_(rows, ['CC', 'DB'], d('2027-10-03'));
+  assert.strictEqual(result.recipients.length, 1);
+  assert.strictEqual(result.warnings.length, 1);
+  assert.ok(result.warnings[0].message.indexOf('「DB」組') !== -1, result.warnings[0].message);
+});
+
 // =====================================================================
 // 4. 不合法電郵被排除 + warning，其餘照樣寄
 // =====================================================================

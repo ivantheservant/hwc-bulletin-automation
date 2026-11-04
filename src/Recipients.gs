@@ -14,7 +14,8 @@
  *   3. `EFFECTIVE_FROM`／`EFFECTIVE_TO` 要涵蓋目標日期（留空＝不限，
  *      邊界含入）。
  *   4. 電郵格式明顯不合法 → 排除，記一筆 warning，**不可以靜靜略過**。
- *   5. 同一個電郵出現多次 → 去重，保留第一個，記一筆 warning。
+ *   5. 同一個電郵出現多次 → 去重，保留第一個；只有同一個組別重複才記一筆 warning
+ *      （同一個人屬於幾個組別是正常的，一組一行）。
  *
  * 結果為空時回傳空陣列＋一個明確的 `reason`，呼叫端（`Mailer.gs`）要
  * 據此拋錯，不可以把「寄了 0 封」當成功。
@@ -84,14 +85,21 @@ function buildRecipientList_(rows, allowedGroups, targetDate) {
     }
 
     var key = email.toLowerCase();
+    var groupKey = String(r.GROUP_NAME || '');
     if (seenEmails[key]) {
-      warnings.push({
-        code: 'DUPLICATE_EMAIL',
-        message: '電郵「' + email + '」在 Recipients 出現多於一次，保留第一筆，其餘略過。'
-      });
+      // 2026-11-04（Ivan 測試）：同一個人屬於幾個組別本來就是一組一行（權限指南第五節），
+      //   只寄一封／只算一人是對的，但不是錯誤，不出警告。只有同一個組別真的重複了一行才警告。
+      if (seenEmails[key][groupKey]) {
+        warnings.push({
+          code: 'DUPLICATE_EMAIL',
+          message: '電郵「' + email + '」在 Recipients 的「' + groupKey + '」組出現多於一次，保留第一筆，其餘略過。'
+        });
+      }
+      seenEmails[key][groupKey] = true;
       return;
     }
-    seenEmails[key] = true;
+    seenEmails[key] = {};
+    seenEmails[key][groupKey] = true;
 
     recipients.push({ email: email, name: String(r.NAME || ''), groupName: r.GROUP_NAME });
   });
