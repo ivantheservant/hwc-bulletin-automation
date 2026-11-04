@@ -619,6 +619,9 @@ test('T7-1 v4 甲區塊（worship）狀態列講明三欄在內容表「崇拜�
   plainBar.attrs['data-content-sheet-bar'] = '';
   t.render(plainBar, { exists: true, fileUrl: 'https://example.invalid/x', lastImportedAt: '' });
   assert.ok(barText(plainBar).indexOf('本區內容來自內容表，最後匯入：尚未匯入過') === 0, barText(plainBar));
+  // 2026-11-04：甲區塊一定有〔更新本季內容表…〕（組別名單改了之後重新套用權限，不用試算表選單）；其他區塊沒有。
+  assert.ok(text.indexOf('更新本季內容表…') !== -1, text);
+  assert.strictEqual(barText(plainBar).indexOf('更新本季內容表…'), -1, barText(plainBar));
   assertWrittenChinese(assert, '狀態列', [text, barText(none), barText(old)]);
 });
 

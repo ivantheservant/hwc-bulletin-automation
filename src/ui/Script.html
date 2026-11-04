@@ -1254,6 +1254,14 @@
     var oneWeekBtn = makeSmallButton('重新匯入（只限這一個主日）', function () { startContentImport(); });
     oneWeekBtn.title = '系統會自動由內容表更新；想立即更新這一個主日，可以按這裏（只匯入目前選中的這一個主日）。';
     bar.appendChild(oneWeekBtn);
+
+    // 2026-11-04（Ivan 測試結果 C：指南不可以有試算表選單的步驟）：組別名單（Recipients）或內容表權限的設定改了之後，
+    //    要重新套用到現有的內容表——以前只有內容表比系統舊時才有這一粒，否則要用試算表選單。只放在甲區塊一處。
+    if (worship) {
+      var applyBtn = makeSmallButton('更新本季內容表…', function () { startContentSheetUpgrade(); });
+      applyBtn.title = '重新套用本季內容表的版面與權限（例如組別名單改了）。先列出會做甚麼，你確認之後才會更新；同工填過的內容一格都不會改。';
+      bar.appendChild(applyBtn);
+    }
   }
 
   // BEGIN confirm-dialog（F9：測試會把這一段抽出來在假 DOM 上執行，請保持自足）
