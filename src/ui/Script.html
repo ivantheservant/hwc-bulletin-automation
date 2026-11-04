@@ -1257,7 +1257,7 @@
 
     // 2026-11-04（Ivan 測試結果 C：指南不可以有試算表選單的步驟）：組別名單（Recipients）或內容表權限的設定改了之後，
     //    要重新套用到現有的內容表——以前只有內容表比系統舊時才有這一粒，否則要用試算表選單。只放在甲區塊一處。
-    if (worship) {
+    if (worship && !info.schemaNotice) {
       var applyBtn = makeSmallButton('更新本季內容表…', function () { startContentSheetUpgrade(); });
       applyBtn.title = '重新套用本季內容表的版面與權限（例如組別名單改了）。先列出會做甚麼，你確認之後才會更新；同工填過的內容一格都不會改。';
       bar.appendChild(applyBtn);
@@ -4507,8 +4507,10 @@
       }
       var label = resp.data.kind === 'SNAPSHOT' ? '這個版本的 Word 預覽'
         : (resp.data.kind === 'DRAFT' ? 'Word 草稿預覽（包括未儲存的修改）' : '這一期最新的 Word');
-      var warn = (resp.data.warnings && resp.data.warnings.length) ? ('（' + resp.data.warnings.length + ' 項提示，按頂部「警告」查看）') : '';
-      mergeExtraWarnings(resp.data.warnings);
+      var warn = (resp.data.warnings && resp.data.warnings.length)
+        ? ('（' + resp.data.warnings.length + ' 項提示' + (resp.data.kind === 'SNAPSHOT' ? '' : '，按頂部「警告」查看') + '）') : '';
+      // 版本預覽（SNAPSHOT）的警告屬於那一個版本，不併入這一週現在的警告。
+      if (resp.data.kind !== 'SNAPSHOT') mergeExtraWarnings(resp.data.warnings);
       showMessage('success', (opened ? '已在新分頁開啟' : '已產生') + label + '：' + resp.data.fileName + warn
         + (opened ? '' : '。瀏覽器擋了新分頁，請按「開啟預覽」旁邊的連結。'));
     }, { busyText: busy });
@@ -4858,8 +4860,9 @@
           if (!runResp.ok) { showMessage('error', runResp.error.message); return; }
           if (!runResp.data.ok) { showMessage('error', runResp.data.message); return; }
           var target = runResp.data.sourceIso;
-          showMessage('success', '已取消特別崇拜「' + runResp.data.title + '」（' + runResp.data.isoDate + '）。'
-            + '要恢復的話，按「建立特別崇拜…」，選同一日再建立。');
+          showMessage(runResp.data.contentSheetNote ? 'warning' : 'success', '已取消特別崇拜「' + runResp.data.title + '」（' + runResp.data.isoDate + '）。'
+            + '要恢復的話，按「建立特別崇拜…」，選同一日再建立。'
+            + (runResp.data.contentSheetNote ? '　' + runResp.data.contentSheetNote : ''));
           callServer('apiListWeeks', [state.showArchived], function (listResp) {
             if (!listResp.ok) { showMessage('error', listResp.error.message); return; }
             populateWeekSelectors(listResp.data, target);

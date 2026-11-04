@@ -1562,7 +1562,6 @@ function sendPublishNotice_(isoDate, options) {
   });
 
   writeSendLogRows_(sendLogRows);
-  commitNoticeDraftSeq_(noticeIsoDate, version.draftSeq);
 
   // v3 重測（獨立審查）：全部寄不出（額度用完、地址錯）就回 ok:false——以前照樣講「已寄出：N 個收件人」。
   if (!config.dryRun && failed.length === resolved.recipients.length) {
@@ -1580,6 +1579,8 @@ function sendPublishNotice_(isoDate, options) {
     };
   }
 
+  // 2026-11-04（獨立審查）：草稿版本號只在真的寄出至少一封之後才加一（試行、全部寄不出都不加）。
+  if (!config.dryRun && resolved.recipients.length - failed.length - blocked > 0) commitNoticeDraftSeq_(noticeIsoDate, version.draftSeq);
   return {
     ok: true,
     dryRun: config.dryRun,

@@ -734,7 +734,6 @@ function sendPreviewNotice_(isoDate) {
   });
 
   writeSendLogRows_(sendLogRows);
-  commitNoticeDraftSeq_(isoDate, version.draftSeq);
 
   // v3 重測（獨立審查）：全部寄不出（額度用完、地址錯）就不可以講成功——觸發器靠 `sent:false` 才會記 ErrorLog。
   var total = recipientsResult.recipients.length;
@@ -750,6 +749,8 @@ function sendPreviewNotice_(isoDate) {
       + (failed.length > 0 ? '另有 ' + failed.length + ' 個寄不出，詳情見 SendLog。' : '');
     return out;
   }
+  // 2026-11-04（獨立審查）：草稿版本號只在真的寄出至少一封之後才加一（試行、全部寄不出都不加）。
+  if (!dryRun && total - failed.length - blocked > 0) commitNoticeDraftSeq_(isoDate, version.draftSeq);
   out.sent = true;
   out.reason = 'OK';
   out.recipientCount = total - failed.length - blocked;

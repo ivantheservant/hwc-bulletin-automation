@@ -82,12 +82,13 @@ function upgradeSystemSeededEmailTemplates_() {
       var next = normalizeTemplateNewlines_(target[field]);
       if (current === next) return;
       if (supersededEmailTemplateValues_(id, field).indexOf(current) === -1) return;
-      setCellValueTextSafe_(sheet, def, row.__rowNo, field, next);
+      // 獨立審查：先記 AuditLog 再寫格（與 upgradeSystemSeededDefaults_() 同一次序，事故四十三）。
       appendAuditLog_({
         action: 'EMAIL_TEMPLATE_UPGRADE_DEFAULT', sheetName: SHEETS.EMAIL_TEMPLATES, rowKey: id, field: field,
         oldValue: current, newValue: next,
         notes: '系統種下的電郵範本預設值已更新（2026-11-04：稱呼按組別、主旨去教會名加版本號）。人手改過的不會被碰。'
       });
+      setCellValueTextSafe_(sheet, def, row.__rowNo, field, next);
       upgrades.push({ templateId: id, field: field });
     });
   });

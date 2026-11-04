@@ -18,6 +18,9 @@ var TECHNICAL_SHEET_WORDS_ = Object.freeze([
   'Quarters', 'ContentSheets', 'PersonNameSnapshot', 'PersonID', 'PostID', 'ScriptProperties', 'Config'
 ]);
 
+/** 原句已經講明要怎樣做的錯誤碼（預期中的擋駕），不改寫。 */
+var FRIENDLY_KEEP_ORIGINAL_CODES_ = Object.freeze(['STALE', 'FIELD_CONFLICT', 'CLIENT_OUTDATED', 'SPECIAL_SERVICE_CANCELLED']);
+
 /** 已有人話寫法的錯誤碼（填寫介面頂部的紅色訊息）。 */
 var FRIENDLY_ERROR_TEXT_ = Object.freeze({
   VIEW_ONLY: '你的帳戶只可以查看，不可以修改、儲存或發佈。如需要修改，請聯絡管理員。',
@@ -36,6 +39,8 @@ function looksTechnicalText_(message) {
   var msg = String(message || '');
   if (/選單「|試算表|Apps Script/.test(msg)) return true;
   if (/[A-Z][A-Z0-9]*_[A-Z0-9_]+/.test(msg)) return true;
+  // 內部函式名稱開頭（例如「resetWeekFromWebApp_：…」）。
+  if (/[a-z][A-Za-z0-9]*_[：:]/.test(msg)) return true;
   if (/(TypeError|ReferenceError|Exception|undefined|null is not|Cannot read|is not a function)/.test(msg)) return true;
   return TECHNICAL_SHEET_WORDS_.some(function (w) { return msg.indexOf(w) !== -1; });
 }
@@ -157,7 +162,7 @@ function friendlyWarningText_(w) {
       return 'Word 已產生，但存到雲端硬碟時出現問題，雲端硬碟上的最新版未更新。請稍後再試一次。' + ask;
     case 'BAD_RECURRENCE':
       var fellowship = /團契「([^」]*)」/.exec(String((w && w.message) || ''));
-      return '團契「' + (fellowship ? fellowship[1] : '') + '」的聚會日子設定有問題，這一期暫時不列出這個團契。' + ask;
+      return ((fellowship && fellowship[1]) ? '團契「' + fellowship[1] + '」' : '其中一個團契') + '的聚會日子設定有問題，這一期暫時不列出這個團契。' + ask;
     case 'FOLLOW_RECORD_FAILED':
       return '與職事表的比對照常顯示，但記錄「自動跟隨」時出現問題。' + ask;
     case 'CHURCH_NAME_NOT_CONFIGURED':
@@ -207,6 +212,8 @@ function friendlyApiError_(code, message) {
   var original = String(message || '');
   var known = FRIENDLY_ERROR_TEXT_[String(code || '')];
   if (known) return { message: known, adminDetail: original };
+  // 2026-11-04（獨立審查）：預期中的擋駕（樂觀鎖、欄位衝突、介面版本舊）本身已經講明要怎樣做，不可以換成「請稍後再試」。
+  if (FRIENDLY_KEEP_ORIGINAL_CODES_.indexOf(String(code || '')) !== -1) return { message: original, adminDetail: '' };
   if (original.indexOf('授權範圍問題') !== -1) {
     return { message: '系統需要管理員重新授權才可以完成這個動作。請通知管理員。', adminDetail: original };
   }

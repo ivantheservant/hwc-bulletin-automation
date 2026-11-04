@@ -168,7 +168,8 @@ function buildEmailSalutation_(groups, titlesRaw) {
   var wanted = {};
   (groups || []).forEach(function (g) { wanted[String(g || '').trim().toUpperCase()] = true; });
   var titles = [];
-  String(titlesRaw || '').split(',').forEach(function (pair) {
+  // 2026-11-04（獨立審查）：全形「，」「＝」亦接受（中文輸入法打的），與其他 Config 清單一樣。
+  String(titlesRaw || '').replace(/＝/g, '=').split(/[,，]/).forEach(function (pair) {
     var eq = pair.indexOf('=');
     if (eq === -1) return;
     var code = pair.slice(0, eq).trim().toUpperCase();

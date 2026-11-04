@@ -194,7 +194,8 @@ function ownContentSpecialDatesForQuarter_(weekRows, quarterId) {
 function specialContentSourceLine_(own, isoDate, sourceIso) {
   return own
     ? '家事報告、代禱事項、團契、財政報告：另外填寫——在內容表那四張分頁的「主日」選 ' + isoDate
-      + ' 填寫（「連續到」包括這一日的行亦會出現）；上週崇拜人數跟上一個主日（' + sourceIso + '）。'
+      + ' 填寫（只屬這一日的報告，「連續到」要留空，否則會延到之後的主日；「連續到」包括這一日的主日報告亦會出現）；'
+      + '上週崇拜人數跟上一個主日（' + sourceIso + '）。'
     : '家事報告、代禱事項、團契、財政報告、上週崇拜人數：跟上一個主日（' + sourceIso + '）的內容表。';
 }
 
@@ -539,11 +540,14 @@ function cancelSpecialService_(isoDate) {
   return withScriptLock_('cancelSpecialService_', SAVE_LOCK_WAIT_MS_, function () {
     var plan = planSpecialServiceCancel_(specialServiceCancelInput_(isoDate));
     if (!plan.ok) return Object.assign({}, plan, { cancelled: false });
+    var wasOwn = isOwnContentSpecialRow_(findBulletinWeekRow_(readSheet_(SHEETS.BULLETIN_WEEKS), plan.isoDate));
     writeSpecialServiceRowCells_(plan.isoDate, { SERVICE_KIND: SERVICE_KIND_SPECIAL_CANCELLED_ }, 'CANCEL_SPECIAL_SERVICE',
       '取消特別崇拜「' + plan.title + '」（不刪行；同一日再建立會恢復）。');
     // 獨立審查第 6 項：更新最後儲存時間——另一個分頁仍然開着這一期的話，儲存會被樂觀鎖擋下。
     touchWeeksLastSavedAt_([plan.isoDate], new Date());
-    return Object.assign({}, plan, { cancelled: true });
+    // 2026-11-04：另外填寫的特別崇拜取消之後，這一日由內容表的「主日」下拉拿走。
+    var note = wasOwn ? refreshContentSheetListDatesSafe_(String(findBulletinWeekRow_(readSheet_(SHEETS.BULLETIN_WEEKS), plan.isoDate).QUARTER_ID || '')) : '';
+    return Object.assign({}, plan, { cancelled: true, contentSheetNote: note });
   }, function () {
     throw buildLockTimeoutError_(SAVE_LOCK_WAIT_MS_, '請稍等再按一次「取消這個特別崇拜」。');
   });
@@ -625,6 +629,7 @@ function planSpecialContentSourceChange_(input) {
       '改回跟上一個主日：特別崇拜「' + out.title + '」（' + iso + '）。',
       specialContentSourceLine_(false, iso, out.sourceIso),
       '內容表內 ' + iso + ' 的行不會刪除，只是這一期不再用；之後再改為另外填寫就會再用。'
+        + '請把那幾行的「有效」改為 FALSE，否則每次匯入都會提示這幾行略過。系統亦會把 ' + iso + ' 由「主日」下拉拿走。'
     ];
   return out;
 }
@@ -660,7 +665,8 @@ function changeSpecialContentSource_(isoDate, contentSource) {
     writeSpecialServiceRowCells_(plan.isoDate, { SPECIAL_CONTENT_SOURCE: plan.contentSource }, 'SPECIAL_CONTENT_SOURCE',
       '特別崇拜「' + plan.title + '」的家事報告等' + (own ? '改為另外填寫。' : '改回跟上一個主日（' + plan.sourceIso + '）。'));
     touchWeeksLastSavedAt_([plan.isoDate], new Date());
-    var note = own ? refreshContentSheetListDatesSafe_(plan.quarterId) : '';
+    // 2026-11-04（獨立審查）：兩個方向都重新設「主日」下拉（改回跟上一個主日＝拿走這一日）。
+    var note = refreshContentSheetListDatesSafe_(plan.quarterId);
     return Object.assign({}, plan, { changed: true, contentSheetNote: note });
   }, function () {
     throw buildLockTimeoutError_(SAVE_LOCK_WAIT_MS_, '請稍等再按一次。');

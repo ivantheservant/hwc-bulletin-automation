@@ -1210,7 +1210,8 @@ function contentListDateOptions_(serviceDates, specialDates) {
  * Args:
  *   quarterId {string}
  * Returns:
- *   {{ok:boolean, message:string, dates:string[]}} 未有內容表＝`ok:false`（之後建立內容表時會包括這一日）。
+ *   {{ok:boolean, message:string, dates:string[]}} 未有內容表＝`ok:true`、甚麼都不做（之後建立內容表時會包括這一日）；
+ *   內容表打不開＝`ok:false`。
  * Raises:
  *   Error 打開或寫入內容表失敗時原樣拋出（呼叫方 `refreshContentSheetListDatesSafe_()` 接住）。
  */

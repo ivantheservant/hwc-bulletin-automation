@@ -190,5 +190,31 @@ test('SO-8 已取消的特別崇拜不當作另外填寫（不匯入、不加入
   assert.strictEqual(sb.apiPreviewSpecialContentSource(FRI, '').data.reason, 'CANCELLED');
 });
 
+test('SO-9 獨立審查：改回跟上一個主日、取消另外填寫的特別崇拜 → 「主日」下拉拿走這一日', function () {
+  const env = makeEnv(null);
+  const sb = env.sandbox;
+  sb.apiCreateSpecialService(FRI, '受苦節崇拜', 'OWN');
+  const col = sb.contentSheetTabDefs_().filter(function (d) { return d.tabName === '家事報告'; })[0].keys.indexOf('SERVICE_DATE') + 1;
+  const vals = function () { return env.contentTabs['家事報告'].__validations['3:' + col].values; };
+  assert.ok(vals().indexOf(FRI) !== -1);
+  const back = sb.apiSetSpecialContentSource(FRI, '');
+  assert.strictEqual(back.data.changed, true);
+  assert.strictEqual(vals().indexOf(FRI), -1, '改回之後拿走');
+  sb.apiSetSpecialContentSource(FRI, 'OWN');
+  assert.ok(vals().indexOf(FRI) !== -1);
+  const cancelled = sb.apiCancelSpecialService(FRI);
+  assert.strictEqual(cancelled.data.cancelled, true, JSON.stringify(cancelled));
+  assert.strictEqual(vals().indexOf(FRI), -1, '取消之後拿走');
+  assert.ok(vals().indexOf(PREV) !== -1, '主日照樣在');
+});
+
+test('SO-11 獨立審查：稱呼接受全形「，」「＝」', function () {
+  const sb = makeEnv('').sandbox;
+  assert.strictEqual(sb.buildEmailSalutation_(['CC', 'DB'], 'CC=堂委，DB＝執事，ADMIN=幹事'), '各位堂委、執事：');
+  assert.strictEqual(sb.friendlyApiError_('FIELD_CONFLICT', '「X_FIELD」在你載入之後被改過，請重新載入再改。').message,
+    '「X_FIELD」在你載入之後被改過，請重新載入再改。', '預期中的擋駕保留原句');
+  assert.strictEqual(sb.friendlyWarningText_({ code: 'BAD_RECURRENCE', message: '' }).indexOf('其中一個團契'), 0);
+});
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail === 0 ? 0 : 1);

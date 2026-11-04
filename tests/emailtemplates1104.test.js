@@ -93,6 +93,23 @@ test('E-3 星期一草稿預覽信（sendPreviewNotice_）：主旨「粵語堂�
   assertWrittenChinese(assert, '草稿預覽信', [first.subject, first.body]);
 });
 
+test('E-3b 獨立審查：試行（DRY_RUN）與全部寄不出都不加草稿號；之後第一封真的寄出仍然是 v1', function () {
+  const dry = mailEnv({ config: { PREVIEW_WEBAPP_URL: 'https://script.google.com/macros/s/FAKE/exec', DRY_RUN: 'TRUE', EMAIL_ALLOWLIST: '' } });
+  dry.sandbox.sendPreviewNotice_(D);
+  dry.sandbox.sendPreviewNotice_(D);
+  assert.strictEqual(dry.props['NOTICE_DRAFT_SEQ_' + D], undefined, '試行不加');
+  const env = mailEnv();
+  const realSend = env.sandbox.MailApp.sendEmail;
+  env.sandbox.MailApp.sendEmail = function () { throw new Error('Service invoked too many times'); };
+  const failed = env.sandbox.sendPreviewNotice_(D);
+  assert.strictEqual(failed.sent, false);
+  assert.strictEqual(env.props['NOTICE_DRAFT_SEQ_' + D], undefined, '全部寄不出不加');
+  env.sandbox.MailApp.sendEmail = realSend;
+  env.sandbox.sendPreviewNotice_(D);
+  assert.strictEqual(env.mail.calls[env.mail.calls.length - 1].subject, '粵語堂週報草稿預覽 v1 — ' + D);
+  assert.strictEqual(env.props['NOTICE_DRAFT_SEQ_' + D], '1');
+});
+
 test('E-4 填寫介面「寄出」（sendPublishNotice_，未發佈）：稱呼按勾選的組別（IT 不寫入）；主旨「草稿 v」與草稿預覽信共用計數；沒有三個空行', function () {
   const env = mailEnv();
   env.sandbox.sendPreviewNotice_(D);

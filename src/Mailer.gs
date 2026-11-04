@@ -128,7 +128,9 @@ function sendBulletinForDate_(isoDate, options) {
   var generatedAtText = Utilities.formatDate(new Date(), timezone, 'yyyy-MM-dd HH:mm:ss');
 
   var templateWarnings = [];
-  var weeklyVersion = noticeVersionVars_(model.isoDate, null);
+  // 2026-11-04（獨立審查）：這一週已經發佈就用發佈的版本號；未發佈才用草稿號（只顯示，不加一）。
+  var weeklyPublished = weekSelectorPublishIndex_(readSheet_(SHEETS.PUBLISH_LOG))[model.isoDate];
+  var weeklyVersion = noticeVersionVars_(model.isoDate, weeklyPublished === undefined ? null : weeklyPublished);
   var vars = {
     ChurchName: getConfig_(CONFIG_KEYS.CHURCH_NAME, ''),
     CongregationName: congregationName_(),
