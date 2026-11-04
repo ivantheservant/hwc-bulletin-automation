@@ -21,6 +21,7 @@ var TECHNICAL_SHEET_WORDS_ = Object.freeze([
 /** 已有人話寫法的錯誤碼（填寫介面頂部的紅色訊息）。 */
 var FRIENDLY_ERROR_TEXT_ = Object.freeze({
   VIEW_ONLY: '你的帳戶只可以查看，不可以修改、儲存或發佈。如需要修改，請聯絡管理員。',
+  FORBIDDEN: '你目前沒有權限使用本填寫介面。請聯絡管理員，把你的電郵加入填寫介面的名單。',
   WORD_NOT_STORED: '系統未設定存放 Word 的資料夾，所以未能預覽 Word。請通知管理員。',
   SCHEMA_OUTDATED: '系統剛更新，要先由管理員做一次「初始化」才可以繼續，這一次沒有寫入任何東西。請通知管理員；完成之後再做一次。',
   WORD_STORE_FAILED: 'Word 已產生，但存到雲端硬碟時出現問題，未能預覽。請稍後再試一次；如果仍然出現，請通知管理員。'
