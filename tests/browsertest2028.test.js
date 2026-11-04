@@ -640,10 +640,13 @@ test('D4-4 經真正入口：週報試算表未有那一個主日時，載入的
   assert.strictEqual(loaded.ok, true, JSON.stringify(loaded.error));
   const warning = loaded.data.warnings.filter(function (w) { return w.code === 'BULLETIN_WEEK_ROW_NOT_FOUND'; })[0];
   assert.ok(warning, '前提：有那一條警告');
-  assert.strictEqual(warning.message.indexOf('週報試算表未有 2027-12-05 這一個主日'), 0, warning.message);
+  // 2026-11-04：幹事看的句子（FriendlyMessages.gs）；原本的一句在 adminDetail。
+  assert.strictEqual(warning.message, '這一個主日的週報未建立，暫時當作空白。請通知管理員建立這一季的週報。');
+  assert.strictEqual(warning.adminDetail.indexOf('週報試算表未有 2027-12-05 這一個主日'), 0, warning.adminDetail);
   const reset = sb.apiResetWeek({ isoDate: '2027-12-05' });
   assert.strictEqual(reset.ok, false);
-  assert.strictEqual(reset.error.message, '週報試算表未有主日 2027-12-05，無從重設。請先用選單「建立本季空白週報」。');
+  assert.strictEqual(reset.error.message, '週報系統未有主日 2027-12-05，無從重設。如有需要，請通知管理員。');
+  assert.strictEqual(reset.error.adminDetail, '週報試算表未有主日 2027-12-05，無從重設。請先用選單「建立本季空白週報」。');
   [warning.message, reset.error.message].forEach(function (t) { assert.strictEqual(t.indexOf('BulletinWeeks'), -1, t); });
   assertWrittenChinese(assert, 'D4 伺服器字眼', [warning.message, reset.error.message]);
 });

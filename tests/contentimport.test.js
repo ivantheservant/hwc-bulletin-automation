@@ -519,9 +519,14 @@ test('21. apiSaveWeek() 收到七個唯讀區塊的欄位 → 回傳錯誤，沒
   const resp = env.sandbox.apiSaveWeek(payload);
   assert.strictEqual(resp.ok, false, JSON.stringify(resp));
   assert.strictEqual(resp.error.code, 'CONTENT_SHEET_READONLY');
+  // 2026-11-04：欄位代號（ATT_ENG_WORSHIP 等）收在 adminDetail（給管理員參考）；幹事看到的是中文欄名。
   ['ATT_ENG_WORSHIP', 'ATT_CANE_WORSHIP', 'announcements'].forEach(function (k) {
+    assert.ok(resp.error.adminDetail.indexOf(k) !== -1, '給管理員參考要列出欄位代號：' + resp.error.adminDetail);
+  });
+  ['英語堂崇拜人數', '粵語堂主堂崇拜人數', '家事報告'].forEach(function (k) {
     assert.ok(resp.error.message.indexOf(k) !== -1, '訊息要列出是哪幾個欄位：' + resp.error.message);
   });
+  assert.ok(!/ATT_ENG_WORSHIP/.test(resp.error.message), resp.error.message);
 
   assert.strictEqual(env.sandbox.readSheet_('BulletinWeeks')[0].SERMON_TITLE, '',
     '拒絕之後連其他欄位都不可以寫進去');

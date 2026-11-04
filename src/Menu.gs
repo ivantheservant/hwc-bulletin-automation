@@ -168,6 +168,15 @@ function menuInitializeAllSheets_() {
       lines.push('');
     }
 
+    // 2026-11-04：系統電郵範本更新為新預設值（只動仍然是舊預設值的格）。
+    var templateUpgrades = (summary.emailTemplateUpgrades && summary.emailTemplateUpgrades.upgrades) || [];
+    if (templateUpgrades.length > 0) {
+      lines.push('⚠️ 更新了 ' + templateUpgrades.length + ' 格系統電郵範本（EmailTemplates）：');
+      summary.emailTemplateUpgrades.lines.forEach(function (line) { lines.push(line); });
+      lines.push('（只動仍然是系統舊預設值的格；人手改過的一律不碰。已記入 AuditLog。）');
+      lines.push('');
+    }
+
     // 第二批測試修正 G8：新建的受保護工作表已即時設定保護（或設定失敗要補設）。
     var protectionLines = buildNewSheetProtectionLines_(summary.newSheetProtection);
     if (protectionLines.length > 0) {

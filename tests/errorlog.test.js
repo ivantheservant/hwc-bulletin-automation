@@ -287,7 +287,9 @@ test('withApiResult_：拋出授權範圍錯誤時，回傳給前端的 error.me
   }, { functionName: 'testFn' });
 
   assert.strictEqual(resp.ok, false);
-  assert.ok(resp.error.message.indexOf('授權範圍問題') !== -1, resp.error.message);
+  // 2026-11-04：幹事看到「需要管理員重新授權」；原本的指引（選單、authorizeAllScopes）在 adminDetail。
+  assert.ok(resp.error.message.indexOf('重新授權') !== -1, resp.error.message);
+  assert.ok(resp.error.adminDetail.indexOf('授權範圍問題') !== -1, resp.error.adminDetail);
 });
 
 // =====================================================================

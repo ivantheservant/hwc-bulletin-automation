@@ -197,9 +197,11 @@ test('真正入口：apiSaveWeek() 在工作表結構落後於程式碼時拒絕
 
   assert.strictEqual(resp.ok, false);
   assert.strictEqual(resp.error.code, 'SCHEMA_OUTDATED');
-  assert.ok(resp.error.message.indexOf('初始化工作表') !== -1, '訊息要提示去按「初始化工作表」：' + resp.error.message);
+  // 2026-11-04：幹事看到「請通知管理員」；「初始化工作表」的指引在 adminDetail（給管理員參考）。
+  assert.ok(resp.error.message.indexOf('請通知管理員') !== -1, resp.error.message);
+  assert.ok(resp.error.adminDetail.indexOf('初始化工作表') !== -1, '給管理員參考要提示去按「初始化工作表」：' + resp.error.adminDetail);
   // 審查後修正 6：「撳」改「按」。
-  assert.ok(resp.error.message.indexOf('請先在試算表按「週報系統 ▸ 初始化工作表」。寧可拒絕儲存') !== -1, resp.error.message);
+  assert.ok(resp.error.adminDetail.indexOf('請先在試算表按「週報系統 ▸ 初始化工作表」。寧可拒絕儲存') !== -1, resp.error.adminDetail);
   assert.strictEqual(resp.error.message.indexOf('撳'), -1, resp.error.message);
 
   var afterAudit = JSON.stringify(sb.readSheet_('AuditLog'));

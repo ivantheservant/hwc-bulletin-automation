@@ -22,7 +22,7 @@ var APP_NAME = '週報系統';
 /** 「關於本系統」對話框顯示的版本字串。 */
 // 2026-11-03（多堂會／其他教會：方便日後支援和更新）：版本號＝部署日期（yyyy.MM.dd，同一日第二次部署加 -2）。
 //    每次改版要同時在 docs/更新說明.md 最上面加一段同一個版本號（tests/version.test.js 守住）。
-var APP_VERSION = '2026.11.03-6';
+var APP_VERSION = '2026.11.04-1';
 
 /** 本 repo 的網址（公開）。 */
 var REPO_URL = 'https://github.com/ivantheservant/hwc-bulletin-automation';
@@ -677,6 +677,9 @@ var CONFIG_KEYS = Object.freeze({
   EMAIL_TEMPLATE_ID: 'EMAIL_TEMPLATE_ID',
   // ---- 第六輪新增：週報與職事表的分歧處理 ----
   CONFLICT_NOTICE_GROUPS: 'CONFLICT_NOTICE_GROUPS',
+  CONFLICT_NOTICE_EMAIL_ENABLED: 'CONFLICT_NOTICE_EMAIL_ENABLED',
+  CONTENT_SHEET_INVITE_EMAIL_ENABLED: 'CONTENT_SHEET_INVITE_EMAIL_ENABLED',
+  RECIPIENT_GROUP_TITLES: 'RECIPIENT_GROUP_TITLES',
   // ---- 第七輪新增：Word（OOXML）範本渲染 ----
   TEMPLATE_FILE_ID_NORMAL: 'TEMPLATE_FILE_ID_NORMAL',
   TEMPLATE_FILE_ID_COMBINED_BAPTISM: 'TEMPLATE_FILE_ID_COMBINED_BAPTISM',
@@ -909,6 +912,9 @@ var DEFAULTS = Object.freeze([
   { key: CONFIG_KEYS.EMAIL_TEMPLATE_ID, value: 'TPL_WEEKLY_BULLETIN', note: '用哪一個 EmailTemplates 範本' },
   // ---- 第六輪新增：週報與職事表的分歧處理 ----
   { key: CONFIG_KEYS.CONFLICT_NOTICE_GROUPS, value: 'ADMIN', note: '職事表分歧提醒信要寄給哪幾個 Recipients.GROUP_NAME（逗號分隔）' },
+  { key: CONFIG_KEYS.CONFLICT_NOTICE_EMAIL_ENABLED, value: 'FALSE', note: '2026-11-04（Ivan）：星期一要不要寄職事表分歧提醒信。FALSE（預設）＝不寄，填寫介面頂部的「衝突」已經會提示；TRUE＝照舊寄給 CONFLICT_NOTICE_GROUPS' },
+  { key: CONFIG_KEYS.CONTENT_SHEET_INVITE_EMAIL_ENABLED, value: 'FALSE', note: '2026-11-04（Ivan）：週報系統要不要寄季度內容表邀請信。FALSE（預設）＝不寄（由職事表系統寄）；內容表照樣自動建立。TRUE＝照舊寄給 CONTENT_SHEET_INVITE_GROUPS' },
+  { key: CONFIG_KEYS.RECIPIENT_GROUP_TITLES, value: 'CC=堂委,DB=執事,ADMIN=幹事,WORSHIP=敬拜同工,IT=', note: '2026-11-04（Ivan）：電郵開頭稱呼用的組別名稱（組別代號=稱呼，逗號分隔）。例如寄給 CC、DB、ADMIN＝「各位堂委、執事、幹事：」。稱呼留空的組別（例如 IT）不寫入稱呼；全部都沒有稱呼就寫「各位同工：」' },
   // ---- 第七輪新增：Word（OOXML）範本渲染 ----
   { key: CONFIG_KEYS.TEMPLATE_FILE_ID_NORMAL, value: '', note: '平常主日 Word 範本（.docx）的雲端硬碟檔案 ID' },
   { key: CONFIG_KEYS.TEMPLATE_FILE_ID_COMBINED_BAPTISM, value: '', note: '浸禮三堂聯合崇拜 Word 範本的雲端硬碟檔案 ID' },

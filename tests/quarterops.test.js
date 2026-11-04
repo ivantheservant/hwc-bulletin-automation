@@ -113,6 +113,7 @@ function makeEnv(options) {
   cfg.ROSTER_SPREADSHEET_ID = FAKE_ROSTER_ID;
   cfg.CONTENT_SHEET_FOLDER_ID = FAKE_FOLDER_ID;
   cfg.WORKING_QUARTER_ID = QUARTER_ID;
+  cfg.CONTENT_SHEET_INVITE_EMAIL_ENABLED = 'TRUE'; // 2026-11-04：開了之後的寄法
   Object.assign(cfg, o.config || {});
 
   function ownSheet(sheetId, rows) {

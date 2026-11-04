@@ -69,7 +69,10 @@ function weeklyBulletinSendTrigger_() {
     // 失敗（例如收件人清單有問題）不應該連累週報寄不出去，那是兩件
     // 獨立的事；失敗記一筆 ErrorLog 就好。
     try {
-      sendConflictNoticeIfNeeded_(targetIso);
+      // 2026-11-04（Ivan）：分歧在填寫介面頂部「衝突」已經會提示，預設不寄提醒信。
+      if (normalizeBoolean_(getConfig_(CONFIG_KEYS.CONFLICT_NOTICE_EMAIL_ENABLED, 'FALSE')) === true) {
+        sendConflictNoticeIfNeeded_(targetIso);
+      }
     } catch (noticeErr) {
       appendErrorLog_({
         source: ERROR_LOG_SOURCE.TRIGGER,

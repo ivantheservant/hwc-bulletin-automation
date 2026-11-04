@@ -128,9 +128,14 @@ function sendBulletinForDate_(isoDate, options) {
   var generatedAtText = Utilities.formatDate(new Date(), timezone, 'yyyy-MM-dd HH:mm:ss');
 
   var templateWarnings = [];
+  var weeklyVersion = noticeVersionVars_(model.isoDate, null);
   var vars = {
     ChurchName: getConfig_(CONFIG_KEYS.CHURCH_NAME, ''),
     CongregationName: congregationName_(),
+    // 2026-11-04（Ivan）：稱呼按組別、主旨加版本號。
+    Salutation: emailSalutationForGroups_(getConfigTextList_(CONFIG_KEYS.SEND_GROUPS, 'CC,DB,ADMIN')),
+    VersionNo: weeklyVersion.VersionNo,
+    VersionLabel: weeklyVersion.VersionLabel,
     ServiceDate: model.isoDate,
     SpecialType: model.special ? model.special.title : '',
     MissingCount: String(missingCountSummary_(model.missing).requiredCount),
@@ -140,7 +145,7 @@ function sendBulletinForDate_(isoDate, options) {
   if (churchNameWarning) templateWarnings.push(churchNameWarning);
 
   var subject = renderEmailTemplate_(template.SUBJECT, vars, templateWarnings);
-  var introText = renderEmailTemplate_(template.BODY, vars, templateWarnings);
+  var introText = tidyEmailBlankLines_(renderEmailTemplate_(template.BODY, vars, templateWarnings));
 
   // ⚠️ 事奉資料未定的話，一定要在信中講明——收信的人見到事奉框空白，
   //    唯一的合理反應是「系統壞了」。講一句就變成「未到，稍後通知」。

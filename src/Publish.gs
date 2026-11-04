@@ -1506,6 +1506,9 @@ function sendPublishNotice_(isoDate, options) {
   if (attachedWord) attachments.push(o.wordBlob);
 
   var template = findSendNoticeTemplate_();
+  // 2026-11-04（Ivan）：主旨加版本號（已發佈＝發佈版本；未發佈＝第幾次寄草稿）、稱呼按勾選的組別。
+  var version = noticeVersionVars_(noticeIsoDate,
+    o.published ? o.publishedVersionNo : (masterOnThisWeek ? o.masterVersionNo : null));
   var vars = buildSendNoticeVars_({
     churchName: config.churchName, isoDate: noticeIsoDate,
     previewUrl: buildPreviewUrl_(noticeIsoDate),
@@ -1514,8 +1517,11 @@ function sendPublishNotice_(isoDate, options) {
     masterOnThisWeek: masterOnThisWeek,
     attachedPdf: attachedPdf, attachedWord: attachedWord
   });
+  vars.Salutation = emailSalutationForGroups_(o.groups || []);
+  vars.VersionNo = version.VersionNo;
+  vars.VersionLabel = version.VersionLabel;
   var subject = renderEmailTemplate_(template.subject, vars, []);
-  var body = renderEmailTemplate_(template.body, vars, []);
+  var body = tidyEmailBlankLines_(renderEmailTemplate_(template.body, vars, []));
 
   var sendLogRows = [];
   var failed = [];
@@ -1556,6 +1562,7 @@ function sendPublishNotice_(isoDate, options) {
   });
 
   writeSendLogRows_(sendLogRows);
+  commitNoticeDraftSeq_(noticeIsoDate, version.draftSeq);
 
   // v3 重測（獨立審查）：全部寄不出（額度用完、地址錯）就回 ok:false——以前照樣講「已寄出：N 個收件人」。
   if (!config.dryRun && failed.length === resolved.recipients.length) {
@@ -1876,6 +1883,7 @@ function runPublishFlowLocked_(payload, ctx) {
       customEmails: p.customEmails || '',
       blob: ctx.blob,
       published: doPublish === true,
+      publishedVersionNo: result.published ? result.published.versionNo : null,
       masterOnThisWeek: masterNow.onThisWeek,
       masterVersionNo: masterNow.versionNo,
       wordBlob: wordBlob

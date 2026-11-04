@@ -970,7 +970,9 @@ test('重設：鎖定值對不上 → STALE，一格都不寫；沒有那一行 
   const missing = env.sandbox.apiResetWeek({ isoDate: '2031-01-05' });
   assert.strictEqual(missing.ok, false);
   // D4：訊息不再講工作表英文名與「資料行」，改講「週報試算表未有主日 …」。
-  assert.ok(missing.error.message.indexOf('週報試算表未有主日 2031-01-05') !== -1, missing.error.message);
+  // 2026-11-04：幹事看到「週報系統未有主日…」；原句（含試算表選單的指引）在 adminDetail。
+  assert.ok(missing.error.message.indexOf('週報系統未有主日 2031-01-05') !== -1, missing.error.message);
+  assert.ok(missing.error.adminDetail.indexOf('週報試算表未有主日 2031-01-05') !== -1, missing.error.adminDetail);
 });
 
 test('apiResetWeek（真的前端入口）成功；工作表結構落後時拒絕', function () {

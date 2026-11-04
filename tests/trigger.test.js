@@ -192,7 +192,7 @@ test('resolveNextSendSundayIso_：七個星期幾逐個試，選中的一定是�
 });
 
 test('weeklyBulletinSendTrigger_：分歧提醒失敗不會連累週報寄送——兩者各自記一筆 ErrorLog，函式本身不拋錯', function () {
-  const env = makeEnv({ config: { ROSTER_SPREADSHEET_ID: '' } });
+  const env = makeEnv({ config: { ROSTER_SPREADSHEET_ID: '', CONFLICT_NOTICE_EMAIL_ENABLED: 'TRUE' } });
   assert.doesNotThrow(function () { env.sandbox.weeklyBulletinSendTrigger_(); });
 
   const errorRows = env.sandbox.readSheet_('ErrorLog');

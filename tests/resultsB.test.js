@@ -288,7 +288,9 @@ test('RB4-3 沒有設定輸出資料夾 → 明確的錯誤（不是靜靜失敗
   const env = makeWordEnv({ noFolder: true });
   const resp = env.sandbox.apiOpenWordPreview(WD, {});
   assert.strictEqual(resp.ok, false);
-  assert.ok(String(resp.error.message).indexOf('BULLETIN_OUTPUT_FOLDER_ID') !== -1, resp.error.message);
+  // 2026-11-04：幹事看人話；Config 鍵在 adminDetail（給管理員參考）。
+  assert.ok(String(resp.error.adminDetail).indexOf('BULLETIN_OUTPUT_FOLDER_ID') !== -1, resp.error.adminDetail);
+  assert.ok(String(resp.error.message).indexOf('BULLETIN_OUTPUT_FOLDER_ID') === -1, resp.error.message);
   const env2 = makeWordEnv();
   const refused = env2.sandbox.apiOpenWordPreview(WD, { draft: { week: { SERMON_TITLE: '不可以' } } });
   assert.strictEqual(refused.ok, false);

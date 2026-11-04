@@ -289,6 +289,14 @@ function makeUi(options) {
       const bar = els.messageBar;
       if (!bar || bar.classList.contains('hidden') || bar.children.length === 0) return null;
       return { type: bar.className.replace('message-bar', '').trim(), text: bar.children[0].textContent };
+    },
+    /** 2026-11-04：訊息列「給管理員參考」收起來的技術內容（沒有就 null）。 */
+    messageDetail: function () {
+      const bar = els.messageBar;
+      if (!bar || bar.classList.contains('hidden')) return null;
+      const box = bar.children.filter ? bar.children.filter(function (c) { return c.className === 'admin-detail'; })[0]
+        : Array.prototype.filter.call(bar.children, function (c) { return c.className === 'admin-detail'; })[0];
+      return box ? box.children[1].textContent : null;
     }
   };
 }
@@ -302,27 +310,30 @@ function clickRestoreButton(ui, snapshotId) {
   ui.click('snapshotRestoreBtn');
 }
 
+/** 2026-11-04（Ivan 測試結果 C）：伺服器拋出例外時幹事看到的一句；技術內容收在「給管理員參考」。 */
+const FRIENDLY_FAILURE = '系統未能完成這個動作。請稍後再試一次；如果仍然出現，請把「給管理員參考」的內容告訴管理員。';
+
 const DIFF_OK = { ok: true, data: { createdAt: '2026-10-22 08:00', reasonLabel: '填寫介面儲存', rows: [], noteLine: '還原前會先自動存一個版本。', lastSavedAt: '2026-10-22 09:00:00' } };
 
-const EXPECTED_SAVE_MESSAGE = '伺服器沒有回應（apiSaveWeek），儲存可能已經完成，你的改動仍在畫面上。請再按一次「儲存」：如果系統說「這一週的資料在你載入之後被改過」，即是上一次已經存好，重新載入這一週就會看到。';
+const EXPECTED_SAVE_MESSAGE = '伺服器沒有回應，儲存可能已經完成，你的改動仍在畫面上。請再按一次「儲存」：如果系統說「這一週的資料在你載入之後被改過」，即是上一次已經存好，重新載入這一週就會看到。';
 
 // G24 改了以下幾句的結尾：不再叫人「確認未完成才再做一次」，改叫人等 5 分鐘再核對、不要即時再做。
 const WAIT_ENDING = '如果仍未看到結果，伺服器可能仍在處理，請等 5 分鐘再重新載入核對，不要即時再做一次。';
-const EXPECTED_SEND_ONLY_MESSAGE = '伺服器沒有回應（apiRunPublish），這個動作可能已經完成。寄出不會在填寫介面留下記錄，'
-  + '請先看試算表的 SendLog 有沒有剛才這一次的寄出記錄（模擬模式亦會記錄）。'
+const EXPECTED_SEND_ONLY_MESSAGE = '伺服器沒有回應，這個動作可能已經完成。寄出不會在填寫介面留下記錄，'
+  + '請先由管理員代為查看有沒有剛才這一次的寄出記錄（模擬模式亦會記錄）。'
   + '如果仍未看到記錄，伺服器可能仍在處理，請等 5 分鐘再看一次，不要即時再寄，以免重複寄信。';
-const EXPECTED_PUBLISH_ONLY_MESSAGE = '伺服器沒有回應（apiRunPublish），這個動作可能已經完成。系統已重新載入頁頂「目前已發佈」，'
+const EXPECTED_PUBLISH_ONLY_MESSAGE = '伺服器沒有回應，這個動作可能已經完成。系統已重新載入頁頂「目前已發佈」，'
   + '請先看它的主日、版本和發佈時間是否已經是剛才這一次（「版本記錄」上方的發佈記錄亦會多一版）。' + WAIT_ENDING;
-const EXPECTED_PUBLISH_AND_SEND_MESSAGE = '伺服器沒有回應（apiRunPublish），這個動作可能已經完成。系統已重新載入頁頂「目前已發佈」，'
-  + '請先看它的主日、版本和發佈時間是否已經是剛才這一次；寄出不會在填寫介面留下記錄，請看試算表的 SendLog 有沒有剛才這一次的寄出記錄。'
+const EXPECTED_PUBLISH_AND_SEND_MESSAGE = '伺服器沒有回應，這個動作可能已經完成。系統已重新載入頁頂「目前已發佈」，'
+  + '請先看它的主日、版本和發佈時間是否已經是剛才這一次；寄出不會在填寫介面留下記錄，請管理員代為查看有沒有剛才這一次的寄出記錄。'
   + WAIT_ENDING + '已經發佈而未寄出的話，再做時只勾「寄出」。';
-const EXPECTED_SAVE_TIMEOUT_MESSAGE = '伺服器在 120 秒內沒有回應（apiSaveWeek），伺服器可能仍在處理，你的改動仍在畫面上。'
+const EXPECTED_SAVE_TIMEOUT_MESSAGE = '伺服器在 120 秒內沒有回應，伺服器可能仍在處理，你的改動仍在畫面上。'
   + '請等一兩分鐘才再按「儲存」：如果系統說「這一週的資料在你載入之後被改過」，即是上一次已經存好，重新載入這一週就會看到。';
 
 /** G24：寫入類（儲存除外）逾時的一句。where 是重新載入頁面之後要看的地方。 */
 function expectedTimeoutMessage(fnName, where, noRedo, note) {
-  return '伺服器在 120 秒內沒有回應（' + fnName + '），伺服器可能仍在處理（最長約 6 分鐘）。請等 6 分鐘後重新載入頁面，再看'
-    + where + '核對，' + (noRedo || '不要即時再做一次') + '；亦可請 IT 看 Apps Script 的「執行項目」。' + (note || '');
+  return '伺服器在 120 秒內沒有回應，伺服器可能仍在處理（最長約 6 分鐘）。請等 6 分鐘後重新載入頁面，再看'
+    + where + '核對，' + (noRedo || '不要即時再做一次') + '；未能確定的話請通知管理員。' + (note || '');
 }
 
 /** 已選好這一週的 PDF、按「執行」，伺服器收到 HTTP 502，等候時間到。 */
@@ -339,7 +350,7 @@ function publishWith502(ui, doPublish, doSend) {
 }
 
 function expectedWeekMessage(fnName) {
-  return '伺服器沒有回應（' + fnName + '），這個動作可能已經完成。系統已重新載入這一個主日，請先看「最後儲存時間」和「版本記錄」。' + WAIT_ENDING;
+  return '伺服器沒有回應，這個動作可能已經完成。系統已重新載入這一個主日，請先看「最後儲存時間」和「版本記錄」。' + WAIT_ENDING;
 }
 
 /**
@@ -593,7 +604,8 @@ test('G13-8 伺服器明確回傳的錯誤照舊：STALE（ok:false）原句顯�
   const ui2 = makeUi();
   ui2.click('saveBtn');
   ui2.take('apiSaveWeek').fail(new Error('Exception: 你沒有權限編輯這個試算表。'));
-  assert.deepStrictEqual(ui2.message(), { type: 'error', text: '呼叫伺服器失敗（apiSaveWeek）：Exception: 你沒有權限編輯這個試算表。' });
+  assert.deepStrictEqual(ui2.message(), { type: 'error', text: FRIENDLY_FAILURE });
+  assert.strictEqual(ui2.messageDetail(), '呼叫伺服器失敗（apiSaveWeek）：Exception: 你沒有權限編輯這個試算表。', '技術內容收在「給管理員參考」');
   assert.strictEqual(ui2.timers.pending(ui2.delayMs), 0);
   assert.strictEqual(ui2.count('apiLoadWeek'), 0);
   const report = ui2.take('apiLogClientError').args[0];
@@ -605,7 +617,8 @@ test('G13-9 讀取類失敗照舊：按「還原到這個版本」時 apiDiffWee
   const ui = makeUi();
   clickRestoreButton(ui, 'SNAP-1');
   ui.take('apiDiffWeekSnapshot').fail(new Error(NETWORK_502));
-  assert.deepStrictEqual(ui.message(), { type: 'error', text: '呼叫伺服器失敗（apiDiffWeekSnapshot）：' + NETWORK_502 });
+  assert.deepStrictEqual(ui.message(), { type: 'error', text: FRIENDLY_FAILURE });
+  assert.strictEqual(ui.messageDetail(), '呼叫伺服器失敗（apiDiffWeekSnapshot）：' + NETWORK_502);
   assert.strictEqual(ui.timers.pending(ui.delayMs), 0);
   assert.strictEqual(ui.count('apiLoadWeek'), 0);
   assert.strictEqual(ui.count('apiRestoreWeekSnapshot'), 0);
@@ -1767,7 +1780,8 @@ test('G26-3 分類：HTTP 0、5xx、沒有狀態碼的 NetworkError 才算沒有
   w.click('resetWeekBtn');
   w.click('confirmOkBtn');
   w.take('apiResetWeek').fail(e('NetworkError: Connection failure due to HTTP 404'));
-  assert.deepStrictEqual(w.message(), { type: 'error', text: '呼叫伺服器失敗（apiResetWeek）：NetworkError: Connection failure due to HTTP 404' });
+  assert.deepStrictEqual(w.message(), { type: 'error', text: FRIENDLY_FAILURE });
+  assert.strictEqual(w.messageDetail(), '呼叫伺服器失敗（apiResetWeek）：NetworkError: Connection failure due to HTTP 404');
   assert.strictEqual(w.timers.pending(w.delayMs), 0);
 });
 
@@ -1808,7 +1822,8 @@ test('G27-3 平常的載入失敗照舊（不是沒有回應之後的重新載�
   const ui = makeUi();
   ui.ctx.loadWeek(D);
   ui.take('apiLoadWeek').fail(new Error('Exception: 找不到這個主日。'));
-  assert.deepStrictEqual(ui.message(), { type: 'error', text: '呼叫伺服器失敗（apiLoadWeek）：Exception: 找不到這個主日。' });
+  assert.deepStrictEqual(ui.message(), { type: 'error', text: FRIENDLY_FAILURE });
+  assert.strictEqual(ui.messageDetail(), '呼叫伺服器失敗（apiLoadWeek）：Exception: 找不到這個主日。');
 });
 
 // =====================================================================
@@ -1890,12 +1905,12 @@ test('G24-2 逾時（120 秒）：更新本季內容表、只寄出、發佈加�
   send.take('apiRunPublish');
   send.timers.run(120000);
   send.timers.run(send.delayMs);
-  assert.deepStrictEqual(send.message(), { type: 'error', text: expectedTimeoutMessage('apiRunPublish', '試算表的 SendLog', '不要即時再寄，以免重複寄信') });
+  assert.deepStrictEqual(send.message(), { type: 'error', text: expectedTimeoutMessage('apiRunPublish', '寄出記錄（請管理員代為查看）', '不要即時再寄，以免重複寄信') });
 
   const both = makeUi();
   assert.strictEqual(both.ctx.describeNoResponseFailure('apiRunPublish', 'publish', [{ doPublish: true, doSend: true }], true, 120),
-    expectedTimeoutMessage('apiRunPublish', '頁頂「目前已發佈」和試算表的 SendLog', null, '已經發佈而未寄出的話，再做時只勾「寄出」。'));
-  assert.ok(both.ctx.describeNoResponseFailure('apiResetWeek', 'week', [], true, 90).indexOf('伺服器在 90 秒內沒有回應（apiResetWeek）') === 0);
+    expectedTimeoutMessage('apiRunPublish', '頁頂「目前已發佈」和寄出記錄（請管理員代為查看）', null, '已經發佈而未寄出的話，再做時只勾「寄出」。'));
+  assert.ok(both.ctx.describeNoResponseFailure('apiResetWeek', 'week', [], true, 90).indexOf('伺服器在 90 秒內沒有回應，') === 0);
   assertWrittenChinese(assert, 'G24 逾時', [expectedTimeoutMessage('apiRunContentSheetBuild', '「最後儲存時間」和「版本記錄」'), EXPECTED_SAVE_TIMEOUT_MESSAGE]);
 });
 
@@ -1921,10 +1936,10 @@ console.log('\n讀取類動作逾時（G17）');
 
 /** G17：讀取類逾時的一句（秒數由 serverCallTimeoutMs() 計出來）。 */
 function expectedReadTimeout(fnName, seconds) {
-  return '伺服器在 ' + (seconds || 120) + ' 秒內沒有回應（' + fnName + '）。這是讀取資料，沒有改動週報內容；請稍後重新載入頁面再試。';
+  return '伺服器在 ' + (seconds || 120) + ' 秒內沒有回應。這是讀取資料，沒有改動週報內容；請稍後重新載入頁面再試。';
 }
 
-const EXPECTED_DOWNLOAD_TIMEOUT = '伺服器在 120 秒內沒有回應（apiDownloadBulletinDocx），Word 檔沒有下載到；請稍後再按一次「下載 Word」。'
+const EXPECTED_DOWNLOAD_TIMEOUT = '伺服器在 120 秒內沒有回應，Word 檔沒有下載到；請稍後再按一次「下載 Word」。'
   + '伺服器可能已經更新了雲端硬碟上這一期的最新 Word，再按一次只會原地更新同一個檔案，不會多出一份。';
 
 /** 斷言：apiLogClientError 收到的就是畫面上那一句（照舊記錄），不加「連線錯誤」那一句。 */
@@ -2084,7 +2099,7 @@ test('G17-6 讀取類遇到連線錯誤（HTTP 502）照舊即時顯示「呼叫
   const ui = makeUi({ extra: [['function setSnapshotStatus(', 'function refreshSnapshotPanel(']] });
   ui.ctx.loadSnapshotPanel();
   ui.take('apiListWeekSnapshots').fail(new Error(NETWORK_502));
-  assert.strictEqual(ui.els.snapshotStatus.textContent, '版本記錄載入失敗：呼叫伺服器失敗（apiListWeekSnapshots）：' + NETWORK_502);
+  assert.strictEqual(ui.els.snapshotStatus.textContent, '版本記錄載入失敗：' + FRIENDLY_FAILURE);
   assert.strictEqual(ui.timers.pending(ui.delayMs), 0);
   assert.ok(ui.take('apiLogClientError').args[0].message.indexOf('可能已') === -1);
 });

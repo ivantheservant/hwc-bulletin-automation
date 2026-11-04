@@ -148,11 +148,91 @@ function renderEmailTemplate_(templateString, vars, warningsOut) {
       warningsOut.push({
         code: 'UNKNOWN_PLACEHOLDER',
         message: '範本內的佔位符「{{' + key + '}}」不在已知清單內，原樣保留，不會變成空字串；'
-          + '已知清單：ChurchName、CongregationName、ServiceDate、SpecialType、MissingCount、RosterVersion。'
+          + '已知清單：ChurchName、CongregationName、Salutation、VersionNo、VersionLabel、ServiceDate、SpecialType、MissingCount、RosterVersion。'
       });
     }
     return whole;
   });
+}
+
+/**
+ * 用途：2026-11-04（Ivan）：電郵開頭的稱呼，按寄給哪幾個組別（例如「各位堂委、執事、幹事：」）。純函式。
+ * Args:
+ *   groups {string[]} 寄給的組別代號（Recipients.GROUP_NAME）。
+ *   titlesRaw {string} Config RECIPIENT_GROUP_TITLES（「CC=堂委,DB=執事,…」）。
+ * Returns:
+ *   {string} 例如「各位堂委、執事：」；沒有一個組別有稱呼＝「各位同工：」。
+ *     次序跟 Config 的次序，不跟傳入的次序（免得同一封信每次次序不同）。
+ */
+function buildEmailSalutation_(groups, titlesRaw) {
+  var wanted = {};
+  (groups || []).forEach(function (g) { wanted[String(g || '').trim().toUpperCase()] = true; });
+  var titles = [];
+  String(titlesRaw || '').split(',').forEach(function (pair) {
+    var eq = pair.indexOf('=');
+    if (eq === -1) return;
+    var code = pair.slice(0, eq).trim().toUpperCase();
+    var title = pair.slice(eq + 1).trim();
+    if (code && title && wanted[code] && titles.indexOf(title) === -1) titles.push(title);
+  });
+  return '各位' + (titles.length > 0 ? titles.join('、') : '同工') + '：';
+}
+
+/**
+ * 用途：讀 Config 之後組出稱呼（見 buildEmailSalutation_()）。
+ * Args: groups {string[]}
+ * Returns: {string}
+ */
+function emailSalutationForGroups_(groups) {
+  return buildEmailSalutation_(groups, getConfig_(CONFIG_KEYS.RECIPIENT_GROUP_TITLES, 'CC=堂委,DB=執事,ADMIN=幹事,WORSHIP=敬拜同工,IT='));
+}
+
+/**
+ * 用途：2026-11-04：佔位符代入空白之後留下的連續空行收成一個空行（以前「另行通知。」之後有三個空行）。純函式。
+ * Args: text {string}
+ * Returns: {string}
+ */
+function tidyEmailBlankLines_(text) {
+  return String(text || '').replace(/\r\n/g, '\n').replace(/\n[ \t\u3000]*(\n[ \t\u3000]*){2,}/g, '\n\n');
+}
+
+/** 2026-11-04：指令碼屬性鍵前綴：某一個主日的草稿通知寄過第幾次（主旨「草稿 v2」用）。 */
+var NOTICE_DRAFT_SEQ_PREFIX_ = 'NOTICE_DRAFT_SEQ_';
+
+/**
+ * 用途：2026-11-04（Ivan：主旨加版本號）：主旨用的版本。已發佈（master 是這一期）＝發佈版本「v2」；
+ *   未發佈＝這一期第幾次寄草稿通知「草稿 v1」（星期一草稿預覽信與填寫介面「寄出」共用同一個計數）。
+ * Args:
+ *   isoDate {string} 主日。
+ *   publishedVersionNo {*} 發佈版本號；沒有（未發佈）傳 null。
+ * Returns:
+ *   {{VersionNo:string, VersionLabel:string, draftSeq:?number}} `draftSeq` 要在寄出之後經 commitNoticeDraftSeq_() 記下。
+ */
+function noticeVersionVars_(isoDate, publishedVersionNo) {
+  var n = normalizePublishVersionNo_(publishedVersionNo);
+  if (n) return { VersionNo: 'v' + n, VersionLabel: 'v' + n, draftSeq: null };
+  var current = 0;
+  try {
+    current = Number(PropertiesService.getScriptProperties().getProperty(NOTICE_DRAFT_SEQ_PREFIX_ + String(isoDate || ''))) || 0;
+  } catch (err) {
+    current = 0;
+  }
+  var seq = Math.max(0, Math.floor(current)) + 1;
+  return { VersionNo: 'v' + seq, VersionLabel: '草稿 v' + seq, draftSeq: seq };
+}
+
+/**
+ * 用途：記下這一期草稿通知寄到第幾次（寫不到不影響寄出，下一次只會重用同一個號碼）。
+ * Args: isoDate {string}　seq {?number}
+ * Returns: {void}
+ */
+function commitNoticeDraftSeq_(isoDate, seq) {
+  if (!seq) return;
+  try {
+    PropertiesService.getScriptProperties().setProperty(NOTICE_DRAFT_SEQ_PREFIX_ + String(isoDate || ''), String(seq));
+  } catch (err) {
+    // 只是主旨的號碼。
+  }
 }
 
 /**

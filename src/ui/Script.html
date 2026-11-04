@@ -140,7 +140,7 @@
    * Returns:
    *   {void}
    */
-  function showMessage(type, text) {
+  function showMessage(type, text, adminDetail) {
     var bar = document.getElementById('messageBar');
     bar.className = 'message-bar ' + type;
     bar.innerHTML = '';
@@ -148,6 +148,15 @@
     var textSpan = el('span');
     textSpan.textContent = text;
     bar.appendChild(textSpan);
+
+    // 2026-11-04（Ivan 測試結果 C）：技術內容（伺服器函式名稱、原本的錯誤訊息）收起來，標「給管理員參考」。
+    //   伺服器回 ok:false 帶 adminDetail 時，callServer() 先記在 pendingAdminDetail；這一句含那一個錯誤訊息才顯示。
+    var detail = adminDetail || '';
+    if (!detail && pendingAdminDetail && String(text || '').indexOf(pendingAdminDetail.message) !== -1) {
+      detail = pendingAdminDetail.detail;
+    }
+    pendingAdminDetail = null;
+    if (detail) bar.appendChild(buildAdminDetailElement(detail));
 
     var closeBtn = el('button', 'message-bar-close');
     closeBtn.type = 'button';
@@ -166,7 +175,40 @@
    *   {void}
    */
   function hideMessage() {
+    pendingAdminDetail = null;
     document.getElementById('messageBar').classList.add('hidden');
+  }
+  /** 伺服器上一次 ok:false 回來的技術內容（見 showMessage()）。 */
+  var pendingAdminDetail = null;
+
+  /**
+   * 用途：記下伺服器 ok:false 回來的技術內容（callServer() 叫），下一次 showMessage() 用得着就顯示。
+   * Args:
+   *   resp {*} 伺服器回應。
+   * Returns:
+   *   {void}
+   */
+  function rememberAdminDetail(resp) {
+    pendingAdminDetail = (resp && resp.ok === false && resp.error && resp.error.adminDetail)
+      ? { message: String(resp.error.message || ''), detail: String(resp.error.adminDetail) } : null;
+  }
+
+  /**
+   * 用途：「給管理員參考」的收起區塊（訊息列與警告清單共用）。
+   * Args:
+   *   detail {string} 技術內容（純文字，會跳脫）。
+   * Returns:
+   *   {HTMLElement}
+   */
+  function buildAdminDetailElement(detail) {
+    var box = el('details', 'admin-detail');
+    var summary = el('summary');
+    summary.textContent = '給管理員參考';
+    box.appendChild(summary);
+    var body = el('div');
+    body.textContent = detail;
+    box.appendChild(body);
+    return box;
   }
   // END message-bar
 
@@ -340,6 +382,9 @@
     return String(err.stack).split('\n').slice(0, 5).join('\n');
   }
 
+  /** 2026-11-04：伺服器拋出例外時給幹事看的一句（技術內容見 describeServerFailure()，收在「給管理員參考」）。 */
+  var FRIENDLY_SERVER_FAILURE = '系統未能完成這個動作。請稍後再試一次；如果仍然出現，請把「給管理員參考」的內容告訴管理員。';
+
   function describeServerFailure(fnName, err) {
     var raw = (err && err.message) ? String(err.message) : String(err);
     if (raw.length > 300) raw = raw.slice(0, 300) + '…（訊息過長，完整內容請看 ErrorLog）';
@@ -399,7 +444,7 @@
     week: '這個動作可能已經完成。系統已重新載入這一個主日，請先看「最後儲存時間」和「版本記錄」。',
     // G18／G22(a)：發佈加寄出（以及不知道這一次做甚麼）用這一句；只發佈、只寄出見
     // PUBLISH_NO_RESPONSE_HINTS。
-    publish: '這個動作可能已經完成。系統已重新載入頁頂「目前已發佈」，請先看它的主日、版本和發佈時間是否已經是剛才這一次；寄出不會在填寫介面留下記錄，請看試算表的 SendLog 有沒有剛才這一次的寄出記錄。'
+    publish: '這個動作可能已經完成。系統已重新載入頁頂「目前已發佈」，請先看它的主日、版本和發佈時間是否已經是剛才這一次；寄出不會在填寫介面留下記錄，請管理員代為查看有沒有剛才這一次的寄出記錄。'
   };
 
   /**
@@ -408,7 +453,7 @@
    */
   var NO_RESPONSE_CHECK_WHERE = {
     week: '「最後儲存時間」和「版本記錄」',
-    publish: '頁頂「目前已發佈」和試算表的 SendLog'
+    publish: '頁頂「目前已發佈」和寄出記錄（請管理員代為查看）'
   };
 
   /**
@@ -434,7 +479,7 @@
    */
   var PUBLISH_NO_RESPONSE_HINTS = {
     publishOnly: '這個動作可能已經完成。系統已重新載入頁頂「目前已發佈」，請先看它的主日、版本和發佈時間是否已經是剛才這一次（「版本記錄」上方的發佈記錄亦會多一版）。',
-    sendOnly: '這個動作可能已經完成。寄出不會在填寫介面留下記錄，請先看試算表的 SendLog 有沒有剛才這一次的寄出記錄（模擬模式亦會記錄）。',
+    sendOnly: '這個動作可能已經完成。寄出不會在填寫介面留下記錄，請先由管理員代為查看有沒有剛才這一次的寄出記錄（模擬模式亦會記錄）。',
     // G24：只寄出的結尾（只寄出沒有重新載入甚麼，核對的是 SendLog；伺服器端防重複只有
     // PUBLISH_DEDUP_SEC 秒，等 5 分鐘之後再寄就會再寄一封）。
     sendOnlyEnding: '如果仍未看到記錄，伺服器可能仍在處理，請等 5 分鐘再看一次，不要即時再寄，以免重複寄信。',
@@ -469,7 +514,7 @@
         parts.where = '頁頂「目前已發佈」';
       } else if (p.doSend === true && p.doPublish !== true) {
         parts.hint = PUBLISH_NO_RESPONSE_HINTS.sendOnly;
-        parts.where = '試算表的 SendLog';
+        parts.where = '寄出記錄（請管理員代為查看）';
         parts.ending = PUBLISH_NO_RESPONSE_HINTS.sendOnlyEnding;
         parts.noRedo = '不要即時再寄，以免重複寄信';
       } else {
@@ -572,21 +617,21 @@
     var kind = serverCallKind(fnName);
     if (kind === 'read') {
       return {
-        text: '伺服器在 ' + seconds + ' 秒內沒有回應（' + fnName + '）。'
+        text: '伺服器在 ' + seconds + ' 秒內沒有回應。'
           + '這是讀取資料，沒有改動週報內容；請稍後重新載入頁面再試。',
         showAsIs: true
       };
     }
     if (kind === 'wordpreview') {
       return {
-        text: '伺服器在 ' + seconds + ' 秒內沒有回應（' + fnName + '），Word 預覽未能開啟；'
+        text: '伺服器在 ' + seconds + ' 秒內沒有回應，Word 預覽未能開啟；'
           + '請稍後再按一次「開啟預覽」。伺服器可能已經更新了雲端硬碟上的 Word，再按一次只會原地更新同一個檔案。',
         showAsIs: true
       };
     }
     if (kind === 'download') {
       return {
-        text: '伺服器在 ' + seconds + ' 秒內沒有回應（' + fnName + '），Word 檔沒有下載到；'
+        text: '伺服器在 ' + seconds + ' 秒內沒有回應，Word 檔沒有下載到；'
           + '請稍後再按一次「下載 Word」。伺服器可能已經更新了雲端硬碟上這一期的最新 Word，'
           + '再按一次只會原地更新同一個檔案，不會多出一份。',
         showAsIs: true
@@ -594,7 +639,7 @@
     }
     return {
       text: '伺服器在 ' + seconds + ' 秒內沒有回應。這一次的動作可能已經做了、也可能沒有做，'
-        + '請先看試算表的 ErrorLog 與 Apps Script 的「執行項目」確認，不要直接再按一次。',
+        + '請等幾分鐘後重新載入頁面核對；未能確定的話請通知管理員，不要直接再按一次。',
       showAsIs: false
     };
   }
@@ -722,16 +767,16 @@
   function describeNoResponseFailure(fnName, kind, args, timedOut, seconds) {
     if (kind === 'keepForm') {
       return timedOut
-        ? '伺服器在 ' + seconds + ' 秒內沒有回應（' + fnName + '），' + KEEP_FORM_TIMEOUT_HINT
-        : '伺服器沒有回應（' + fnName + '），' + NO_RESPONSE_CHECK_HINTS.keepForm;
+        ? '伺服器在 ' + seconds + ' 秒內沒有回應，' + KEEP_FORM_TIMEOUT_HINT
+        : '伺服器沒有回應，' + NO_RESPONSE_CHECK_HINTS.keepForm;
     }
     var parts = noResponseHintParts(kind, args);
     if (timedOut) {
-      return '伺服器在 ' + seconds + ' 秒內沒有回應（' + fnName + '），伺服器可能仍在處理（最長約 6 分鐘）。'
+      return '伺服器在 ' + seconds + ' 秒內沒有回應，伺服器可能仍在處理（最長約 6 分鐘）。'
         + '請等 6 分鐘後重新載入頁面，再看' + parts.where + '核對，' + parts.noRedo
-        + '；亦可請 IT 看 Apps Script 的「執行項目」。' + parts.note;
+        + '；未能確定的話請通知管理員。' + parts.note;
     }
-    return '伺服器沒有回應（' + fnName + '），' + parts.hint + parts.ending + parts.note;
+    return '伺服器沒有回應，' + parts.hint + parts.ending + parts.note;
   }
 
   /**
@@ -864,12 +909,15 @@
         return;
       }
       // G17：讀取類與下載的逾時訊息已經寫了函式名稱，原樣顯示、原樣記入 ErrorLog。
-      var message = (err && err.noResponse === true && err.showAsIs === true)
-        ? err.message : describeServerFailure(fnName, err);
-      if (opts.onError) opts.onError(message, err);
-      else showMessage('error', message);
+      // 2026-11-04：幹事看的是人話；伺服器函式名稱與原本的錯誤收在「給管理員參考」，ErrorLog 照記原文。
+      var asIs = Boolean(err && err.noResponse === true && err.showAsIs === true);
+      var logText = asIs ? err.message : describeServerFailure(fnName, err);
+      var technical = asIs ? ('伺服器函式：' + fnName) : logText;
+      var message = asIs ? err.message : FRIENDLY_SERVER_FAILURE;
+      if (opts.onError) opts.onError(message, err, technical);
+      else showMessage('error', message, technical);
       if (!opts.noReport) {
-        reportClientError_(message, stackSummary(err), fnName);
+        reportClientError_(logText, stackSummary(err), fnName);
       }
     });
 
@@ -885,7 +933,11 @@
 
     try {
       var runner = google.script.run
-        .withSuccessHandler(settle(function (resp) { onOk(resp); }))
+        .withSuccessHandler(settle(function (resp) {
+          // 2026-11-04：測試抽出這一段時未必有訊息列那一段，所以先看有沒有這個函式。
+          if (typeof rememberAdminDetail === 'function') rememberAdminDetail(resp);
+          onOk(resp);
+        }))
         .withFailureHandler(fail);
       runner[fnName].apply(runner, args || []);
     } catch (err) {
@@ -2903,16 +2955,51 @@
   function renderWarningsPanel(warnings) {
     var panel = document.getElementById('warningsPanel');
     var list = warnings || [];
+    shownWarnings = list;
     if (list.length === 0) {
       panel.innerHTML = '（目前沒有警告）';
       return;
     }
     // D4：內部代碼（例如 SPEAKER_FORM_MISMATCH）是給 IT 查的，不可以排在句子前面搶眼；
     //    改為句尾的灰色小字（.warning-code），幹事先讀到的是那一句話。
+    // 2026-11-04（Ivan 測試結果 C）：伺服器已把技術字眼改寫成人話（FriendlyMessages.gs）；原本的技術內容（adminDetail）
+    //    與代碼一併收在「給管理員參考」，幹事有需要時展開抄給管理員。
     panel.innerHTML = '<ul>' + list.map(function (w) {
+      if (w && w.adminDetail) {
+        return '<li>' + escapeHtml(w.message || '') + '<details class="admin-detail"><summary>給管理員參考</summary><div>'
+          + escapeHtml(w.adminDetail) + (w.code ? ' <span class="warning-code">' + escapeHtml(w.code) + '</span>' : '')
+          + '</div></details></li>';
+      }
       var code = w.code ? (' <span class="warning-code">' + escapeHtml(w.code) + '</span>') : '';
       return '<li>' + escapeHtml(w.message || String(w)) + code + '</li>';
     }).join('') + '</ul>';
+  }
+
+  /** 警告清單現在顯示的警告（mergeExtraWarnings() 用）。 */
+  var shownWarnings = [];
+
+  /**
+   * 用途：2026-11-04：產生 Word（下載、開啟預覽）時多出來的警告（例如範本格數不夠、年度標誌放不入），
+   *   併入頂部「警告 N 項」的清單（以前只講「見下面的警告」，但清單只有載入時的警告）。同一句不重複。
+   * Args:
+   *   extra {Object[]} 伺服器回傳的 `warnings`。
+   * Returns:
+   *   {void}
+   */
+  function mergeExtraWarnings(extra) {
+    var current = shownWarnings || [];
+    var seen = {};
+    current.forEach(function (w) { seen[String(w.code) + '|' + String(w.message)] = true; });
+    var added = (extra || []).filter(function (w) {
+      var key = String(w && w.code) + '|' + String(w && w.message);
+      if (seen[key]) return false;
+      seen[key] = true;
+      return true;
+    });
+    if (added.length === 0) return;
+    var merged = current.concat(added);
+    document.getElementById('statWarnings').textContent = '警告 ' + merged.length + ' 項';
+    renderWarningsPanel(merged);
   }
 
   /**
@@ -3059,9 +3146,9 @@
       },
       {
         busyText: '載入中…（第 1 步，共 2 步：讀取週報與職事表）',
-        onError: function (message) {
+        onError: function (message, err, technical) {
           setLoaded(false);
-          showMessage('error', notice ? notice + RELOAD_AFTER_NO_RESPONSE_FAILED : message);
+          showMessage('error', notice ? notice + RELOAD_AFTER_NO_RESPONSE_FAILED : message, notice ? '' : technical);
         }
       });
   }
@@ -3261,8 +3348,8 @@
       return;
     }
     if (quietReasons.indexOf(String(a.reason || '')) === -1) {
-      showMessage('info', '這一週未能自動由內容表匯入：' + (a.message || ('原因代號 ' + a.reason + '，詳情請看試算表的 ErrorLog'))
-        + '　畫面顯示的是週報現有的內容。');
+      showMessage('info', '這一週未能自動由內容表匯入：' + (a.message || '請稍後按〔重新載入（讀最新）〕再試；如果仍然出現，請通知管理員。')
+        + '　畫面顯示的是週報現有的內容。', a.message ? '' : ('原因代號 ' + a.reason));
     }
   }
 
@@ -3285,7 +3372,7 @@
     document.getElementById('copyPreviewLinkDone').classList.add('hidden');
     state.previewUrl = url || '';
     if (!url) {
-      urlBox.textContent = '（取不到預覽網址：請 IT 在 Config 填 PREVIEW_WEBAPP_URL）';
+      urlBox.textContent = '（取不到預覽網址，請通知管理員設定）';
       openLink.classList.add('hidden');
       openLink.removeAttribute('href');
       return;
@@ -3615,7 +3702,7 @@
       busyText: '儲存中…',
       // 失敗時一定要把按鈕文字改回來，否則會一直寫著「儲存中…」，
       // 看起來像仍然在跑。
-      onError: function (message) { setSaveButtonText('儲存'); showMessage('error', message); }
+      onError: function (message, err, technical) { setSaveButtonText('儲存'); showMessage('error', message, technical); }
     });
   }
 
@@ -3896,7 +3983,7 @@
     var needsSetup = !s.hasMaster;
     hint.classList.toggle('hidden', !needsSetup);
     if (needsSetup) {
-      hint.textContent = '請先在試算表按「週報系統 ▸ 建立 master 發佈檔案」建立一次，之後那一條連結就永遠不變。';
+      hint.textContent = '固定的 master 連結未建立。請通知管理員建立一次（只需要一次），之後那一條連結就永遠不變。';
     }
   }
 
@@ -4330,6 +4417,7 @@
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
       if (resp.data.wordFile) renderWordFileInfo(resp.data.wordFile);
       var done = downloadWordMessage(resp.data);
+      mergeExtraWarnings(resp.data.warnings);
       showMessage(done.type, done.text);
     }, { busyText: draft ? '產生 Word 草稿中…' : '產生 Word 檔中…' });
   }
@@ -4402,7 +4490,8 @@
       }
       var label = resp.data.kind === 'SNAPSHOT' ? '這個版本的 Word 預覽'
         : (resp.data.kind === 'DRAFT' ? 'Word 草稿預覽（包括未儲存的修改）' : '這一期最新的 Word');
-      var warn = (resp.data.warnings && resp.data.warnings.length) ? ('（' + resp.data.warnings.length + ' 項提示，見下面的警告）') : '';
+      var warn = (resp.data.warnings && resp.data.warnings.length) ? ('（' + resp.data.warnings.length + ' 項提示，按頂部「警告」查看）') : '';
+      mergeExtraWarnings(resp.data.warnings);
       showMessage('success', (opened ? '已在新分頁開啟' : '已產生') + label + '：' + resp.data.fileName + warn
         + (opened ? '' : '。瀏覽器擋了新分頁，請按「開啟預覽」旁邊的連結。'));
     }, { busyText: busy });
@@ -5051,7 +5140,7 @@
     } else if (weeks.emptyHint) {
       showMessage('info', weeks.emptyHint);
     } else {
-      showMessage('error', '目前沒有任何主日資料。請先在試算表用選單「建立本季空白週報」建立骨架。');
+      showMessage('error', '目前沒有任何主日資料。職事表出了某一季的版本之後，系統會自動建立那一季的週報；如果職事表已經出了而仍然看到這一句，請通知管理員。');
     }
   }
 
@@ -5067,7 +5156,7 @@
       //    訊息要分得出——前者撳一下勾選格就見得返。
       showMessage('info', resp.data.emptyHint);
     } else {
-      showMessage('error', '目前沒有任何主日資料。請先在試算表用選單「建立本季空白週報」建立骨架。');
+      showMessage('error', '目前沒有任何主日資料。職事表出了某一季的版本之後，系統會自動建立那一季的週報；如果職事表已經出了而仍然看到這一句，請通知管理員。');
     }
   }
 

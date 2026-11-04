@@ -1034,8 +1034,9 @@ test('14. callServer() 有逾時，而且逾時訊息指得出去哪裏查', fun
   assert.ok(code.indexOf('function serverCallTimeoutMs(') !== -1);
   assert.ok(code.indexOf('data-call-timeout-sec') !== -1, '逾時秒數要由 Config 帶進來，不可以寫死');
   assert.ok(code.indexOf('秒內沒有回應') !== -1);
-  assert.ok(code.indexOf('ErrorLog') !== -1 && code.indexOf('執行項目') !== -1,
-    '逾時訊息要講明去哪裏查');
+  // 2026-11-04（Ivan 測試結果 C）：幹事不會看 ErrorLog／執行項目，改講「重新載入頁面核對；未能確定請通知管理員」。
+  assert.ok(code.indexOf('重新載入頁面核對') !== -1 && code.indexOf('請通知管理員') !== -1,
+    '逾時訊息要講明怎樣核對');
 
   // FillConflict.html 是另一個獨立文件，同樣要有逾時。
   const dialog = stripJsComments(uiFiles().filter(function (f) { return f.name === 'FillConflict.html'; })[0].text);
@@ -1113,6 +1114,9 @@ test('15. 由真正入口（apiRunPublish）跑一次完整發佈，不拋錯', 
   assert.strictEqual(resp.data.ok, true, resp.data.message);
   assert.strictEqual(resp.data.published.versionNo, 1);
   assert.strictEqual(env.mails.length, 1);
+  // 2026-11-04（Ivan）：主旨去教會全名、加發佈版本號；稱呼按勾選的組別。
+  assert.ok(/週報 v1 — /.test(env.mails[0].subject) && env.mails[0].subject.indexOf('基督教中國佈道會') === -1, env.mails[0].subject);
+  assert.strictEqual(String(env.mails[0].body).split('\n')[0], '各位堂委：');
   assert.strictEqual(readErrorLog(env).length, 0, '順利跑完就不應該有任何 ErrorLog');
 
   // 每一個 Drive 呼叫都帶了 Shared Drive 參數。

@@ -297,6 +297,8 @@ function makeEnv(options) {
   // ⚠️ 網域喺 DEFAULTS 係空字串（唔可以寫死真實網域），所以測試自己填一個
   // 假嘅——測試要驗證嘅係「有填就設 DOMAIN 權限」。
   cfg.CONTENT_SHEET_DOMAIN = 'example.invalid';
+  // 2026-11-04：邀請信預設不寄（由職事表系統寄）；這裏測的是開了之後的寄法。預設不寄見 tests/emailtemplates1104.test.js。
+  cfg.CONTENT_SHEET_INVITE_EMAIL_ENABLED = 'TRUE';
   Object.assign(cfg, o.config || {});
 
   function ownSheet(sheetId, rows) {

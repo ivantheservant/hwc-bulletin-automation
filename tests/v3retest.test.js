@@ -164,7 +164,7 @@ test('autoCreateContentSheetsForUpcomingQuarters_（真入口）：已完結、�
 
 test('sendContentSheetInvite_（真入口）：真的寄出就記指紋（星期一不會再寄）；試行不記；全部寄不出講明失敗、不記「已寄出」', function () {
   function inviteEnv(config, mailFn) {
-    const env = makeFillEnv({ withGrid: false, config: Object.assign({ CONTENT_SHEET_INVITE_GROUPS: 'ADMIN' }, config) });
+    const env = makeFillEnv({ withGrid: false, config: Object.assign({ CONTENT_SHEET_INVITE_GROUPS: 'ADMIN', CONTENT_SHEET_INVITE_EMAIL_ENABLED: 'TRUE' }, config) });
     const sb = env.sandbox;
     sb.findContentSheetRow_ = function (q) { return { QUARTER_ID: q, FILE_URL: 'https://docs.google.com/x', ACTIVE: true, INVITE_SENT_AT: '' }; };
     sb.updateContentSheetField_ = function (q, k, v) { (sb.__fields = sb.__fields || []).push(k); };

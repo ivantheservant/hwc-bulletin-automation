@@ -183,7 +183,9 @@ test('apiLoadWeek（填寫介面）：範本第 1 頁只有 2 格、要印 4 項
   assert.strictEqual(resp.ok, true, JSON.stringify(resp.error));
   const w = find(resp.data.warnings, 'DUTY_SLOT_OVERFLOW');
   assert.ok(w, JSON.stringify(codes(resp.data.warnings)));
-  assert.ok(w.message.indexOf('有 4 項要印') !== -1 && w.message.indexOf('只有 2 格（01–02）') !== -1, w.message);
+  // 2026-11-04：幹事看的句子（FriendlyMessages.gs）不提格號；格號、範本名稱在 adminDetail（給管理員參考）。
+  assert.ok(w.message.indexOf('有 4 項要印') !== -1 && w.message.indexOf('只有 2 格') !== -1, w.message);
+  assert.ok(w.adminDetail.indexOf('只有 2 格（01–02）') !== -1, w.adminDetail);
   assert.ok(w.message.indexOf('領詩：李領詩') !== -1 && w.message.indexOf('司琴：張司琴') !== -1, w.message);
   assert.ok(w.message.indexOf('主席') === -1, '印得到的不列出：' + w.message);
   assert.ok(!find(resp.data.warnings, 'NEXT_DUTY_SLOT_OVERFLOW'), '下週只印 2 行（空白的兩行不印），2 格夠');
@@ -222,7 +224,8 @@ test('generateBulletinDocx_（產生 Word）：用正在渲染的範本核對，
   const w = find(result.warnings, 'DUTY_SLOT_OVERFLOW');
   assert.ok(w && w.message.indexOf('司琴：張司琴') !== -1, JSON.stringify(codes(result.warnings)));
   const loaded = find(env.sandbox.apiLoadWeek(D).data.warnings, 'DUTY_SLOT_OVERFLOW');
-  assert.strictEqual(loaded.message, w.message, '兩處同一套純函式，文字一定相同');
+  assert.strictEqual(loaded.adminDetail, w.message, '兩處同一套純函式，原本的文字一定相同');
+  assert.strictEqual(loaded.message, env.sandbox.toFriendlyWarning_(w).message, '幹事看到的句子亦相同');
 });
 
 test('generateBulletinDocx_：格數夠 → 沒有事奉格警告', function () {

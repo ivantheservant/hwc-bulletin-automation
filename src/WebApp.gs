@@ -413,9 +413,13 @@ function withApiResult_(fn, context) {
         detail: buildErrorDetail_(err, context)
       });
     }
+    // 2026-11-04（Ivan 測試結果 C）：幹事看的是人話（FriendlyMessages.gs）；原本的技術內容放 adminDetail，ErrorLog 照記原文。
+    var friendly = friendlyApiError_(errorCode, message);
+    var errorOut = { code: errorCode, message: friendly.message };
+    if (friendly.adminDetail) errorOut.adminDetail = friendly.adminDetail;
     return {
       ok: false,
-      error: { code: errorCode, message: message }
+      error: errorOut
     };
   }
 }
@@ -1294,7 +1298,7 @@ function bulletinWordPreview_(isoDate, options) {
     }
     return {
       url: stored.wordFile.url, fileName: result.fileName, kind: kind, wordFile: stored.wordFile,
-      warnings: (result.warnings || []).concat(stored.warning ? [stored.warning] : [])
+      warnings: toFriendlyWarnings_((result.warnings || []).concat(stored.warning ? [stored.warning] : []))
     };
   }
 
@@ -1307,7 +1311,7 @@ function bulletinWordPreview_(isoDate, options) {
   var suffix = kind === 'SNAPSHOT' ? '（版本預覽）' : (viewerPreview ? '（預覽）' : '（草稿預覽）');
   var name = String(result.fileName || '').replace(/\.docx$/i, '') + suffix + '.docx';
   var written = writeLatestOutputFile_(result.blob, folderId, name, WORD_PREVIEW_SUBFOLDER_);
-  return { url: written.url, fileName: name, kind: kind, wordFile: null, warnings: result.warnings || [] };
+  return { url: written.url, fileName: name, kind: kind, wordFile: null, warnings: toFriendlyWarnings_(result.warnings) };
 }
 
 /**
@@ -1436,14 +1440,14 @@ function bulletinDocxForDownload_(isoDate, draft) {
   if (!draft && callerWebAppRole_() === WEBAPP_ROLE_.VIEW) {
     return {
       fileName: result.fileName, base64: Utilities.base64Encode(result.blob.getBytes()),
-      warnings: result.warnings || [], wordFile: null, draft: false
+      warnings: toFriendlyWarnings_(result.warnings), wordFile: null, draft: false
     };
   }
   if (draft) {
     var draftName = String(result.fileName || '').replace(/\.docx$/i, '') + '（草稿）.docx';
     return {
       fileName: draftName, base64: Utilities.base64Encode(result.blob.getBytes()),
-      warnings: result.warnings || [], wordFile: null, draft: true
+      warnings: toFriendlyWarnings_(result.warnings), wordFile: null, draft: true
     };
   }
   var stored = tryStoreLatestBulletinDocx_(isoDate, result, {
@@ -1453,7 +1457,7 @@ function bulletinDocxForDownload_(isoDate, draft) {
   return {
     fileName: result.fileName,
     base64: Utilities.base64Encode(result.blob.getBytes()),
-    warnings: (result.warnings || []).concat(stored.warning ? [stored.warning] : []),
+    warnings: toFriendlyWarnings_((result.warnings || []).concat(stored.warning ? [stored.warning] : [])),
     wordFile: stored.wordFile,
     draft: false
   };
@@ -2115,7 +2119,7 @@ function loadWeekForWebApp_(isoDate, timer) {
     // 前端不可以再自己 filter 一次 `optional`——那是第三份分類。
     // G14：另附面板顯示用、人數合併成一行的清單（見 missingSplitForWebApp_()）。
     missingSplit: missingSplitForWebApp_(model.missing),
-    warnings: (model.warnings || []).concat(dutySlotWarnings),
+    warnings: toFriendlyWarnings_((model.warnings || []).concat(dutySlotWarnings)),
     options: webAppFieldOptions_(),
     // 第六輪：週報與職事表的比對結果。前端用 `conflictCount` 顯示頂部
     // 的「衝突 N 項」，用 `rows` 展開比對清單。

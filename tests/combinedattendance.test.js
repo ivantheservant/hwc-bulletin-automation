@@ -310,7 +310,8 @@ test('CA-11 apiLoadWeek：合堂三格送去前端（唯讀）、readOnly.attend
     baseWeek: { ATT_COMB_WORSHIP: '285' }, week: { ATT_COMB_WORSHIP: '300' } });
   assert.strictEqual(save.ok, false, JSON.stringify(save));
   assert.strictEqual(save.error.code, 'CONTENT_SHEET_READONLY');
-  assert.ok(save.error.message.indexOf('合堂崇拜人數（ATT_COMB_WORSHIP）') !== -1, save.error.message);
+  assert.ok(save.error.adminDetail.indexOf('合堂崇拜人數（ATT_COMB_WORSHIP）') !== -1, save.error.adminDetail);
+  assert.ok(save.error.message.indexOf('合堂崇拜人數') !== -1 && save.error.message.indexOf('ATT_COMB') === -1, save.error.message);
   assert.strictEqual(String(env.sandbox.readSheet_('BulletinWeeks')[1].ATT_COMB_WORSHIP), '285');
 });
 

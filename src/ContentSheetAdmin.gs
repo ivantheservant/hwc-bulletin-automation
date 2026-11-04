@@ -661,6 +661,13 @@ function maskContentFileId_(fileId) {
 function sendContentSheetInvite_(quarterId) {
   var qid = String(quarterId || '').trim();
   var dryRun = normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
+  // 2026-11-04（Ivan）：內容表邀請信由職事表系統寄，週報系統預設不寄（內容表照樣建立）。
+  if (normalizeBoolean_(getConfig_(CONFIG_KEYS.CONTENT_SHEET_INVITE_EMAIL_ENABLED, 'FALSE')) !== true) {
+    return {
+      sent: false, dryRun: dryRun, recipientCount: 0, reason: 'DISABLED',
+      message: '內容表邀請信由職事表系統寄出，週報系統沒有寄（Config ' + CONFIG_KEYS.CONTENT_SHEET_INVITE_EMAIL_ENABLED + ' 是 FALSE）。'
+    };
+  }
 
   var row = findContentSheetRow_(qid);
   if (!row) {

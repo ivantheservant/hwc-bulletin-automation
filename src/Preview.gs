@@ -670,9 +670,14 @@ function sendPreviewNotice_(isoDate) {
   //    不要求幹事先改範本。
   var contentSheet = contentSheetLinkForIsoDate_(isoDate);
   var contentSheetUrl = contentSheet.url;
+  // 2026-11-04（Ivan）：稱呼按組別、主旨加版本號。
+  var version = noticeVersionVars_(isoDate, null);
   var vars = {
     ChurchName: getConfig_(CONFIG_KEYS.CHURCH_NAME, ''),
     CongregationName: congregationName_(),
+    Salutation: emailSalutationForGroups_(config.sendGroups),
+    VersionNo: version.VersionNo,
+    VersionLabel: version.VersionLabel,
     ServiceDate: isoDate,
     PreviewUrl: previewUrl,
     ContentSheetUrl: contentSheet.text,
@@ -687,7 +692,7 @@ function sendPreviewNotice_(isoDate) {
       : bodyTemplate + '\n\n' + contentParagraph;
   }
   var subject = renderEmailTemplate_(String(template.SUBJECT || ''), vars, []);
-  var plainBody = renderEmailTemplate_(bodyTemplate, vars, []);
+  var plainBody = tidyEmailBlankLines_(renderEmailTemplate_(bodyTemplate, vars, []));
 
   var sendLogRows = [];
   var failed = [];
@@ -726,6 +731,7 @@ function sendPreviewNotice_(isoDate) {
   });
 
   writeSendLogRows_(sendLogRows);
+  commitNoticeDraftSeq_(isoDate, version.draftSeq);
 
   // v3 重測（獨立審查）：全部寄不出（額度用完、地址錯）就不可以講成功——觸發器靠 `sent:false` 才會記 ErrorLog。
   var total = recipientsResult.recipients.length;

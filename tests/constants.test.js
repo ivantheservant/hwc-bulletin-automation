@@ -207,7 +207,8 @@ test('CONFIG_KEYS 剛好 153 個（與 DEFAULTS 一一對應）', function () {
   // 2026-11-02：+1（EMAIL_ALLOWLIST，寄送名單），155 → 156。
   // 2026-11-03：+1（CONGREGATION_NAME，多堂會），156 → 157。
   // 2026-11-03：+1（PERSON_NAME_SPLIT_CHARS，同一格幾個名字逐個套尊稱），157 → 158。
-  assert.strictEqual(Object.keys(CONFIG_KEYS).length, 158);
+  // 2026-11-04：+3（CONFLICT_NOTICE_EMAIL_ENABLED、CONTENT_SHEET_INVITE_EMAIL_ENABLED、RECIPIENT_GROUP_TITLES），158 → 161。
+  assert.strictEqual(Object.keys(CONFIG_KEYS).length, 161);
 });
 
 test('這一輪新增的 Config 鍵 FINANCE_PERIOD_LABEL_PATTERN 有定義、有預設值', function () {
@@ -241,14 +242,15 @@ test('CONFIG_KEYS 每一個值都有對應的 DEFAULTS 項目（不會有「有�
 });
 
 test('DEFAULTS 剛好 153 筆（105 ＋ R-035 兩個 ＋ 階段 1 一個 ＋ 階段 2 兩個 ＋ 階段 3 十六個 ＋ D11 一個 ＋ 內容表 v2 一個 ＋ v3 六個 ＋ 2026-10-27 淨加兩個 ＋ 2026-10-30 五個 ＋ 2026-10-30 財政報告四個 ＋ 特別崇拜一個 ＋ 2026-10-30 第二批七個 ＋ 2026-11-02 合堂人數欄標題一個 ＋ 年度 logo 一個 ＋ 寄送名單一個）', function () {
-  assert.strictEqual(DEFAULTS.length, 158, '2026-11-03 加 CONGREGATION_NAME、PERSON_NAME_SPLIT_CHARS');
+  assert.strictEqual(DEFAULTS.length, 161, '2026-11-04 加兩個電郵開關與組別稱呼');
 });
 
-test('內容表那 13 個 Config 鍵齊備，而且 ID 類 seed 成空字串', function () {
+test('內容表那 14 個 Config 鍵齊備，而且 ID 類 seed 成空字串', function () {
   const contentKeys = Object.keys(CONFIG_KEYS).filter(function (k) { return k.indexOf('CONTENT_SHEET_') === 0; });
   // 2026-08-27 由 9 變 10：R-035 加了 CONTENT_SHEET_ARCHIVE_FOLDER_ID（封存資料夾）。
   // 2026-10-30 由 10 變 13：內容表權限（CONTENT_SHEET_LINK_ACCESS、CONTENT_SHEET_EDITOR_GROUPS、CONTENT_SHEET_FINANCE_EDITOR_GROUPS）。
-  assert.strictEqual(contentKeys.length, 13, '實際：' + contentKeys.join('、'));
+  // 2026-11-04 由 13 變 14：CONTENT_SHEET_INVITE_EMAIL_ENABLED（邀請信由職事表系統寄，預設不寄）。
+  assert.strictEqual(contentKeys.length, 14, '實際：' + contentKeys.join('、'));
 
   const byKey = {};
   DEFAULTS.forEach(function (d) { byKey[d.key] = d; });

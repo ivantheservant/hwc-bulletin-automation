@@ -62,6 +62,9 @@ function initializeAllSheets_() {
     NUMBER_REGISTRY: seedNumberRegistry_()
   };
 
+  // 2026-11-04：已有的系統電郵範本，仍然是舊預設值的更新為新預設值（src/EmailTemplateUpgrade.gs）。
+  var emailTemplateUpgrades = upgradeSystemSeededEmailTemplates_();
+
   // ⚠️ 排在種 Config 預設值之後：例外編輯者讀 Config 的 PROTECTION_EDITOR_EMAILS，
   //    全新試算表要先有 Config 才讀得到。只動新建的表，既有的一張都不碰。
   var newSheetProtection = protectNewlyCreatedSheets_(ss, createdSheetNames);
@@ -76,6 +79,7 @@ function initializeAllSheets_() {
     publishLogBackfill: publishLogBackfill,
     publishLogMd5Backfill: publishLogMd5Backfill,
     configUpgrades: configUpgrades,
+    emailTemplateUpgrades: emailTemplateUpgrades,
     programTemplateAuto: programTemplateAuto,
     seedRowsAdded: seedRowsAdded
   };
@@ -890,9 +894,9 @@ function seedEmailTemplatesRows_() {
     seedSendNoticeRow_(),
     {
       TEMPLATE_ID: 'PREVIEW_NOTICE',
-      SUBJECT: '{{ChurchName}}{{CongregationName}}週報草稿預覽 — {{ServiceDate}}',
+      SUBJECT: '{{CongregationName}}週報草稿預覽 {{VersionNo}} — {{ServiceDate}}',
       BODY: [
-        '各位主內肢體：',
+        '{{Salutation}}',
         '',
         '平安！',
         '',
@@ -922,13 +926,13 @@ function seedEmailTemplatesRows_() {
     },
     {
       TEMPLATE_ID: 'TPL_WEEKLY_BULLETIN',
-      SUBJECT: '{{ChurchName}}{{CongregationName}}週報 — {{ServiceDate}}',
+      SUBJECT: '{{CongregationName}}週報 {{VersionLabel}} — {{ServiceDate}}',
       BODY: [
-        '各位主內肢體：',
+        '{{Salutation}}',
         '',
         '平安！',
         '',
-        '隨函附上 {{ServiceDate}} 主日的{{ChurchName}}{{CongregationName}}週報，敬請查收。',
+        '隨函附上 {{ServiceDate}} 主日的{{CongregationName}}週報，敬請查收。',
         '',
         '如發現資料有任何錯漏，請回覆此郵件告知，以便盡快更正。',
         '',
@@ -1062,13 +1066,13 @@ function seedNumberRegistryRows_() {
 function seedSendNoticeRow_() {
   return {
     TEMPLATE_ID: 'SEND_NOTICE',
-    SUBJECT: '{{ChurchName}}{{CongregationName}}週報 — {{ServiceDate}}',
+    SUBJECT: '{{CongregationName}}週報 {{VersionLabel}} — {{ServiceDate}}',
     BODY: [
-      '各位主內肢體：',
+      '{{Salutation}}',
       '',
       '平安！',
       '',
-      '{{ServiceDate}} 主日的{{ChurchName}}{{CongregationName}}週報，預覽連結如下（只供核對內容，版面與印刷版不同）：',
+      '{{ServiceDate}} 主日的{{CongregationName}}週報，預覽連結如下（只供核對內容，版面與印刷版不同）：',
       '',
       '{{PreviewUrl}}',
       '',
@@ -1112,13 +1116,13 @@ function seedSendNoticeRow_() {
 function seedPublishNoticeRow_() {
   return {
     TEMPLATE_ID: PUBLISH_TEMPLATE_ID_,
-    SUBJECT: '{{ChurchName}}{{CongregationName}}週報已發佈 — {{ServiceDate}}',
+    SUBJECT: '{{CongregationName}}週報已發佈 {{VersionNo}} — {{ServiceDate}}',
     BODY: [
-      '各位主內肢體：',
+      '{{Salutation}}',
       '',
       '平安！',
       '',
-      '{{ServiceDate}} 主日的{{ChurchName}}{{CongregationName}}週報已經發佈，可以在以下連結閱讀：',
+      '{{ServiceDate}} 主日的{{CongregationName}}週報已經發佈，可以在以下連結閱讀：',
       '',
       '{{MasterLink}}',
       '',
