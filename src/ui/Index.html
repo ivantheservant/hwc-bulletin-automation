@@ -3,7 +3,8 @@
 <div id="app" data-call-timeout-sec="<?= callTimeoutSec ?>" data-view-only="<?= viewOnly ?>">
 
   <? if (schemaWarning) { ?>
-  <div class="schema-warning">工作表結構落後於程式碼（<?= schemaWarning ?>），請先在試算表按「週報系統 ▸ 初始化工作表」。</div>
+  <div class="schema-warning">系統剛更新，要先由管理員做一次「初始化」，在此之前不可以儲存。請通知管理員。
+    <details class="admin-detail"><summary>給管理員參考</summary><div>工作表結構落後於程式碼（<?= schemaWarning ?>），請先在試算表按「週報系統 ▸ 初始化工作表」。</div></details></div>
   <? } ?>
 
   <!--
@@ -368,7 +369,7 @@
       </div>
       <p class="hint">
         只有浸禮三堂聯合崇拜那一週才需要填，<strong>只在這裏填</strong>（內容表沒有這六格）。三個「主禮」是<strong>一位</strong>——
-        <strong>在尊稱對照表（試算表的 PersonDisplay 工作表）找得到的才會自動套用尊稱，找不到就原樣印出</strong>
+        <strong>已經設定稱呼的人會自動加上稱呼，未設定的原樣印出</strong>
         （例如直接打「ET牧師」會原樣印出，並在警告清單提一句）。
         三個名單欄可以填<strong>多位</strong>，用空格分隔，<strong>原樣印出</strong>（不會自動加尊稱、不會重新排序）。
         留空的一行不會印在週報上，六格全部留空整個副框都不會出現。

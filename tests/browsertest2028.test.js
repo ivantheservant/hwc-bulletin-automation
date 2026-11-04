@@ -614,8 +614,10 @@ test('D4-3 填寫介面（Index.html 標籤外文字、title、placeholder；Scr
     });
   });
   assert.deepStrictEqual(offenders, []);
-  assert.ok(indexVisibleTexts().some(function (t) { return t.indexOf('尊稱對照表（試算表的 PersonDisplay 工作表）') !== -1; }),
-    'PersonDisplay 是幹事要維護的表，保留名稱讓人找得到，但先講中文');
+  // 2026-11-04（Ivan 測試結果 C）：幹事不會打開週報系統試算表，介面不再叫人去 PersonDisplay 工作表；稱呼由管理員設定。
+  assert.ok(indexVisibleTexts().some(function (t) { return t.indexOf('已經設定稱呼的人會自動加上稱呼') !== -1; }));
+  const sheetMentions = indexVisibleTexts().filter(function (t) { return /PersonDisplay|試算表的/.test(t); });
+  assert.deepStrictEqual(sheetMentions, [], '介面文字不叫人去試算表');
 });
 
 test('RV6-1 審查後修正 6：src/ 全部 .gs 與 src/ui/ 全部 .html 的中文字串常值（給人看的字）沒有口語字（撳、嘅、呢、係、唔、冇、咗……；「關係」等正常詞除外）', function () {

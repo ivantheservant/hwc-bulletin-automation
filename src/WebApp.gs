@@ -104,8 +104,7 @@ function renderPreviewResponse_(e) {
   if (!isPreviewCallerAuthorized_()) {
     return HtmlService.createHtmlOutput(renderWebAppMessagePage_(
       '沒有權限查看草稿預覽', buildNoAccessLines_().concat([
-        '（草稿預覽目前設定為只限名單內的人查看：Config 的 '
-          + CONFIG_KEYS.PREVIEW_REQUIRE_ALLOWLIST + ' 是 TRUE。）'
+        '（草稿預覽目前只限填寫介面名單內的人查看。）'
       ])));
   }
 
@@ -195,10 +194,11 @@ function escapeHtml_(text) {
 function buildNoAccessLines_() {
   var caller = getCallerEmail_();
   return [
-    '您目前沒有權限使用本填寫介面。',
+    '你目前沒有權限使用本填寫介面。',
     '你目前登入的是：' + (caller || '（查不到——可能未登入，或者瀏覽器擋住了帳戶資訊）'),
     '如果那不是你的教會帳戶，請先在瀏覽器切換帳戶再開一次。',
-    '如果帳戶正確，請聯絡管理者，在 Config 的 WEBAPP_ALLOWED_EMAILS 加入您的電郵（逗號分隔）。'
+    // 2026-11-04（Ivan 測試結果 C）：用戶看的句子不提 Config 鍵；管理員做法見「權限設定快速指南」。
+    '如果帳戶正確，請聯絡管理員，把上面的電郵加入填寫介面的名單。'
   ];
 }
 /**
