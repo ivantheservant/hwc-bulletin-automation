@@ -892,6 +892,8 @@ function seedEmailTemplatesRows_() {
   return [
     seedPublishNoticeRow_(),
     seedSendNoticeRow_(),
+    // R-057：每日管理員摘要（src/AdminDigest.gs）。
+    adminDigestTemplateRow_(),
     {
       TEMPLATE_ID: 'PREVIEW_NOTICE',
       SUBJECT: '{{CongregationName}}週報草稿預覽 {{VersionNo}} — {{ServiceDate}}',

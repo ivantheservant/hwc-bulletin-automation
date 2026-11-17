@@ -340,4 +340,16 @@ function dailyQuarterAutoCreateTrigger_() {
       message: (err && err.message) ? err.message : String(err), detail: buildErrorDetail_(err)
     });
   }
+  // R-057（2026-11-17）：第三段：每日管理員摘要（觸發器失敗、星期一流程沒有執行）。排在最後，這樣上面兩段
+  //    今日的失敗亦會在同一封摘要內。`runAdminDailyDigest_()` 自己永不拋錯；這裏仍然包 try/catch，
+  //    摘要失敗不影響建立季度與排序（兩段已經做完），只記 ErrorLog。
+  try {
+    runAdminDailyDigest_({ source: 'TRIGGER' });
+  } catch (err) {
+    appendErrorLog_({
+      source: ERROR_LOG_SOURCE.TRIGGER, functionName: 'runAdminDailyDigest_',
+      errorCode: (err && err.code) || 'ERROR',
+      message: (err && err.message) ? err.message : String(err), detail: buildErrorDetail_(err)
+    });
+  }
 }

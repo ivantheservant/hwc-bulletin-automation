@@ -5,9 +5,11 @@
  * 三個選單（安裝／移除／查看狀態）。**觸發器一律要幹事自己在選單撳
  * 「安裝自動寄送觸發器」才會建立**——不會有任何程式碼自動幫你裝上。
  *
- * ⚠️ Apps Script 的時間觸發器只能指定「小時」（`atHour()`），**不保證
- * 準確在該小時的第幾分鐘執行**，可能有數十分鐘的誤差。這件事在安裝
- * 對話框與 `docs/幹事操作說明.md` 都要講清楚，不要讓人以為是準時執行。
+ * ⚠️ Apps Script 的時間觸發器**不保證準時**：`atHour()` 只指定小時，`nearMinute()` 指定
+ * 「大約第幾分鐘」，實際執行時間在指定分鐘的**前後 15 分鐘**之內。R-059（2026-11-17）起
+ * 兩個時間觸發器（星期一寄送、每日自動建立季度）都帶 `nearMinute(SEND_MINUTE)`；
+ * 以前只有小時，Config `SEND_MINUTE` 只是顯示用，實際執行時間在該小時內任何時候。
+ * 這件事在安裝對話框與 `docs/幹事操作說明.md` 都要講清楚，不要讓人以為是準時執行。
  */
 
 'use strict';
@@ -111,6 +113,15 @@ function weeklyBulletinSendTrigger_() {
     //    「那一季可以收起了」——那是判斷，不是規則。
     try {
       var retentionResult = runQuarterRetention_({});
+      // R-035 修正（2026-11-17）：算不出今日所在的季度時一季都不封存，一定要講出來（不可以靜靜當作沒有事）。
+      if (retentionResult.reason) {
+        appendErrorLog_({
+          source: ERROR_LOG_SOURCE.TRIGGER,
+          functionName: 'weeklyBulletinSendTrigger_/runQuarterRetention_',
+          errorCode: 'RETENTION_NO_CURRENT_QUARTER',
+          message: retentionResult.reason
+        });
+      }
       var blockedQuarters = retentionResult.skipped.filter(function (s) {
         return s.reason === 'HAS_UNPUBLISHED_WORK';
       });
@@ -298,12 +309,15 @@ function resolveScriptAppWeekDay_(weekdayName) {
  * 用途：安裝每週自動寄送觸發器。**先刪除全部既有的同名觸發器，再建立
  *   一個新的**——避免連續安裝兩次變成寄兩封（見
  *   docs/幹事操作說明.md）。
+ *
+ *   R-059：星期一寄送與每日自動建立季度兩個觸發器都加 `.nearMinute(minute)`（Config `SEND_MINUTE`，
+ *   Apps Script 的誤差是前後 15 分鐘）。`SEND_MINUTE` 不是 0 至 59 的整數時用 0，並在回傳值講明
+ *   （`minuteValid:false`），不靜靜當作沒事。部署之後要重新安裝才會生效。
  * Args: （無）
  * Returns:
- *   {{weekday:string, hour:number, minute:number, removedCount:number}}
- *     `minute` 只是把 Config `SEND_MINUTE` 原樣帶出來顯示用——Apps
- *     Script 的時間觸發器實際上不能指定分鐘，這裡不會、也不能拿它來
- *     排程。
+ *   {{weekday:string, hour:number, minute:number, minuteValid:boolean, removedCount:number,
+ *     dailyHour:number, syncMinutes:number, syncValid:boolean}}
+ *     `minute` 是實際用於 `nearMinute()` 的分鐘（大約，前後 15 分鐘）。
  * Raises:
  *   Error 如果 Config 的 `SEND_WEEKDAY` 不是合法的星期幾。
  */
@@ -312,13 +326,21 @@ function installWeeklySendTrigger_() {
 
   var weekdayName = getConfig_(CONFIG_KEYS.SEND_WEEKDAY, 'MONDAY');
   var hour = normalizeInt_(getConfig_(CONFIG_KEYS.SEND_HOUR, '6'));
-  var minute = normalizeInt_(getConfig_(CONFIG_KEYS.SEND_MINUTE, '0'));
+  var minuteRaw = null;
+  try {
+    minuteRaw = normalizeInt_(getConfig_(CONFIG_KEYS.SEND_MINUTE, '0'));
+  } catch (minuteErr) {
+    minuteRaw = null;                                    // 不是整數：下面當作不合法，改用 0 並講明。
+  }
+  var minuteValid = minuteRaw !== null && isFinite(minuteRaw) && minuteRaw >= 0 && minuteRaw <= 59;
+  var minute = minuteValid ? minuteRaw : 0;
   var weekDayEnum = resolveScriptAppWeekDay_(weekdayName);
 
   ScriptApp.newTrigger('weeklyBulletinSendTrigger_')
     .timeBased()
     .onWeekDay(weekDayEnum)
     .atHour(hour)
+    .nearMinute(minute)
     .create();
 
   // v3：每日自動建立季度（職事表有新季度的版本時建立週報與內容表）。排在寄送之前一小時，
@@ -328,6 +350,7 @@ function installWeeklySendTrigger_() {
     .timeBased()
     .everyDays(1)
     .atHour(dailyHour)
+    .nearMinute(minute)
     .create();
 
   // 2026-10-30：內容表有改動就每 N 分鐘自動匯入（src/ContentAutoSync.gs）。0＝不安裝；不是允許的值也不安裝，
@@ -340,7 +363,7 @@ function installWeeklySendTrigger_() {
   }
 
   return {
-    weekday: weekdayName, hour: hour, minute: minute, removedCount: removedCount, dailyHour: dailyHour,
+    weekday: weekdayName, hour: hour, minute: minute, minuteValid: minuteValid, removedCount: removedCount, dailyHour: dailyHour,
     syncMinutes: sync.minutes, syncValid: sync.valid
   };
 }
@@ -359,8 +382,9 @@ function menuInstallSendTrigger_() {
     ui.alert(
       '安裝自動寄送觸發器',
       [
-        '已安裝：每週' + weekdayLabel + '　約 ' + result.hour + ':' + pad2Trigger_(result.minute) + ' 執行一次。',
-        '另外每日約 ' + result.dailyHour + ':00 檢查一次職事表有沒有新季度（有就自動建立該季週報與內容表），'
+        '已安裝：每週' + weekdayLabel + '　約 ' + result.hour + ':' + pad2Trigger_(result.minute) + ' 執行一次（前後 15 分鐘）。',
+        result.minuteValid ? '' : '⚠️ Config ' + CONFIG_KEYS.SEND_MINUTE + ' 不是 0 至 59 的整數，已改用 0。',
+        '另外每日約 ' + result.dailyHour + ':' + pad2Trigger_(result.minute) + ' 檢查一次職事表有沒有新季度（有就自動建立該季週報與內容表），'
           + '並把內容表的家事報告、代禱事項、財政報告按主日日期與次序排好。',
         result.syncMinutes > 0
           ? '內容表有改動時，每 ' + result.syncMinutes + ' 分鐘自動匯入今日及之後的主日（預覽連結會隨之更新）。'
@@ -369,9 +393,8 @@ function menuInstallSendTrigger_() {
             : '⚠️ Config ' + CONFIG_KEYS.CONTENT_AUTO_SYNC_MINUTES + ' 不是 0、5、10、15、30 或 60，內容表自動同步沒有安裝。'),
         (result.removedCount > 0 ? '（先移除了 ' + result.removedCount + ' 個舊的同名觸發器，避免重複寄送。）' : ''),
         '',
-        '⚠️ Apps Script 的時間觸發器只保證在指定小時內執行，不保證準確在',
-        '第幾分鐘——實際觸發時間可能比預定時間晚數十分鐘，請不要當成',
-        '準時執行。'
+        '⚠️ Apps Script 的時間觸發器不保證準時：實際執行時間在上面的時間前後 15 分鐘之內，',
+        '請不要當成準時執行。'
       ].filter(function (line) { return line !== ''; }).join('\n'),
       ui.ButtonSet.OK
     );

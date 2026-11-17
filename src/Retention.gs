@@ -59,25 +59,61 @@ function retentionConfig_() {
 }
 
 /**
+ * 用途：算出「今日所在的季度」，封存的唯一基準。**不看 `WEBAPP_SIMULATED_TODAY`**——模擬今日是填寫介面的
+ *   測試設定，不可以影響自動封存（與 `weeklyTriggerTargetSunday_()` 一致，用 Config `SYS_TIMEZONE` 的真正今日）。
+ *   季度 ID 一律由日期用曆法算（`calendarQuarterIdForIsoDate_()`，T1＝1 至 3 月……）；週報的 `QUARTER_ID`
+ *   必須等於主日所在的曆季，這由不變量 I11 逐行守住。
+ * Args:
+ *   todayIso {string=} 測試的注入點（yyyy-MM-dd）；正式流程不傳。
+ * Returns:
+ *   {{quarterId:string, todayIso:string, reason:string}} 算不出時 `quarterId` 是空字串，`reason` 講明原因
+ *     （呼叫方一定要講出來，不可以靜靜當作沒有事）。
+ * Raises:
+ *   （無：讀不到今日改回 `reason`）
+ */
+function retentionCurrentQuarter_(todayIso) {
+  var today = realTodayIso_(todayIso);
+  if (!today.todayIso) return { quarterId: '', todayIso: '', reason: today.reason };
+  var iso = today.todayIso;
+  var quarterId = calendarQuarterIdForIsoDate_(iso);
+  if (!quarterId) {
+    return { quarterId: '', todayIso: iso, reason: '今日日期不是合法的 yyyy-MM-dd：' + JSON.stringify(iso) };
+  }
+  return { quarterId: quarterId, todayIso: iso, reason: '' };
+}
+
+/**
  * 用途：決定哪幾季應該可見、哪幾季應該封存。**純函式。**
  *
- *   ⚠️ 沙盒季度**兩邊都不入**：既不算進「可見的 N 季」，也永遠不會被列入
- *   要封存的一批。它是自測機的沙盒，不是真實的一季。
+ *   R-035 修正（2026-11-17）：按「今日所在的季度」計算，**不再按季度編號排名**。以前把全部季度由新到舊排、
+ *   只留最新 N 季，BulletinWeeks 內有未來的測試季度（2028T2 等）時，今季與上線季被排到「要封存」。
  *
- *   ⚠️ 排序用季度 ID 的字串比較（`YYYYTn` 格式下，字串序 === 時間序），
- *   不是靠日期——日期要讀每一行，而這一支是純函式，刻意只吃季度清單。
+ *   規則：
+ *     - 可見範圍＝`currentQuarterId` 連之前共 `visibleCount` 季（曆法上的季度，不是「有資料的季度」）。
+ *     - 比可見範圍更舊的季度 → `toArchive`。
+ *     - **`currentQuarterId` 以及比它新的季度永遠不放入 `toArchive`**（未來的測試季度不會被自動封存，
+ *       亦不會擠走真正的季度）。
+ *     - `currentQuarterId` 空白或格式不合 → `toArchive` 是空陣列，`reason` 講明（呼叫方要講出來，不可以
+ *       退回舊的按排名做法）。
+ *
+ *   ⚠️ 沙盒季度**兩邊都不入**：既不算進可見，也永遠不會被列入要封存的一批。
+ *   ⚠️ 比較用季度 ID 的字串序（`YYYYTn` 格式下，字串序 === 時間序）。
  * Args:
  *   quarterIds {string[]} 全部出現過的季度 ID（可以有重複）。
- *   visibleCount {number} 要保留可見的季度數（本季 ＋ 前 N-1 季）。
+ *   visibleCount {number} 要保留可見的季度數（今日所在季度 ＋ 前 N-1 季）；不合法退回 2。
  *   sandboxQuarterId {string} 沙盒季度 ID；空字串代表沒有。
+ *   currentQuarterId {string} 今日所在的季度（`retentionCurrentQuarter_()`）。
  * Returns:
- *   {{visible:string[], toArchive:string[], sandbox:string[]}}
- *     `visible` 由新到舊；`toArchive` 同樣由新到舊。
+ *   {{visible:string[], toArchive:string[], sandbox:string[], currentQuarterId:string,
+ *     oldestVisibleQuarterId:string, reason:string}}
+ *     `visible` 由新到舊（包括比今日新的季度）；`toArchive` 同樣由新到舊。`oldestVisibleQuarterId` 是可見範圍
+ *     最舊的一季；`reason` 非空代表沒有按今日計算（`toArchive` 因此是空的）。
  */
-function planQuarterRetention_(quarterIds, visibleCount, sandboxQuarterId) {
+function planQuarterRetention_(quarterIds, visibleCount, sandboxQuarterId, currentQuarterId) {
   var sandbox = String(sandboxQuarterId || '').trim();
   var count = Number(visibleCount);
   if (!isFinite(count) || count < 1) count = 2;
+  var current = String(currentQuarterId || '').trim();
 
   var seen = {};
   var real = [];
@@ -96,10 +132,25 @@ function planQuarterRetention_(quarterIds, visibleCount, sandboxQuarterId) {
     return a < b ? 1 : -1;                                // 由新到舊
   });
 
+  if (!/^\d{4}T[1-4]$/.test(current)) {
+    return {
+      visible: real.slice(), toArchive: [], sandbox: sandboxSeen,
+      currentQuarterId: '', oldestVisibleQuarterId: '',
+      reason: '算不出今日所在的季度（收到 ' + JSON.stringify(currentQuarterId === undefined ? '' : currentQuarterId)
+        + '），所以一季都沒有封存。'
+    };
+  }
+
+  var oldestVisible = current;
+  for (var i = 1; i < Math.floor(count); i++) oldestVisible = previousQuarterId_(oldestVisible);
+
   return {
-    visible: real.slice(0, count),
-    toArchive: real.slice(count),
-    sandbox: sandboxSeen
+    visible: real.filter(function (q) { return q >= oldestVisible; }),
+    toArchive: real.filter(function (q) { return q < oldestVisible && q < current; }),
+    sandbox: sandboxSeen,
+    currentQuarterId: current,
+    oldestVisibleQuarterId: oldestVisible,
+    reason: ''
   };
 }
 
@@ -221,6 +272,26 @@ function setFillGridHidden_(quarterId, hidden) {
 }
 
 /**
+ * 用途：找出一季的內容表登記行，**不論「有效」是 TRUE 還是 FALSE**（同一季有多行時取最後一行）。
+ *   取消封存一定要用這一支：`findContentSheetRow_()` 只認有效的行，而封存之後那一行正正是 FALSE——
+ *   用它的話取消封存永遠找不到那一行，內容表登記行不會還原（R-055 測試發現）。
+ * Args:
+ *   quarterId {string} 季度 ID。
+ * Returns:
+ *   {?Object} `ContentSheets` 的資料列；沒有登記過回 `null`。
+ * Raises:
+ *   Error 讀 `ContentSheets` 失敗時原樣拋出。
+ */
+function findContentSheetRowAnyState_(quarterId) {
+  var target = String(quarterId || '').trim();
+  if (!target) return null;
+  var matches = readSheet_(SHEETS.CONTENT_SHEETS).filter(function (r) {
+    return String(r.QUARTER_ID || '').trim() === target;
+  });
+  return matches.length > 0 ? matches[matches.length - 1] : null;
+}
+
+/**
  * 用途：封存／取消封存一季的內容表登記行，並（設定了資料夾的話）搬檔案。
  *
  *   ⚠️ 未設定 `CONTENT_SHEET_ARCHIVE_FOLDER_ID` 時**只改 `ACTIVE`，不搬檔案**，
@@ -236,7 +307,7 @@ function setContentSheetArchived_(quarterId, archived, archiveFolderId) {
   var qid = String(quarterId || '').trim();
   var out = { ok: false, activeChanged: false, fileMoved: false, message: '' };
 
-  var row = findContentSheetRow_(qid);
+  var row = findContentSheetRowAnyState_(qid);
   if (!row) {
     out.ok = true;
     out.message = '季度「' + qid + '」沒有登記內容表，沒有東西要處理。';
@@ -389,21 +460,27 @@ function unarchiveQuarter_(quarterId) {
  *
  *   ⚠️ 這一支在三個地方被呼叫：「建立本季週報」之後、每季提示觸發器、
  *   以及選單「立即整理舊季度」。三處共用同一支，不可以各自寫一份。
+ *   R-035 修正（2026-11-17）：按**真正的今日**所在的季度計算（`retentionCurrentQuarter_()`），不看
+ *   `WEBAPP_SIMULATED_TODAY`。算不出今日所在的季度時一季都不封存，結果的 `ok` 是 false、`reason` 講明。
  * Args:
- *   options {{force:boolean=}=} `force:true` 代表使用者已經確認過那幾個
- *     「未發佈但有內容」的季度可以照樣封存。
+ *   options {{force:boolean=, todayIso:string=}=} `force:true` 代表使用者已經確認過那幾個
+ *     「未發佈但有內容」的季度可以照樣封存。`todayIso` 是測試的注入點，正式流程不傳。
  * Returns:
- *   {{ok:boolean, archived:Object[], skipped:Object[], visible:string[],
- *     lines:string[], message:string}}
+ *   {{ok:boolean, reason:string, archived:Object[], skipped:Object[], visible:string[],
+ *     currentQuarterId:string, lines:string[], message:string}}
+ *     `reason` 非空代表沒有按今日計算（見 `planQuarterRetention_()`）。
  */
 function runQuarterRetention_(options) {
   var opts = options || {};
   var config = retentionConfig_();
+  var current = retentionCurrentQuarter_(opts.todayIso);
 
   var quarterIds = readSheet_(SHEETS.BULLETIN_WEEKS).map(function (r) {
     return String(r.QUARTER_ID || '').trim();
   });
-  var plan = planQuarterRetention_(quarterIds, config.visibleQuarters, config.sandboxQuarterId);
+  var plan = planQuarterRetention_(quarterIds, config.visibleQuarters, config.sandboxQuarterId, current.quarterId);
+  // 算不出今日所在季度時，把原因（含讀不到今日的具體原因）帶出去。
+  if (plan.reason && current.reason) plan.reason = current.reason + '　所以一季都沒有封存。';
 
   var archived = [];
   var skipped = [];
@@ -423,13 +500,32 @@ function runQuarterRetention_(options) {
   });
 
   return {
-    ok: true,
+    ok: !plan.reason,
+    reason: plan.reason,
     archived: archived,
     skipped: skipped,
     visible: plan.visible,
+    currentQuarterId: plan.currentQuarterId,
     lines: buildRetentionReportLines_(plan, archived, skipped, config),
     message: buildRetentionSummary_(archived, skipped, plan)
   };
+}
+
+/**
+ * 用途：可見範圍涵蓋幾季（Config `RETENTION_QUARTERS_VISIBLE` 經 `planQuarterRetention_()` 修正後的值）。純函式。
+ *   由「今日所在季度」與「最舊保留季度」倒數，不靠有資料的季度數目。
+ * Args:
+ *   plan {Object} `planQuarterRetention_()` 的輸出。
+ * Returns:
+ *   {number} 算不出時回 0。
+ */
+function visibleQuarterSpan_(plan) {
+  var q = String((plan && plan.currentQuarterId) || '');
+  var oldest = String((plan && plan.oldestVisibleQuarterId) || '');
+  if (!q || !oldest) return 0;
+  var n = 1;
+  while (q !== oldest && n < 1000) { q = previousQuarterId_(q); n++; }
+  return n;
 }
 
 /**
@@ -443,6 +539,13 @@ function runQuarterRetention_(options) {
  */
 function buildRetentionSummary_(archived, skipped, plan) {
   var parts = [];
+  if (plan.reason) {
+    parts.push('⚠️ ' + plan.reason);
+  } else {
+    parts.push('今日所在季度是 ' + plan.currentQuarterId + '，保留 ' + plan.currentQuarterId
+      + ' 連之前共 ' + (visibleQuarterSpan_(plan)) + ' 季（最舊保留 ' + plan.oldestVisibleQuarterId
+      + '；今日之後的季度不會自動封存）。');
+  }
   if (archived.length === 0 && skipped.length === 0) {
     parts.push('沒有需要封存的季度。');
   } else {
@@ -470,8 +573,14 @@ function buildRetentionReportLines_(plan, archived, skipped, config) {
   var lines = [];
   lines.push('整理舊季度（R-035）');
   lines.push('');
-  lines.push('保留可見的季度數（' + CONFIG_KEYS.RETENTION_QUARTERS_VISIBLE + '）：'
-    + config.visibleQuarters);
+  if (plan.reason) {
+    lines.push('⚠️ ' + plan.reason);
+  } else {
+    lines.push('今日所在季度：' + plan.currentQuarterId + '（真正的今日，不看模擬今日）');
+    lines.push('保留 ' + plan.currentQuarterId + ' 連之前共 ' + config.visibleQuarters + ' 季（'
+      + CONFIG_KEYS.RETENTION_QUARTERS_VISIBLE + '），最舊保留 ' + plan.oldestVisibleQuarterId
+      + '；比它更舊的才封存，今日所在季度與之後的季度永遠不會被自動封存。');
+  }
   lines.push('目前可見：' + (plan.visible.length > 0 ? plan.visible.join('、') : '（沒有）'));
   if (plan.sandbox.length > 0) {
     lines.push('沙盒季度（永不封存、永不出現在用戶的季度下拉）：' + plan.sandbox.join('、'));
@@ -573,8 +682,9 @@ function menuRunQuarterRetention_() {
         + '　　• 季度填寫表是隱藏，不是刪除\n'
         + '　　• 內容表檔案沒有刪，只是登記行的「有效」改成 FALSE\n'
         + '　　• 隨時可以用選單「取消封存季度」完全還原\n\n'
-        + '目前設定保留最近 ' + config.visibleQuarters + ' 季（Config 的 '
-        + CONFIG_KEYS.RETENTION_QUARTERS_VISIBLE + '）。\n\n'
+        + '以真正的今日為準（今日所在季度：' + (retentionCurrentQuarter_().quarterId || '算不出') + '）：保留今日所在季度連之前共 '
+        + config.visibleQuarters + ' 季（Config 的 '
+        + CONFIG_KEYS.RETENTION_QUARTERS_VISIBLE + '），今日之後的季度不會被封存。\n\n'
         + '確定要開始嗎？',
       ui.ButtonSet.YES_NO);
     if (confirm !== ui.Button.YES) return;
@@ -641,5 +751,122 @@ function menuUnarchiveQuarter_() {
   } catch (err) {
     logMenuError_('menuUnarchiveQuarter_', err);
     ui.alert('取消封存失敗', enrichAuthError_(err), ui.ButtonSet.OK);
+  }
+}
+
+// =====================================================================
+// R-055：封存指定季度（清理測試季度用）
+// =====================================================================
+
+/**
+ * 用途：算出「封存指定季度」確認對話框要講的事實：這一季有幾個主日、幾個「未發佈而且有內容」的主日、
+ *   內容表會怎樣、是不是今日所在季度、是不是沙盒季度、是不是已經全部封存。唯讀，一格都不寫。
+ * Args:
+ *   quarterId {string} 季度 ID。
+ * Returns:
+ *   {{quarterId:string, valid:boolean, weekCount:number, alreadyArchived:boolean, isSandbox:boolean,
+ *     isCurrentQuarter:boolean, currentQuarterId:string, blockers:Object[], contentSheetRegistered:boolean,
+ *     archiveFolderConfigured:boolean}}
+ *     `valid:false` 代表格式不對或者週報完全沒有這一季（`weekCount` 是 0）。
+ * Raises:
+ *   Error 讀 `BulletinWeeks`／`ContentSheets` 失敗時原樣拋出（選單函式接住並寫 `ErrorLog`）。
+ */
+function buildArchiveQuarterPreview_(quarterId) {
+  var qid = String(quarterId || '').trim();
+  var config = retentionConfig_();
+  var rows = readSheet_(SHEETS.BULLETIN_WEEKS).filter(function (r) {
+    return String(r.QUARTER_ID || '').trim() === qid;
+  });
+  var current = retentionCurrentQuarter_();
+  return {
+    quarterId: qid,
+    valid: /^\d{4}T[1-4]$/.test(qid) && rows.length > 0,
+    weekCount: rows.length,
+    alreadyArchived: rows.length > 0 && rows.every(function (r) { return r.ARCHIVED === true; }),
+    isSandbox: !!config.sandboxQuarterId && qid === config.sandboxQuarterId,
+    isCurrentQuarter: !!current.quarterId && qid === current.quarterId,
+    currentQuarterId: current.quarterId,
+    blockers: findUnpublishedWorkInQuarter_(qid),
+    contentSheetRegistered: !!findContentSheetRow_(qid),
+    archiveFolderConfigured: !!config.archiveFolderId
+  };
+}
+
+/**
+ * 用途：排版「封存指定季度」確認對話框的內文。純函式。
+ * Args:
+ *   preview {Object} `buildArchiveQuarterPreview_()` 的輸出（`valid:true`、非沙盒、未封存）。
+ * Returns:
+ *   {string[]} 每個元素一行。
+ */
+function buildArchiveQuarterConfirmLines_(preview) {
+  var p = preview;
+  var lines = [];
+  lines.push('季度 ' + p.quarterId + '：共 ' + p.weekCount + ' 個主日。');
+  if (p.blockers.length > 0) {
+    lines.push('');
+    lines.push('⚠️ 其中 ' + p.blockers.length + ' 個主日未發佈，但已經有內容（封存之後預設見不到）：');
+    p.blockers.slice(0, 5).forEach(function (b) { lines.push('　' + b.isoDate + '　' + b.reason); });
+    if (p.blockers.length > 5) lines.push('　（另有 ' + (p.blockers.length - 5) + ' 個未列出）');
+  } else {
+    lines.push('沒有「未發佈而且有內容」的主日。');
+  }
+  lines.push('');
+  lines.push('內容表：' + (p.contentSheetRegistered
+    ? ('登記行的「有效」會改為 FALSE；檔案不會刪'
+      + (p.archiveFolderConfigured ? '，會搬去封存資料夾' : '（Config 沒有設定封存資料夾，所以不搬檔案）') + '。')
+    : '這一季沒有登記內容表，沒有東西要處理。'));
+  lines.push('');
+  lines.push('一格資料都不會刪。封存只是「預設不顯示」，隨時可以用選單「取消封存季度（完全還原）」還原。');
+  return lines;
+}
+
+/**
+ * 用途：選單「封存指定季度…」（R-055）：輸入季度 ID，看過對話框列出的事實，按確定才封存
+ *   （`archiveQuarter_(qid, { force: true })`）。主要用來清理測試季度；一格資料都不刪。
+ *
+ *   沙盒季度拒絕；今日所在季度要再確認一次；已經全部封存的只講一句。
+ * Args: （無）
+ * Returns:
+ *   {void}
+ * Raises:
+ *   （無）失敗時寫 `ErrorLog` 並用對話框顯示。
+ */
+function menuArchiveQuarter_() {
+  var ui = SpreadsheetApp.getUi();
+  try {
+    var quarterId = promptForQuarterId_(ui, '封存指定季度');
+    if (!quarterId) return;
+
+    var preview = buildArchiveQuarterPreview_(quarterId);
+    if (preview.isSandbox) {
+      ui.alert('封存指定季度', '季度 ' + preview.quarterId + ' 是自測機的沙盒季度，永遠不可以封存。', ui.ButtonSet.OK);
+      return;
+    }
+    if (!preview.valid) {
+      ui.alert('封存指定季度', '週報試算表內沒有季度「' + preview.quarterId + '」（季度 ID 的格式是 2027T4）。沒有封存任何東西。', ui.ButtonSet.OK);
+      return;
+    }
+    if (preview.alreadyArchived) {
+      ui.alert('封存指定季度', '季度 ' + preview.quarterId + ' 的 ' + preview.weekCount + ' 個主日早已封存，沒有東西要做。', ui.ButtonSet.OK);
+      return;
+    }
+
+    var confirm = ui.alert('封存指定季度', buildArchiveQuarterConfirmLines_(preview).join('\n') + '\n\n確定要封存嗎？', ui.ButtonSet.YES_NO);
+    if (confirm !== ui.Button.YES) return;
+
+    if (preview.isCurrentQuarter) {
+      var again = ui.alert('封存指定季度',
+        '⚠️ ' + preview.quarterId + ' 是今日所在的季度。封存之後填寫介面的季度下拉預設見不到它，'
+          + '星期一的自動流程亦不會處理它。\n\n真的要封存今季嗎？',
+        ui.ButtonSet.YES_NO);
+      if (again !== ui.Button.YES) return;
+    }
+
+    var result = archiveQuarter_(preview.quarterId, { force: true });
+    ui.alert(result.ok ? '封存完成' : '封存失敗', result.message, ui.ButtonSet.OK);
+  } catch (err) {
+    logMenuError_('menuArchiveQuarter_', err);
+    ui.alert('封存指定季度失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
 }

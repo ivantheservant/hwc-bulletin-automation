@@ -22,7 +22,7 @@ var APP_NAME = '週報系統';
 /** 「關於本系統」對話框顯示的版本字串。 */
 // 2026-11-03（多堂會／其他教會：方便日後支援和更新）：版本號＝部署日期（yyyy.MM.dd，同一日第二次部署加 -2）。
 //    每次改版要同時在 docs/更新說明.md 最上面加一段同一個版本號（tests/version.test.js 守住）。
-var APP_VERSION = '2026.11.04-2';
+var APP_VERSION = '2026.11.17';
 
 /** 本 repo 的網址（公開）。 */
 var REPO_URL = 'https://github.com/ivantheservant/hwc-bulletin-automation';
@@ -835,7 +835,10 @@ var CONFIG_KEYS = Object.freeze({
   // 2026-11-02：年度 logo 圖片（雲端硬碟檔案 ID）；產生 Word 時換走範本內替代文字 YEAR_LOGO 那張圖（src/YearLogo.gs）。
   YEAR_LOGO_FILE_ID: 'YEAR_LOGO_FILE_ID',
   // 2026-11-02（Ivan 第 8 項）：寄出電郵的白名單（src/MailGuard.gs）。
-  EMAIL_ALLOWLIST: 'EMAIL_ALLOWLIST'
+  EMAIL_ALLOWLIST: 'EMAIL_ALLOWLIST',
+  // R-057（2026-11-17）：每日管理員摘要電郵（觸發器失敗、星期一流程沒有執行），見 src/AdminDigest.gs。
+  ADMIN_DIGEST_ENABLED: 'ADMIN_DIGEST_ENABLED',
+  ADMIN_DIGEST_EMAILS: 'ADMIN_DIGEST_EMAILS'
 });
 
 // =====================================================================
@@ -908,7 +911,7 @@ var DEFAULTS = Object.freeze([
   // ---- 第五輪新增：電郵與自動寄送 ----
   { key: CONFIG_KEYS.CHURCH_NAME, value: '基督教中國佈道會奧克蘭聖道堂', note: '電郵範本 {{ChurchName}} 用；EmailTemplates 內文一直用這個佔位符但先前沒有對應設定，會渲染成空字串' },
   { key: CONFIG_KEYS.CONGREGATION_NAME, value: '粵語堂', note: '（多堂會）這一個部署屬於哪一個堂會，例如「粵語堂」「英語堂」。用在填寫介面標題、電郵範本 {{CongregationName}}、內容表邀請信標題，以及檔名樣式的 {{CONGREGATION}}。同一份程式碼部署給另一個堂會時，只要改這裏（及其他設定），不用改程式' },
-  { key: CONFIG_KEYS.SEND_MINUTE, value: '0', note: '自動寄送的分鐘（0–59），配合 SEND_WEEKDAY／SEND_HOUR；⚠️ 僅供顯示規劃用，Apps Script 的時間觸發器實際上不能指定分鐘' },
+  { key: CONFIG_KEYS.SEND_MINUTE, value: '0', note: '自動寄送的分鐘（0–59），配合 SEND_WEEKDAY／SEND_HOUR；大約的時間，Apps Script 的誤差是前後 15 分鐘。星期一寄送與每日自動建立季度兩個觸發器都用它（R-059）。⚠️ 改了之後要重新按「安裝自動寄送觸發器」才生效' },
   { key: CONFIG_KEYS.SEND_GROUPS, value: 'CC,DB,ADMIN', note: '要寄給哪幾個 Recipients.GROUP_NAME（逗號分隔）' },
   { key: CONFIG_KEYS.SEND_INCLUDE_MISSING_LIST, value: 'TRUE', note: '郵件內是否附上「本週待填欄位」清單' },
   { key: CONFIG_KEYS.SEND_BLOCK_IF_SCHEMA_OUTDATED, value: 'TRUE', note: '工作表結構落後時拒絕寄送' },
@@ -1031,7 +1034,7 @@ var DEFAULTS = Object.freeze([
   // ---- R-032：內容過多的提示 ----
   { key: CONFIG_KEYS.BULLETIN_CONTENT_WARN_CHARS, value: '5600', note: 'R-032：內容份量估算的提示門檻（字元數）。門檻的來歷：88 期真實週報之中，4 頁的中位數約 4,500 字元、5 頁的約 6,000 至 6,500 字元，取中間偏保守。⚠️ 這只是估算——Apps Script 算不到準確頁數，頁數要靠 Word 的排版引擎，所以超過門檻只會提示「請用 Word 開啟確認」，一定不會擋住產生' },
   // ---- R-035：舊季度自動封存 ----
-  { key: CONFIG_KEYS.RETENTION_QUARTERS_VISIBLE, value: '2', note: 'R-035：季度下拉預設顯示最近幾多季（2 ＝ 本季 ＋ 前一季）。更早的季度會被標記 ARCHIVED=TRUE、Fill_* 隱藏、內容表登記行 ACTIVE=FALSE。⚠️ 一格資料都不會刪——封存只是「預設不顯示」，按「顯示已封存」就會再顯示，亦可以用選單「取消封存」完全還原' },
+  { key: CONFIG_KEYS.RETENTION_QUARTERS_VISIBLE, value: '2', note: 'R-035：保留今日所在季度連之前共幾季（2 ＝ 今日所在季度 ＋ 前一季；按真正的今日計，不看模擬今日；2026-11-17 起不再按季度編號排名）。更早的季度會被標記 ARCHIVED=TRUE、Fill_* 隱藏、內容表登記行 ACTIVE=FALSE；今日所在季度與之後的季度（包括未來的測試季度）永遠不會被自動封存。⚠️ 一格資料都不會刪——封存只是「預設不顯示」，按「顯示已封存」就會再顯示，亦可以用選單「取消封存」完全還原' },
   { key: CONFIG_KEYS.CONTENT_SHEET_ARCHIVE_FOLDER_ID, value: '', note: 'R-035：封存時把內容表檔案搬去哪一個資料夾（Shared Drive 內的子資料夾 ID）。⚠️ 留空就只改 ContentSheets 那一行的 ACTIVE，不搬檔案，並在報告說明——搬檔案是 Drive 操作，設定未填就靜靜不搬而不講，下次找不到檔案會查半日' },
 
   { key: CONFIG_KEYS.DUPLICATE_PARAGRAPH_MIN_CHARS, value: '25', note: 'R-032：重複段落偵測的最短長度（字元）。短過這個數的段落（例如「本週」「阿們」）重複是正常的，不當成問題' },
@@ -1090,7 +1093,10 @@ var DEFAULTS = Object.freeze([
   { key: CONFIG_KEYS.YEAR_LOGO_FILE_ID, value: '', note: '雲端硬碟上年度 logo 圖片（JPG／PNG）的檔案 ID；留空＝用範本內的圖。圖片會縮放到範本原本的框（8.43×3.24 cm，約 2.6:1），比例不同會變形，請先裁好。' },
   // ⚠️ 預設名單不可以寫死在程式（公開 repo 不可以有真實電郵）：「初始化工作表」寫入 Config 時、以及 Config 未有這個鍵時，
   //    由 emailAllowlistSeedValue_()（src/MailGuard.gs）即時算出——本系統帳戶，加同一個網域的 hwc 信箱。
-  { key: CONFIG_KEYS.EMAIL_ALLOWLIST, value: '', note: '所有寄出的電郵只會寄給這個名單內的地址；留空＝不限制。DRY_RUN 仍然是總開關' }
+  { key: CONFIG_KEYS.EMAIL_ALLOWLIST, value: '', note: '所有寄出的電郵只會寄給這個名單內的地址；留空＝不限制。DRY_RUN 仍然是總開關' },
+  // ---- 2026-11-17（R-057）----
+  { key: CONFIG_KEYS.ADMIN_DIGEST_ENABLED, value: 'TRUE', note: 'R-057：每日管理員摘要電郵（觸發器失敗、星期一流程沒有執行）。有事項才寄，沒有就不寄；DRY_RUN=TRUE 時不寄，只寫 SendLog。FALSE＝不寄' },
+  { key: CONFIG_KEYS.ADMIN_DIGEST_EMAILS, value: '', note: 'R-057：管理員摘要的收件人（逗號分隔）。留空＝Recipients 內 ADMIN 與 IT 組生效的收件人；兩組都沒有人就寄給本系統帳戶。仍然受 EMAIL_ALLOWLIST 限制' }
 ]);
 
 // =====================================================================

@@ -1140,7 +1140,8 @@ function selfTestS31_(ctx) {
 function selfTestS32_(ctx) {
   var config = ctx.config;
   var quarters = ['2029T1', '2029T2', '2029T3'];
-  var plan = planQuarterRetention_(quarters, 2, config.quarterId);
+  // R-035 修正：按今日所在季度計算；這裏假設今日在 2029T3（三季之中最新的一季）。
+  var plan = planQuarterRetention_(quarters, 2, config.quarterId, '2029T3');
 
   var ok = plan.visible.length === 2
     && plan.visible[0] === '2029T3' && plan.visible[1] === '2029T2'
@@ -1213,7 +1214,8 @@ function selfTestS34_(ctx) {
   var quarterIds = readSheet_(SHEETS.BULLETIN_WEEKS).map(function (r) {
     return String(r.QUARTER_ID || '').trim();
   });
-  planQuarterRetention_(quarterIds, retentionConfig_().visibleQuarters, ctx.config.quarterId);
+  planQuarterRetention_(quarterIds, retentionConfig_().visibleQuarters, ctx.config.quarterId,
+    retentionCurrentQuarter_().quarterId);
   findUnpublishedWorkInQuarter_(ctx.config.quarterId);
 
   var after = {
@@ -1251,7 +1253,7 @@ function selfTestS35_(ctx) {
   var quarters = ['2029T1', '2029T2', '2029T3', sandbox];
 
   // 1. 永不被列入要封存的一批（就算它是最舊那一個）。
-  var plan = planQuarterRetention_(quarters, 1, sandbox);
+  var plan = planQuarterRetention_(quarters, 1, sandbox, '2029T3');
   var inArchiveList = plan.toArchive.indexOf(sandbox) !== -1;
   var inVisibleList = plan.visible.indexOf(sandbox) !== -1;
 
@@ -2872,7 +2874,7 @@ function selfTestS18_(ctx) {
       + '　獨立算法（直接數星期幾）：' + independentSunday
       + '　⚠️ 覆蓋缺口：這一條沒有真的呼叫 weeklyBulletinSendTrigger_()，'
       + '因為那一支會順手替真實季度建立季度填寫表，違反沙盒規則。'
-      + '真正的觸發器行為仍然要人手驗一次（見需求登記 R-028）。');
+      + '真正的觸發器行為仍然要人手驗一次（需求登記 R-028 已經由 2026-08-31、11-09、11-16 觸發器自然執行驗過；日後改了觸發器流程要再驗）。');
 }
 
 // =====================================================================

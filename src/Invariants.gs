@@ -668,6 +668,8 @@ function invariantLatestSendLogBatch_(rows, sinceMs) {
   var withTime = (rows || []).filter(function (r) {
     if (Object.prototype.toString.call(r.TIMESTAMP) !== '[object Date]') return false;
     if (sinceMs && r.TIMESTAMP.getTime() < Number(sinceMs)) return false;
+    // R-057：每日管理員摘要不是一次週報寄出，不可以被當成「最近一批寄出記錄」（src/AdminDigest.gs）。
+    if (isAdminDigestSendLogRow_(r)) return false;
     return true;
   });
   if (withTime.length === 0) return [];

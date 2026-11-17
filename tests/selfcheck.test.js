@@ -306,7 +306,7 @@ test('17g-1. 自我檢測報告列出仍未完成的需求編號與標題', func
   const item = findItem(summary, '未完成的需求')[0];
   assert.ok(item, '報告要有「未完成的需求」這一項');
   const text = (item.detail || []).join('\n');
-  ['R-016', 'R-017', 'R-018', 'R-020', 'R-027', 'R-028', 'R-029'].forEach(function (reqId) {
+  ['R-016', 'R-017', 'R-018', 'R-020', 'R-027', 'R-029', 'R-055', 'R-059'].forEach(function (reqId) {
     assert.ok(text.indexOf(reqId) !== -1, reqId + ' 沒有列出：' + text);
   });
   assert.ok(text.indexOf('Recipients') !== -1, '要列得出標題，不只是編號：' + text);

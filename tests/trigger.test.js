@@ -73,7 +73,7 @@ function makeFakeScriptApp() {
     WeekDay: WeekDay,
     _triggers: triggers,
     newTrigger: function (fnName) {
-      var draft = { fnName: fnName, weekDay: null, hour: null };
+      var draft = { fnName: fnName, weekDay: null, hour: null, nearMinute: null };
       var builder = {
         timeBased: function () { return builder; },
         onWeekDay: function (wd) { draft.weekDay = wd; return builder; },
@@ -83,9 +83,11 @@ function makeFakeScriptApp() {
         everyMinutes: function (n) { draft.everyMinutes = n; return builder; },
         everyHours: function (n) { draft.everyHours = n; return builder; },
         atHour: function (h) { draft.hour = h; return builder; },
+        // R-059：nearMinute(m)——大約第幾分鐘（Apps Script 的誤差是前後 15 分鐘）。
+        nearMinute: function (m) { draft.nearMinute = m; return builder; },
         create: function () {
           var id = 'trig_' + (++idCounter);
-          var record = { id: id, handlerFunction: draft.fnName, weekDay: draft.weekDay, hour: draft.hour, everyDays: draft.everyDays || null,
+          var record = { id: id, handlerFunction: draft.fnName, weekDay: draft.weekDay, hour: draft.hour, nearMinute: draft.nearMinute, everyDays: draft.everyDays || null,
             everyMinutes: draft.everyMinutes || null, everyHours: draft.everyHours || null };
           triggers.push(record);
           return { getUniqueId: function () { return id; } };
@@ -128,7 +130,11 @@ function makeEnv(o) {
     SendLog: makeFakeSheet(freshSandbox.COLUMNS.SEND_LOG.headers, freshSandbox.COLUMNS.SEND_LOG.keys, [])
   };
   const fakeScriptApp = makeFakeScriptApp();
-  const FakeApp = { getActiveSpreadsheet: function () { return makeFakeSpreadsheet(sheets); } };
+  const FakeApp = {
+    getActiveSpreadsheet: function () { return makeFakeSpreadsheet(sheets); },
+    // `o.ui`：選單函式的對話框替身（R-059 測試用）。
+    getUi: function () { if (o.ui) return o.ui; throw new Error('這一組測試不應該用到 UI'); }
+  };
   const sb = loadAllSrcFilesInOrder(Object.assign({}, BASE_STUBS, { SpreadsheetApp: FakeApp, ScriptApp: fakeScriptApp }));
   return { sandbox: sb, scriptApp: fakeScriptApp };
 }
@@ -280,6 +286,68 @@ test('resolveScriptAppWeekDay_：不合法的 SEND_WEEKDAY 會拋錯', function 
   assert.throws(function () {
     env.sandbox.installWeeklySendTrigger_();
   });
+});
+
+// =====================================================================
+// R-059：兩個時間觸發器加 nearMinute(SEND_MINUTE)
+// =====================================================================
+
+test('R-059 installWeeklySendTrigger_：星期一寄送與每日自動建立季度都帶 nearMinute(SEND_MINUTE)；內容表同步不帶', function () {
+  const env = makeEnv({ config: { SEND_WEEKDAY: 'MONDAY', SEND_HOUR: '8', SEND_MINUTE: '25' } });
+  const result = env.sandbox.installWeeklySendTrigger_();
+
+  const byHandler = {};
+  env.scriptApp._triggers.forEach(function (t) { byHandler[t.handlerFunction] = t; });
+  assert.strictEqual(byHandler.weeklyBulletinSendTrigger_.nearMinute, 25, '星期一寄送要用 SEND_MINUTE');
+  assert.strictEqual(byHandler.weeklyBulletinSendTrigger_.hour, 8);
+  assert.strictEqual(byHandler.dailyQuarterAutoCreateTrigger_.nearMinute, 25, '每日自動建立季度同樣要用');
+  assert.strictEqual(byHandler.dailyQuarterAutoCreateTrigger_.hour, 7);
+  assert.strictEqual(byHandler.contentAutoSyncTrigger_.nearMinute, null, '內容表自動同步是每 N 分鐘一次，不指定分鐘');
+  assert.strictEqual(result.minute, 25);
+  assert.strictEqual(result.minuteValid, true);
+});
+
+test('R-059 SEND_MINUTE 預設 0 → nearMinute(0)', function () {
+  const env = makeEnv({ config: { SEND_WEEKDAY: 'MONDAY', SEND_HOUR: '6' } });
+  env.sandbox.installWeeklySendTrigger_();
+  const weekly = env.scriptApp._triggers.filter(function (t) { return t.handlerFunction === 'weeklyBulletinSendTrigger_'; })[0];
+  assert.strictEqual(weekly.nearMinute, 0);
+});
+
+test('R-059 SEND_MINUTE 不是 0 至 59 的整數 → 用 0，結果講明（不靜靜當作沒事）', function () {
+  ['99', '-1', '亂寫', '7.5'].forEach(function (bad) {
+    const env = makeEnv({ config: { SEND_WEEKDAY: 'MONDAY', SEND_HOUR: '6', SEND_MINUTE: bad } });
+    const result = env.sandbox.installWeeklySendTrigger_();
+    assert.strictEqual(result.minute, 0, '收到 ' + bad);
+    assert.strictEqual(result.minuteValid, false, '收到 ' + bad);
+    env.scriptApp._triggers.filter(function (t) { return t.handlerFunction !== 'contentAutoSyncTrigger_'; }).forEach(function (t) {
+      assert.strictEqual(t.nearMinute, 0);
+    });
+  });
+});
+
+test('R-059 menuInstallSendTrigger_（真正入口）：對話框講明「大約，前後 15 分鐘」，不再說只指定小時', function () {
+  const alerts = [];
+  const env = makeEnv({
+    config: { SEND_WEEKDAY: 'MONDAY', SEND_HOUR: '8', SEND_MINUTE: '5' },
+    ui: { alert: function (title, body) { alerts.push({ title: title, body: body }); return 'OK'; }, ButtonSet: { OK: 'OK' } }
+  });
+  env.sandbox.menuInstallSendTrigger_();
+  assert.strictEqual(alerts.length, 1);
+  const text = alerts[0].body;
+  assert.ok(text.indexOf('每週一　約 8:05 執行一次（前後 15 分鐘）') !== -1, text);
+  assert.ok(text.indexOf('每日約 7:05 檢查一次') !== -1, text);
+  assert.ok(text.indexOf('前後 15 分鐘之內') !== -1, text);
+  assert.strictEqual(text.indexOf('只保證在指定小時'), -1, '舊句子不可以留着：' + text);
+  assert.strictEqual(env.scriptApp._triggers.filter(function (t) { return t.nearMinute === 5; }).length, 2);
+});
+
+test('R-059 Config SEND_MINUTE 的說明改為「大約，前後 15 分鐘」，並提醒重新安裝', function () {
+  const sb = makeEnv({}).sandbox;
+  const item = sb.DEFAULTS.filter(function (d) { return d.key === 'SEND_MINUTE'; })[0];
+  assert.ok(item.note.indexOf('前後 15 分鐘') !== -1, item.note);
+  assert.ok(item.note.indexOf('重新按「安裝自動寄送觸發器」') !== -1, item.note);
+  assert.strictEqual(item.note.indexOf('僅供顯示'), -1, item.note);
 });
 
 // =====================================================================

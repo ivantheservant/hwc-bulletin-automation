@@ -472,14 +472,20 @@ function unfinishedRequirements_() {
     { id: 'R-018', state: '未開始', title: '移交幹事角色帳戶' },
     { id: 'R-020', state: '未開始', title: '內容過多自動加頁、過少處理留白' },
     { id: 'R-027', state: '進行中', title: '自測機四層——第 2、3 層尚未在真環境跑過' },
-    { id: 'R-028', state: '未開始', title: '星期一觸發器真環境驗證' },
+    // R-028 已於 2026-11-17 改為已完成（2026-08-31、11-09、11-16 觸發器自然執行，SendLog 對得上）。
     { id: 'R-029', state: '未開始', title: 'Recipients 填齊 CC、DB、IT 三組收件人' },
     // ⚠️ 功能已經做完，但狀態仍然是「進行中」——要等示範前的人手測試
     //    （docs/示範前測試清單.md 第二之二節）跑過一次才可以改成已完成。
     //    UI 驗不到，所以「測試全綠」不等於「這一項做完了」。
     { id: 'R-038', state: '進行中', title: '幹事的整條例行流程要能在填寫介面完成' },
     // 內容表 v2：程式與測試已完成，要等部署、「停用舊功能」、逐季移轉與 2028T2 瀏覽器重測。
-    { id: 'R-054', state: '進行中', title: '工作介面精簡為「填寫介面＋內容表」（宣召與浸禮併入崇拜程序、停用季度填寫表與講員表格）' }
+    { id: 'R-054', state: '進行中', title: '工作介面精簡為「填寫介面＋內容表」（宣召與浸禮併入崇拜程序、停用季度填寫表與講員表格）' },
+    // 2026-11-17（prompt-1117-A）：程式與測試已完成，要部署、重新安裝觸發器、初始化工作表並在正式試算表驗證。
+    { id: 'R-055', state: '進行中', title: '選單「封存指定季度…」（清理測試季度用）' },
+    { id: 'R-056', state: '進行中', title: '內容表自動同步：暫時性失敗要再試' },
+    { id: 'R-057', state: '進行中', title: '每日管理員摘要電郵（觸發器失敗、星期一流程沒有執行）' },
+    { id: 'R-058', state: '進行中', title: '上線前檢查加四項（寄送名單、測試名單、測試季度、時區一致）' },
+    { id: 'R-059', state: '進行中', title: '自動寄送觸發器加 nearMinute()' }
   ];
 }
 
@@ -810,6 +816,18 @@ function selfCheckContentSheetVersionItem_() {
 }
 
 /**
+ * 用途：「時區一致」這一項檢測（R-058）。判斷在 `buildTimezoneCheckItem_()`（與「上線前檢查」共用），
+ *   這裏只負責收集現況。唯讀。
+ * Args: （無）
+ * Returns:
+ *   {{label:string, status:string, message:string, detail:string[]}}
+ */
+function selfCheckTimezoneItem_() {
+  var verdict = buildTimezoneCheckItem_(inspectTimezoneConsistency_(), SELF_CHECK_STATUS_);
+  return selfCheckItem_('時區一致', verdict.status, verdict.message);
+}
+
+/**
  * 用途：「完成度自我檢測」的真正入口。跑完設定／資料／功能／紀錄四大類
  *   全部檢測項目，寫入 `Diagnostics`（報告名稱「完成度自我檢測」）。
  *   **唯讀**，不寫入任何資料。
@@ -836,7 +854,7 @@ function runSelfCheck_() {
     // 自測機那一輪：不變量收成一個大項。
     .concat(selfCheckInvariantItems_())
     // 第二批階段 3：講員表格（建立了沒有、限教會帳戶、觸發器剛好一個、資料夾在 Shared Drive）。
-    .concat([selfCheckSpeakerFormItem_(), selfCheckContentSheetVersionItem_()])
+    .concat([selfCheckSpeakerFormItem_(), selfCheckContentSheetVersionItem_(), selfCheckTimezoneItem_()])
     // 第一輪自測之後：未完成的需求排在最後——看報告的人最後見到的
     // 應該是「還有什麼未做」，不是一堆綠燈。
     .concat([selfCheckRosterGapItem_()])

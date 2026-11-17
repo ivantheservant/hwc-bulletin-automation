@@ -414,6 +414,7 @@ function makeFillEnv(options) {
         everyMinutes: function () { return builder; },
         everyDays: function () { return builder; },
         atHour: function () { return builder; },
+        nearMinute: function () { return builder; },
         onWeekDay: function () { return builder; },
         create: function () { triggers.installed.push(built); return built; }
       };

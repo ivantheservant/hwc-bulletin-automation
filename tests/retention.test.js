@@ -40,10 +40,12 @@ function test(name, fn) {
   }
 }
 
-function baseStubs() {
+function baseStubs(todayIso) {
   return {
     Utilities: {
       formatDate: function (date, tz, pattern) {
+        // todayIso：固定「真正的今日」（R-035 修正按今日所在季度計算）。
+        if (todayIso && pattern === 'yyyy-MM-dd') return todayIso;
         const y = date.getFullYear();
         const mo = String(date.getMonth() + 1).padStart(2, '0');
         const d = String(date.getDate()).padStart(2, '0');
@@ -92,12 +94,20 @@ function makeEnv(options) {
 
   const triggers = o.triggers || [];
 
-  const sandbox = loadAllSrcFilesInOrder(Object.assign({}, baseStubs(), {
+  const sandbox = loadAllSrcFilesInOrder(Object.assign({}, baseStubs(o.todayIso), {
     SpreadsheetApp: {
-      getActiveSpreadsheet: function () { return makeFakeSpreadsheet(sheets); },
+      getActiveSpreadsheet: function () {
+        const ss = makeFakeSpreadsheet(sheets);
+        // R-058：`spreadsheetTz`＝這份試算表的時區；沒有指定就沒有這個方法（核對不到）。
+        if (o.spreadsheetTz) ss.getSpreadsheetTimeZone = function () { return o.spreadsheetTz; };
+        return ss;
+      },
       openById: function () { throw new Error('這一組測試不連職事表'); },
       ProtectionType: { SHEET: 'SHEET' },
-      getUi: function () { throw new Error('這一組測試不應該用到 UI'); }
+      getUi: function () {
+        if (o.ui) return o.ui;
+        throw new Error('這一組測試不應該用到 UI');
+      }
     },
     ScriptApp: {
       getProjectTriggers: function () {
@@ -118,6 +128,13 @@ function makeEnv(options) {
       WEEK_OF_MONTH: 1,
       STATUS: 'DRAFT'
     }, spec.fields || {})]);
+  });
+
+  // 內容表登記行（R-055 測試用）：{ QUARTER_ID, FILE_ID, FILE_URL, ACTIVE }。
+  (o.contentSheetSpecs || []).forEach(function (spec) {
+    sandbox.writeSheet_(sandbox.SHEETS.CONTENT_SHEETS, [Object.assign({
+      CREATED_AT: '2026-09-01', LAST_IMPORTED_AT: '', INVITE_SENT_AT: ''
+    }, spec)]);
   });
 
   (o.publishRowSpecs || []).forEach(function (spec) {
@@ -145,14 +162,14 @@ console.log('\n第 1 組：決定封存哪一季');
 
 test('RETENTION_QUARTERS_VISIBLE=2 → 只有本季與前一季可見', function () {
   const env = makeEnv({});
-  const plan = env.sandbox.planQuarterRetention_(['2029T1', '2029T2', '2029T3'], 2, '');
+  const plan = env.sandbox.planQuarterRetention_(['2029T1', '2029T2', '2029T3'], 2, '', '2029T3');
   assert.strictEqual(JSON.stringify(arr(plan.visible)), JSON.stringify(['2029T3', '2029T2']));
   assert.strictEqual(JSON.stringify(arr(plan.toArchive)), JSON.stringify(['2029T1']));
 });
 
 test('改成 4 → 四季可見，一季都不封存', function () {
   const env = makeEnv({});
-  const plan = env.sandbox.planQuarterRetention_(['2029T1', '2029T2', '2029T3', '2029T4'], 4, '');
+  const plan = env.sandbox.planQuarterRetention_(['2029T1', '2029T2', '2029T3', '2029T4'], 4, '', '2029T4');
   assert.strictEqual(plan.visible.length, 4);
   assert.strictEqual(plan.toArchive.length, 0);
 });
@@ -160,7 +177,7 @@ test('改成 4 → 四季可見，一季都不封存', function () {
 test('跨年排序正確：2030T1 比 2029T4 新', function () {
   // ⚠️ 用字串比較（YYYYTn 格式下字串序 === 時間序）。寫錯就會把新一季封存。
   const env = makeEnv({});
-  const plan = env.sandbox.planQuarterRetention_(['2029T4', '2030T1'], 1, '');
+  const plan = env.sandbox.planQuarterRetention_(['2029T4', '2030T1'], 1, '', '2030T1');
   assert.strictEqual(JSON.stringify(arr(plan.visible)), JSON.stringify(['2030T1']));
   assert.strictEqual(JSON.stringify(arr(plan.toArchive)), JSON.stringify(['2029T4']));
 });
@@ -168,7 +185,7 @@ test('跨年排序正確：2030T1 比 2029T4 新', function () {
 test('沙盒季度兩邊都不入：既不可見、也永不封存', function () {
   const env = makeEnv({});
   const plan = env.sandbox.planQuarterRetention_(
-    ['2029T1', '2029T2', '2029T3', SANDBOX_QUARTER], 1, SANDBOX_QUARTER);
+    ['2029T1', '2029T2', '2029T3', SANDBOX_QUARTER], 1, SANDBOX_QUARTER, '2029T3');
   assert.strictEqual(plan.visible.indexOf(SANDBOX_QUARTER), -1, '不可以算進可見那 N 季');
   assert.strictEqual(plan.toArchive.indexOf(SANDBOX_QUARTER), -1, '永遠不可以被封存');
   assert.strictEqual(JSON.stringify(arr(plan.sandbox)), JSON.stringify([SANDBOX_QUARTER]));
@@ -177,7 +194,7 @@ test('沙盒季度兩邊都不入：既不可見、也永不封存', function ()
 test('保留數不合法 → 退回 2，不會變成 0（0 會把全部季度封存）', function () {
   const env = makeEnv({});
   [0, -1, '亂寫', null].forEach(function (bad) {
-    const plan = env.sandbox.planQuarterRetention_(['2029T1', '2029T2', '2029T3'], bad, '');
+    const plan = env.sandbox.planQuarterRetention_(['2029T1', '2029T2', '2029T3'], bad, '', '2029T3');
     assert.strictEqual(plan.visible.length, 2, '保留數 ' + JSON.stringify(bad) + ' 應該退回 2');
   });
 });
@@ -185,7 +202,7 @@ test('保留數不合法 → 退回 2，不會變成 0（0 會把全部季度封
 test('重複的季度 ID 只算一次', function () {
   const env = makeEnv({});
   const plan = env.sandbox.planQuarterRetention_(
-    ['2029T1', '2029T1', '2029T2', '2029T2', '2029T3'], 2, '');
+    ['2029T1', '2029T1', '2029T2', '2029T2', '2029T3'], 2, '', '2029T3');
   assert.strictEqual(plan.visible.length + plan.toArchive.length, 3);
 });
 
@@ -278,6 +295,325 @@ test('一季之內有一行未封存 → 整季當成未封存（睇得到才修
   const flags = env.sandbox.quarterArchivedFlags_(rows);
   assert.strictEqual(flags['2029T1'], false,
     '一半封存一半沒有，代表中途出過事——應該照樣顯示，不是靜靜收起');
+});
+
+// =====================================================================
+// 第 3b 組：R-035 修正——按「今日所在季度」封存，不按季度編號排名（2026-11-17）
+// =====================================================================
+
+console.log('\n第 3b 組：按今日所在季度封存');
+
+const QUARTERS_1117 = ['2026T3', '2026T4', '2027T1', '2027T4', '2028T2', '2028T3', '2028T4', '2030T2', '2030T1'];
+
+test('R-035 修正 1：今日 2026-11-17，N＝4 與 N＝2 → 一季都不封存（未來的測試季度不擠走今季）', function () {
+  const env = makeEnv({});
+  const current = env.sandbox.retentionCurrentQuarter_('2026-11-17');
+  assert.strictEqual(current.quarterId, '2026T4');
+  [4, 2].forEach(function (n) {
+    const plan = env.sandbox.planQuarterRetention_(QUARTERS_1117, n, SANDBOX_QUARTER, current.quarterId);
+    assert.strictEqual(JSON.stringify(arr(plan.toArchive)), '[]', 'N=' + n + ' 實際：' + JSON.stringify(arr(plan.toArchive)));
+    assert.strictEqual(plan.reason, '');
+  });
+});
+
+test('R-035 修正 2：今日 2027-01-05，N＝2 → 只封存 2026T3', function () {
+  const env = makeEnv({});
+  const current = env.sandbox.retentionCurrentQuarter_('2027-01-05');
+  assert.strictEqual(current.quarterId, '2027T1');
+  const plan = env.sandbox.planQuarterRetention_(QUARTERS_1117, 2, SANDBOX_QUARTER, current.quarterId);
+  assert.strictEqual(JSON.stringify(arr(plan.toArchive)), JSON.stringify(['2026T3']));
+  assert.strictEqual(plan.oldestVisibleQuarterId, '2026T4');
+});
+
+test('R-035 修正 3：今日 2027-07-06，N＝2 → 2026T3、2026T4、2027T1；未來季度一個都不在內', function () {
+  const env = makeEnv({});
+  const current = env.sandbox.retentionCurrentQuarter_('2027-07-06');
+  assert.strictEqual(current.quarterId, '2027T3');
+  const plan = env.sandbox.planQuarterRetention_(QUARTERS_1117, 2, SANDBOX_QUARTER, current.quarterId);
+  assert.strictEqual(JSON.stringify(arr(plan.toArchive).sort()), JSON.stringify(['2026T3', '2026T4', '2027T1']));
+  ['2027T4', '2028T2', '2028T3', '2028T4', '2030T2'].forEach(function (q) {
+    assert.strictEqual(plan.toArchive.indexOf(q), -1, '未來季度 ' + q + ' 不可以被封存');
+    assert.notStrictEqual(plan.visible.indexOf(q), -1, '未來季度 ' + q + ' 仍然可見');
+  });
+});
+
+test('R-035 修正 3b：今日所在季度本身永遠不封存（N 再細亦然）', function () {
+  const env = makeEnv({});
+  const plan = env.sandbox.planQuarterRetention_(['2026T3', '2026T4', '2027T1'], 1, '', '2026T4');
+  assert.strictEqual(plan.toArchive.indexOf('2026T4'), -1);
+  assert.strictEqual(plan.toArchive.indexOf('2027T1'), -1);
+  assert.strictEqual(JSON.stringify(arr(plan.toArchive)), JSON.stringify(['2026T3']));
+});
+
+test('R-035 修正 5：今日所在季度空白或格式不合 → 一季都不封存，結果有 reason（不退回舊的排名做法）', function () {
+  const env = makeEnv({});
+  ['', undefined, null, '2026-11-17', '2026T5', 'abc'].forEach(function (bad) {
+    const plan = env.sandbox.planQuarterRetention_(QUARTERS_1117, 2, SANDBOX_QUARTER, bad);
+    assert.strictEqual(plan.toArchive.length, 0, JSON.stringify(bad) + ' 時不可以封存任何一季');
+    assert.ok(plan.reason, JSON.stringify(bad) + ' 時一定要有 reason');
+  });
+  const unreadable = env.sandbox.retentionCurrentQuarter_('不是日期');
+  assert.strictEqual(unreadable.quarterId, '');
+  assert.ok(unreadable.reason);
+});
+
+test('R-035 修正 5b：runQuarterRetention_() 算不出今日所在季度 → ok:false、reason、一季都沒封存', function () {
+  const env = makeEnv({
+    weekRowSpecs: [{ isoDate: '2020-01-05', quarterId: '2020T1' }, { isoDate: '2020-04-05', quarterId: '2020T2' },
+      { isoDate: '2020-07-05', quarterId: '2020T3' }]
+  });
+  const result = env.sandbox.runQuarterRetention_({ todayIso: '不是日期' });
+  assert.strictEqual(result.ok, false);
+  assert.ok(result.reason);
+  assert.strictEqual(result.archived.length, 0);
+  assert.ok(result.message.indexOf('一季都沒有封存') !== -1, result.message);
+  env.sandbox.readSheet_(env.sandbox.SHEETS.BULLETIN_WEEKS).forEach(function (r) {
+    assert.notStrictEqual(r.ARCHIVED, true);
+  });
+});
+
+test('R-035 修正 6：runQuarterRetention_() 的報告與摘要講明今日所在季度與保留範圍', function () {
+  const env = makeEnv({
+    weekRowSpecs: [{ isoDate: '2026-07-05', quarterId: '2026T3', fields: { SERMON_TITLE: 'x' } },
+      { isoDate: '2026-11-22', quarterId: '2026T4' }]
+  });
+  const result = env.sandbox.runQuarterRetention_({ todayIso: '2026-11-17' });
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(result.currentQuarterId, '2026T4');
+  assert.ok(result.message.indexOf('今日所在季度是 2026T4，保留 2026T4 連之前共 2 季') !== -1, result.message);
+  assert.ok(result.lines.join('\n').indexOf('今日所在季度：2026T4') !== -1);
+});
+
+test('R-035 修正 4：由 weeklyBulletinSendTrigger_() 入口——全空白的今季＋三個未來測試季度，今季不被封存、沒有 RETENTION_NEEDS_CONFIRMATION', function () {
+  // 2026-11-17（星期二）：今日所在季度 2026T4，上線季 2027T1 還未開始。
+  const env = makeEnv({
+    todayIso: '2026-11-17',
+    weekRowSpecs: [
+      { isoDate: '2026-11-22', quarterId: '2026T4' },                                   // 全空白的今季
+      { isoDate: '2028-04-02', quarterId: '2028T2', fields: { SERMON_TITLE: '測試講題' } },
+      { isoDate: '2028-07-02', quarterId: '2028T3', fields: { SERMON_TITLE: '測試講題' } },
+      { isoDate: '2028-10-01', quarterId: '2028T4' }
+    ]
+  });
+  env.sandbox.weeklyBulletinSendTrigger_();
+
+  env.sandbox.readSheet_(env.sandbox.SHEETS.BULLETIN_WEEKS).forEach(function (r) {
+    assert.notStrictEqual(r.ARCHIVED, true, String(r.QUARTER_ID) + ' 不可以被封存');
+  });
+  const codes = env.sandbox.readSheet_(env.sandbox.SHEETS.ERROR_LOG).map(function (r) { return r.ERROR_CODE; });
+  assert.strictEqual(codes.indexOf('RETENTION_NEEDS_CONFIRMATION'), -1, '實際 ErrorLog：' + JSON.stringify(codes));
+  assert.strictEqual(codes.indexOf('RETENTION_NO_CURRENT_QUARTER'), -1);
+});
+
+test('R-035 修正 4b：由觸發器入口——真的有舊季度（比保留範圍更舊、已發佈）→ 封存；今季與未來季度不動', function () {
+  const env = makeEnv({
+    todayIso: '2027-01-05',
+    weekRowSpecs: [
+      { isoDate: '2026-07-05', quarterId: '2026T3', fields: { SERMON_TITLE: '舊講題' } },
+      { isoDate: '2026-11-22', quarterId: '2026T4' },
+      { isoDate: '2027-01-10', quarterId: '2027T1' },
+      { isoDate: '2028-04-02', quarterId: '2028T2' }
+    ],
+    publishRowSpecs: [{ isoDate: '2026-07-05' }]
+  });
+  env.sandbox.weeklyBulletinSendTrigger_();
+  const byQuarter = {};
+  env.sandbox.readSheet_(env.sandbox.SHEETS.BULLETIN_WEEKS).forEach(function (r) { byQuarter[r.QUARTER_ID] = r.ARCHIVED === true; });
+  assert.strictEqual(JSON.stringify(byQuarter),
+    JSON.stringify({ '2026T3': true, '2026T4': false, '2027T1': false, '2028T2': false }));
+});
+
+test('R-035 修正 7：算不出今日所在季度時，觸發器要寫 ErrorLog（RETENTION_NO_CURRENT_QUARTER）', function () {
+  const env = makeEnv({
+    todayIso: '2027-01-05',
+    weekRowSpecs: [{ isoDate: '2026-07-05', quarterId: '2026T3' }]
+  });
+  env.sandbox.retentionCurrentQuarter_ = function () { return { quarterId: '', todayIso: '', reason: '測試：讀不到今日' }; };
+  env.sandbox.weeklyBulletinSendTrigger_();
+  const codes = env.sandbox.readSheet_(env.sandbox.SHEETS.ERROR_LOG).map(function (r) { return r.ERROR_CODE; });
+  assert.notStrictEqual(codes.indexOf('RETENTION_NO_CURRENT_QUARTER'), -1, JSON.stringify(codes));
+});
+
+// =====================================================================
+// 第 3c 組：R-055 選單「封存指定季度…」
+// =====================================================================
+
+console.log('\n第 3c 組：封存指定季度');
+
+/** 造一個會記錄對話框的假 UI：`answers` 依次回答每一個 alert（預設 YES）。 */
+function makeFakeUi(quarterAnswer, answers) {
+  const alerts = [];
+  const queue = (answers || []).slice();
+  return {
+    alerts: alerts,
+    ui: {
+      ButtonSet: { OK: 'OK', OK_CANCEL: 'OK_CANCEL', YES_NO: 'YES_NO' },
+      Button: { OK: 'OK', CANCEL: 'CANCEL', YES: 'YES', NO: 'NO' },
+      prompt: function (title, body) {
+        alerts.push({ kind: 'prompt', title: title, body: body });
+        return {
+          getSelectedButton: function () { return quarterAnswer === null ? 'CANCEL' : 'OK'; },
+          getResponseText: function () { return quarterAnswer || ''; }
+        };
+      },
+      alert: function (title, body) {
+        alerts.push({ kind: 'alert', title: title, body: body });
+        return queue.length > 0 ? queue.shift() : 'YES';
+      }
+    }
+  };
+}
+
+function contentSheetRow(env, qid) {
+  return env.sandbox.readSheet_(env.sandbox.SHEETS.CONTENT_SHEETS)
+    .filter(function (r) { return r.QUARTER_ID === qid; })[0];
+}
+
+function archivedFlags(env) {
+  const out = {};
+  env.sandbox.readSheet_(env.sandbox.SHEETS.BULLETIN_WEEKS).forEach(function (r) { out[r.QUARTER_ID] = r.ARCHIVED === true; });
+  return out;
+}
+
+const TEST_QUARTER_SPECS = [
+  { isoDate: '2028-04-02', quarterId: '2028T2', fields: { SERMON_TITLE: '測試講題' } },
+  { isoDate: '2028-04-09', quarterId: '2028T2' },
+  { isoDate: '2026-11-22', quarterId: '2026T4' }
+];
+const TEST_CONTENT_SPECS = [
+  { QUARTER_ID: '2028T2', FILE_ID: 'FILE_2028T2', FILE_URL: 'https://example.invalid/2028T2', ACTIVE: true },
+  { QUARTER_ID: '2026T4', FILE_ID: 'FILE_2026T4', FILE_URL: 'https://example.invalid/2026T4', ACTIVE: true }
+];
+
+test('R-055：選單入口——對話框列出主日數、未發佈有內容的主日、內容表會怎樣；按確定才封存，一格都不刪', function () {
+  const fake = makeFakeUi('2028T2');
+  const env = makeEnv({ todayIso: '2026-11-17', weekRowSpecs: TEST_QUARTER_SPECS, contentSheetSpecs: TEST_CONTENT_SPECS, ui: fake.ui });
+  const before = env.sandbox.readSheet_(env.sandbox.SHEETS.BULLETIN_WEEKS).length;
+
+  env.sandbox.menuArchiveQuarter_();
+
+  const confirmText = fake.alerts.filter(function (a) { return a.kind === 'alert'; })[0].body;
+  assert.ok(confirmText.indexOf('共 2 個主日') !== -1, confirmText);
+  assert.ok(confirmText.indexOf('1 個主日未發佈，但已經有內容') !== -1, confirmText);
+  assert.ok(confirmText.indexOf('「有效」會改為 FALSE；檔案不會刪') !== -1, confirmText);
+  assert.ok(confirmText.indexOf('一格資料都不會刪') !== -1, confirmText);
+
+  const flags = archivedFlags(env);
+  assert.strictEqual(flags['2028T2'], true, '2028T2 要封存（即使有未發佈而且有內容的主日——使用者已經確認）');
+  assert.strictEqual(flags['2026T4'], false, '其他季度不動');
+  assert.strictEqual(env.sandbox.readSheet_(env.sandbox.SHEETS.BULLETIN_WEEKS).length, before, '一行都不可以刪');
+  assert.strictEqual(contentSheetRow(env, '2028T2').ACTIVE, false);
+  assert.strictEqual(contentSheetRow(env, '2026T4').ACTIVE, true);
+  const audit = env.sandbox.readSheet_(env.sandbox.SHEETS.AUDIT_LOG).filter(function (r) { return r.ACTION === 'ARCHIVE_QUARTER'; });
+  assert.strictEqual(audit.length, 1);
+  assert.strictEqual(audit[0].ROW_KEY, '2028T2');
+});
+
+test('R-055：按「否」→ 一格都沒有寫', function () {
+  const fake = makeFakeUi('2028T2', ['NO']);
+  const env = makeEnv({ todayIso: '2026-11-17', weekRowSpecs: TEST_QUARTER_SPECS, contentSheetSpecs: TEST_CONTENT_SPECS, ui: fake.ui });
+  env.sandbox.menuArchiveQuarter_();
+  assert.strictEqual(archivedFlags(env)['2028T2'], false);
+  assert.strictEqual(contentSheetRow(env, '2028T2').ACTIVE, true);
+  assert.strictEqual(env.sandbox.readSheet_(env.sandbox.SHEETS.AUDIT_LOG).length, 0);
+});
+
+test('R-055：取消輸入季度 → 什麼都不做', function () {
+  const fake = makeFakeUi(null);
+  const env = makeEnv({ weekRowSpecs: TEST_QUARTER_SPECS, contentSheetSpecs: TEST_CONTENT_SPECS, ui: fake.ui });
+  env.sandbox.menuArchiveQuarter_();
+  assert.strictEqual(fake.alerts.filter(function (a) { return a.kind === 'alert'; }).length, 0);
+  assert.strictEqual(archivedFlags(env)['2028T2'], false);
+});
+
+test('R-055：沙盒季度拒絕，一格都沒有寫', function () {
+  const fake = makeFakeUi(SANDBOX_QUARTER);
+  const env = makeEnv({
+    weekRowSpecs: [{ isoDate: '2030-01-06', quarterId: SANDBOX_QUARTER, fields: { SERMON_TITLE: 'x' } }],
+    ui: fake.ui
+  });
+  env.sandbox.menuArchiveQuarter_();
+  const text = fake.alerts.filter(function (a) { return a.kind === 'alert'; })[0].body;
+  assert.ok(text.indexOf('沙盒季度') !== -1 && text.indexOf('不可以封存') !== -1, text);
+  assert.strictEqual(archivedFlags(env)[SANDBOX_QUARTER], false);
+});
+
+test('R-055：沒有這一季／格式不對 → 只講明，什麼都沒有封存', function () {
+  ['2099T1', 'abc'].forEach(function (bad) {
+    const fake = makeFakeUi(bad);
+    const env = makeEnv({ weekRowSpecs: TEST_QUARTER_SPECS, ui: fake.ui });
+    env.sandbox.menuArchiveQuarter_();
+    const text = fake.alerts.filter(function (a) { return a.kind === 'alert'; })[0].body;
+    assert.ok(text.indexOf('沒有季度「' + bad + '」') !== -1, text);
+    assert.strictEqual(JSON.stringify(archivedFlags(env)), JSON.stringify({ '2028T2': false, '2026T4': false }));
+  });
+});
+
+test('R-055：今日所在季度要再確認一次；第二次答「否」就不封存', function () {
+  const fake = makeFakeUi('2026T4', ['YES', 'NO']);
+  const env = makeEnv({ todayIso: '2026-11-17', weekRowSpecs: TEST_QUARTER_SPECS, contentSheetSpecs: TEST_CONTENT_SPECS, ui: fake.ui });
+  env.sandbox.menuArchiveQuarter_();
+  const alertsOnly = fake.alerts.filter(function (a) { return a.kind === 'alert'; });
+  assert.strictEqual(alertsOnly.length, 2, '今季要問兩次');
+  assert.ok(alertsOnly[1].body.indexOf('今日所在的季度') !== -1, alertsOnly[1].body);
+  assert.strictEqual(archivedFlags(env)['2026T4'], false);
+
+  const fake2 = makeFakeUi('2026T4', ['YES', 'YES']);
+  const env2 = makeEnv({ todayIso: '2026-11-17', weekRowSpecs: TEST_QUARTER_SPECS, contentSheetSpecs: TEST_CONTENT_SPECS, ui: fake2.ui });
+  env2.sandbox.menuArchiveQuarter_();
+  assert.strictEqual(archivedFlags(env2)['2026T4'], true);
+});
+
+test('R-055：非今季只問一次', function () {
+  const fake = makeFakeUi('2028T2');
+  const env = makeEnv({ todayIso: '2026-11-17', weekRowSpecs: TEST_QUARTER_SPECS, contentSheetSpecs: TEST_CONTENT_SPECS, ui: fake.ui });
+  env.sandbox.menuArchiveQuarter_();
+  assert.strictEqual(fake.alerts.filter(function (a) { return a.kind === 'alert' && a.title === '封存指定季度'; }).length, 1);
+});
+
+test('R-055：已經全部封存 → 只講一句，不再寫 AuditLog', function () {
+  const fake = makeFakeUi('2028T2');
+  const env = makeEnv({
+    weekRowSpecs: [{ isoDate: '2028-04-02', quarterId: '2028T2', fields: { ARCHIVED: true } }],
+    ui: fake.ui
+  });
+  env.sandbox.menuArchiveQuarter_();
+  assert.ok(fake.alerts.filter(function (a) { return a.kind === 'alert'; })[0].body.indexOf('早已封存') !== -1);
+  assert.strictEqual(env.sandbox.readSheet_(env.sandbox.SHEETS.AUDIT_LOG).length, 0);
+});
+
+test('R-055：封存之後 runContentAutoSync_() 不再處理這一季；取消封存完整還原，自動同步又處理它', function () {
+  const fake = makeFakeUi('2028T2');
+  const env = makeEnv({ todayIso: '2026-11-17', weekRowSpecs: TEST_QUARTER_SPECS, contentSheetSpecs: TEST_CONTENT_SPECS, ui: fake.ui });
+  const quartersOf = function () {
+    return env.sandbox.runContentAutoSync_({ todayIso: '2026-11-17' }).quarters.map(function (q) { return q.quarterId; });
+  };
+  assert.notStrictEqual(quartersOf().indexOf('2028T2'), -1, '前提：封存之前自動同步會處理 2028T2');
+
+  const before = JSON.stringify(env.sandbox.readSheet_(env.sandbox.SHEETS.BULLETIN_WEEKS));
+  env.sandbox.menuArchiveQuarter_();
+  assert.strictEqual(quartersOf().indexOf('2028T2'), -1, '封存之後不再處理');
+
+  const restored = env.sandbox.unarchiveQuarter_('2028T2');
+  assert.strictEqual(restored.ok, true, restored.message);
+  assert.notStrictEqual(quartersOf().indexOf('2028T2'), -1, '取消封存之後又處理');
+  assert.strictEqual(contentSheetRow(env, '2028T2').ACTIVE, true);
+  const afterRows = env.sandbox.readSheet_(env.sandbox.SHEETS.BULLETIN_WEEKS);
+  const beforeRows = JSON.parse(before);
+  assert.strictEqual(afterRows.length, beforeRows.length);
+  afterRows.forEach(function (row, i) {
+    Object.keys(beforeRows[i]).forEach(function (key) {
+      if (key === 'ARCHIVED') return;
+      assert.strictEqual(JSON.stringify(row[key]), JSON.stringify(beforeRows[i][key]), key + ' 被改動');
+    });
+  });
+});
+
+test('R-055：選單已加「封存指定季度…」，排在「取消封存季度」之前', function () {
+  const menu = fsNode.readFileSync(path.join(__dirname, '..', 'src', 'Menu.gs'), 'utf8');
+  const a = menu.indexOf("'封存指定季度…', 'menuArchiveQuarter_'");
+  const b = menu.indexOf("'取消封存季度（完全還原）', 'menuUnarchiveQuarter_'");
+  assert.ok(a !== -1 && b !== -1 && a < b);
 });
 
 // =====================================================================
@@ -466,10 +802,10 @@ function goLiveItem(env, keyword) {
 // 預期清單在 src/TriggerInventory.gs），最後加了「上線前：內容表版本」（審查 F8），所以由九項變十一項。
 // v3 再加「上線前：自動建立季度」（部署之後、開啟填寫介面之前，先看會自動建立哪幾季）與
 // 「上線前：模擬今日（測試設定）」，共十三項。
-test('十三項齊備，一項都不可以少（第九項是階段 3 的講員表格；內容表 v2 加了「其他觸發器」「內容表版本」；v3 加了「自動建立季度」「模擬今日」）', function () {
+test('十七項齊備，一項都不可以少（第九項是階段 3 的講員表格；內容表 v2 加了「其他觸發器」「內容表版本」；v3 加了「自動建立季度」「模擬今日」；R-058 加了寄送名單、測試名單、測試季度、時區一致）', function () {
   const env = makeEnv({});
   const items = env.sandbox.buildGoLiveChecklist_();
-  assert.strictEqual(items.length, 13, '實際：' + items.map(function (i) { return i.label; }).join('、'));
+  assert.strictEqual(items.length, 17, '實際：' + items.map(function (i) { return i.label; }).join('、'));
   assert.ok(items.some(function (i) { return i.label === '上線前：模擬今日（測試設定）'; }));
   assert.ok(items.some(function (i) { return i.label === '上線前：其他觸發器'; }));
   assert.ok(items.some(function (i) { return i.label === '上線前：內容表版本'; }));
@@ -707,6 +1043,164 @@ test('兩個名稱分得出範圍（一個講「本主日」、一個講「整�
   assert.ok(panel.indexOf('<h2>本週事奉') !== -1 && panel.indexOf('id="fetchFromRosterBtn"') !== -1 && panel.indexOf('id="overwriteFromRosterBtn"') !== -1,
     'UI 那兩粒要在「本週事奉」框內');
   assert.ok(panel.indexOf('這一個主日的職事表') !== -1, 'UI 那一個要講明只係這一個主日');
+});
+
+// =====================================================================
+// R-058（2026-11-17）：上線前檢查加四項
+// =====================================================================
+
+console.log('\nR-058：寄送名單、測試名單、測試季度、時區一致');
+
+const S_ = function (env) { return env.sandbox.SELF_CHECK_STATUS_; };
+
+function recipientRows(list) {
+  return list.map(function (r, i) {
+    // ⚠️ 先取出成獨立變數：夾在引號之間的 `.name` 會被 tools/scan-staged-secrets.js 誤判成網域（事故六）。
+    const personName = r.name || ('人' + (i + 1));
+    return { RECIPIENT_ID: 'R' + (i + 1), NAME: personName, EMAIL: r.email, GROUP_NAME: r.group || 'CC', ACTIVE: r.active !== false };
+  });
+}
+
+test('R-058 a. 寄送名單：名單空白＝不限制 → 🟢', function () {
+  const env = makeEnv({ config: { EMAIL_ALLOWLIST: '', DRY_RUN: 'FALSE' } });
+  env.sandbox.writeSheet_(env.sandbox.SHEETS.RECIPIENTS, recipientRows([{ email: 'a@example.org' }, { email: 'b@example.org', group: 'DB' }]));
+  const item = goLiveItem(env, '寄送名單');
+  assert.strictEqual(item.status, S_(env).GREEN, item.message);
+  assert.ok(item.message.indexOf('不限制') !== -1);
+});
+
+test('R-058 a. 寄送名單：全部在名單內（不分大小寫）→ 🟢', function () {
+  const env = makeEnv({ config: { EMAIL_ALLOWLIST: 'A@Example.org, b@example.org', DRY_RUN: 'FALSE' } });
+  env.sandbox.writeSheet_(env.sandbox.SHEETS.RECIPIENTS, recipientRows([{ email: 'a@example.org' }, { email: 'B@example.org', group: 'DB' }]));
+  assert.strictEqual(goLiveItem(env, '寄送名單').status, S_(env).GREEN);
+});
+
+test('R-058 a. 寄送名單：DRY_RUN=FALSE 而有人被擋 → 🔴；DRY_RUN=TRUE 而有人被擋 → 🟡；兩者都列出是誰', function () {
+  [['FALSE', 'RED'], ['TRUE', 'YELLOW']].forEach(function (pair) {
+    const env = makeEnv({ config: { EMAIL_ALLOWLIST: 'a@example.org', DRY_RUN: pair[0] } });
+    env.sandbox.writeSheet_(env.sandbox.SHEETS.RECIPIENTS, recipientRows([{ email: 'a@example.org' }, { email: 'out@example.org', group: 'DB' }]));
+    const item = goLiveItem(env, '寄送名單');
+    assert.strictEqual(item.status, S_(env)[pair[1]], 'DRY_RUN=' + pair[0] + '：' + item.message);
+    assert.ok(item.message.indexOf('out@example.org') !== -1, item.message);
+    assert.ok(item.message.indexOf('EMAIL_ALLOWLIST') !== -1);
+  });
+});
+
+test('R-058 a. 寄送名單：不生效（ACTIVE＝FALSE）的收件人不算被擋', function () {
+  const env = makeEnv({ config: { EMAIL_ALLOWLIST: 'a@example.org', DRY_RUN: 'FALSE' } });
+  env.sandbox.writeSheet_(env.sandbox.SHEETS.RECIPIENTS, recipientRows([{ email: 'a@example.org' }, { email: 'old@example.org', active: false }]));
+  assert.strictEqual(goLiveItem(env, '寄送名單').status, S_(env).GREEN);
+});
+
+test('R-058 b. 測試名單：生效行的電郵全部是同一個地址 → 🟡「看來仍是測試名單」；有兩個不同地址 → 🟢', function () {
+  const same = makeEnv({});
+  same.sandbox.writeSheet_(same.sandbox.SHEETS.RECIPIENTS, recipientRows([
+    { email: 'me@example.org', group: 'CC' }, { email: 'ME@example.org', group: 'DB' }, { email: 'me@example.org', group: 'IT' }]));
+  const item = goLiveItem(same, '測試名單');
+  assert.strictEqual(item.status, S_(same).YELLOW);
+  assert.ok(item.message.indexOf('看來仍是測試名單') !== -1, item.message);
+
+  const real = makeEnv({});
+  real.sandbox.writeSheet_(real.sandbox.SHEETS.RECIPIENTS, recipientRows([{ email: 'a@example.org' }, { email: 'b@example.org', group: 'DB' }]));
+  assert.strictEqual(goLiveItem(real, '測試名單').status, S_(real).GREEN);
+
+  const none = makeEnv({});
+  assert.strictEqual(goLiveItem(none, '測試名單').status, S_(none).YELLOW, '一個生效的收件人都沒有也不是正常');
+});
+
+test('R-058 c. 測試季度：第一個主日比今日遲超過 LEAD_DAYS＋92 日、未封存 → 🟡 列出；已封存、沙盒、近的季度不列', function () {
+  // 今日 2026-11-17、LEAD_DAYS 預設 90 → 2026-11-17 ＋ 182 日＝2027-05-18。
+  const env = makeEnv({
+    todayIso: '2026-11-17',
+    weekRowSpecs: [
+      { isoDate: '2026-11-22', quarterId: '2026T4' },
+      { isoDate: '2027-01-03', quarterId: '2027T1' },
+      { isoDate: '2028-04-02', quarterId: '2028T2' },                                   // 測試季度
+      { isoDate: '2028-07-02', quarterId: '2028T3', fields: { ARCHIVED: true } },       // 已封存
+      { isoDate: '2030-01-06', quarterId: SANDBOX_QUARTER }                             // 沙盒
+    ]
+  });
+  const item = goLiveItem(env, '測試季度');
+  assert.strictEqual(item.status, S_(env).YELLOW, item.message);
+  assert.ok(item.message.indexOf('2028T2（2028-04-02）') !== -1, item.message);
+  assert.ok(item.message.indexOf('封存指定季度…') !== -1, item.message);
+  ['2026T4', '2027T1', '2028T3', SANDBOX_QUARTER].forEach(function (q) {
+    assert.strictEqual(item.message.indexOf(q), -1, q + ' 不應該被列出：' + item.message);
+  });
+});
+
+test('R-058 c. 測試季度：LEAD_DAYS＝0（不限）時用 92 日；沒有測試季度 → 🟢；邊界剛好不算', function () {
+  const env = makeEnv({
+    todayIso: '2026-11-17', config: { AUTO_CREATE_QUARTERS_LEAD_DAYS: '0' },
+    weekRowSpecs: [{ isoDate: '2027-02-14', quarterId: '2027T1' }, { isoDate: '2027-02-21', quarterId: '2027T1' }]
+  });
+  // 2026-11-17 ＋ 92 日＝2027-02-17；第一個主日 2027-02-14 沒有遲過，不算。
+  assert.strictEqual(goLiveItem(env, '測試季度').status, S_(env).GREEN);
+
+  const later = makeEnv({
+    todayIso: '2026-11-17', config: { AUTO_CREATE_QUARTERS_LEAD_DAYS: '0' },
+    weekRowSpecs: [{ isoDate: '2027-02-21', quarterId: '2027T1' }]
+  });
+  assert.strictEqual(goLiveItem(later, '測試季度').status, S_(later).YELLOW);
+});
+
+test('R-058 d. 時區一致：三者相同 → 🟢；任何一個不同 → 🔴 並列出三個值；讀不到 → 🟡', function () {
+  const same = makeEnv({ spreadsheetTz: 'Pacific/Auckland' });
+  assert.strictEqual(goLiveItem(same, '時區一致').status, S_(same).GREEN);
+
+  const diffSheet = makeEnv({ spreadsheetTz: 'America/Los_Angeles' });
+  const red = goLiveItem(diffSheet, '時區一致');
+  assert.strictEqual(red.status, S_(diffSheet).RED);
+  ['America/Los_Angeles', 'Pacific/Auckland'].forEach(function (tz) { assert.ok(red.message.indexOf(tz) !== -1, red.message); });
+
+  const diffScript = makeEnv({ spreadsheetTz: 'Pacific/Auckland' });
+  diffScript.sandbox.Session = { getScriptTimeZone: function () { return 'Asia/Hong_Kong'; }, getActiveUser: function () { return { getEmail: function () { return ''; } }; }, getEffectiveUser: function () { return { getEmail: function () { return ''; } }; } };
+  assert.strictEqual(goLiveItem(diffScript, '時區一致').status, S_(diffScript).RED);
+
+  const diffConfig = makeEnv({ spreadsheetTz: 'Pacific/Auckland', config: { SYS_TIMEZONE: 'Asia/Hong_Kong' } });
+  assert.strictEqual(goLiveItem(diffConfig, '時區一致').status, S_(diffConfig).RED);
+
+  const unreadable = makeEnv({});            // 假試算表沒有 getSpreadsheetTimeZone
+  const yellow = goLiveItem(unreadable, '時區一致');
+  assert.strictEqual(yellow.status, S_(unreadable).YELLOW);
+  assert.ok(yellow.message.indexOf('不等於「一致」') !== -1, yellow.message);
+});
+
+test('R-058 d. 「完成度自我檢測」與「上線前檢查」共用同一支判斷（同一個燈色、同一句說明）', function () {
+  const env = makeEnv({ spreadsheetTz: 'America/Los_Angeles' });
+  const fromGoLive = goLiveItem(env, '時區一致');
+  const fromSelfCheck = env.sandbox.selfCheckTimezoneItem_();
+  assert.strictEqual(fromSelfCheck.status, fromGoLive.status);
+  assert.strictEqual(fromSelfCheck.message, fromGoLive.message);
+  assert.strictEqual(fromSelfCheck.label, '時區一致');
+});
+
+test('R-058：選單入口 menuRunGoLiveCheck_ 與 Web App 入口 apiGoLiveReport 的報告都有這四項', function () {
+  const fake = makeFakeUi(null);
+  const env = makeEnv({ ui: fake.ui, spreadsheetTz: 'America/Los_Angeles', config: { DRY_RUN: 'TRUE' } });
+  env.sandbox.menuRunGoLiveCheck_();
+  const alertText = fake.alerts.filter(function (a) { return a.kind === 'alert'; })[0].body;
+  assert.ok(alertText.indexOf('上線前：時區一致') !== -1, '時區不一致是🔴，要列在「必須先處理」：' + alertText);
+
+  const resp = env.sandbox.apiGoLiveReport();
+  assert.strictEqual(resp.ok, true, JSON.stringify(resp));
+  const text = resp.data.lines.join('\n');
+  ['上線前：寄送名單', '上線前：收件人是否仍是測試名單', '上線前：測試季度', '上線前：時區一致'].forEach(function (label) {
+    assert.ok(text.indexOf(label) !== -1, '報告缺少「' + label + '」');
+  });
+  assert.strictEqual(resp.data.summary.total, 17);
+});
+
+test('R-058：四項的字眼全部是書面語（沒有口語字）', function () {
+  const env = makeEnv({
+    todayIso: '2026-11-17', spreadsheetTz: 'America/Los_Angeles', config: { EMAIL_ALLOWLIST: 'a@example.org', DRY_RUN: 'FALSE' },
+    weekRowSpecs: [{ isoDate: '2028-04-02', quarterId: '2028T2' }]
+  });
+  env.sandbox.writeSheet_(env.sandbox.SHEETS.RECIPIENTS, recipientRows([{ email: 'a@example.org' }, { email: 'out@example.org', group: 'DB' }]));
+  const { assertWrittenChinese } = require('./helpers/writtenChinese');
+  ['寄送名單', '測試名單', '測試季度', '時區一致'].forEach(function (k) {
+    assertWrittenChinese(assert, k, goLiveItem(env, k).message);
+  });
 });
 
 // =====================================================================

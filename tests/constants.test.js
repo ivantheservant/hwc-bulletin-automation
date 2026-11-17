@@ -209,7 +209,8 @@ test('CONFIG_KEYS 剛好 153 個（與 DEFAULTS 一一對應）', function () {
   // 2026-11-03：+1（CONGREGATION_NAME，多堂會），156 → 157。
   // 2026-11-03：+1（PERSON_NAME_SPLIT_CHARS，同一格幾個名字逐個套尊稱），157 → 158。
   // 2026-11-04：+3（CONFLICT_NOTICE_EMAIL_ENABLED、CONTENT_SHEET_INVITE_EMAIL_ENABLED、RECIPIENT_GROUP_TITLES），158 → 161。
-  assert.strictEqual(Object.keys(CONFIG_KEYS).length, 161);
+  // 2026-11-17：+2（ADMIN_DIGEST_ENABLED、ADMIN_DIGEST_EMAILS，R-057），161 → 163。
+  assert.strictEqual(Object.keys(CONFIG_KEYS).length, 163);
 });
 
 test('這一輪新增的 Config 鍵 FINANCE_PERIOD_LABEL_PATTERN 有定義、有預設值', function () {
@@ -243,7 +244,7 @@ test('CONFIG_KEYS 每一個值都有對應的 DEFAULTS 項目（不會有「有�
 });
 
 test('DEFAULTS 剛好 153 筆（105 ＋ R-035 兩個 ＋ 階段 1 一個 ＋ 階段 2 兩個 ＋ 階段 3 十六個 ＋ D11 一個 ＋ 內容表 v2 一個 ＋ v3 六個 ＋ 2026-10-27 淨加兩個 ＋ 2026-10-30 五個 ＋ 2026-10-30 財政報告四個 ＋ 特別崇拜一個 ＋ 2026-10-30 第二批七個 ＋ 2026-11-02 合堂人數欄標題一個 ＋ 年度 logo 一個 ＋ 寄送名單一個）', function () {
-  assert.strictEqual(DEFAULTS.length, 161, '2026-11-04 加兩個電郵開關與組別稱呼');
+  assert.strictEqual(DEFAULTS.length, 163, '2026-11-04 加兩個電郵開關與組別稱呼；2026-11-17 加兩個管理員摘要鍵（R-057）');
 });
 
 test('內容表那 14 個 Config 鍵齊備，而且 ID 類 seed 成空字串', function () {

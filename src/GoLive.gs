@@ -25,7 +25,7 @@
 // =====================================================================
 
 /**
- * 用途：一次過跑完「上線前檢查」各項（現在十一項），逐項回 🟢／🟡／🔴。
+ * 用途：一次過跑完「上線前檢查」各項（現在十七項），逐項回 🟢／🟡／🔴。
  *
  *   ⚠️ 這一組與「完成度自我檢測」的其餘項目分開，因為它們答的是**另一條
  *   問題**：不是「系統設定齊不齊」，而是「**今日可不可以真的上線**」。
@@ -157,6 +157,9 @@ function buildGoLiveChecklist_() {
         + '只可以發佈、寄出那一週，打開時落在那一週，自動建立季度與預覽連結（不帶日期那一條）亦按這一日計（星期一自動寄送不受影響）。正式使用前一定要清空。'
       : '未填：填寫介面與自動建立季度用真正的今日。'
   });
+
+  // ---- 13 至 16. R-058（2026-11-17）：寄送名單、測試名單、測試季度、時區一致 ----
+  buildGoLiveSafetyItems_(S).forEach(function (item) { items.push(item); });
 
   return items;
 }
@@ -460,4 +463,286 @@ function menuRunGoLiveCheck_() {
     logMenuError_('menuRunGoLiveCheck_', err);
     ui.alert('上線前檢查失敗', enrichAuthError_(err), ui.ButtonSet.OK);
   }
+}
+
+// =====================================================================
+// R-058（2026-11-17）：上線前檢查加四項——寄送名單、測試名單、測試季度、時區一致
+// =====================================================================
+
+/**
+ * 用途：真正的今日（Config `SYS_TIMEZONE`；**不看**模擬今日），供「上線前檢查」與封存使用。
+ * Args:
+ *   todayIso {string=} 測試的注入點（yyyy-MM-dd）；正式流程不傳。
+ * Returns:
+ *   {{todayIso:string, reason:string}} 讀不到時 `todayIso` 是空字串、`reason` 講原因。
+ * Raises:
+ *   （無）
+ */
+function realTodayIso_(todayIso) {
+  var injected = String(todayIso || '').trim();
+  if (injected) return { todayIso: injected, reason: '' };
+  try {
+    return {
+      todayIso: Utilities.formatDate(new Date(), getConfig_(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland'), 'yyyy-MM-dd'),
+      reason: ''
+    };
+  } catch (err) {
+    return { todayIso: '', reason: '讀不到今日日期（Config SYS_TIMEZONE 可能有誤）：' + ((err && err.message) ? err.message : String(err)) };
+  }
+}
+
+/**
+ * 用途：Recipients 內「今日生效而且電郵格式合法」的收件人電郵（不分大小寫去重，保留第一次出現的寫法）。
+ * Args:
+ *   todayIso {string} 判斷 `EFFECTIVE_FROM`／`EFFECTIVE_TO` 用。
+ * Returns:
+ *   {string[]}
+ * Raises:
+ *   Error 讀 Recipients 失敗時原樣拋出（呼叫方當作核對不到）。
+ */
+function effectiveRecipientEmails_(todayIso) {
+  var today = /^\d{4}-\d{2}-\d{2}$/.test(String(todayIso || '')) ? normalizeDate_(todayIso) : null;
+  var seen = {};
+  var out = [];
+  readSheet_(SHEETS.RECIPIENTS).forEach(function (r) {
+    if (r.ACTIVE !== true) return;
+    if (!isRecipientEffective_(r, today)) return;
+    var email = String(r.EMAIL || '').trim();
+    if (!isValidEmailShape_(email)) return;
+    var key = email.toLowerCase();
+    if (seen[key]) return;
+    seen[key] = true;
+    out.push(email);
+  });
+  return out;
+}
+
+/**
+ * 用途：收集「寄送名單」與「測試名單」兩項要用的現況：寄送名單（`EMAIL_ALLOWLIST`，空白＝不限制）、`DRY_RUN`、
+ *   今日生效的收件人電郵。唯讀。
+ * Args:
+ *   todayIso {string=} 測試的注入點。
+ * Returns:
+ *   {{ok:boolean, error:string, allowlist:?string[], dryRun:boolean, emails:string[], blocked:string[]}}
+ *     `ok:false`＝讀不到 Recipients。`blocked` 是不在寄送名單內的收件人（名單空白時是空陣列）。
+ * Raises:
+ *   （無）
+ */
+function inspectEmailRecipientState_(todayIso) {
+  var dryRun = normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
+  var emails;
+  try {
+    emails = effectiveRecipientEmails_(realTodayIso_(todayIso).todayIso);
+  } catch (err) {
+    return { ok: false, error: (err && err.message) ? err.message : String(err), allowlist: null, dryRun: dryRun, emails: [], blocked: [] };
+  }
+  var allowlist = readEmailAllowlist_();
+  var blocked = allowlist
+    ? emails.filter(function (e) { return allowlist.indexOf(emailAddressOf_(e)) === -1; })
+    : [];
+  return { ok: true, error: '', allowlist: allowlist, dryRun: dryRun, emails: emails, blocked: blocked };
+}
+
+/**
+ * 用途：「寄送名單」一項的燈色與說明。純函式。
+ *   寄送名單（`EMAIL_ALLOWLIST`）非空白時，算 Recipients 生效收件人有幾個不在名單：
+ *   `DRY_RUN=FALSE` 而有人被擋＝🔴；`DRY_RUN=TRUE` 而有人被擋＝🟡（上線前要加上或清空）；其餘🟢。
+ * Args:
+ *   state {Object} `inspectEmailRecipientState_()` 的輸出。
+ *   S {Object} `SELF_CHECK_STATUS_`。
+ * Returns:
+ *   {{label:string, status:string, message:string}}
+ */
+function buildEmailAllowlistGoLiveItem_(state, S) {
+  var label = '上線前：寄送名單';
+  if (!state.ok) {
+    return { label: label, status: S.YELLOW, message: '核對不到（讀不到 Recipients：' + state.error + '）。⚠️ 「讀不到」不等於「沒問題」。' };
+  }
+  if (!state.allowlist) {
+    return { label: label, status: S.GREEN, message: 'Config ' + CONFIG_KEYS.EMAIL_ALLOWLIST + ' 是空白＝不限制，所有生效的收件人（' + state.emails.length + ' 人）都會收到。' };
+  }
+  if (state.blocked.length === 0) {
+    return { label: label, status: S.GREEN, message: '寄送名單有 ' + state.allowlist.length + ' 個地址；Recipients 生效的 ' + state.emails.length + ' 人全部在名單內。' };
+  }
+  var listed = state.blocked.slice(0, 5).join('、') + (state.blocked.length > 5 ? '　等 ' + state.blocked.length + ' 人' : '');
+  if (state.dryRun) {
+    return {
+      label: label, status: S.YELLOW,
+      message: '⚠️ Recipients 生效的 ' + state.emails.length + ' 人之中有 ' + state.blocked.length + ' 人不在寄送名單（' + listed
+        + '）。現在是測試模式，不會真的寄；上線之前要把他們加進 Config ' + CONFIG_KEYS.EMAIL_ALLOWLIST + '，或者把它清空（＝不限制）。'
+    };
+  }
+  return {
+    label: label, status: S.RED,
+    message: '⚠️ 正式模式（DRY_RUN=FALSE），但 Recipients 生效的 ' + state.emails.length + ' 人之中有 ' + state.blocked.length
+      + ' 人不在寄送名單（' + listed + '）：他們不會收到任何郵件。請加進 Config ' + CONFIG_KEYS.EMAIL_ALLOWLIST + '，或者把它清空（＝不限制）。'
+  };
+}
+
+/**
+ * 用途：「測試名單」一項的燈色與說明。純函式。Recipients 生效行的電郵全部是同一個地址（或者一個生效的都沒有）
+ *   ＝🟡「看來仍是測試名單」；其餘🟢。
+ * Args:
+ *   state {Object} `inspectEmailRecipientState_()` 的輸出。
+ *   S {Object} `SELF_CHECK_STATUS_`。
+ * Returns:
+ *   {{label:string, status:string, message:string}}
+ */
+function buildTestRecipientsGoLiveItem_(state, S) {
+  var label = '上線前：收件人是否仍是測試名單';
+  if (!state.ok) {
+    return { label: label, status: S.YELLOW, message: '核對不到（讀不到 Recipients：' + state.error + '）。' };
+  }
+  if (state.emails.length === 0) {
+    return { label: label, status: S.YELLOW, message: '⚠️ Recipients 沒有任何今日生效而且電郵格式合法的收件人，上線之後沒有人會收到郵件。' };
+  }
+  var distinct = {};
+  state.emails.forEach(function (e) { distinct[e.toLowerCase()] = true; });
+  if (Object.keys(distinct).length === 1) {
+    return {
+      label: label, status: S.YELLOW,
+      message: '⚠️ Recipients 生效的收件人全部是同一個地址（' + state.emails[0] + '），看來仍是測試名單。上線前要換成真名單。'
+    };
+  }
+  return { label: label, status: S.GREEN, message: 'Recipients 生效的收件人有 ' + Object.keys(distinct).length + ' 個不同的地址。' };
+}
+
+/**
+ * 用途：找出「看來是測試季度」的季度：未封存、第一個主日比真正的今日遲超過
+ *   `AUTO_CREATE_QUARTERS_LEAD_DAYS`＋92 日（`0`＝不限，當作 92 日）、不是沙盒季度。唯讀。
+ * Args:
+ *   todayIso {string=} 測試的注入點。
+ * Returns:
+ *   {{ok:boolean, error:string, todayIso:string, thresholdDays:number, quarters:{quarterId:string, firstIso:string}[]}}
+ * Raises:
+ *   （無）
+ */
+function inspectTestQuarters_(todayIso) {
+  var today = realTodayIso_(todayIso);
+  if (!today.todayIso) return { ok: false, error: today.reason, todayIso: '', thresholdDays: 0, quarters: [] };
+  var rows;
+  try {
+    rows = readSheet_(SHEETS.BULLETIN_WEEKS);
+  } catch (err) {
+    return { ok: false, error: (err && err.message) ? err.message : String(err), todayIso: today.todayIso, thresholdDays: 0, quarters: [] };
+  }
+  var thresholdDays = autoCreateLeadDays_() + 92;
+  var limitIso = addDaysToIsoDate_(today.todayIso, thresholdDays);
+  var sandbox = String(getConfig_(CONFIG_KEYS.SELFTEST_QUARTER_ID, '') || '').trim();
+  var archivedFlags = quarterArchivedFlags_(rows);
+  var firstByQuarter = {};
+  rows.forEach(function (r) {
+    var qid = String(r.QUARTER_ID || '').trim();
+    var iso = fieldOverrideIsoOf_(r.SERVICE_DATE);
+    if (!qid || !iso) return;
+    if (!firstByQuarter[qid] || iso < firstByQuarter[qid]) firstByQuarter[qid] = iso;
+  });
+  var quarters = Object.keys(firstByQuarter).sort().filter(function (qid) {
+    if (sandbox && qid === sandbox) return false;
+    if (archivedFlags[qid] === true) return false;
+    return firstByQuarter[qid] > limitIso;
+  }).map(function (qid) { return { quarterId: qid, firstIso: firstByQuarter[qid] }; });
+  return { ok: true, error: '', todayIso: today.todayIso, thresholdDays: thresholdDays, quarters: quarters };
+}
+
+/**
+ * 用途：「測試季度」一項的燈色與說明。純函式。有測試季度＝🟡，列出並建議用選單「封存指定季度…」。
+ * Args:
+ *   state {Object} `inspectTestQuarters_()` 的輸出。
+ *   S {Object} `SELF_CHECK_STATUS_`。
+ * Returns:
+ *   {{label:string, status:string, message:string}}
+ */
+function buildTestQuartersGoLiveItem_(state, S) {
+  var label = '上線前：測試季度';
+  if (!state.ok) {
+    return { label: label, status: S.YELLOW, message: '核對不到（' + state.error + '）。' };
+  }
+  if (state.quarters.length === 0) {
+    return { label: label, status: S.GREEN, message: '沒有看來是測試的未封存季度（第一個主日不比今日遲過 ' + state.thresholdDays + ' 日）。' };
+  }
+  return {
+    label: label, status: S.YELLOW,
+    message: '⚠️ 以下未封存的季度，第一個主日比今日（' + state.todayIso + '）遲過 ' + state.thresholdDays + ' 日，看來是測試用的：'
+      + state.quarters.map(function (q) { return q.quarterId + '（' + q.firstIso + '）'; }).join('、')
+      + '。不再用的話，請按選單「封存指定季度…」收起（一格資料都不會刪，隨時可以取消封存）。'
+  };
+}
+
+/**
+ * 用途：收集「時區一致」要用的三個時區：試算表、指令碼、Config `SYS_TIMEZONE`。唯讀。
+ * Args: （無）
+ * Returns:
+ *   {{spreadsheet:string, script:string, config:string}} 讀不到的是空字串。
+ * Raises:
+ *   （無）
+ */
+function inspectTimezoneConsistency_() {
+  var spreadsheet = '';
+  var script = '';
+  try {
+    spreadsheet = String(SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone() || '').trim();
+  } catch (err) {
+    spreadsheet = '';
+  }
+  try {
+    script = String(Session.getScriptTimeZone() || '').trim();
+  } catch (err2) {
+    script = '';
+  }
+  var config = '';
+  try {
+    config = String(getConfig_(CONFIG_KEYS.SYS_TIMEZONE, '') || '').trim();
+  } catch (err3) {
+    config = '';
+  }
+  return { spreadsheet: spreadsheet, script: script, config: config };
+}
+
+/**
+ * 用途：「時區一致」一項的燈色與說明。純函式；「上線前檢查」與「完成度自我檢測」共用這一支，不寫兩次。
+ *   三者有任何不同＝🔴：由工作表讀出來的日期是用指令碼時區轉換的，三者不同，日期會跳一日（bug class 3、4）。
+ *   讀不到任何一個＝🟡（核對不到不等於一致）。
+ * Args:
+ *   state {Object} `inspectTimezoneConsistency_()` 的輸出。
+ *   S {Object} `SELF_CHECK_STATUS_`。
+ * Returns:
+ *   {{status:string, message:string}}
+ */
+function buildTimezoneCheckItem_(state, S) {
+  var names = [['試算表', state.spreadsheet], ['指令碼', state.script], ['Config ' + CONFIG_KEYS.SYS_TIMEZONE, state.config]];
+  var unreadable = names.filter(function (n) { return !n[1]; }).map(function (n) { return n[0]; });
+  var summary = names.map(function (n) { return n[0] + '：' + (n[1] || '（讀不到）'); }).join('；');
+  var known = names.filter(function (n) { return n[1]; }).map(function (n) { return n[1]; });
+  var distinct = known.filter(function (v, i) { return known.indexOf(v) === i; });
+  if (distinct.length > 1) {
+    return {
+      status: S.RED,
+      message: '⚠️ 三個時區不一致（' + summary + '）。由工作表讀出來的日期會用指令碼時區轉換，不一致的話主日日期可能跳一日，'
+        + '星期一自動流程亦可能選錯主日。請把三處改成同一個時區（試算表：檔案 ▸ 設定；指令碼：專案設定；Config：'
+        + CONFIG_KEYS.SYS_TIMEZONE + '）。'
+    };
+  }
+  if (unreadable.length > 0) {
+    return { status: S.YELLOW, message: '核對不到（' + summary + '）。⚠️ 「讀不到」不等於「一致」。' };
+  }
+  return { status: S.GREEN, message: '三處一致：' + distinct[0] + '。' };
+}
+
+/**
+ * 用途：把 R-058 的四項上線前檢查（寄送名單、測試名單、測試季度、時區一致）收成一個陣列。
+ * Args:
+ *   S {Object} `SELF_CHECK_STATUS_`。
+ * Returns:
+ *   {{label:string, status:string, message:string}[]}
+ */
+function buildGoLiveSafetyItems_(S) {
+  var recipientState = inspectEmailRecipientState_();
+  var tz = buildTimezoneCheckItem_(inspectTimezoneConsistency_(), S);
+  return [
+    buildEmailAllowlistGoLiveItem_(recipientState, S),
+    buildTestRecipientsGoLiveItem_(recipientState, S),
+    buildTestQuartersGoLiveItem_(inspectTestQuarters_(), S),
+    { label: '上線前：時區一致', status: tz.status, message: tz.message }
+  ];
 }
