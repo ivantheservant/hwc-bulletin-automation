@@ -921,7 +921,7 @@ function speakerFormContentTabName_() {
  *   {{sent:boolean, reason:string, dryRun:boolean, recipientCount:number}}
  */
 function notifySpeakerFormAnswer_(answer, outcome) {
-  var dryRun = normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
+  var dryRun = isDryRun_();
   var groups = getConfigTextList_(CONFIG_KEYS.SPEAKER_FORM_NOTIFY_GROUPS, 'ADMIN');
   var recipients = buildRecipientList_(readSheet_(SHEETS.RECIPIENTS), groups, new Date()).recipients;
   if (recipients.length === 0) {

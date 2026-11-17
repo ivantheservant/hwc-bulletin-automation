@@ -656,7 +656,7 @@ function contentImportForWebApp_(isoDate, apply) {
     });
   }
 
-  var dryRun = normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
+  var dryRun = isDryRun_();
   var conflicts = result.plan.conflicts || [];
   var releases = result.plan.releases || [];
   return {

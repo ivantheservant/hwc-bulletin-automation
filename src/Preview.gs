@@ -613,7 +613,7 @@ function buildPreviewPage_(requestedIso, options) {
  */
 function sendPreviewNotice_(isoDate) {
   var config = previewConfig_();
-  var dryRun = normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
+  var dryRun = isDryRun_();
   var out = {
     sent: false, reason: '', dryRun: dryRun, recipientCount: 0,
     previewUrl: '', message: ''
@@ -788,7 +788,7 @@ function menuTestSendPreviewNotice_() {
       ui.alert('「' + isoDate + '」不是星期日，沒有寄。請輸入主日的日期。');
       return;
     }
-    if (normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) !== true) {
+    if (!isDryRun_()) {
       var confirm = ui.alert('真的寄出',
         'Config 的 DRY_RUN 是 FALSE：會真的把 ' + isoDate + ' 的草稿預覽信寄給 Recipients 內的收件人。確定嗎？',
         ui.ButtonSet.YES_NO);

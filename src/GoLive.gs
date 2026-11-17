@@ -68,14 +68,21 @@ function buildGoLiveChecklist_() {
   });
 
   // ---- 2. DRY_RUN 現值 ----
-  var dryRun = normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
+  // 獨立審查 A-02：DRY_RUN 空白、寫錯、讀不到一律當試行（不寄），而且要報紅燈——不清楚的設定不可以報「正式模式」。
+  var dryRunState = dryRunConfigState_();
+  var dryRunUnclear = dryRunState.state === 'BLANK' || dryRunState.state === 'INVALID' || dryRunState.state === 'UNREADABLE';
   items.push({
     label: '上線前：寄送模式',
-    status: dryRun ? S.YELLOW : S.GREEN,
-    message: dryRun
-      ? '⚠️ 測試模式（DRY_RUN=TRUE）：不會真的寄出任何郵件，只會寫 SendLog。'
-        + '正式上線之前要記得改成 FALSE。'
-      : '正式模式（DRY_RUN=FALSE）：郵件會真的寄出。'
+    status: dryRunUnclear ? S.RED : (dryRunState.dryRun ? S.YELLOW : S.GREEN),
+    message: dryRunUnclear
+      ? ('❌ Config 的 DRY_RUN '
+        + (dryRunState.state === 'INVALID' ? '是「' + dryRunState.raw + '」，不是 TRUE 或 FALSE'
+          : (dryRunState.state === 'UNREADABLE' ? '讀不到' : '是空白'))
+        + '：系統一律當作測試模式，不會真的寄出任何郵件。請明確填 TRUE（測試）或 FALSE（正式）。')
+      : (dryRunState.dryRun
+        ? '⚠️ 測試模式（DRY_RUN=TRUE）：不會真的寄出任何郵件，只會寫 SendLog。'
+          + '正式上線之前要記得改成 FALSE。'
+        : '正式模式（DRY_RUN=FALSE）：郵件會真的寄出。')
   });
 
   // ---- 3. PREVIEW_WEBAPP_URL 已填 ----
@@ -529,7 +536,7 @@ function effectiveRecipientEmails_(todayIso) {
  *   （無）
  */
 function inspectEmailRecipientState_(todayIso) {
-  var dryRun = normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
+  var dryRun = isDryRun_();
   var emails;
   try {
     emails = effectiveRecipientEmails_(realTodayIso_(todayIso).todayIso);

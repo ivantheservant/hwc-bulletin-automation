@@ -97,7 +97,7 @@ function sendBulletinForDate_(isoDate, options) {
     throw noRecipientsErr;
   }
 
-  var dryRun = normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
+  var dryRun = isDryRun_();
 
   if (!dryRun) {
     var quota = MailApp.getRemainingDailyQuota();

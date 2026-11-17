@@ -497,16 +497,17 @@ function backfillPublishLogContentFingerprint_() {
   var sheet = ss.getSheetByName(SHEETS.PUBLISH_LOG);
   if (!sheet) return out;
 
-  var rows = readSheet_(SHEETS.PUBLISH_LOG);
+  // 獨立審查 A-01：用真正的行號（__rowNo），不可以用陣列位置 + 3（readSheet_() 會略過整行空白的列）。
+  var rows = readRowsWithRowNo_(SHEETS.PUBLISH_LOG);
   if (rows.length === 0) return out;
 
   var def = COLUMNS.PUBLISH_LOG;
   if (def.keys.indexOf('CONTENT_MD5') === -1) return out;
 
-  rows.forEach(function (row, index) {
+  rows.forEach(function (row) {
     if (publishRowFingerprint_(row)) return; // 已經有值，不動
 
-    var rowNo = index + 3;
+    var rowNo = row.__rowNo;
     var archiveFileId = String(row.ARCHIVE_FILE_ID || '').trim();
     var stamp = publishRowIsoDate_(row) + ' 第 ' + Number(row.VERSION_NO || 0) + ' 版';
 

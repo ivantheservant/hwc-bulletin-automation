@@ -576,7 +576,7 @@ function resolveRecitationContent_(week, isoDate, groups, values, where) {
  * Args:
  *   text {*} `BulletinWeeks.CALL_TEXT`。
  *   ref {*} `BulletinWeeks.CALL_REF`。
- *   format {string} Config `CALL_TO_WORSHIP_FORMAT`，佔位符 `{{text}}`／`{{ref}}`。
+ *   format {string} Config `CALL_TO_WORSHIP_FORMAT`，佔位符 `{{text}}`／`{{ref}}`（亦接受 `{{CALL_TEXT}}`／`{{CALL_REF}}`，見 `fillCallToWorshipPattern_()`）。
  * Returns:
  *   {string}
  */
@@ -587,9 +587,29 @@ function formatCallToWorship_(text, ref, format) {
   if (!t && !r) return '';
   if (t && !r) return t;
 
-  return String(format || '{{text}}（{{ref}}）')
-    .split('{{text}}').join(t)
-    .split('{{ref}}').join(r);
+  return fillCallToWorshipPattern_(format || '{{text}}（{{ref}}）', t, r);
+}
+
+/**
+ * 用途：獨立審查 A-03（2026-11-17）：把宣召的組合格式填上經文與出處。純函式。
+ *   Config `CALL_TO_WORSHIP_FORMAT` 的種子值用 `{{text}}`／`{{ref}}`，而 Word 的 `{{CALL_COMBINED}}`
+ *   （`buildCallCombined_()`）以前只認 `{{CALL_TEXT}}`／`{{CALL_REF}}`——同一個 Config 鍵兩套記號，種子值之下
+ *   `{{CALL_COMBINED}}` 會印出字面上的「{{text}}（{{ref}}）」。現在程序表與 Word 共用這一支，**兩套記號都認**。
+ * Args:
+ *   pattern {string} 組合格式。
+ *   text {string} 經文（已去頭尾空白）。
+ *   ref {string} 出處（已去頭尾空白）。
+ * Returns:
+ *   {string}
+ * Raises:
+ *   （無）
+ */
+function fillCallToWorshipPattern_(pattern, text, ref) {
+  return String(pattern === null || pattern === undefined ? '' : pattern)
+    .split('{{CALL_TEXT}}').join('{{text}}')
+    .split('{{CALL_REF}}').join('{{ref}}')
+    .split('{{text}}').join(text)
+    .split('{{ref}}').join(ref);
 }
 
 /**

@@ -944,5 +944,19 @@ test('F6 RENDER_BLOCK_IF_MISSING_FIELDS=TRUE 時，拒絕訊息的數字也只�
 
 // =====================================================================
 
+
+test('A-03 獨立審查：真正入口 generateBulletinDocx_()，Config 用種子值（{{text}}（{{ref}}）），範本的 {{CALL_COMBINED}} 印出「經文（出處）」', function () {
+  const env = makeEnv({
+    templateXml: fx.documentXml(fx.para(fx.run('{{CALL_COMBINED}}'))),
+    weekOverrides: { CALL_TEXT: '你們要讚美耶和華', CALL_REF: '詩篇 150:1' }
+  });
+  assert.strictEqual(env.sandbox.getConfig_('CALL_TO_WORSHIP_FORMAT', ''), '{{text}}（{{ref}}）', '前提：種子值');
+  const result = env.sandbox.generateBulletinDocx_('2027-11-07');
+  assert.strictEqual(result.ok, true, JSON.stringify(result));
+  const text = visibleText(documentXmlOf(result.blob));
+  assert.ok(text.indexOf('你們要讚美耶和華（詩篇 150:1）') !== -1, text);
+  assert.strictEqual(text.indexOf('{{text}}'), -1, '不可以印出字面上的 {{text}}');
+});
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail === 0 ? 0 : 1);

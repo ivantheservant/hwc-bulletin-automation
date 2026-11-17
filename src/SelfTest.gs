@@ -87,7 +87,7 @@ function selfTestConfig_() {
     publishedFileId: String(getConfig_(CONFIG_KEYS.PUBLISHED_PDF_FILE_ID, '') || '').trim(),
     contentFolderId: String(getConfig_(CONFIG_KEYS.CONTENT_SHEET_FOLDER_ID, '') || '').trim(),
     timeBudgetMs: budgetSec * 1000,
-    dryRun: normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true
+    dryRun: isDryRun_()
   };
 }
 
@@ -2857,7 +2857,7 @@ function selfTestS18_(ctx) {
   var todayIso = schedule.todayIso;
 
   var isSunday = schedule.ok && isIsoDateSunday_(targetIso);
-  var dryRun = normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
+  var dryRun = isDryRun_();
 
   // ⚠️ 這裡刻意用一支**與被驗邏輯無關**的算法對答案：直接數星期幾。
   //    如果驗證方也叫 resolveNextSendSundayIso_()，兩邊會一齊錯、一齊

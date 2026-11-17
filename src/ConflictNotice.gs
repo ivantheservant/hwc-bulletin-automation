@@ -193,7 +193,7 @@ function readNotifiedFingerprints_() {
  */
 function sendConflictNoticeIfNeeded_(isoDate) {
   var diff = computeRosterDiff_(isoDate);
-  var dryRun = normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
+  var dryRun = isDryRun_();
 
   if (diff.conflictCount === 0) {
     return { sent: false, reason: 'NO_CONFLICT', dryRun: dryRun, conflictCount: 0, notifiedCount: 0, recipientCount: 0 };

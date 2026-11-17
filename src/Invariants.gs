@@ -773,7 +773,7 @@ function runInvariantI05_(options) {
   var label = 'I05　DRY_RUN=TRUE 時，SendLog 不可以有任何真實寄出紀錄';
   return runInvariantSafely_('I05', label, function () {
     var opts = options || {};
-    var dryRun = normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
+    var dryRun = isDryRun_();
     if (!dryRun) {
       return invariantResult_('I05', label, null, 'DRY_RUN=TRUE 時才驗得到', 'DRY_RUN 目前是 FALSE',
         '現在是真實寄送模式，這一條不適用——不是「沒問題」，是「這一刻驗不到」。');

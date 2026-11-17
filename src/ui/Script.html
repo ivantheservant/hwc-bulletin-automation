@@ -1400,7 +1400,10 @@
     if (!state.isoDate) return;
     if (state.inFlight > 0) return;
     hideMessage();
-    callServer('apiRunContentImport', [state.isoDate], onContentImportDone, { busyText: '由內容表匯入中…' });
+    var isoDate = state.isoDate;
+    confirmBeforeReloadingWeek('重新匯入', '重新匯入', function () {
+      callServer('apiRunContentImport', [isoDate], onContentImportDone, { busyText: '由內容表匯入中…' });
+    });
   }
 
   /**
@@ -2572,6 +2575,24 @@
 
   // BEGIN week-switch-guard（測試會把這一段連同 week-diff 抽出來在假環境上執行，請保持自足）
   /**
+   * 用途：獨立審查 A-07：做完之後會重新載入這一週的動作（重新匯入、補抓空白欄位、以職事表覆寫），有未儲存的改動就先問一次；
+   *   沒有就直接做。以前這三個動作不問，表單上未儲存的修改靜靜消失。
+   * Args:
+   *   title {string} 對話框標題。
+   *   actionText {string} 動作名稱，例如「重新匯入」。
+   *   proceed {function():void} 確定之後做的事。
+   * Returns:
+   *   {void}
+   */
+  function confirmBeforeReloadingWeek(title, actionText, proceed) {
+    if (!hasUnsavedWeekChanges()) { proceed(); return; }
+    openConfirmDialog(title, ['這一週有未儲存的改動。' + actionText + '之後會重新載入這一週，未儲存的改動會丟失。'
+      + '想保留的話，請先按「取消」，儲存之後再做。', '', '確定要繼續嗎？'], function (accepted) {
+      if (accepted) proceed(); else showMessage('info', CANCELLED_NOTHING_WRITTEN_MESSAGE);
+    });
+  }
+
+  /**
    * 用途：把事奉框的編輯表（鍵 `postId#slotIndex`）攤成「鍵 → 名字」，
    *   好交給 `diffWeekFields()` 比對。
    * Args:
@@ -2670,6 +2691,7 @@
       if (accepted) proceed(); else revert();
     });
   }
+
   // END week-switch-guard
 
   function populateSelectOptions(selectEl, options, labelFn) {
@@ -3795,8 +3817,12 @@
     if (!state.isoDate) return;
     if (state.inFlight > 0) return;
     hideMessage();
-    callServer('apiGetRosterFetchCandidates', [state.isoDate], onFetchCandidatesLoaded,
-      { busyText: '讀取職事表中…' });
+    var isoDate = state.isoDate;
+    // 獨立審查 A-07：按「確定」之後會重新載入這一週，所以在打開對話框之前先問。
+    confirmBeforeReloadingWeek('以職事表覆寫', '以職事表覆寫', function () {
+      callServer('apiGetRosterFetchCandidates', [isoDate], onFetchCandidatesLoaded,
+        { busyText: '讀取職事表中…' });
+    });
   }
 
   function onFetchCandidatesLoaded(resp) {
@@ -4944,17 +4970,23 @@
    *   {void}
    */
   function backfillRoster() {
+    if (state.inFlight > 0) return;
     if (!state.quarterId) {
       showMessage('error', '還未知道現在是哪一季，請先選一個主日。');
       return;
     }
-    callServer('apiBackfillRoster', [state.quarterId], function (resp) {
-      if (!resp.ok) { showMessage('error', resp.error.message); return; }
-      var data = resp.data;
-      showMessage(data.rosterFound === true ? 'success' : 'info', data.message);
-      // 補抓之後事奉欄位與橫幅都可能變了，重新載入這一期。
-      if (state.isoDate) loadWeek(state.isoDate, { keepMessage: true });
-    }, { busyText: '補抓空白欄位中…' });
+    var quarterId = state.quarterId;
+    confirmBeforeReloadingWeek('補抓空白欄位', '補抓空白欄位', function () {
+      callServer('apiBackfillRoster', [quarterId], function (resp) {
+        if (!resp.ok) { showMessage('error', resp.error.message); return; }
+        var data = resp.data;
+        // 獨立審查 A-05：讀不到職事表時 ok:false，講原因（一格都沒有寫）。
+        if (data.ok === false) { showMessage('error', data.message); return; }
+        showMessage(data.rosterFound === true ? 'success' : 'info', data.message);
+        // 補抓之後事奉欄位與橫幅都可能變了，重新載入這一期。
+        if (state.isoDate) loadWeek(state.isoDate, { keepMessage: true });
+      }, { busyText: '補抓空白欄位中…' });
+    });
   }
 
   // =====================================================================

@@ -316,7 +316,8 @@ test('八個功能全部經既有核心，沒有一支自己重寫邏輯', funct
     'previewContentImport_(',           // D
     'applyContentImport_(',             // D
     'buildQuarterMissingFieldsReportLines_(', // E
-    'checkRosterDiff_(',                // F
+    // 獨立審查 A-04：F 改用唯讀的 computeRosterDiff_()（checkRosterDiff_() 會寫入，只可以看的用戶亦叫得到 F）。
+    'computeRosterDiff_(',              // F
     'buildGoLiveChecklist_(',           // G
     'driveListRevisions_('              // H
   ].forEach(function (fnCall) {

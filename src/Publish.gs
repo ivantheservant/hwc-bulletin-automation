@@ -172,7 +172,7 @@ function publishConfig_() {
     dedupSec: (dedupSec === null || dedupSec < 0) ? 30 : dedupSec,
     sendOnlyDedupSec: (sendOnlyDedupSec === null || sendOnlyDedupSec < 0) ? 600 : sendOnlyDedupSec,
     timezone: getConfig_(CONFIG_KEYS.SYS_TIMEZONE, 'Pacific/Auckland'),
-    dryRun: normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true,
+    dryRun: isDryRun_(),
     churchName: getConfig_(CONFIG_KEYS.CHURCH_NAME, '')
   };
 }

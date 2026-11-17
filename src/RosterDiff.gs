@@ -206,7 +206,38 @@ function checkRosterDiff_(isoDate) {
     return diff;
   }
 
+  // 獨立審查 A-04：寫 AuditLog 與 BulletinWeeks 的快照版本要經指令碼鎖（與儲存、匯入同一把）；30 秒內拿不到鎖就不記，
+  //   比對結果照樣回傳（下一次比對會再記）。
   try {
+    withScriptLock_('checkRosterDiff_', 30000, function () { recordRosterFollow_(isoDate, diff); }, function () {
+      diff.warnings.push({
+        code: 'FOLLOW_RECORD_BUSY',
+        message: '比對結果算得出來，但另一個寫入動作正在執行，這一次沒有把「自動跟隨」記下來；下一次比對會再記。比對結果本身不受影響。'
+      });
+    });
+  } catch (err) {
+    diff.warnings.push({
+      code: 'FOLLOW_RECORD_FAILED',
+      message: '比對結果算得出來，但把「自動跟隨」記進 AuditLog／更新快照版本時失敗：'
+        + (err && err.message ? err.message : String(err)) + '　比對結果本身不受影響。'
+    });
+  }
+
+  return diff;
+}
+
+/**
+ * 用途：獨立審查 A-04：把「自動跟隨職事表」的崗位記進 AuditLog，並更新 BulletinWeeks 的快照版本。由 `checkRosterDiff_()`
+ *   在指令碼鎖之內呼叫。
+ * Args:
+ *   isoDate {string}　diff {Object} `computeRosterDiff_()` 的回傳值。
+ * Returns:
+ *   {void}
+ * Raises:
+ *   寫入失敗時原樣拋出（由呼叫方記成警告）。
+ */
+function recordRosterFollow_(isoDate, diff) {
+  {
     diff.rows.forEach(function (row) {
       if (row.status !== ROSTER_DIFF_STATUS.FOLLOW) return;
       appendAuditLog_({
@@ -222,15 +253,7 @@ function checkRosterDiff_(isoDate) {
     });
 
     writeRosterSnapshotVersion_(isoDate, diff.rosterVersion);
-  } catch (err) {
-    diff.warnings.push({
-      code: 'FOLLOW_RECORD_FAILED',
-      message: '比對結果算得出來，但把「自動跟隨」記進 AuditLog／更新快照版本時失敗：'
-        + (err && err.message ? err.message : String(err)) + '　比對結果本身不受影響。'
-    });
   }
-
-  return diff;
 }
 
 /**

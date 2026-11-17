@@ -377,7 +377,8 @@ function applyDutyOverridePlan_(plan, targetDate, isoDate, actorEmail, auditEntr
     u.changes.forEach(function (c) {
       var colIndex = def.keys.indexOf(c.field) + 1;
       if (colIndex <= 0) return;
-      sheet.getRange(u.rowNo, colIndex).setValue(c.newValue === null || c.newValue === undefined ? '' : c.newValue);
+      // 獨立審查 A-08：與新增行（下面 appends）一樣經 sanitizeCellText_()，名字以 = + - @ 開頭不會被當成公式。
+      sheet.getRange(u.rowNo, colIndex).setValue(sanitizeCellText_(c.newValue === null || c.newValue === undefined ? '' : c.newValue));
       auditEntriesOut.push({
         action: 'DUTY_OVERRIDE_SET', sheetName: SHEETS.DUTY_OVERRIDE,
         rowKey: isoDate + '#' + u.postId + '#' + u.slotIndex,

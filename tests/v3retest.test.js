@@ -234,5 +234,27 @@ test('選單試寄草稿預覽信（真入口 menuTestSendPreviewNotice_）：�
   assert.strictEqual(env.mail.calls.length, 0);
 });
 
+
+test('C-03 獨立審查：autoCreateContentSheetsForUpcomingQuarters_（真入口）——邀請信停用（預設）時，已經有內容表的季度星期一只核對、不整份刷新；邀請信啟用時照舊', function () {
+  function run(inviteEnabled) {
+    const env = makeEnv('2026-12-14', {
+      config: Object.assign({ DRY_RUN: 'FALSE' }, inviteEnabled ? { CONTENT_SHEET_INVITE_EMAIL_ENABLED: 'TRUE' } : {}),
+      weeks: [['2027T1', '2027-01-03'], ['2027T1', '2027-03-28'], ['2027T2', '2027-01-03'], ['2027T2', '2027-03-28']]
+    });
+    const sb = env.sandbox;
+    const dates = { '2027T1': ['2027-01-03', '2027-03-28'], '2027T2': ['2027-01-03', '2027-03-28'] };
+    const built = [];
+    sb.checkContentSheetFolderConfigured_ = function () { return { ok: true }; };
+    sb.readNotifiedFingerprints_ = function () { return []; };
+    sb.resolveQuarterServiceDateEntries_ = function (q) { return { dates: dates[q] }; };
+    sb.buildOrRefreshContentSheet_ = function (q, opts) { built.push(q + (opts && opts.checkOnly === true ? '：只核對' : '')); return { ok: true, created: false }; };
+    sb.sendContentSheetInvite_ = function () { return { sent: false, reason: 'DISABLED' }; };
+    sb.autoCreateContentSheetsForUpcomingQuarters_();
+    return built;
+  }
+  assert.deepStrictEqual(run(false), ['2027T1：只核對', '2027T2：只核對'], '邀請信停用時只核對（已有的內容表不寫；未有的照常建立，見 tests/contentsheet.test.js 12f）');
+  assert.deepStrictEqual(run(true), ['2027T1', '2027T2'], '邀請信啟用時照舊（寄過才記指紋略過）');
+});
+
 console.log('\n通過 ' + pass + ' 項，失敗 ' + fail + ' 項。');
 process.exit(fail === 0 ? 0 : 1);

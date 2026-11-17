@@ -198,6 +198,8 @@ function applyContentInstructionsTab_(sheet, lines) {
  *       「崇拜程序」，見 src/ContentSheetMigrate.gs）。人手入口（填寫介面「季度作業」、選單）先給人看
  *       預覽再傳 `true`；自動流程（星期一）不傳——遇到要移轉的就回 `NEEDS_MIGRATION`，一格都不寫
  *       （bug class 113）。新建的內容表不算移轉，照樣預先開好每個主日一行。
+ *     - `checkOnly`（獨立審查 C-03）：`true`＝已有的內容表只核對版面（要更新就回 `NEEDS_MIGRATION` 等），一格都不寫，回 `checkedOnly:true`；
+ *       未有內容表的照常建立。星期一自動流程在內容表邀請信停用時用。
  * Returns:
  *   {{ok:boolean, created:boolean, quarterId:string, fileId:string, fileUrl:string,
  *     tabsCreated:string[], serviceDateCount:number, seededSample:boolean,
@@ -330,6 +332,12 @@ function buildOrRefreshContentSheetLocked_(quarterId, options) {
           + '按內容表狀態列的「更新本季內容表…」，先看會做甚麼再確定。'
       };
     }
+  }
+
+  // 獨立審查 C-03：只核對（星期一自動流程、邀請信停用時）：已有的內容表到這裏版面核對已經做完（要更新的話上面已回 NEEDS_MIGRATION），
+  //   一格都不寫就回去；未有內容表的照常建立。
+  if (spreadsheet && buildOptions.checkOnly === true) {
+    return { ok: true, created: false, checkedOnly: true, quarterId: qid, fileId: fileId, fileUrl: fileUrl };
   }
 
   if (!spreadsheet) {
@@ -663,7 +671,7 @@ function maskContentFileId_(fileId) {
  */
 function sendContentSheetInvite_(quarterId) {
   var qid = String(quarterId || '').trim();
-  var dryRun = normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
+  var dryRun = isDryRun_();
   // 2026-11-04（Ivan）：內容表邀請信由職事表系統寄，週報系統預設不寄（內容表照樣建立）。
   if (normalizeBoolean_(getConfig_(CONFIG_KEYS.CONTENT_SHEET_INVITE_EMAIL_ENABLED, 'FALSE')) !== true) {
     return {
@@ -859,6 +867,15 @@ function autoCreateContentSheetsForUpcomingQuarters_() {
     if (r.ARCHIVED === true) archivedQuarter[qid] = true;
   });
   var selfTestQuarterId = String(getConfig_(CONFIG_KEYS.SELFTEST_QUARTER_ID, '') || '').trim();
+  // 獨立審查 C-03：邀請信停用（預設）時永遠不會記指紋，以前於是每個星期一都把本季與下一季的內容表整份刷新一次
+  //   （格式、下拉、保護、排序、逐人分享），拿着指令碼鎖，排在寄週報之前。現在邀請信停用時，已經有內容表的季度只核對版面
+  //   （checkOnly：唯讀，要更新就照舊回 NEEDS_MIGRATION、記 ErrorLog），不整份刷新；權限更新改由「更新本季內容表…」人手做。
+  var inviteEnabled = false;
+  try {
+    inviteEnabled = normalizeBoolean_(getConfig_(CONFIG_KEYS.CONTENT_SHEET_INVITE_EMAIL_ENABLED, 'FALSE')) === true;
+  } catch (inviteCfgErr) {
+    inviteEnabled = false;
+  }
 
   Object.keys(quarterIds).sort().forEach(function (qid) {
     var fingerprint = contentSheetInviteFingerprint_(qid);
@@ -881,7 +898,8 @@ function autoCreateContentSheetsForUpcomingQuarters_() {
       return;
     }
 
-    var built = buildOrRefreshContentSheet_(qid);
+    // 獨立審查 C-03：邀請信停用時只核對已有內容表的版面（要更新就照舊記 ErrorLog），不整份刷新；未有內容表照樣建立。
+    var built = buildOrRefreshContentSheet_(qid, inviteEnabled ? undefined : { checkOnly: true });
     if (!built.ok) {
       // 內容表 v2：舊版內容表要人手移轉（先看預覽），自動流程略過並留一筆紀錄（照 RETENTION_NEEDS_CONFIRMATION 的先例）。
       //    審查 A6：新欄位置原本有字（NEW_COLUMNS_NOT_EMPTY）同樣是「要人手處理才可以移轉」。
@@ -1104,7 +1122,7 @@ function menuImportFromContentSheet_() {
     // 完整明細一律寫入 Diagnostics，對話框只放前 20 行。
     writeDiagnosticsReport_('內容表匯入預覽', buildContentImportReportLines_(preview));
 
-    var dryRun = normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
+    var dryRun = isDryRun_();
     var previewLines = buildContentImportDialogLines_(preview, { dryRun: dryRun, applied: false });
     previewLines.push('');
     previewLines.push('確定要寫入嗎？');

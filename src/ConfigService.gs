@@ -54,6 +54,51 @@ function getConfig_(key, defaultValue) {
 }
 
 /**
+ * 用途：獨立審查 A-02（2026-11-17）：Config `DRY_RUN` 的狀態。純函式以外只讀 Config。
+ *   以前全系統寫 `normalizeBoolean_(getConfig_(DRY_RUN, 'TRUE')) === true`：那一格**留空**時 `getConfig_` 回 ''（鍵存在就不用預設值），
+ *   `normalizeBoolean_('')` 回 null，`null === true` 是 false——於是被當成正式模式真的寄出。
+ *   現在**只有明確寫 FALSE（或「否」）才是正式模式**；空白、寫錯、讀不到 Config 一律當試行。
+ * Args: （無）
+ * Returns:
+ *   {{dryRun:boolean, state:string, raw:string}} `state`：`'TRUE'`／`'FALSE'`／`'BLANK'`（有這一行但空白，或者沒有這一行）／
+ *     `'INVALID'`（不是 TRUE／FALSE）／`'UNREADABLE'`（讀 Config 拋錯）。`dryRun` 只在 `state === 'FALSE'` 時是 false。
+ * Raises:
+ *   （無）
+ */
+function dryRunConfigState_() {
+  var raw;
+  try {
+    raw = getConfig_(CONFIG_KEYS.DRY_RUN, '');
+  } catch (err) {
+    return { dryRun: true, state: 'UNREADABLE', raw: '' };
+  }
+  var text = String(raw === null || raw === undefined ? '' : raw).trim();
+  if (text === '') return { dryRun: true, state: 'BLANK', raw: '' };
+  var value;
+  try {
+    value = normalizeBoolean_(text);
+  } catch (parseErr) {
+    return { dryRun: true, state: 'INVALID', raw: text };
+  }
+  if (value === false) return { dryRun: false, state: 'FALSE', raw: text };
+  if (value === true) return { dryRun: true, state: 'TRUE', raw: text };
+  return { dryRun: true, state: 'BLANK', raw: text };
+}
+
+/**
+ * 用途：獨立審查 A-02：現在是不是試行模式（不真的寄出）。**全系統判斷 DRY_RUN 一律經這一支**。
+ *   只有 Config `DRY_RUN` 明確是 FALSE 才回 false；空白、寫錯、讀不到都回 true。
+ * Args: （無）
+ * Returns:
+ *   {boolean}
+ * Raises:
+ *   （無）
+ */
+function isDryRun_() {
+  return dryRunConfigState_().dryRun;
+}
+
+/**
  * 用途：讀取一個「逗號分隔的整數清單」設定值（例如 COMMUNION_WEEKS 的 `1`、
  *   PRAYER_MEETING_WEEKS 的 `2,4`），解析成數字陣列。
  * Args:

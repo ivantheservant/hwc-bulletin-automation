@@ -1507,10 +1507,12 @@ function applyWeekFieldChanges_(rowNo, changes, isoDate, auditEntriesOut, action
 
   // R-061：同一行的改動欄位連續的合成一次寫入（setRowCellsTextSafe_()，只寫有改動的格；ATT_* 等純文字欄
   //   先設 '@' 再寫，見 docs/已知bug類型.md 事故二十八）。AuditLog 條目的內容與次序不變。
+  // 獨立審查 A-08：文字經 sanitizeCellText_()（與內容表匯入同一做法）：以 = + - @ 開頭的字串加前導單引號，
+  //   試算表不會當成公式；前導單引號是格式標記，顯示與讀回的值都不變。數字、日期、布林原樣。
   var valuesByField = {};
   changes.forEach(function (c) {
     if (keys.indexOf(c.field) < 0) return;
-    valuesByField[c.field] = c.newValue === null || c.newValue === undefined ? '' : c.newValue;
+    valuesByField[c.field] = sanitizeCellText_(c.newValue === null || c.newValue === undefined ? '' : c.newValue);
   });
   setRowCellsTextSafe_(sheet, COLUMNS.BULLETIN_WEEKS, rowNo, valuesByField);
 
@@ -1540,7 +1542,8 @@ function createWeekRow_(targetDate, normalizedWeek, isoDate, auditEntriesOut) {
 
   webAppWeekFieldKeys_().forEach(function (key) {
     var v = normalizedWeek[key];
-    row[key] = (v === null || v === undefined) ? '' : v;
+    // 獨立審查 A-08：與 applyWeekFieldChanges_() 一樣經 sanitizeCellText_()。
+    row[key] = (v === null || v === undefined) ? '' : sanitizeCellText_(v);
     if (v !== null && v !== undefined && String(v) !== '') {
       auditEntriesOut.push({
         action: 'WEBAPP_SAVE_WEEK', sheetName: SHEETS.BULLETIN_WEEKS, rowKey: isoDate,

@@ -184,8 +184,13 @@ function selfCheckConfigItems_() {
     recipientStatus.message + (groupSummary ? ('　目前：' + groupSummary) : '')
   ));
 
-  var dryRun = getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE');
-  items.push(selfCheckItem_('DRY_RUN 目前值', S.GREEN, dryRun));
+  // 獨立審查 A-02：空白或寫錯一律當試行，並報紅燈（不清楚的設定要講出來）。
+  var dryRunState = dryRunConfigState_();
+  var dryRunUnclear = dryRunState.state === 'BLANK' || dryRunState.state === 'INVALID' || dryRunState.state === 'UNREADABLE';
+  items.push(selfCheckItem_('DRY_RUN 目前值', dryRunUnclear ? S.RED : S.GREEN,
+    dryRunUnclear
+      ? ('「' + dryRunState.raw + '」——空白、寫錯或讀不到，系統一律當作測試模式（不寄出）。請明確填 TRUE 或 FALSE。')
+      : (dryRunState.dryRun ? 'TRUE（測試模式）' : 'FALSE（正式模式）')));
 
   // ---- WEBAPP_ALLOWED_EMAILS 有沒有包含部署者 ----
   //

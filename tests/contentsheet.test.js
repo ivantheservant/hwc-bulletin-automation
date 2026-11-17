@@ -797,10 +797,11 @@ function fakeDriveAdvanced(env, opts) {
       list: function (fileId, params) {
         if (o.listFails) throw new Error('假的：讀不到權限');
         if (!params.pageToken) return { permissions: [{ emailAddress: 'already@x.com', role: 'writer', type: 'user' }], nextPageToken: 'P2' };
-        return { permissions: [{ emailAddress: 'org@x.com', role: 'organizer', type: 'user' }] };
+        return { permissions: [{ emailAddress: 'org@x.com', role: 'organizer', type: 'user' }].concat(o.extraPermissions || []) };
       },
       create: function (resource, fileId, params) {
         if (o.createFails) throw new Error('假的：加不到');
+        if ((o.failEmails || []).indexOf(resource.emailAddress) !== -1) throw new Error('假的：' + resource.emailAddress + ' 是外部帳戶，共用雲端硬碟不准分享');
         calls.created.push({ email: resource.emailAddress, role: resource.role, notify: params.sendNotificationEmail, allDrives: params.supportsAllDrives });
       }
     }
@@ -1184,6 +1185,47 @@ test('補充 h. 崇拜人數嘅十二個機器鍵同週報系統現有嘅 ATT_* 
 });
 
 // =====================================================================
+
+
+test('12e. 獨立審查 C-05（真入口 buildOrRefreshContentSheet_）：只有部分人加不到 → 網域照樣只可以看；加不到的人逐個記 ErrorLog；列出名單以外仍然可以修改的人', function () {
+  const env = makeEnv({ recipients: [
+    { GROUP_NAME: 'CC', EMAIL: 'a@x.com', NAME: '甲', ACTIVE: true },
+    { GROUP_NAME: 'DB', EMAIL: 'outside@x.com', NAME: '乙', ACTIVE: true },
+    { GROUP_NAME: 'ADMIN', EMAIL: 'already@x.com', NAME: '丙', ACTIVE: true }
+  ] });
+  const calls = fakeDriveAdvanced(env, { failEmails: ['outside@x.com'], extraPermissions: [{ emailAddress: 'left@x.com', role: 'writer', type: 'user' }] });
+  const result = env.sandbox.buildOrRefreshContentSheet_(QUARTER_ID);
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(env.driveFiles[result.fileId].sharing.permission, 'VIEW', '有人確定是編輯者：網域照樣只可以看（不可以整份開放修改）');
+  assert.deepStrictEqual(calls.created.map(function (c) { return c.email; }), ['a@x.com']);
+  const errors = env.sandbox.readSheet_('ErrorLog').filter(function (r) { return r.ERROR_CODE === 'CONTENT_SHEET_EDITOR_ADD_FAILED'; });
+  assert.strictEqual(errors.length, 1);
+  assert.ok(String(errors[0].MESSAGE).indexOf('outside@x.com') !== -1, errors[0].MESSAGE);
+  const lines = env.sandbox.buildContentSheetResultLines_(result).join('\n');
+  assert.ok(lines.indexOf('有 1 人未能加為編輯者（outside@x.com）') !== -1, lines);
+  assert.ok(lines.indexOf('left@x.com') !== -1 && lines.indexOf('請人手在內容表的「共用」移除') !== -1, '名單以外仍然可以修改的人要列出：' + lines);
+  assert.ok(lines.indexOf('暫時保持「網域內任何人都可以修改」') === -1, lines);
+});
+
+test('12f. 獨立審查 C-03（真入口 buildOrRefreshContentSheet_，checkOnly）：已有內容表 → 只核對、一格都不寫；未有 → 照常建立', function () {
+  const env = makeEnv({});
+  const first = env.sandbox.buildOrRefreshContentSheet_(QUARTER_ID);
+  assert.strictEqual(first.created, true);
+  const rec = env.driveFiles[first.fileId];
+  rec.sharing = null;
+  const tab = env.contentSpreadsheet().getSheetByName('家事報告');
+  const rowsBefore = tab.getLastRow();
+  const checked = env.sandbox.buildOrRefreshContentSheet_(QUARTER_ID, { checkOnly: true });
+  assert.strictEqual(checked.ok, true, JSON.stringify(checked));
+  assert.strictEqual(checked.checkedOnly, true);
+  assert.strictEqual(checked.created, false);
+  assert.strictEqual(rec.sharing, null, '只核對：不重設分享');
+  assert.strictEqual(tab.getLastRow(), rowsBefore, '只核對：分頁一行都不加');
+
+  const fresh = makeEnv({});
+  const made = fresh.sandbox.buildOrRefreshContentSheet_(QUARTER_ID, { checkOnly: true });
+  assert.strictEqual(made.created, true, '未有內容表的照常建立');
+});
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail === 0 ? 0 : 1);

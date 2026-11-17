@@ -435,7 +435,7 @@ function attendanceValueKeys_() {
  *   callText {*} 宣召經文。
  *   callRef {*} 宣召出處。
  *   format {string=} 組合樣式，用 `{{CALL_TEXT}}` 與 `{{CALL_REF}}` 兩個
- *     佔位符；省略時用 `'{{CALL_TEXT}}（{{CALL_REF}}）'`。
+ *     佔位符（亦接受 Config 種子值的 `{{text}}`／`{{ref}}`）；省略時用 `'{{CALL_TEXT}}（{{CALL_REF}}）'`。
  * Returns:
  *   {string}
  */
@@ -447,8 +447,8 @@ function buildCallCombined_(callText, callRef, format) {
   if (text && !ref) return text;
   if (!text && ref) return ref;
 
-  var pattern = format || '{{CALL_TEXT}}（{{CALL_REF}}）';
-  return pattern.split('{{CALL_TEXT}}').join(text).split('{{CALL_REF}}').join(ref);
+  // 獨立審查 A-03：與程序表共用同一支，{{CALL_TEXT}}／{{CALL_REF}} 與 Config 種子值的 {{text}}／{{ref}} 都認。
+  return fillCallToWorshipPattern_(format || '{{CALL_TEXT}}（{{CALL_REF}}）', text, ref);
 }
 
 /**

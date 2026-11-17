@@ -436,7 +436,7 @@ function previewContentSheetInvite_(quarterId) {
   if (guard) return guard;
 
   var qid = String(quarterId).trim();
-  var dryRun = normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
+  var dryRun = isDryRun_();
   var config = contentSheetConfig_();
 
   var row = findContentSheetRow_(qid);
@@ -588,7 +588,7 @@ function quarterContentImport_(quarterId, apply) {
     });
   }
 
-  var dryRun = normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
+  var dryRun = isDryRun_();
   return {
     ok: true, quarterId: qid, title: title,
     lines: buildContentImportDialogLines_(result, { dryRun: dryRun, applied: Boolean(apply) }),
@@ -655,7 +655,9 @@ function rosterDiffReport_(isoDate) {
     };
   }
 
-  var diff = checkRosterDiff_(iso);
+  // 獨立審查 A-04：真的唯讀——用 computeRosterDiff_()，不用 checkRosterDiff_()（後者會寫 AuditLog 與 BulletinWeeks 的快照版本）。
+  //   這一支經 apiRosterDiffReport 給只可以看的用戶也叫得到，不可以有任何寫入。「自動跟隨」的記錄由選單「檢查職事表分歧」寫（經指令碼鎖）。
+  var diff = computeRosterDiff_(iso);
   return {
     ok: true, isoDate: iso, title: title,
     lines: buildRosterDiffReportLines_(diff),
@@ -785,7 +787,7 @@ function quarterOpsPanelData_(quarterId) {
   return {
     quarterId: qid,
     quarterSource: typed ? '（目前選住的季度）' : fallback.sourceLabel,
-    dryRun: normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true,
+    dryRun: isDryRun_(),
     weekCount: qid ? countBulletinWeeksInQuarter_(qid) : 0,
     contentSheet: {
       exists: Boolean(contentSheetRow),

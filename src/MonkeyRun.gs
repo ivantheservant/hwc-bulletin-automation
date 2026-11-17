@@ -359,7 +359,7 @@ function monkeyStepResult_(ok, detail) {
  */
 function monkeyAssertDryRun_() {
   clearConfigCache_();
-  if (normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) !== true) {
+  if (!isDryRun_()) {
     throw new Error('亂行機中止：DRY_RUN 已經不是 TRUE。'
       + '亂行機會真的走寄出流程，DRY_RUN=FALSE 之下那些信會真的寄出去。');
   }

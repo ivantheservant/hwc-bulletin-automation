@@ -1321,31 +1321,19 @@ function previewContentImport_(quarterId, options) {
     built.skippedTabs = built.skippedTabs.filter(function (name) { return tabNames.indexOf(name) !== -1; });
   }
 
-  var existingLists = {};
-  contentImportTargets_().forEach(function (def) {
-    if (def.kind !== 'LIST') return;
-    if (existingLists[def.targetSheet]) return;
-    existingLists[def.targetSheet] = readRowsWithRowNo_(def.targetSheet);
-  });
-
-  t.mark('內容表：讀週報清單');
-  var plan = computeContentImportPlan_({
+  // 獨立審查 C-01：算計畫要用的內容表資料記下來，拿到指令碼鎖之後用週報試算表的最新狀態**重算一次**（不再打開內容表）。
+  var planSources = {
     targets: built.targets,
     skippedTabs: built.skippedTabs,
     warnings: built.warnings,
     blankActiveRows: built.blankActiveRows,
     skipListDates: built.skipListDates,
-    existingLists: existingLists,
-    existingWeeks: readRowsWithRowNo_(SHEETS.BULLETIN_WEEKS),
     serviceDates: serviceDates,
     listServiceDates: listServiceDates,
-    tabNames: tabNames,
-    // R-043／R-045：第三種模式要知道邊幾格已經被人手覆寫。
-    // ⚠️ 讀**整季**的覆寫，不是只讀 serviceDates 那幾個——單一主日匯入時
-    //    serviceDates 只有一個，但索引的鍵本來就帶主日，多讀不會影響判斷，
-    //    少讀就會漏。
-    fieldOverrideIndex: buildFieldOverrideIndex_(readRowsWithRowNo_(SHEETS.FIELD_OVERRIDE))
-  });
+    tabNames: tabNames
+  };
+  var plan = computeContentImportPlanFromSheets_(planSources);
+  t.mark('內容表：讀週報清單');
 
   // 2026-11-02：「持續狀況」的提示（不阻止匯入，但匯入有沒有改動都要講出來）：「崇拜人數」未有合堂三行；
   //    上一季的內容表讀不到或版面未更新（「連續到」本季的家事報告、代禱事項這一次不匯入）。自動同步沒有改動時
@@ -1357,12 +1345,50 @@ function previewContentImport_(quarterId, options) {
 
   // ⚠️ 主日清單由哪裏來一定要講出來。用了退而求其次的來源而不講，
   //    下一個人看到數字對不上會查錯方向。
-  return {
+  var result = {
     ok: true, quarterId: qid, scope: scope, plan: plan, notices: notices,
     fileUrl: String(row.FILE_URL || ''),
     serviceDateSource: dateResolution.source,
     serviceDateNote: dateResolution.message
   };
+  // 不可列舉：不會隨 google.script.run 回傳給前端，亦不會出現在 JSON 裏。
+  Object.defineProperty(result, 'planSources', { value: planSources, enumerable: false });
+  return result;
+}
+
+/**
+ * 用途：獨立審查 C-01：用內容表那一邊的資料（`previewContentImport_()` 記下的 `planSources`）加上週報試算表**現在**的
+ *   清單表、BulletinWeeks、FieldOverride，算出匯入計畫。預覽時算一次；`applyContentImport_()` 拿到指令碼鎖之後再算一次，
+ *   所以在鎖外算好計畫之後、拿到鎖之前別人寫了的東西（例如另一次匯入已經加了同一批家事報告），不會再寫一次。
+ * Args:
+ *   sources {Object} 見 `previewContentImport_()` 的 `planSources`。
+ * Returns:
+ *   {Object} `computeContentImportPlan_()` 的輸出。
+ */
+function computeContentImportPlanFromSheets_(sources) {
+  var existingLists = {};
+  contentImportTargets_().forEach(function (def) {
+    if (def.kind !== 'LIST') return;
+    if (existingLists[def.targetSheet]) return;
+    existingLists[def.targetSheet] = readRowsWithRowNo_(def.targetSheet);
+  });
+  return computeContentImportPlan_({
+    targets: sources.targets,
+    skippedTabs: sources.skippedTabs,
+    warnings: sources.warnings,
+    blankActiveRows: sources.blankActiveRows,
+    skipListDates: sources.skipListDates,
+    existingLists: existingLists,
+    existingWeeks: readRowsWithRowNo_(SHEETS.BULLETIN_WEEKS),
+    serviceDates: sources.serviceDates,
+    listServiceDates: sources.listServiceDates,
+    tabNames: sources.tabNames,
+    // R-043／R-045：第三種模式要知道邊幾格已經被人手覆寫。
+    // ⚠️ 讀**整季**的覆寫，不是只讀 serviceDates 那幾個——單一主日匯入時
+    //    serviceDates 只有一個，但索引的鍵本來就帶主日，多讀不會影響判斷，
+    //    少讀就會漏。
+    fieldOverrideIndex: buildFieldOverrideIndex_(readRowsWithRowNo_(SHEETS.FIELD_OVERRIDE))
+  });
 }
 
 /**
@@ -1407,6 +1433,17 @@ function applyContentImport_(quarterId, options) {
   // D12：經 withScriptLock_()。講員表格答案與重設（D13）拿着鎖再叫這裏，是巢狀呼叫：直接寫，
   // 不再等鎖、不提早放鎖（以前不知道 getScriptLock() 可不可以重入，見 FF-23）。
   return withScriptLock_('applyContentImport_', 30000, function () {
+    // 獨立審查 C-01：計畫在鎖外算好（或由呼叫方預覽好），拿到鎖之後**一定**用週報試算表的最新狀態重算——
+    //   等鎖期間另一次匯入（自動同步、另一個帳戶的觸發器、幹事再按一次）可能已經寫了同一批東西，照舊計畫寫就會重複。
+    //   預覽沒有記下內容表資料（例如舊的呼叫方自己組的物件）就整個重新預覽一次。
+    forgetReadSheetMemo_();
+    if (preview.planSources) {
+      preview.plan = computeContentImportPlanFromSheets_(preview.planSources);
+    } else {
+      var fresh = previewContentImport_(quarterId, Object.assign({}, options || {}, { precomputedPreview: null }));
+      if (!fresh.ok) return fresh;
+      preview = fresh;
+    }
     // ⚠️ 每個主日的版本一定要在**那個主日**寫入之前存（writeContentImportPlan_() 內，逐個主日）。
     var written = writeContentImportPlan_(preview.plan, {
       snapshotReason: skipSnapshot ? '' : (preview.scope === 'ONE_WEEK' ? 'CONTENT_IMPORT_WEEK' : 'CONTENT_IMPORT_QUARTER'),
@@ -1515,14 +1552,14 @@ function contentImportAffectedDates_(plan) {
  *   寫一格），再呼叫 `appendAuditLog_()`（每筆寫一次），13 週整季匯入約 6 分鐘，貼近 Apps Script 上限。現在：
  *   - `BulletinWeeks` 整份只讀一次（找行號與合併要用的原值），同一個主日的改動欄位連續的一次 `setValues()`
  *     （`setRowCellsTextSafe_()`：純文字欄先設 '@' 再寫，與 `setCellValueTextSafe_()` 同一個判斷，事故二十八）；
- *   - 新增的清單行每張表一次 `writeSheet_()`；
+ *   - 新增的清單行逐個主日、每張表一次 `writeSheet_()`（獨立審查 C-02：以前留到最後才寫，中途出錯會缺行）；
  *   - AuditLog 整份匯入**一次** `appendAuditLogBatch_()`，行的內容與先後次序與逐筆寫完全相同
  *     （先清單表逐張：修改、停用、新增；再 BulletinWeeks；最後解除覆寫），不論主日是怎樣分批寫的。
  *   `writeBulletinWeekField_()`（`src/FillSync.gs`）本身不動，它其他的呼叫方照舊。
  *
  *   時間預算：先把整份計畫拆成「每個主日一份工作」，主日由舊到新逐個做（先存那個主日的版本，再寫它的清單修改、
  *   停用、BulletinWeeks、覆寫解除），每做完一個主日就看一次時間；超過 `options.budgetMs` 而且後面還有主日，
- *   就停下來（`partial:true`）。新增的清單行最後才一併寫（保持原來的行次序），只寫**已經做完的主日**的那些。
+ *   就停下來（`partial:true`）。新增的清單行在每個主日之內寫（每張表的行次序與一次寫完相同）。
  *   不會留下寫了一半的主日：一個主日的工作要麼全部做完才算數，AuditLog 只記做完的工作；中途拋錯時
  *   已經做完的工作照樣記 AuditLog，然後原樣拋出錯誤。
  * Args:
@@ -1590,8 +1627,14 @@ function writeContentImportPlan_(plan, options) {
     });
 
     if (listPlan.appends.length > 0) {
-      listPlan.appends.forEach(function (row) { allDates[String(row.SERVICE_DATE)] = true; });
-      deferredAppends.push({ seq: seq++, sheetName: sheetName, def: def, appends: listPlan.appends });
+      var appendsByDate = {};
+      listPlan.appends.forEach(function (row) {
+        var appendIso = String(row.SERVICE_DATE);
+        allDates[appendIso] = true;
+        if (!appendsByDate[appendIso]) appendsByDate[appendIso] = [];
+        appendsByDate[appendIso].push(row);
+      });
+      deferredAppends.push({ seq: seq++, sheetName: sheetName, def: def, appendsByDate: appendsByDate });
     }
   });
 
@@ -1680,6 +1723,11 @@ function writeContentImportPlan_(plan, options) {
       (opsByDate[iso] || []).forEach(function (op) {
         doneOps.push({ seq: op.seq, entries: op.run() });
       });
+      // 獨立審查 C-02：這個主日新增的清單行**在這個主日之內**寫（每張表一次 writeSheet_()），不再留到整次匯入最後才寫——
+      //   以前中途出錯時，已經寫好 BulletinWeeks 的主日會缺了家事報告等新增行。逐張表、由舊到新的主日寫，每張表的行次序與一次寫完相同。
+      deferredAppends.forEach(function (item) {
+        writeContentImportAppendsForDate_(item, iso, doneOps);
+      });
       done[iso] = true;
       datesDone++;
       if (budgetMs !== null && i < dates.length - 1 && Date.now() - startMs >= budgetMs) {
@@ -1687,30 +1735,6 @@ function writeContentImportPlan_(plan, options) {
         break;
       }
     }
-
-    // ---- 新增的清單行：每張表一次 writeSheet_()，只寫已經做完的主日的那些（保持原來的次序）----
-    deferredAppends.forEach(function (item) {
-      var toWrite = item.appends.filter(function (row) { return done[String(row.SERVICE_DATE)] === true; });
-      if (toWrite.length === 0) return;
-      var rows = toWrite.map(function (row) {
-        var out = {};
-        item.def.keys.forEach(function (key) {
-          if (key === 'SERVICE_DATE') { out[key] = normalizeDate_(row.SERVICE_DATE); return; }
-          if (key === 'ACTIVE') { out[key] = true; return; }
-          if (key === 'SEQ_NO') { out[key] = row.SEQ_NO; return; }
-          out[key] = (row[key] === undefined || row[key] === null) ? '' : sanitizeCellText_(row[key]);
-        });
-        return out;
-      });
-      writeSheet_(item.sheetName, rows);
-      doneOps.push({
-        seq: item.seq,
-        entries: toWrite.map(function (row) {
-          return contentImportAuditEntry_(item.sheetName, row.SERVICE_DATE,
-            { field: '（整行）', oldValue: '', newValue: '新增一行' });
-        })
-      });
-    });
   } catch (err) {
     failure = err;
   }
@@ -1731,6 +1755,41 @@ function writeContentImportPlan_(plan, options) {
     datesTotal: dates.length, datesDone: datesDone, partial: partial,
     snapshotWarnings: snapshotWarnings, weekSegments: stats.weekSegments, weekCells: stats.weekCells
   };
+}
+
+/**
+ * 用途：獨立審查 C-02：寫一張清單表在某一個主日新增的行（一次 `writeSheet_()`），並把對應的 AuditLog 條目交給整批寫入。
+ *   由 `writeContentImportPlan_()` 在那個主日的其他寫入之後呼叫。
+ * Args:
+ *   item {{seq:number, sheetName:string, def:Object, appendsByDate:Object<string,Object[]>}}
+ *   iso {string} 主日。
+ *   doneOps {Object[]} 已完成的工作（`{seq, entries}`），這一支會加一項。
+ * Returns:
+ *   {void}
+ * Raises:
+ *   寫入失敗時原樣拋出。
+ */
+function writeContentImportAppendsForDate_(item, iso, doneOps) {
+  var toWrite = (item.appendsByDate || {})[iso] || [];
+  if (toWrite.length === 0) return;
+  var rows = toWrite.map(function (row) {
+    var out = {};
+    item.def.keys.forEach(function (key) {
+      if (key === 'SERVICE_DATE') { out[key] = normalizeDate_(row.SERVICE_DATE); return; }
+      if (key === 'ACTIVE') { out[key] = true; return; }
+      if (key === 'SEQ_NO') { out[key] = row.SEQ_NO; return; }
+      out[key] = (row[key] === undefined || row[key] === null) ? '' : sanitizeCellText_(row[key]);
+    });
+    return out;
+  });
+  writeSheet_(item.sheetName, rows);
+  doneOps.push({
+    seq: item.seq,
+    entries: toWrite.map(function (row) {
+      return contentImportAuditEntry_(item.sheetName, row.SERVICE_DATE,
+        { field: '（整行）', oldValue: '', newValue: '新增一行' });
+    })
+  });
 }
 
 /**

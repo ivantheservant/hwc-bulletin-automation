@@ -392,7 +392,7 @@ function buildFillInviteHtml_(input) {
  *     reason:(string|undefined), message:(string|undefined)}}
  */
 function sendFillInvite_(quarterId) {
-  var dryRun = normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
+  var dryRun = isDryRun_();
 
   var gridRows = readFillGridRows_(quarterId);
   if (gridRows.length === 0) {
@@ -756,7 +756,7 @@ function fillReconcileTrigger_() {
  *   {{sent:boolean, reason:(string|undefined), notifiedCount:number}}
  */
 function sendFillConflictNotice_(result) {
-  var dryRun = normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
+  var dryRun = isDryRun_();
 
   var notified = {};
   readNotifiedFingerprints_().forEach(function (fp) { notified[fp] = true; });

@@ -230,12 +230,15 @@ function setQuarterArchivedFlag_(quarterId, archived) {
   var col = def.keys.indexOf('ARCHIVED') + 1;
   if (col <= 0) return 0;
 
-  var rows = readSheet_(SHEETS.BULLETIN_WEEKS);
+  // 獨立審查 A-01：一定要用真正的行號（__rowNo）。readSheet_() 會略過整行空白的列，用陣列位置 + 3 推算的話，
+  //   中間有一行空白就寫到上一行去（漏封最後一個主日、空白行反而被標「已封存」）。
+  var rows = readRowsWithRowNo_(SHEETS.BULLETIN_WEEKS);
   var touched = 0;
-  rows.forEach(function (row, index) {
+  forgetReadSheetMemo_();
+  rows.forEach(function (row) {
     if (String(row.QUARTER_ID || '').trim() !== qid) return;
     if (row.ARCHIVED === archived) return;               // 已經是想要的值就不寫
-    sheet.getRange(index + 3, col).setValue(archived);
+    sheet.getRange(row.__rowNo, col).setValue(archived);
     touched++;
   });
   return touched;

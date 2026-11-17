@@ -73,16 +73,19 @@ function resolveQuarterServiceDates_(quarterId) {
   var qid = String(quarterId || '').trim();
   var rosterDates = [];
   var message = '';
+  // 獨立審查 A-05：「讀職事表出錯」與「職事表真的未有這一季」一定要分得出（bug class 2）。前者 readError 有值。
+  var readError = '';
 
   try {
     rosterDates = listRosterServiceDatesForQuarter_(qid) || [];
   } catch (err) {
     rosterDates = [];
-    message = '讀職事表時拋錯：' + ((err && err.message) ? err.message : String(err));
+    readError = (err && err.message) ? err.message : String(err);
+    message = '讀職事表時拋錯：' + readError;
   }
 
   if (rosterDates.length > 0) {
-    return { dates: rosterDates.slice(), source: 'ROSTER', rosterDates: rosterDates.slice(), message: message };
+    return { dates: rosterDates.slice(), source: 'ROSTER', rosterDates: rosterDates.slice(), message: message, readError: readError };
   }
 
   var calendar = quarterCalendarSundays_(qid);
@@ -90,7 +93,8 @@ function resolveQuarterServiceDates_(quarterId) {
     dates: calendar,
     source: 'CALENDAR',
     rosterDates: [],
-    message: message || '職事表未有季度「' + qid + '」的資料，主日清單由曆法推算（該季全部星期日）。'
+    message: message || '職事表未有季度「' + qid + '」的資料，主日清單由曆法推算（該季全部星期日）。',
+    readError: readError
   };
 }
 
@@ -187,7 +191,7 @@ function rosterDerivedValuesForDate_(isoDate) {
     snapshot = readRosterSnapshot_(isoDate);
   } catch (err) {
     return {
-      ok: false, values: {},
+      ok: false, values: {}, readError: true,
       message: '讀職事表時拋錯：' + ((err && err.message) ? err.message : String(err))
     };
   }
@@ -240,6 +244,22 @@ function isBlankWeekCell_(value) {
  *     `statusBefore`／`statusAfter` 是 `{OK:n, NOT_FOUND:n, PARTIAL:n}`。
  */
 function backfillRosterForQuarter_(quarterId) {
+  // 獨立審查 A-05：整段經指令碼鎖（與儲存、匯入同一把），讀與寫之間不會有人同時寫同一行。
+  return withScriptLock_('backfillRosterForQuarter_', SAVE_LOCK_WAIT_MS_, function () {
+    return backfillRosterForQuarterLocked_(quarterId);
+  }, function () {
+    throw buildLockTimeoutError_(SAVE_LOCK_WAIT_MS_, '請稍等再按一次「補抓空白欄位」。');
+  });
+}
+
+/**
+ * 用途：`backfillRosterForQuarter_()` 拿到指令碼鎖之後的那一段。只可以由它呼叫。
+ * Args:
+ *   quarterId {string}
+ * Returns:
+ *   {Object} 同 `backfillRosterForQuarter_()`。
+ */
+function backfillRosterForQuarterLocked_(quarterId) {
   var qid = String(quarterId || '').trim();
   var empty = {
     ok: false, quarterId: qid, filled: 0, stillBlank: 0, rowsTouched: 0,
@@ -258,13 +278,14 @@ function backfillRosterForQuarter_(quarterId) {
   }
 
   var def = COLUMNS.BULLETIN_WEEKS;
-  var allRows = readSheet_(SHEETS.BULLETIN_WEEKS);
+  // 獨立審查 A-01：用真正的行號（__rowNo），不可以用陣列位置 + 3（readSheet_() 會略過整行空白的列，中間有空白行就寫到另一個主日）。
+  var allRows = readRowsWithRowNo_(SHEETS.BULLETIN_WEEKS);
   var targets = [];
-  allRows.forEach(function (row, index) {
+  allRows.forEach(function (row) {
     if (String(row.QUARTER_ID || '').trim() !== qid) return;
     // 2026-10-30：特別崇拜（非主日）職事表本來就沒有，不補、不改職事表狀態（src/SpecialService.gs）。
     if (isSpecialServiceRow_(row)) return;
-    targets.push({ row: row, rowNo: index + 3 });
+    targets.push({ row: row, rowNo: row.__rowNo });
   });
 
   if (targets.length === 0) {
@@ -275,7 +296,16 @@ function backfillRosterForQuarter_(quarterId) {
   }
 
   var resolution = resolveQuarterServiceDates_(qid);
+  // 獨立審查 A-05：讀職事表出錯（權限、檔案 ID、Google 暫時出錯）不是「職事表未有資料」：一格都不寫、不改職事表狀態，講出原因。
+  if (resolution.readError) {
+    empty.message = '讀不到職事表，這一次沒有補任何一格，亦沒有更改任何一個主日的職事表狀態。'
+      + '請稍後再試一次；如果一直出現，請通知管理員核對週報系統讀取職事表的權限與設定。'
+      + '（技術資料：' + resolution.readError + '）';
+    empty.reason = 'ROSTER_READ_ERROR';
+    return empty;
+  }
   var fieldKeys = rosterDerivedWeekFieldKeys_();
+  var readErrorDates = [];
 
   var statusBefore = countRosterStatuses_(targets.map(function (t) { return t.row; }));
   var filled = 0;
@@ -330,6 +360,11 @@ function backfillRosterForQuarter_(quarterId) {
     var statusAfterRow = derived.ok
       ? ROSTER_STATUS.OK
       : rosterStatusForDate_(isoDate, resolution);
+    // 獨立審查 A-05：這一個主日讀職事表出錯：不知道真正狀態，保留原值，最後講出來。
+    if (derived.readError) {
+      readErrorDates.push(isoDate);
+      statusAfterRow = String(target.row.ROSTER_STATUS || '');
+    }
     if (String(target.row.ROSTER_STATUS || '') !== statusAfterRow) {
       snapshotBeforeFirstWrite();
       setCellValueTextSafe_(sheet, def, target.rowNo, 'ROSTER_STATUS', statusAfterRow);
@@ -373,7 +408,11 @@ function backfillRosterForQuarter_(quarterId) {
       expectedBlank: expectedBlank,
       statusBefore: statusBefore, statusAfter: statusAfter,
       rosterFound: resolution.source === 'ROSTER', resolutionMessage: resolution.message
-    })
+    }) + (readErrorDates.length > 0
+      ? '\n⚠️ 有 ' + readErrorDates.length + ' 個主日（' + readErrorDates.slice(0, 5).join('、')
+        + (readErrorDates.length > 5 ? '等' : '') + '）讀職事表時出錯，那幾個主日沒有補、職事表狀態亦沒有更改；請稍後再按一次。'
+      : ''),
+    readErrorDates: readErrorDates
   };
 }
 

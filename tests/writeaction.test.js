@@ -2253,5 +2253,42 @@ test('LS-UI-13 R-061：儲存之後頂部「伺服器用時」顯示儲存的分
   assert.ok(ui2.els.statLoadTime.classList.contains('hidden') || ui2.els.statLoadTime.textContent === '', '沒有 timings 就不顯示');
 });
 
+
+test('LS-UI-14 獨立審查 A-07：重新匯入、補抓空白欄位、以職事表覆寫——有未儲存的改動先問；取消＝甚麼都不送；確定才送；沒有改動就直接送', function () {
+  const extra = [
+    ['function startContentImport(', 'function onContentImportPreviewed('],
+    ['function backfillRoster(', 'function wireStaticEvents('],
+    ['function openFetchFromRosterDialog(', 'function onFetchCandidatesLoaded(']
+  ];
+  [['startContentImport', 'apiRunContentImport'], ['backfillRoster', 'apiBackfillRoster'], ['openFetchFromRosterDialog', 'apiGetRosterFetchCandidates']]
+    .forEach(function (pair) {
+      const fn = pair[0];
+      const api = pair[1];
+      const ui = makeUi({ extra: extra });
+      ui.ctx.onContentImportDone = function () {};
+      ui.ctx.onFetchCandidatesLoaded = function () {};
+      ui.ctx.form.PAGE_TITLE = '未儲存的大標題';
+      assert.strictEqual(ui.ctx.hasUnsavedWeekChanges(), true, '前提：有未儲存的改動');
+      ui.ctx[fn]();
+      assert.strictEqual(ui.els.confirmDialogBackdrop.classList.contains('hidden'), false, fn + '：要先問');
+      assert.strictEqual(ui.count(api), 0, fn + '：未確定之前不可以送');
+      const bodyText = ui.els.confirmDialogBody.children.map(function (c) { return c.textContent; }).join('');
+      assert.ok(bodyText.indexOf('未儲存的改動會丟失') !== -1, bodyText);
+      ui.click('confirmCancelBtn');
+      assert.strictEqual(ui.count(api), 0, fn + '：取消之後不可以送');
+      assert.deepStrictEqual(ui.message(), { type: 'info', text: '已取消，一格都沒有寫。' });
+      ui.ctx[fn]();
+      ui.click('confirmOkBtn');
+      assert.strictEqual(ui.count(api), 1, fn + '：確定之後送一次');
+
+      const clean = makeUi({ extra: extra });
+      clean.ctx.onContentImportDone = function () {};
+      clean.ctx.onFetchCandidatesLoaded = function () {};
+      clean.ctx[fn]();
+      assert.strictEqual(clean.els.confirmDialogBackdrop.classList.contains('hidden'), true, fn + '：沒有改動不用問');
+      assert.strictEqual(clean.count(api), 1);
+    });
+});
+
 console.log('\n通過 ' + pass + ' 項，失敗 ' + fail + ' 項。');
 process.exit(fail === 0 ? 0 : 1);

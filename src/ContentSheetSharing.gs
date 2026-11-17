@@ -8,7 +8,10 @@
  *     `VIEW` 時逐個加為編輯者（不寄通知信）。**一個有效電郵都沒有就不改成只可以看**（否則沒有人可以填），講出來。
  *   - Config `CONTENT_SHEET_FINANCE_EDITOR_GROUPS`：「財政報告」分頁的保護（只限這幾組＋系統帳戶）；留空＝不另外限制。
  *   - 只**加**編輯者，不移除：共用雲端硬碟的成員按共用雲端硬碟的角色仍然可以修改；有人離開組別，要人手在
- *     「共用」移除（結果會列出名單以外仍然是編輯者的人）。
+ *     「共用」移除（結果會列出名單以外仍然是編輯者的人——獨立審查 C-05 才真的實作）。
+ *   - 獨立審查 C-05（2026-11-17）：加不到某幾位編輯者時，以前整份內容表改成「網域內任何人都可以修改」，而每週刷新都失敗，
+ *     於是一直保持開放。現在：加不到的人逐個寫 ErrorLog；**只要有至少一位名單上的人確定是編輯者**，網域照樣設為只可以看；
+ *     一位都確定不到（例如讀不到現有權限、或者全部加不到）才保持可以修改，免得沒有人填得到。
  *   - 在「建立／更新本季內容表」時套用（src/ContentSheetAdmin.gs），預覽亦列出會做甚麼。
  */
 
@@ -141,21 +144,49 @@ function applyContentSheetSharing_(fileId, spreadsheet, plan, domain) {
     } catch (err) {
       failed('讀取現有編輯者', err);
     }
+    var confirmedEditors = 0;
+    var failedEmails = [];
     if (current) {
       plan.editors.forEach(function (email) {
         var role = current[email];
-        if (role === 'writer' || role === 'fileOrganizer' || role === 'organizer' || role === 'owner') return;
+        if (role === 'writer' || role === 'fileOrganizer' || role === 'organizer' || role === 'owner') { confirmedEditors++; return; }
         try {
           addContentSheetEditorQuietly_(fileId, email);
           out.added.push(email);
+          confirmedEditors++;
         } catch (err) {
           failed('加編輯者 ' + email, err);
+          failedEmails.push(email);
+          // 獨立審查 C-05：逐個記 ErrorLog（自動流程只把結果放在回傳的行，沒有人看得到）。
+          appendErrorLog_({
+            source: ERROR_LOG_SOURCE.SERVER, functionName: 'applyContentSheetSharing_',
+            errorCode: 'CONTENT_SHEET_EDITOR_ADD_FAILED',
+            message: '內容表未能把 ' + email + ' 加為編輯者：' + ((err && err.message) ? err.message : String(err))
+              + '　這一位暫時只可以看，請人手在內容表的「共用」加入。'
+          });
         }
       });
+      // 名單以外仍然可以修改的人（不自動移除；有人離開組別要人手在「共用」移除）。
+      var wanted = {};
+      plan.editors.forEach(function (email) { wanted[email] = true; });
+      try { wanted[String(Session.getEffectiveUser().getEmail() || '').toLowerCase()] = true; } catch (meErr) { /* 系統帳戶本身不用列出 */ }
+      var extra = Object.keys(current).filter(function (email) {
+        var role = current[email];
+        return (role === 'writer' || role === 'fileOrganizer') && !wanted[email];
+      }).sort();
+      out.extraEditors = extra;
+      if (extra.length > 0) {
+        out.lines.push('ℹ️ 可以修改的組別以外，仍然可以修改這份內容表的有 ' + extra.length + ' 人：' + extra.slice(0, 10).join('、')
+          + (extra.length > 10 ? '等' : '') + '。如果他們已經不在組別，請人手在內容表的「共用」移除。');
+      }
     }
-    if (!out.ok) {
+    if (confirmedEditors === 0) {
+      // 一位編輯者都確定不到：改成只可以看就沒有人填得到（獨立審查第 5 項），保持可以修改，講出來。
       targetAccess = 'EDIT';
-      out.lines.push('⚠️ 有編輯者加不到，所以內容表暫時保持「網域內任何人都可以修改」，修好之後再按一次「更新本季內容表」。');
+      out.lines.push('⚠️ 一位可以修改的人都未能確定，所以內容表暫時保持「網域內任何人都可以修改」，修好之後再按一次「更新本季內容表」。');
+    } else if (failedEmails.length > 0) {
+      out.lines.push('⚠️ 有 ' + failedEmails.length + ' 人未能加為編輯者（' + failedEmails.slice(0, 5).join('、')
+        + (failedEmails.length > 5 ? '等' : '') + '），他們暫時只可以看；其餘的人照常設定，網域內只可以看。已記入錯誤記錄。');
     }
   }
   var domainSet = String(domain || '').trim() !== '';

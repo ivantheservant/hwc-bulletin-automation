@@ -352,7 +352,7 @@ function runAdminDailyDigest_(options) {
 
     // ---- 組信 ----
     var rendered = renderAdminDigestMail_(lines, out.errorCount);
-    var dryRun = normalizeBoolean_(getConfig_(CONFIG_KEYS.DRY_RUN, 'TRUE')) === true;
+    var dryRun = isDryRun_();
     out.recipientCount = recipients.addresses.length;
 
     if (dryRun) {
