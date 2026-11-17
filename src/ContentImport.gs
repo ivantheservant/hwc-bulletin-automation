@@ -1376,33 +1376,49 @@ function previewContentImport_(quarterId, options) {
  *   寫入之前，每個真的會被改到的主日各存一個版本（`WeekSnapshots`，
  *   原因 `CONTENT_IMPORT_WEEK`／`CONTENT_IMPORT_QUARTER`）。存不到不阻止匯入，
  *   但會在結果的 `snapshotWarnings` 講出來。
+ *
+ *   R-060（2026-11-17）：以**主日為單位**寫入（版本、清單、BulletinWeeks、覆寫解除一個主日做完才做下一個），
+ *   超過時間預算（Config `IMPORT_TIME_BUDGET_SEC`，預設 240 秒）就在**一個完整主日寫完之後**停下，
+ *   結果的 `progress.partial` 是 `true`，再叫一次便由下一個主日繼續（計畫每次重新計算，已經寫好的主日沒有差異，
+ *   自然略過）。見 `writeContentImportPlan_()`。
  * Args:
  *   quarterId {string} 季度 ID。
- *   options {{isoDate:string=, skipSnapshot:boolean=}=} 同 `previewContentImport_()`；
- *     `skipSnapshot` 為真代表呼叫方已經自己存過版本（「重設這一週」），不再重複存。
+ *   options {{isoDate:string=, skipSnapshot:boolean=, timeBudgetSec:number=, budgetStartMs:number=}=} 同
+ *     `previewContentImport_()`；`skipSnapshot` 為真代表呼叫方已經自己存過版本（「重設這一週」），不再重複存；
+ *     `timeBudgetSec` 蓋過 Config 的時間預算（測試用，0＝只寫第一個主日就停）；`budgetStartMs` 是計時的起點
+ *     （預設是這次呼叫開始的時刻；自動同步幾個季度共用同一個預算時傳入）。
  * Returns:
  *   {{ok:boolean, quarterId:string, scope:string, plan:(Object|undefined),
  *     fileUrl:(string|undefined), reason:(string|undefined), message:(string|undefined),
- *     snapshotWarnings:(string[]|undefined)}}
+ *     snapshotWarnings:(string[]|undefined),
+ *     progress:({datesTotal:number, datesDone:number, partial:boolean}|undefined)}}
  * Raises:
  *   Error 如果拿不到鎖（30 秒內）——寧可失敗也不要與同步觸發器同時寫。
  */
 function applyContentImport_(quarterId, options) {
+  var startMs = (options && Number(options.budgetStartMs) > 0) ? Number(options.budgetStartMs) : Date.now();
   // 2026-11-03：自動匯入剛剛已經預覽過（autoImportContentForWeek_()），用回那一份，不再打開內容表一次。
   var pre = options && options.precomputedPreview;
   var preview = (pre && pre.ok === true && pre.plan) ? pre : previewContentImport_(quarterId, options);
   if (!preview.ok) return preview;
   var skipSnapshot = Boolean(options && options.skipSnapshot === true);
+  var budgetMs = contentImportBudgetMs_(options);
 
   // D12：經 withScriptLock_()。講員表格答案與重設（D13）拿着鎖再叫這裏，是巢狀呼叫：直接寫，
   // 不再等鎖、不提早放鎖（以前不知道 getScriptLock() 可不可以重入，見 FF-23）。
   return withScriptLock_('applyContentImport_', 30000, function () {
-    // ⚠️ 版本一定要在寫入之前存。
-    preview.snapshotWarnings = skipSnapshot ? [] : snapshotWeeksBeforeWrite_(
-      contentImportAffectedDates_(preview.plan),
-      preview.scope === 'ONE_WEEK' ? 'CONTENT_IMPORT_WEEK' : 'CONTENT_IMPORT_QUARTER'
-    );
-    writeContentImportPlan_(preview.plan);
+    // ⚠️ 每個主日的版本一定要在**那個主日**寫入之前存（writeContentImportPlan_() 內，逐個主日）。
+    var written = writeContentImportPlan_(preview.plan, {
+      snapshotReason: skipSnapshot ? '' : (preview.scope === 'ONE_WEEK' ? 'CONTENT_IMPORT_WEEK' : 'CONTENT_IMPORT_QUARTER'),
+      startMs: startMs,
+      budgetMs: budgetMs
+    }) || {};
+    preview.snapshotWarnings = written.snapshotWarnings || [];
+    preview.progress = {
+      datesTotal: Number(written.datesTotal || 0),
+      datesDone: Number(written.datesDone || 0),
+      partial: written.partial === true
+    };
     updateContentSheetField_(preview.quarterId, 'LAST_IMPORTED_AT', new Date());
     return preview;
   }, function () {
@@ -1411,6 +1427,64 @@ function applyContentImport_(quarterId, options) {
     lockErr.code = 'LOCK_TIMEOUT';
     throw lockErr;
   });
+}
+
+/**
+ * R-060：整份匯入計畫預設的時間預算（秒）。見 Config `IMPORT_TIME_BUDGET_SEC`。
+ * Apps Script 一次執行最多 6 分鐘；240 秒＝預覽、拿鎖與最後一個主日之外留 2 分鐘餘裕。
+ */
+var CONTENT_IMPORT_DEFAULT_BUDGET_SEC_ = 240;
+
+/**
+ * R-060：寫 `BulletinWeeks` 同一行時，兩段改動之間相隔不超過這麼多格、而且中間的格值原樣寫回安全，就合併成一次寫入
+ * （見 `setRowCellsTextSafe_()`）。「崇拜程序」三格（讀經經文、證道講題、回應詩歌）與「崇拜人數」十二格之間隔着
+ * 「人數表標題」「人數統計日期」兩格，所以是 2；取 3 留一點餘地，仍然很小。
+ */
+var CONTENT_IMPORT_ROW_MAX_GAP_ = 3;
+
+/**
+ * 用途：R-060：這一次匯入的時間預算（毫秒）。純函式（讀 Config）。
+ *   `options.timeBudgetSec`（測試用）優先，其次 Config `IMPORT_TIME_BUDGET_SEC`；空白、不是數字或者小於 0
+ *   一律用預設 240 秒，**不當作「不限時」**（填錯了就失去六分鐘上限的保護，寧可保守）。0 是合法的：
+ *   只寫第一個主日就停（至少寫一個，才有進展）。
+ * Args:
+ *   options {{timeBudgetSec:number=}=}
+ * Returns:
+ *   {number} 毫秒。
+ */
+function contentImportBudgetMs_(options) {
+  var raw = (options && options.timeBudgetSec !== undefined && options.timeBudgetSec !== null)
+    ? options.timeBudgetSec
+    : getConfig_(CONFIG_KEYS.IMPORT_TIME_BUDGET_SEC, String(CONTENT_IMPORT_DEFAULT_BUDGET_SEC_));
+  return parseContentImportBudgetSec_(raw) * 1000;
+}
+
+/**
+ * 用途：把時間預算的原始值解析成秒。純函式。
+ * Args:
+ *   raw {*} Config 的值或者測試傳入的數字。
+ * Returns:
+ *   {number} 秒；空白、非數字、負數、無限大回預設值。
+ */
+function parseContentImportBudgetSec_(raw) {
+  var text = String(raw === null || raw === undefined ? '' : raw).trim();
+  if (text === '') return CONTENT_IMPORT_DEFAULT_BUDGET_SEC_;
+  var n = Number(text);
+  if (!isFinite(n) || n < 0) return CONTENT_IMPORT_DEFAULT_BUDGET_SEC_;
+  return n;
+}
+
+/**
+ * 用途：R-060：「已匯入 N／M 個主日，請再按一次繼續」那一句。填寫介面與選單同一句（都經
+ *   `buildContentImportDialogLines_()`）。純函式。
+ * Args:
+ *   progress {{datesTotal:number, datesDone:number, partial:boolean}}
+ * Returns:
+ *   {string} 沒有停在中途就是空字串。
+ */
+function contentImportProgressMessage_(progress) {
+  if (!progress || progress.partial !== true) return '';
+  return '已匯入 ' + progress.datesDone + '／' + progress.datesTotal + ' 個主日，請再按一次繼續。';
 }
 
 /**
@@ -1436,15 +1510,53 @@ function contentImportAffectedDates_(plan) {
  * 用途：把差異計畫寫入週報試算表，並逐格記 `AuditLog`。
  *
  *   ⚠️ 「刪除」一律 `ACTIVE=FALSE`，**不刪行**。
+ *
+ *   R-060（2026-11-17）：以前每一格改動都呼叫 `writeBulletinWeekField_()`（每次重新讀整張 BulletinWeeks 找那一行、
+ *   寫一格），再呼叫 `appendAuditLog_()`（每筆寫一次），13 週整季匯入約 6 分鐘，貼近 Apps Script 上限。現在：
+ *   - `BulletinWeeks` 整份只讀一次（找行號與合併要用的原值），同一個主日的改動欄位連續的一次 `setValues()`
+ *     （`setRowCellsTextSafe_()`：純文字欄先設 '@' 再寫，與 `setCellValueTextSafe_()` 同一個判斷，事故二十八）；
+ *   - 新增的清單行每張表一次 `writeSheet_()`；
+ *   - AuditLog 整份匯入**一次** `appendAuditLogBatch_()`，行的內容與先後次序與逐筆寫完全相同
+ *     （先清單表逐張：修改、停用、新增；再 BulletinWeeks；最後解除覆寫），不論主日是怎樣分批寫的。
+ *   `writeBulletinWeekField_()`（`src/FillSync.gs`）本身不動，它其他的呼叫方照舊。
+ *
+ *   時間預算：先把整份計畫拆成「每個主日一份工作」，主日由舊到新逐個做（先存那個主日的版本，再寫它的清單修改、
+ *   停用、BulletinWeeks、覆寫解除），每做完一個主日就看一次時間；超過 `options.budgetMs` 而且後面還有主日，
+ *   就停下來（`partial:true`）。新增的清單行最後才一併寫（保持原來的行次序），只寫**已經做完的主日**的那些。
+ *   不會留下寫了一半的主日：一個主日的工作要麼全部做完才算數，AuditLog 只記做完的工作；中途拋錯時
+ *   已經做完的工作照樣記 AuditLog，然後原樣拋出錯誤。
  * Args:
  *   plan {Object} `computeContentImportPlan_()` 的輸出。
+ *   options {{snapshotReason:string=, startMs:number=, budgetMs:number=}=} `snapshotReason`＝每個會被改到的主日寫入前
+ *     存版本的原因（空白＝不存，呼叫方已經存過）；`startMs`＝計時起點（預設現在）；`budgetMs`＝預算毫秒
+ *     （省略＝不限時，直接寫完）。
  * Returns:
- *   {void}
+ *   {{datesTotal:number, datesDone:number, partial:boolean, snapshotWarnings:string[],
+ *     weekSegments:number, weekCells:number}}
+ * Raises:
+ *   Error 有覆寫要解除但 `FieldOverride` 工作表不存在（一格都未寫之前就拋）；寫入失敗則原樣拋出。
  */
-function writeContentImportPlan_(plan) {
+function writeContentImportPlan_(plan, options) {
+  var opts = options || {};
   var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var startMs = Number(opts.startMs) > 0 ? Number(opts.startMs) : Date.now();
+  var budgetMs = (opts.budgetMs === undefined || opts.budgetMs === null) ? null : Number(opts.budgetMs);
 
-  // ---- 清單表 ----
+  var seq = 0;
+  var opsByDate = {};
+  var deferredAppends = [];
+  var allDates = {};
+  var weekDef = COLUMNS.BULLETIN_WEEKS;
+  var stats = { weekSegments: 0, weekCells: 0 };
+
+  function addOp(isoDate, run) {
+    var key = String(isoDate);
+    allDates[key] = true;
+    if (!opsByDate[key]) opsByDate[key] = [];
+    opsByDate[key].push({ seq: seq++, run: run });
+  }
+
+  // ---- 清單表（逐格修改、停用；新增的行留到最後一併寫）----
   Object.keys(plan.listPlans).forEach(function (sheetName) {
     var listPlan = plan.listPlans[sheetName];
     var sheet = ss.getSheetByName(sheetName);
@@ -1454,27 +1566,135 @@ function writeContentImportPlan_(plan) {
     var activeCol = def.keys.indexOf('ACTIVE') + 1;
 
     listPlan.updates.forEach(function (update) {
-      update.changes.forEach(function (change) {
-        if (def.keys.indexOf(change.field) < 0) return;
-        // ⚠️ 經 setCellValueTextSafe_()：設計上是文字的欄位要先設 '@' 再寫，
-        //    否則 '42,150' 會變成數字 42150。見 docs/已知bug類型.md 事故二十八。
-        setCellValueTextSafe_(sheet, def, update.rowNo, change.field,
-          change.field === 'ACTIVE' ? change.newValue : sanitizeCellText_(change.newValue));
-        appendContentImportAudit_(sheetName, update.isoDate, change);
+      addOp(update.isoDate, function () {
+        var entries = [];
+        update.changes.forEach(function (change) {
+          if (def.keys.indexOf(change.field) < 0) return;
+          // ⚠️ 經 setCellValueTextSafe_()：設計上是文字的欄位要先設 '@' 再寫，
+          //    否則 '42,150' 會變成數字 42150。見 docs/已知bug類型.md 事故二十八。
+          setCellValueTextSafe_(sheet, def, update.rowNo, change.field,
+            change.field === 'ACTIVE' ? change.newValue : sanitizeCellText_(change.newValue));
+          entries.push(contentImportAuditEntry_(sheetName, update.isoDate, change));
+        });
+        return entries;
       });
     });
 
     listPlan.deactivations.forEach(function (row) {
-      if (activeCol <= 0) return;
-      sheet.getRange(row.rowNo, activeCol).setValue(false);
-      appendContentImportAudit_(sheetName, row.isoDate,
-        { field: 'ACTIVE', oldValue: 'TRUE', newValue: 'FALSE' });
+      addOp(row.isoDate, function () {
+        if (activeCol <= 0) return [];
+        sheet.getRange(row.rowNo, activeCol).setValue(false);
+        return [contentImportAuditEntry_(sheetName, row.isoDate,
+          { field: 'ACTIVE', oldValue: 'TRUE', newValue: 'FALSE' })];
+      });
     });
 
     if (listPlan.appends.length > 0) {
-      var rows = listPlan.appends.map(function (row) {
+      listPlan.appends.forEach(function (row) { allDates[String(row.SERVICE_DATE)] = true; });
+      deferredAppends.push({ seq: seq++, sheetName: sheetName, def: def, appends: listPlan.appends });
+    }
+  });
+
+  // ---- BulletinWeeks：一個主日一份工作 ----
+  var weekIndex = null;
+  function weekRows() {
+    if (!weekIndex) weekIndex = readBulletinWeeksRawIndex_();
+    return weekIndex;
+  }
+  plan.weekUpdates.forEach(function (update) {
+    addOp(update.isoDate, function () {
+      var index = weekRows();
+      var valuesByField = {};
+      var entries = [];
+      update.changes.forEach(function (change) {
+        if (weekDef.keys.indexOf(change.field) < 0) {
+          throw new Error('writeContentImportPlan_：「' + change.field + '」不是 BulletinWeeks 的機器鍵。');
+        }
+        // 後面的改動蓋過前面同一欄的改動（與逐格寫入的結果一樣）。
+        valuesByField[change.field] = sanitizeCellText_(
+          change.newValue === null || change.newValue === undefined ? '' : change.newValue);
+        entries.push(contentImportAuditEntry_(SHEETS.BULLETIN_WEEKS, update.isoDate, change));
+      });
+      var rowNo = index.rowNoByIso[String(update.isoDate)];
+      // 找不到那一行：與舊做法一樣不寫（計畫是由現有的行算出來的，正常不會發生）。
+      if (rowNo) {
+        var done = setRowCellsTextSafe_(index.sheet, weekDef, rowNo, valuesByField,
+          { currentRow: index.rawByRowNo[rowNo], maxGap: CONTENT_IMPORT_ROW_MAX_GAP_ });
+        stats.weekSegments += done.segments;
+        stats.weekCells += done.cells;
+      }
+      return entries;
+    });
+  });
+
+  // ---- F5：解除已經與內容表一致的覆寫 ----
+  var releases = plan.releases || [];
+  if (releases.length > 0) {
+    var overrideSheet = ss.getSheetByName(SHEETS.FIELD_OVERRIDE);
+    if (!overrideSheet) {
+      throw new Error('releaseFieldOverrides_：找不到工作表「' + SHEETS.FIELD_OVERRIDE
+        + '」，請先執行「初始化工作表」。');
+    }
+    var overrideActiveCol = COLUMNS.FIELD_OVERRIDE.keys.indexOf('ACTIVE') + 1;
+    releases.forEach(function (r) {
+      addOp(r.isoDate, function () {
+        overrideSheet.getRange(r.row.__rowNo, overrideActiveCol).setValue(false);
+        return [fieldOverrideReleaseAuditEntry_(r)];
+      });
+    });
+  }
+
+  // ---- 逐個主日做（由舊到新）----
+  var affected = {};
+  var affectedDates = contentImportAffectedDates_(plan);
+  affectedDates.forEach(function (d) { affected[d] = true; });
+  var snapshotShared = null;
+  var snapshotAuditEntries = [];
+  var snapshotWarnings = [];
+  var dates = Object.keys(allDates).sort();
+  var done = {};
+  var doneOps = [];
+  var datesDone = 0;
+  var partial = false;
+  var failure = null;
+
+  try {
+    for (var i = 0; i < dates.length; i++) {
+      var iso = dates[i];
+      // ⚠️ 版本一定要在這個主日寫入之前存。
+      if (opts.snapshotReason && affected[iso]) {
+        if (snapshotShared === null) {
+          // 版本的 AuditLog 一併交給整批寫入（snapshotAuditEntries），先後次序：所有版本在前，匯入的逐格在後（與以前相同）。
+          snapshotShared = { auditSink: snapshotAuditEntries };
+          // 多個主日時 WeekSnapshots 只讀一次（與 snapshotWeeksBeforeWrite_() 的做法一樣）。
+          if (affectedDates.length > 1) {
+            try {
+              snapshotShared.snapshotRows = readSheet_(SHEETS.WEEK_SNAPSHOTS);
+            } catch (readErr) {
+              snapshotShared.snapshotRows = undefined;
+            }
+          }
+        }
+        snapshotWarnings = snapshotWarnings.concat(snapshotWeeksBeforeWrite_([iso], opts.snapshotReason, snapshotShared));
+      }
+      (opsByDate[iso] || []).forEach(function (op) {
+        doneOps.push({ seq: op.seq, entries: op.run() });
+      });
+      done[iso] = true;
+      datesDone++;
+      if (budgetMs !== null && i < dates.length - 1 && Date.now() - startMs >= budgetMs) {
+        partial = true;
+        break;
+      }
+    }
+
+    // ---- 新增的清單行：每張表一次 writeSheet_()，只寫已經做完的主日的那些（保持原來的次序）----
+    deferredAppends.forEach(function (item) {
+      var toWrite = item.appends.filter(function (row) { return done[String(row.SERVICE_DATE)] === true; });
+      if (toWrite.length === 0) return;
+      var rows = toWrite.map(function (row) {
         var out = {};
-        def.keys.forEach(function (key) {
+        item.def.keys.forEach(function (key) {
           if (key === 'SERVICE_DATE') { out[key] = normalizeDate_(row.SERVICE_DATE); return; }
           if (key === 'ACTIVE') { out[key] = true; return; }
           if (key === 'SEQ_NO') { out[key] = row.SEQ_NO; return; }
@@ -1482,30 +1702,73 @@ function writeContentImportPlan_(plan) {
         });
         return out;
       });
-      writeSheet_(sheetName, rows);
-      listPlan.appends.forEach(function (row) {
-        appendContentImportAudit_(sheetName, row.SERVICE_DATE,
-          { field: '（整行）', oldValue: '', newValue: '新增一行' });
+      writeSheet_(item.sheetName, rows);
+      doneOps.push({
+        seq: item.seq,
+        entries: toWrite.map(function (row) {
+          return contentImportAuditEntry_(item.sheetName, row.SERVICE_DATE,
+            { field: '（整行）', oldValue: '', newValue: '新增一行' });
+        })
       });
-    }
-  });
-
-  // ---- BulletinWeeks ----
-  plan.weekUpdates.forEach(function (update) {
-    update.changes.forEach(function (change) {
-      writeBulletinWeekField_(update.isoDate, change.field, change.newValue);
-      appendContentImportAudit_(SHEETS.BULLETIN_WEEKS, update.isoDate, change);
     });
-  });
+  } catch (err) {
+    failure = err;
+  }
 
-  // ---- F5：解除已經與內容表一致的覆寫 ----
-  releaseFieldOverrides_(plan.releases || []);
+  // ---- AuditLog：整份匯入一次寫入，先後次序與逐筆寫完全相同；中途拋錯也要記已經做完的 ----
+  try {
+    var entriesInOrder = snapshotAuditEntries.slice();
+    doneOps.sort(function (a, b) { return a.seq - b.seq; }).forEach(function (op) {
+      entriesInOrder = entriesInOrder.concat(op.entries);
+    });
+    appendAuditLogBatch_(entriesInOrder);
+  } catch (auditErr) {
+    if (!failure) failure = auditErr;
+  }
+  if (failure) throw failure;
+
+  return {
+    datesTotal: dates.length, datesDone: datesDone, partial: partial,
+    snapshotWarnings: snapshotWarnings, weekSegments: stats.weekSegments, weekCells: stats.weekCells
+  };
+}
+
+/**
+ * 用途：R-060：把 `BulletinWeeks` 由第 3 行起的資料讀一次（原始值，不正規化），建立「主日 → 行號」與
+ *   「行號 → 這一行的原始格值」，給批次寫入找行與合併相鄰兩段用（`setRowCellsTextSafe_()`）。
+ *   以前每一格改動都重新讀整張表找那一行。同一個主日出現多行時用最先那一行（與 `readBulletinWeekRowWithRowNo_()` 一樣）。
+ * Returns:
+ *   {{sheet:Object, rowNoByIso:Object<string,number>, rawByRowNo:Object<string,Array>}}
+ * Raises:
+ *   Error 如果工作表不存在（與 `readRowsWithRowNo_()` 一樣先要初始化工作表）。
+ */
+function readBulletinWeeksRawIndex_() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.BULLETIN_WEEKS);
+  if (!sheet) {
+    throw new Error('writeContentImportPlan_：找不到工作表「' + SHEETS.BULLETIN_WEEKS + '」，請先執行「初始化工作表」。');
+  }
+  var out = { sheet: sheet, rowNoByIso: {}, rawByRowNo: {} };
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 3) return out;
+  var values = sheet.getRange(3, 1, lastRow - 2, COLUMNS.BULLETIN_WEEKS.keys.length).getValues();
+  for (var r = 0; r < values.length; r++) {
+    var iso = '';
+    try {
+      iso = formatIsoDate_(normalizeDate_(values[r][0]));
+    } catch (e) {
+      iso = '';
+    }
+    if (!iso || Object.prototype.hasOwnProperty.call(out.rowNoByIso, iso)) continue;
+    out.rowNoByIso[iso] = r + 3;
+    out.rawByRowNo[r + 3] = values[r];
+  }
+  return out;
 }
 
 /**
  * 用途：把一批「已經與內容表一致」的 `FieldOverride` 解除：`ACTIVE` 改
  *   `FALSE`（**不刪行**，記錄保留），逐筆記 `AuditLog` 的
- *   `FIELD_OVERRIDE_RELEASE`。
+ *   `FIELD_OVERRIDE_RELEASE`（R-060：整批一次寫入）。
  * Args:
  *   releases {{isoDate:string, field:string, overrideValue:*, row:Object}[]}
  *     `computeContentImportPlan_()` 的 `plan.releases`；`row.__rowNo` 是
@@ -1524,19 +1787,35 @@ function releaseFieldOverrides_(releases) {
       + '」，請先執行「初始化工作表」。');
   }
   var activeCol = COLUMNS.FIELD_OVERRIDE.keys.indexOf('ACTIVE') + 1;
-  releases.forEach(function (r) {
-    sheet.getRange(r.row.__rowNo, activeCol).setValue(false);
-    appendAuditLog_({
-      action: 'FIELD_OVERRIDE_RELEASE',
-      sheetName: SHEETS.FIELD_OVERRIDE,
-      rowKey: r.isoDate + '#' + r.field,
-      field: 'ACTIVE',
-      oldValue: 'TRUE',
-      newValue: 'FALSE',
-      notes: '內容表現在的值已經與覆寫值一致（「' + String(r.overrideValue || '（空白）')
-        + '」），改回跟隨內容表。記錄保留，不刪行。'
+  var entries = [];
+  try {
+    releases.forEach(function (r) {
+      sheet.getRange(r.row.__rowNo, activeCol).setValue(false);
+      entries.push(fieldOverrideReleaseAuditEntry_(r));
     });
-  });
+  } finally {
+    appendAuditLogBatch_(entries);
+  }
+}
+
+/**
+ * 用途：解除一格覆寫的 `AuditLog` 記錄內容（`releaseFieldOverrides_()` 與 `writeContentImportPlan_()` 共用）。
+ * Args:
+ *   r {{isoDate:string, field:string, overrideValue:*}} `plan.releases` 的一項。
+ * Returns:
+ *   {Object} 給 `appendAuditLog_()` 或 `appendAuditLogBatch_()` 的 entry。
+ */
+function fieldOverrideReleaseAuditEntry_(r) {
+  return {
+    action: 'FIELD_OVERRIDE_RELEASE',
+    sheetName: SHEETS.FIELD_OVERRIDE,
+    rowKey: r.isoDate + '#' + r.field,
+    field: 'ACTIVE',
+    oldValue: 'TRUE',
+    newValue: 'FALSE',
+    notes: '內容表現在的值已經與覆寫值一致（「' + String(r.overrideValue || '（空白）')
+      + '」），改回跟隨內容表。記錄保留，不刪行。'
+  };
 }
 
 /**
@@ -1549,7 +1828,18 @@ function releaseFieldOverrides_(releases) {
  *   {void}
  */
 function appendContentImportAudit_(sheetName, isoDate, change) {
-  appendAuditLog_({
+  appendAuditLog_(contentImportAuditEntry_(sheetName, isoDate, change));
+}
+
+/**
+ * 用途：匯入寫一格的 `AuditLog` 記錄內容（`appendContentImportAudit_()` 與批次寫入共用，內容只在這裏組一次）。
+ * Args:
+ *   sheetName {string}　isoDate {*}　change {{field:string, oldValue:*, newValue:*}}
+ * Returns:
+ *   {Object} 給 `appendAuditLog_()` 或 `appendAuditLogBatch_()` 的 entry。
+ */
+function contentImportAuditEntry_(sheetName, isoDate, change) {
+  return {
     action: CONTENT_IMPORT_AUDIT_ACTION_,
     sheetName: sheetName,
     rowKey: String(isoDate === null || isoDate === undefined ? '' : isoDate),
@@ -1557,7 +1847,7 @@ function appendContentImportAudit_(sheetName, isoDate, change) {
     oldValue: String(change.oldValue === null || change.oldValue === undefined ? '' : change.oldValue),
     newValue: String(change.newValue === null || change.newValue === undefined ? '' : change.newValue),
     notes: '由內容表匯入。'
-  });
+  };
 }
 
 // =====================================================================
@@ -1579,13 +1869,22 @@ function buildContentImportDialogLines_(result, options) {
   var plan = result.plan;
   var verb = opts.applied ? '已' : '將會';
   var lines = [];
+  // R-060：時間預算用完，停在一個完整主日之後。數字是整份計畫的，不是已經寫好的，所以措辭要分開。
+  var progressMessage = opts.applied ? contentImportProgressMessage_(result.progress) : '';
 
   lines.push('季度：' + result.quarterId
     + (result.scope === 'ONE_WEEK' ? '（只匯入選定的一個主日）' : '（整季）'));
   lines.push('');
-  lines.push(verb + '新增 ' + plan.added + ' 行　'
-    + verb + '修改 ' + plan.updated + ' 行　'
-    + verb + '刪除 ' + plan.removed + ' 行　不變 ' + plan.unchanged + ' 行');
+  if (progressMessage) {
+    lines.push('⏱ ' + progressMessage);
+    lines.push('（這一次的寫入時間用完了，為免超過 Google 的六分鐘上限，已寫好的主日是完整的，沒有寫到一半的。）');
+    lines.push('整份計畫：新增 ' + plan.added + ' 行　修改 ' + plan.updated + ' 行　刪除 ' + plan.removed
+      + ' 行　不變 ' + plan.unchanged + ' 行（只有已匯入的主日已經寫入）');
+  } else {
+    lines.push(verb + '新增 ' + plan.added + ' 行　'
+      + verb + '修改 ' + plan.updated + ' 行　'
+      + verb + '刪除 ' + plan.removed + ' 行　不變 ' + plan.unchanged + ' 行');
+  }
   lines.push('（「刪除」是把「有效」改為 FALSE，不會真的刪走任何一行。）');
   // 2026-11-02：持續狀況（未補上合堂三行等），排在數字之後。上一季讀不到那一句已經在下面的提示，不重複。
   (result.notices || []).filter(function (n) { return n.code !== 'CONTENT_CARRY_OVER_UNREADABLE'; }).forEach(function (n) {

@@ -22,7 +22,7 @@ var APP_NAME = '週報系統';
 /** 「關於本系統」對話框顯示的版本字串。 */
 // 2026-11-03（多堂會／其他教會：方便日後支援和更新）：版本號＝部署日期（yyyy.MM.dd，同一日第二次部署加 -2）。
 //    每次改版要同時在 docs/更新說明.md 最上面加一段同一個版本號（tests/version.test.js 守住）。
-var APP_VERSION = '2026.11.17';
+var APP_VERSION = '2026.11.17-2';
 
 /** 本 repo 的網址（公開）。 */
 var REPO_URL = 'https://github.com/ivantheservant/hwc-bulletin-automation';
@@ -811,6 +811,7 @@ var CONFIG_KEYS = Object.freeze({
   FLOWER_LINE_SEPARATOR: 'FLOWER_LINE_SEPARATOR',
   // 內容表有改動時，每隔多少分鐘自動匯入週報（今日及之後的主日）。0＝不自動。
   CONTENT_AUTO_SYNC_MINUTES: 'CONTENT_AUTO_SYNC_MINUTES',
+  IMPORT_TIME_BUDGET_SEC: 'IMPORT_TIME_BUDGET_SEC',
   // 財政報告兩款（src/FinanceReports.gs）：特殊海外奉獻及慈惠基金的預設標題、認出款式的關鍵詞、兩款的表頭。
   FINANCE_SPECIAL_TITLE_PATTERN: 'FINANCE_SPECIAL_TITLE_PATTERN',
   FINANCE_SPECIAL_KEYWORDS: 'FINANCE_SPECIAL_KEYWORDS',
@@ -1076,6 +1077,7 @@ var DEFAULTS = Object.freeze([
   { key: CONFIG_KEYS.FLOWER_NEXT_WEEK_LABEL, value: '下週主日獻花：', note: 'Word 範本 {{FLOWER_LINE}} 那一行「下週」部分的字眼。下週沒有獻花就連字眼一起不印；兩週都沒有就整行不印' },
   { key: CONFIG_KEYS.FLOWER_LINE_SEPARATOR, value: '  ', note: '{{FLOWER_LINE}} 本週與下週兩部分之間的分隔（預設兩個空格）' },
   { key: CONFIG_KEYS.CONTENT_AUTO_SYNC_MINUTES, value: '30', note: '內容表有改動時，系統每隔多少分鐘自動匯入週報（只限今日及之後、未封存的主日），預覽連結因此不用等幹事登入也會更新。只可以填 0、1、5、10、15、30 或 60；0＝不自動。改了之後要在選單重新「安裝自動寄送觸發器」才生效' },
+  { key: CONFIG_KEYS.IMPORT_TIME_BUDGET_SEC, value: '240', note: '從內容表匯入（整季匯入、選單匯入、自動同步）一次最多寫多少秒；用完就在寫好一個完整主日之後停下，畫面會講「已匯入 N／M 個主日，請再按一次繼續」（自動同步則下一次觸發繼續）。Google 一次執行上限是 360 秒，預設 240 秒留餘裕。填 0＝只寫第一個主日就停。空白或者不是數字會用 240' },
   { key: CONFIG_KEYS.FINANCE_SPECIAL_TITLE_PATTERN, value: '特殊海外奉獻及慈惠基金{{YEAR}}年{{MONTH}}月份財政報告', note: '內容表「財政報告」的特殊海外奉獻及慈惠基金報告沒有填「報告標題」時用的標題；{{YEAR}}／{{MONTH}} 換成該主日上一個月（與 FINANCE_TITLE_PATTERN 相同）' },
   { key: CONFIG_KEYS.FINANCE_SPECIAL_KEYWORDS, value: '特殊海外,慈惠', note: '「報告標題」含這些詞（逗號分隔）就當作特殊海外奉獻及慈惠基金的款式（兩個數字欄）；其餘有標題的當作綜合收支（四個數字欄）。沒有標題就看有沒有填欄三、欄四' },
   { key: CONFIG_KEYS.FINANCE_MAIN_COLUMN_LABELS, value: '{{PERIOD}}實際數字,截至本月實際數字,截至本月預算,全年預算', note: '綜合收支財政表四個數字欄的表頭（逗號分隔，四項）；{{PERIOD}} 換成期別標籤（FINANCE_PERIOD_LABEL_PATTERN，例如「5月份」）。Word 範本用 {{FINANCE_MAIN_HEAD1}} 至 {{FINANCE_MAIN_HEAD4}}' },

@@ -851,6 +851,7 @@ function assertWeekArrangementFieldsValid_(payload) {
  *   token，另一個分頁就會被無辜地判成 STALE）。
  * Args:
  *   payload {Object} 見本檔案檔頭的 payload 形狀說明。
+ *   timer {Object=} R-061：`createLoadTimer_()` 的計時器（`apiSaveWeek` 傳入）；省略就不計時。
  * Returns:
  *   {{lastSavedAt:string, changedFieldCount:number, sideRecordCount:number,
  *     message:{type:string,text:string}}}
@@ -878,7 +879,8 @@ function assertWeekArrangementFieldsValid_(payload) {
  *     `baseWeek`；Error（`code:'LOCK_TIMEOUT'`）如果 `SAVE_LOCK_WAIT_MS_` 之內
  *     拿不到指令碼鎖。這四種情況都**不會執行任何寫入**。
  */
-function saveWeekFromWebApp_(payload) {
+function saveWeekFromWebApp_(payload, timer) {
+  var t = timer || noopLoadTimer_();
   if (!payload || !payload.isoDate) {
     throw new Error('saveWeekFromWebApp_：payload.isoDate 是必填欄位。');
   }
@@ -894,12 +896,20 @@ function saveWeekFromWebApp_(payload) {
   // 2026-10-30：特別崇拜的讀經經文、證道講題、回應詩歌在介面填（src/SpecialService.gs）。
   assertContentSheetFieldsNotSubmitted_(payload, { specialService: isSpecialServiceIsoDate_(isoDate) });
   assertWeekArrangementFieldsValid_(payload);
+  t.mark('檢查送來的欄位');
 
   // G23：讀取、比對、寫入全部在鎖之內。等候時間與內容表匯入、講員表格的 30 秒一致。
   // D12：經 withScriptLock_()（src/ScriptLock.gs）——同一次執行之內已經拿着鎖就不再拿、不提早放，
   // 不依賴 getScriptLock() 可不可以重入（FF-23）。
   return withScriptLock_('apiSaveWeek', SAVE_LOCK_WAIT_MS_, function () {
-    return saveWeekFromWebAppLocked_(payload, isoDate, targetDate);
+    t.mark('拿指令碼鎖');
+    // R-061：鎖外讀過的記憶一律作廢（可能是等鎖之前的舊資料）；鎖之內同一張工作表只讀一次，寫入之後記憶即時清走。
+    forgetReadSheetMemo_();
+    try {
+      return withReadRowsMemo_(function () { return saveWeekFromWebAppLocked_(payload, isoDate, targetDate, t); });
+    } finally {
+      forgetReadSheetMemo_();
+    }
   }, function () {
     throw buildLockTimeoutError_(SAVE_LOCK_WAIT_MS_, '你的改動仍在畫面上，請稍等再按「儲存」。');
   });
@@ -925,7 +935,8 @@ var SAVE_LOCK_WAIT_MS_ = 30000;
  *   Error 同 `saveWeekFromWebApp_()`（STALE、FIELD_CONFLICT、CLIENT_OUTDATED 都在任何寫入
  *     之前拋出）。
  */
-function saveWeekFromWebAppLocked_(payload, isoDate, targetDate) {
+function saveWeekFromWebAppLocked_(payload, isoDate, targetDate, timer) {
+  var t = timer || noopLoadTimer_();
   var normalizedWeek = normalizeWeekPayloadForCompare_(payload.week);
   var normalizedBaseWeek = normalizeWeekPayloadForCompare_(payload.baseWeek);
 
@@ -966,6 +977,8 @@ function saveWeekFromWebAppLocked_(payload, isoDate, targetDate) {
     ? planFieldOverridesFromPayload_(isoDate, normalizedWeek, weekRowInfo)
     : undefined;
 
+  t.mark('讀現況與比對');
+
   var snapshotWarnings = [];
   var thisWeekWillChange = ops.weekChanges.length > 0
     || dutyOverridePlanHasChanges_(dutyPlan) || fieldOverridePlanHasChanges_(fieldOverridePlan);
@@ -979,6 +992,8 @@ function saveWeekFromWebAppLocked_(payload, isoDate, targetDate) {
     if (nextSnapshot.warning) snapshotWarnings.push(nextSnapshot.warning);
   }
 
+  t.mark('存版本');
+
   var auditEntries = [];
 
   if (weekRowInfo) {
@@ -987,6 +1002,7 @@ function saveWeekFromWebAppLocked_(payload, isoDate, targetDate) {
     createWeekRow_(targetDate, normalizedWeek, isoDate, auditEntries);
     weekRowInfo = readBulletinWeekRowWithRowNo_(isoDate);
   }
+  t.mark('寫 BulletinWeeks');
 
   // 四張清單改由內容表接管之後，`ops.listPlans` 一定是空的（見
   // `buildSaveOperations_()`）。這裡保留迴圈只是為了不讓「日後有人把清單
@@ -994,6 +1010,7 @@ function saveWeekFromWebAppLocked_(payload, isoDate, targetDate) {
   Object.keys(ops.listPlans).forEach(function (type) {
     applyListPlan_(listDefs[type].sheetName, targetDate, isoDate, type, ops.listPlans[type], auditEntries);
   });
+  t.mark('寫清單');
 
   // 第六輪：事奉框的人手覆寫。刻意放在最後，而且獨立於上面的欄位／清單
   // 儲存——覆寫寫的是另一張表（`DutyOverride`），跟 `BulletinWeeks` 的
@@ -1022,6 +1039,7 @@ function saveWeekFromWebAppLocked_(payload, isoDate, targetDate) {
   //    來源值就永遠相等，一筆覆寫都唔會寫得出。
   applyFieldOverridesFromPayload_(isoDate, targetDate, normalizedWeek,
     weekRowInfo || {}, auditEntries, fieldOverridePlan);
+  t.mark('寫事奉與欄位覆寫');
 
   // ⚠️ F2：完全沒有改動就不更新 `LAST_SAVED_AT`。`auditEntries` 是欄位、
   //    兩種事奉覆寫、第三種欄位覆寫共用的累積陣列，「有沒有改動」與
@@ -1043,8 +1061,11 @@ function saveWeekFromWebAppLocked_(payload, isoDate, targetDate) {
     if (dutyPlanChangesNames_(nextDutyPlan)) dutyDates.push(nextIsoDate);
     touchWeeksLastSavedAt_(weeksShowingDuty_(dutyDates, [isoDate]), newTimestamp);
   }
+  t.mark('寫最後儲存時間');
 
-  auditEntries.forEach(function (entry) { appendAuditLog_(entry); });
+  // R-061：整次儲存的 AuditLog 一次寫入（行的內容與先後次序與逐筆寫完全相同，見 appendAuditLogBatch_()）。
+  appendAuditLogBatch_(auditEntries);
+  t.mark('寫 AuditLog');
 
   // ⚠️ 第八輪：儲存之後一定要更新 `FillSnapshot`。
   //
@@ -1055,6 +1076,7 @@ function saveWeekFromWebAppLocked_(payload, isoDate, targetDate) {
   // **這一點最容易漏**（填寫介面與格子表是兩個看似無關的功能），
   // tests/fillgrid.test.js 有一個測試專門盯住它。
   refreshFillSnapshotAfterSave_(isoDate, ops.weekChanges);
+  t.mark('更新填寫表快照');
 
   return {
     lastSavedAt: savedToken,
@@ -1162,6 +1184,7 @@ function refreshFillSnapshotAfterSave_(isoDate, weekChanges) {
   if (FILL_GRID_RETIRED_ === true) return;
   var changes = weekChanges || [];
   if (changes.length === 0) return;
+  forgetReadSheetMemo_();   // R-061：下面有直接 setValue 的寫入，之前記住的一律作廢
 
   try {
     var quarterId = lookupQuarterIdForIsoDate_(isoDate);
@@ -1276,6 +1299,13 @@ function readRowsWithRowNo_(sheetName) {
   }
   var def = COLUMNS[sheetId];
 
+  // R-061：儲存之內（withReadRowsMemo_()）同一張工作表只讀一次；每次回新的拷貝。寫入之後記憶已被清走。
+  var rowsMemoKey = '#rows:' + sheetName;
+  var useRowsMemo = READ_ROWS_MEMO_ON_ === true && Boolean(READ_SHEET_MEMO_);
+  if (useRowsMemo && Object.prototype.hasOwnProperty.call(READ_SHEET_MEMO_, rowsMemoKey)) {
+    return READ_SHEET_MEMO_[rowsMemoKey].map(function (r) { return Object.assign({}, r); });
+  }
+
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = ss.getSheetByName(sheetName);
   if (!sheet) {
@@ -1305,6 +1335,9 @@ function readRowsWithRowNo_(sheetName) {
     results.push(obj);
   }
 
+  if (useRowsMemo && READ_SHEET_MEMO_) {
+    READ_SHEET_MEMO_[rowsMemoKey] = results.map(function (r) { return Object.assign({}, r); });
+  }
   return results;
 }
 
@@ -1472,12 +1505,17 @@ function applyWeekFieldChanges_(rowNo, changes, isoDate, auditEntriesOut, action
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.BULLETIN_WEEKS);
   var keys = COLUMNS.BULLETIN_WEEKS.keys;
 
+  // R-061：同一行的改動欄位連續的合成一次寫入（setRowCellsTextSafe_()，只寫有改動的格；ATT_* 等純文字欄
+  //   先設 '@' 再寫，見 docs/已知bug類型.md 事故二十八）。AuditLog 條目的內容與次序不變。
+  var valuesByField = {};
   changes.forEach(function (c) {
     if (keys.indexOf(c.field) < 0) return;
-    // ⚠️ 經 setCellValueTextSafe_()：ATT_* 十二欄設計上是文字，直接寫會被
-    //    試算表轉成數字。見 docs/已知bug類型.md 事故二十八。
-    setCellValueTextSafe_(sheet, COLUMNS.BULLETIN_WEEKS, rowNo, c.field,
-      c.newValue === null || c.newValue === undefined ? '' : c.newValue);
+    valuesByField[c.field] = c.newValue === null || c.newValue === undefined ? '' : c.newValue;
+  });
+  setRowCellsTextSafe_(sheet, COLUMNS.BULLETIN_WEEKS, rowNo, valuesByField);
+
+  changes.forEach(function (c) {
+    if (keys.indexOf(c.field) < 0) return;
     auditEntriesOut.push({
       action: action || 'WEBAPP_SAVE_WEEK', sheetName: SHEETS.BULLETIN_WEEKS, rowKey: isoDate,
       field: c.field, oldValue: auditValueToText_(c.oldValue), newValue: auditValueToText_(c.newValue)
@@ -1548,6 +1586,7 @@ function writeWeekCell_(rowNo, fieldKey, value) {
  */
 function applyListPlan_(sheetName, targetDate, isoDate, listType, plan, auditEntriesOut) {
   if (!plan) return;
+  forgetReadSheetMemo_();   // R-061：下面有直接 setValue 的寫入，之前記住的一律作廢
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetName);
   var def = COLUMNS[SHEET_ID_BY_NAME[sheetName]];
   var action = 'WEBAPP_SAVE_' + listType.toUpperCase();

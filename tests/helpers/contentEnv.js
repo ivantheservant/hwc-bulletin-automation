@@ -72,6 +72,7 @@ function shortTransposedDef(def) {
 
 /**
  * 造一個測試環境。
+ * options.serviceDates：這一季的主日清單（預設 SERVICE_DATES 五個）；週報、職事表 ServiceDates 一併跟住用（R-060：13 週測試用）。
  * options.content：分頁名稱 → 資料列陣列（以內容表機器鍵為 key）。
  *   沒有列出的分頁＝整張空白。⚠️ 寫了一個這個版面沒有的分頁名稱就拋錯——以前會靜靜當成
  *   空白分頁，內容表 v2 把「宣召」併入「崇拜程序」之後，`content: { 宣召: … }` 這類舊測試就會
@@ -93,6 +94,7 @@ function shortTransposedDef(def) {
  */
 function makeEnv(options) {
   const o = options || {};
+  const SERVICE_DATE_LIST = o.serviceDates || SERVICE_DATES;
   const boot = loadAllSrcFilesInOrder(baseStubs());
 
   const cfg = {};
@@ -113,7 +115,7 @@ function makeEnv(options) {
   ownSheets.Config = ownSheet('CONFIG', Object.keys(cfg).map(function (k) {
     return { KEY: k, VALUE: cfg[k], NOTE: '', EDITABLE: true };
   }));
-  ownSheets.BulletinWeeks = ownSheet('BULLETIN_WEEKS', o.weekRows || SERVICE_DATES.map(function (iso, i) {
+  ownSheets.BulletinWeeks = ownSheet('BULLETIN_WEEKS', o.weekRows || SERVICE_DATE_LIST.map(function (iso, i) {
     return { SERVICE_DATE: iso, QUARTER_ID: QUARTER_ID, WEEK_OF_MONTH: (i % 4) + 1, STATUS: 'DRAFT' };
   }));
   ownSheets.Announcements = ownSheet('ANNOUNCEMENTS', o.announcements || []);
@@ -140,7 +142,7 @@ function makeEnv(options) {
     RosterAssignments: rosterSheet('ASSIGNMENTS', []),
     RosterVersions: rosterSheet('VERSIONS', [{ QuarterID: QUARTER_ID, VersionNo: 1 }]),
     Quarters: rosterSheet('QUARTERS', [{ QuarterID: QUARTER_ID, Stage: 'OFFICIAL_SENT' }]),
-    ServiceDates: rosterSheet('SERVICE_DATES', SERVICE_DATES.map(function (iso, i) {
+    ServiceDates: rosterSheet('SERVICE_DATES', SERVICE_DATE_LIST.map(function (iso, i) {
       return {
         ServiceDateID: 'SD' + (i + 1), QuarterID: QUARTER_ID, ServiceDate: iso,
         WeekIndex: i + 1, IsFirstSundayOfMonth: i === 0, ServiceType: '主日崇拜', SpecialID: ''

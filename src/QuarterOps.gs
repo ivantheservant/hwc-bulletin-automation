@@ -583,6 +583,8 @@ function quarterContentImport_(quarterId, apply) {
       rowKey: qid,
       newValue: '+' + result.plan.added + ' ~' + result.plan.updated + ' -' + result.plan.removed,
       notes: '由填寫介面「季度作業」整季匯入。'
+        + (result.progress && result.progress.partial === true
+          ? '（' + contentImportProgressMessage_(result.progress) + '數字是整份計畫的。）' : '')
     });
   }
 
@@ -593,7 +595,11 @@ function quarterContentImport_(quarterId, apply) {
     summary: {
       added: result.plan.added, updated: result.plan.updated,
       removed: result.plan.removed, unchanged: result.plan.unchanged
-    }
+    },
+    // R-060：時間預算用完停在中途時 partial 為 true（要再按一次繼續）；message 是同一句。
+    partial: Boolean(apply && result.progress && result.progress.partial === true),
+    progress: apply ? (result.progress || null) : null,
+    message: apply ? contentImportProgressMessage_(result.progress) : ''
   };
 }
 

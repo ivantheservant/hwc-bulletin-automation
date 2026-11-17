@@ -16,6 +16,10 @@
  *     已處理，下一次觸發照樣再試，ErrorLog 只記第 1 次與第 3 次，第 3 次起內容表有改動才再試。拿不到鎖就
  *     下一次再試。沒有今日及之後主日的季度不呼叫 Drive。
  *
+ * R-060（2026-11-17）：匯入有時間預算（Config `IMPORT_TIME_BUDGET_SEC`，預設 240 秒）。用完就在寫好一個完整主日之後停下，
+ *   這一次**不記修改時間**（`PARTIAL`），下一次觸發重新比較、由下一個主日繼續；AuditLog 摘要行講明做了幾個主日。
+ *   同一次觸發有幾個季度時共用同一個預算，預算用完之後尚未處理的季度標 `DEFERRED`，下一次觸發才做。
+ *
  * 觸發器由「安裝自動寄送觸發器」一併安裝（src/Trigger.gs）。
  */
 
@@ -208,11 +212,13 @@ function recordContentSyncFailure_(quarterId, fingerprint, message, errorCode, d
  *     - 結構性失敗（`preview.ok === false`，例如版面過舊）行為不變，只是「不再試」的記錄有效期由七日改為 30 日
  *       （七日過期令同一句錯誤每七日重複一次）。
  * Args:
- *   options {{source:string=, todayIso:string=}=} `todayIso` 是測試的注入點；省略用 `webAppTodayIso_()`。
+ *   options {{source:string=, todayIso:string=, timeBudgetSec:number=}=} `todayIso` 是測試的注入點；省略用 `webAppTodayIso_()`；
+ *     `timeBudgetSec` 蓋過 Config 的時間預算（測試用）。
  * Returns:
  *   {{quarters:{quarterId:string, status:string, dates:number, changed:number, message:string}[]}}
  *     `status`：`UNCHANGED`（內容表沒有改過，或已經放棄再試）／`NO_DATES`（這一季沒有今日之後的主日）／
- *     `NO_CHANGE`／`IMPORTED`／`FAILED`／`LOCK_TIMEOUT`。
+ *     `NO_CHANGE`／`IMPORTED`／`PARTIAL`（時間預算用完，寫了一部分主日，下一次觸發繼續）／`DEFERRED`（同一次觸發
+ *     前面的季度已經用完預算，這一季下一次觸發才做）／`FAILED`／`LOCK_TIMEOUT`。
  * Raises:
  *   （無：每一季各自包 try/catch）
  */
@@ -222,6 +228,9 @@ function runContentAutoSync_(options) {
   var sandbox = String(getConfig_(CONFIG_KEYS.SELFTEST_QUARTER_ID, '') || '').trim();
   var weekRows = readSheet_(SHEETS.BULLETIN_WEEKS);
   var out = { quarters: [] };
+  // R-060：同一次觸發所有季度共用一個時間預算。
+  var runStartMs = Date.now();
+  var budgetSpent = false;
 
   var contentRows = readSheet_(SHEETS.CONTENT_SHEETS);
   var activeFileIdByQuarter = {};
@@ -263,6 +272,13 @@ function runContentAutoSync_(options) {
       return;
     }
 
+    // R-060：前面的季度已經用完這一次的時間預算：不開檔、不記修改時間，下一次觸發再做。
+    if (budgetSpent) {
+      entry.status = 'DEFERRED';
+      entry.message = '這一次觸發的匯入時間預算用完了，下一次觸發才處理這一季。';
+      return;
+    }
+
     try {
       var preview = previewContentImport_(qid, { isoDates: dates });
       if (!preview.ok) {
@@ -291,21 +307,35 @@ function runContentAutoSync_(options) {
         deleteTimedScriptProperty_(contentSyncFailKey_(qid));
         return;
       }
-      var applied = applyContentImport_(qid, { isoDates: dates });
+      var applied = applyContentImport_(qid, {
+        isoDates: dates, budgetStartMs: runStartMs, timeBudgetSec: opts.timeBudgetSec
+      });
       if (!applied.ok) {
         entry.status = 'FAILED';
         entry.message = applied.message || applied.reason || '';
         recordContentSyncFailure_(qid, mtime, '寫入失敗：' + entry.message, applied.reason || 'APPLY_FAILED', '');
         return;
       }
-      entry.status = 'IMPORTED';
+      var partial = Boolean(applied.progress && applied.progress.partial === true);
+      entry.status = partial ? 'PARTIAL' : 'IMPORTED';
       entry.changed = changeCount;
       appendAuditLog_({
         action: 'CONTENT_AUTO_SYNC', sheetName: SHEETS.CONTENT_SHEETS, rowKey: qid,
         newValue: '+' + applied.plan.added + ' ~' + applied.plan.updated + ' -' + applied.plan.removed,
         notes: '內容表自動同步（' + String(opts.source || '') + '）：季度 ' + qid + '，今日 ' + todayIso
           + ' 及之後的 ' + dates.length + ' 個主日。'
+          + (partial
+            ? '時間預算用完，這一次只做了 ' + applied.progress.datesDone + '／' + applied.progress.datesTotal
+              + ' 個有改動的主日（每個都是完整寫好的），下一次觸發繼續；數字是整份計畫的。'
+            : '')
       });
+      if (partial) {
+        // 沒有做完：不記修改時間，下一次觸發才會再比較、由下一個主日繼續。
+        budgetSpent = true;
+        entry.message = contentImportProgressMessage_(applied.progress);
+        deleteTimedScriptProperty_(contentSyncFailKey_(qid));
+        return;
+      }
       if (mtime !== null) writeTimedScriptProperty_(propertyKey, String(mtime));
       deleteTimedScriptProperty_(contentSyncFailKey_(qid));
     } catch (err) {

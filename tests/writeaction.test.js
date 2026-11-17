@@ -2231,5 +2231,27 @@ test('LS-UI-5 轉主日（loadWeek）一樣分兩步：apiLoadWeek 帶 deferImpo
   assert.strictEqual(ui.els.saveBtn.disabled, false);
 });
 
+test('LS-UI-13 R-061：儲存之後頂部「伺服器用時」顯示儲存的分段用時；隨後重新載入的用時併進來一起顯示（只併一次）', function () {
+  const ui = makeUi();
+  const saveTimings = { name: 'apiSaveWeek', totalMs: 2500, parts: [{ label: '讀現況與比對', ms: 1200 }, { label: '寫 BulletinWeeks', ms: 800 }] };
+  ui.ctx.onSaveSuccess({ ok: true, data: { message: { type: 'success', text: '已儲存，更新了 1 個欄位。' }, timings: saveTimings } });
+  assert.strictEqual(ui.els.statLoadTime.textContent, '伺服器用時 2.5 秒', '儲存完立即顯示');
+  assert.strictEqual(ui.els.statLoadTime.classList.contains('hidden'), false);
+  ui.ctx.renderLoadTimings([{ name: 'apiLoadWeek', totalMs: 1000, parts: [{ label: '週報與清單', ms: 600 }] }]);
+  assert.strictEqual(ui.els.statLoadTime.textContent, '伺服器用時 3.5 秒', '重新載入的用時併進來');
+  ui.ctx.showLoadTimingDetail();
+  const shown = ui.els.messageBar.children[0].textContent;
+  ['apiSaveWeek：2.5 秒', '讀現況與比對：1.2 秒', '寫 BulletinWeeks：0.8 秒', 'apiLoadWeek：1.0 秒'].forEach(function (piece) {
+    assert.ok(shown.indexOf(piece) !== -1, piece + ' ← ' + shown);
+  });
+  ui.ctx.renderLoadTimings([{ name: 'apiLoadWeek', totalMs: 1000, parts: [] }]);
+  assert.strictEqual(ui.ctx.state.inFlight >= 0, true);
+  assert.strictEqual(ui.els.statLoadTime.textContent, '伺服器用時 1.0 秒', '儲存的用時只併一次');
+  // 儲存失敗（沒有 timings）不影響顯示。
+  const ui2 = makeUi();
+  ui2.ctx.onSaveSuccess({ ok: true, data: { message: { type: 'info', text: '沒有偵測到任何改動' } } });
+  assert.ok(ui2.els.statLoadTime.classList.contains('hidden') || ui2.els.statLoadTime.textContent === '', '沒有 timings 就不顯示');
+});
+
 console.log('\n通過 ' + pass + ' 項，失敗 ' + fail + ' 項。');
 process.exit(fail === 0 ? 0 : 1);

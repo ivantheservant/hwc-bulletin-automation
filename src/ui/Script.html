@@ -3223,6 +3223,12 @@
     var box = document.getElementById('statLoadTime');
     if (!box) return;
     var items = (list || []).filter(function (t) { return t && typeof t.totalMs === 'number'; });
+    // R-061：剛儲存過的話，儲存的用時排在最前面；有載入的用時併進來之後才清走，只併一次。
+    if (SAVE_TIMINGS && typeof SAVE_TIMINGS.totalMs === 'number') {
+      var withSave = [SAVE_TIMINGS].concat(items);
+      if (items.length > 0) SAVE_TIMINGS = null;
+      items = withSave;
+    }
     if (items.length === 0) { box.classList.add('hidden'); return; }
     var total = 0;
     var detail = [];
@@ -3240,6 +3246,9 @@
 
   /** 2026-11-03：最近一次載入的分段用時（按「伺服器用時」顯示）。 */
   var LOAD_TIMING_DETAIL = [];
+
+  /** R-061：剛儲存完、尚未併進載入用時顯示的 apiSaveWeek 分段用時（`null`＝沒有）。 */
+  var SAVE_TIMINGS = null;
 
   /**
    * 用途：按「伺服器用時」：在訊息列顯示最近一次載入的分段用時（滑鼠停留的提示在部分瀏覽器看不到）。
@@ -3741,6 +3750,10 @@
     }
     var msg = resp.data.message;
     showMessage(msg.type, msg.text);
+    // R-061：儲存的分段用時，顯示在頂部「伺服器用時」（與載入同一個位置、同一個格式）；
+    //   隨後重新載入的用時會併進來一起顯示（見 renderLoadTimings()）。
+    SAVE_TIMINGS = (resp.data && resp.data.timings) || null;
+    renderLoadTimings([]);
     loadWeek(state.isoDate, { keepMessage: true });
 
     // ⚠️ D-9：主日下拉的「待填 N 項」標籤要一併刷新。

@@ -642,6 +642,8 @@ function readWeekStateForSnapshot_(isoDate) {
  *     `snapshotRows`：呼叫方已經讀好的 `WeekSnapshots` 資料列（一次替十幾個
  *     主日存版本時只讀一次，這張表每行可能有 49000 字元，逐個主日重讀很慢）。
  *     只可以傳給不同主日的連續呼叫——同一個主日要存第二個版本時必須重讀。
+ *     `auditSink`（R-060）：陣列；給了就把「存了一個版本」那一行 AuditLog 的 entry 放進去，而不是當場寫入，
+ *     由呼叫方整批一次寫（`writeContentImportPlan_()` 用）。
  * Returns:
  *   {{created:boolean, snapshotId:string, skipped:string, partCount:number}}
  *     `skipped` 是 `''`（有存）、`'THROTTLED'`、`'UNCHANGED'` 或 `'NO_WEEK'`
@@ -709,11 +711,18 @@ function createWeekSnapshot_(isoDate, reason, options) {
   });
   writeSheet_(SHEETS.WEEK_SNAPSHOTS, rows);
 
-  appendAuditLog_({
+  var auditEntry = {
     action: 'WEEK_SNAPSHOT_CREATE', sheetName: SHEETS.WEEK_SNAPSHOTS,
     rowKey: snapshotId, field: 'REASON', oldValue: '', newValue: reason,
     notes: '主日 ' + isoDate + ' 存了一個版本（' + weekSnapshotReasonLabel_(reason) + '），分成 ' + parts.length + ' 段。'
-  });
+  };
+  // R-060：整季匯入逐個主日存版本，呼叫方給了 `auditSink`（陣列）就把這一行 AuditLog 交給它，由它整批一次寫入
+  //   （內容與次序不變）；沒有給就照舊當場寫。
+  if (Array.isArray(opts.auditSink)) {
+    opts.auditSink.push(auditEntry);
+  } else {
+    appendAuditLog_(auditEntry);
+  }
 
   return { created: true, snapshotId: snapshotId, skipped: '', partCount: parts.length };
 }

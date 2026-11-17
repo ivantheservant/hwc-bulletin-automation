@@ -231,6 +231,7 @@ function applyFieldOverridePlan_(plan, targetDate, isoDate, actorEmail, auditEnt
   var upserts = plan.upserts || [];
   var deactivations = plan.deactivations || [];
   if (upserts.length === 0 && deactivations.length === 0) return { upserted: 0, deactivated: 0 };
+  forgetReadSheetMemo_();   // R-061：下面有直接 setValue 的寫入，之前記住的一律作廢（先清再讀，讀到的是最新）
 
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.FIELD_OVERRIDE);
   if (!sheet) {

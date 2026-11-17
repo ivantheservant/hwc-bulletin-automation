@@ -365,6 +365,7 @@ function dutyDeactivationKeepsDisplay_(deact) {
  */
 function applyDutyOverridePlan_(plan, targetDate, isoDate, actorEmail, auditEntriesOut) {
   if (!plan) return;
+  forgetReadSheetMemo_();   // R-061：下面有直接 setValue 的寫入，之前記住的一律作廢
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.DUTY_OVERRIDE);
   if (!sheet) {
     throw new Error('applyDutyOverridePlan_：找不到工作表「' + SHEETS.DUTY_OVERRIDE + '」，請先執行「初始化工作表」。');

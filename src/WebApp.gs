@@ -976,7 +976,8 @@ function apiPreviewProgram(isoDate, draftFields) {
  *   payload {Object} 見 `src/WebAppSave.gs` 檔頭的 payload 形狀說明。
  * Returns:
  *   {{ok:boolean, data:{lastSavedAt:string, changedFieldCount:number, sideRecordCount:number,
- *     message:{type:string,text:string}}, error?:Object}}
+ *     message:{type:string,text:string}, timings:{name:string,totalMs:number,parts:Object[]}}, error?:Object}}
+ *     `timings`（R-061）是分段用時，與載入同一個格式（`src/LoadTiming.gs`）。
  *     `changedFieldCount` 是使用者改了幾個欄位，覆寫記錄等附帶記錄不計
  *     （另計在 `sideRecordCount`，見 `countSaveChanges_()`）。
  *     樂觀鎖沒對上時 `error.code` 是 `'STALE'`；工作表結構落後於程式碼時
@@ -985,9 +986,20 @@ function apiPreviewProgram(isoDate, draftFields) {
  */
 function apiSaveWeek(payload) {
   return withApiResult_(function () {
-    assertSheetSchemaUpToDate_('儲存');
-    assertWeekNotCancelled_(payload && payload.isoDate);
-    return saveWeekFromWebApp_(payload);
+    // R-061：分段計時（只是量度，不影響任何結果），結果放在回應的 `timings`，填寫介面顯示在頂部「伺服器用時」。
+    var timer = createLoadTimer_('apiSaveWeek');
+    beginReadSheetStats_();
+    var data = withReadSheetMemo_(function () {
+      assertSheetSchemaUpToDate_('儲存');
+      timer.mark('檢查工作表結構');
+      assertWeekNotCancelled_(payload && payload.isoDate);
+      timer.mark('檢查這一週有沒有取消');
+      return saveWeekFromWebApp_(payload, timer);
+    });
+    var readNote = takeReadSheetStatsNote_();
+    if (readNote) timer.note(readNote.label, readNote.ms);
+    data.timings = timer.result();
+    return data;
   }, { functionName: 'apiSaveWeek', argsSummary: 'isoDate=' + (payload && payload.isoDate) });
 }
 

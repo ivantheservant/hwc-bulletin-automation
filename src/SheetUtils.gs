@@ -404,6 +404,34 @@ function forgetReadSheetMemo_() {
 }
 
 /**
+ * R-061（2026-11-17）：`readRowsWithRowNo_()`（帶行號的讀法）要不要也記住讀過的工作表。預設不記，**只有儲存**
+ *   （`saveWeekFromWebApp_()`）在指令碼鎖之內才打開——儲存一次要找同一個主日那一行好幾次（比對樂觀鎖、存版本……）。
+ *   記憶放在 `READ_SHEET_MEMO_` 之內（鍵 `#rows:工作表名`），所以 `forgetReadSheetMemo_()` 一併清走；只在這個開關打開、
+ *   而且 `READ_SHEET_MEMO_` 存在時才有作用。
+ */
+var READ_ROWS_MEMO_ON_ = false;
+
+/**
+ * 用途：R-061：在 `fn` 執行期間，`readSheet_()` 與 `readRowsWithRowNo_()` 都記住讀過的工作表（同一張只讀一次，
+ *   直到有寫入——所有寫入路徑都要 `forgetReadSheetMemo_()`，bug class 3）。完成（或拋錯）之後還原開關。
+ * Args:
+ *   fn {function(): *}
+ * Returns:
+ *   {*} `fn` 的回傳值。
+ * Raises:
+ *   `fn` 拋出的錯誤原樣拋出。
+ */
+function withReadRowsMemo_(fn) {
+  var previous = READ_ROWS_MEMO_ON_;
+  READ_ROWS_MEMO_ON_ = true;
+  try {
+    return withReadSheetMemo_(fn);
+  } finally {
+    READ_ROWS_MEMO_ON_ = previous;
+  }
+}
+
+/**
  * 用途：`readSheet_()` 真正讀工作表的部分（不經記憶）。
  * Args:
  *   sheetName {string}　sheetId {string}
@@ -550,6 +578,19 @@ function applyTextFormatToRange_(sheet, def, startRow, numRows) {
 }
 
 /**
+ * 用途：R-060：某一欄設計上是不是純文字（`COLUMNS.*.textFormatColumns`）。`setCellValueTextSafe_()` 與批次版本
+ *   `setRowCellsTextSafe_()` **共用這一支**判斷，不可以兩處各寫一份（事故二十八：文字欄被試算表轉成數字）。
+ * Args:
+ *   def {Object} `COLUMNS` 其中一項。
+ *   fieldKey {string} 機器鍵。
+ * Returns:
+ *   {boolean}
+ */
+function isTextFormatField_(def, fieldKey) {
+  return Boolean(def) && (def.textFormatColumns || []).indexOf(fieldKey) !== -1;
+}
+
+/**
  * 用途：寫入單一格，如果那一欄設計上是純文字，先設格式再寫值。
  *
  *   ⚠️ 所有「一格一格寫」的地方都應該經這裡，不要直接 `setValue()`。
@@ -569,11 +610,127 @@ function setCellValueTextSafe_(sheet, def, rowNo, fieldKey, value) {
   var colIndex = def.keys.indexOf(fieldKey) + 1;
   if (colIndex <= 0) return false;
   var range = sheet.getRange(rowNo, colIndex, 1, 1);
-  if ((def.textFormatColumns || []).indexOf(fieldKey) !== -1) {
+  if (isTextFormatField_(def, fieldKey)) {
     range.setNumberFormat('@');
   }
   range.setValue(value);
   return true;
+}
+
+/**
+ * 用途：R-060：寫回去也不會被試算表轉型的格值（`setRowCellsTextSafe_()` 合併相鄰兩段時，中間那幾格要原值寫回）。
+ *
+ *   ⚠️ 判斷從嚴，不確定就當作不安全（那兩段就不合併，各寫各的）：
+ *   - 空白一律安全；
+ *   - 純文字欄（`textFormatColumns`）只有空白才安全——數字或日期寫進純文字格會變成文字，反過來亦然；
+ *   - 字串：含任何數字、開頭是 = + - @ '、或者是 TRUE／FALSE，都有機會被當成數字、日期、公式或布林而轉型
+ *     （例如格式不是純文字的格子裏有一個用「'12」輸入的文字 '12'，原值寫回就變成數字 12），不安全；
+ *   - 數字、布林、日期（讀出來已經是有型別的值）寫回去型別不變，安全。
+ * Args:
+ *   value {*} `getValues()` 讀出來的原始值。
+ *   isTextColumn {boolean} 這一格所在的欄是不是純文字欄。
+ * Returns:
+ *   {boolean}
+ */
+function isRoundTripSafeCellValue_(value, isTextColumn) {
+  if (value === '' || value === null) return true;
+  if (value === undefined) return false;
+  if (isTextColumn) return false;
+  if (typeof value === 'string') {
+    if (/\d/.test(value)) return false;
+    if (/^[=+\-@']/.test(value)) return false;
+    if (/^(true|false)$/i.test(value.trim())) return false;
+    return true;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') return true;
+  return Object.prototype.toString.call(value) === '[object Date]';
+}
+
+/**
+ * 用途：R-060：同一行的多個欄位一次寫入（`setCellValueTextSafe_()` 的批次版本）。
+ *
+ *   只寫**有改動的格**：欄位連續的合成一段，每一段先把其中屬於純文字欄的部分設成 '@'（與單格版本同一個判斷，
+ *   `isTextFormatField_()`），再用一次 `setValues()` 寫值（先設格式再寫值，事故二十八）。
+ *
+ *   沒有列出的格一律不碰，唯一例外：呼叫方給了 `options.currentRow`（這一行 `getValues()` 的原始值）與 `options.maxGap`，
+ *   兩段之間相隔不超過 `maxGap` 格，而且中間每一格的值都通過 `isRoundTripSafeCellValue_()`，就把中間那幾格用原值
+ *   一併寫回，合成一段——「崇拜程序」三格與「崇拜人數」十二格之間隔着兩格沒有匯入的欄，這樣每個主日是一次寫入而不是兩次。
+ *   中間有任何一格不安全就不合併。
+ * Args:
+ *   sheet {Sheet} 目標工作表。
+ *   def {Object} `COLUMNS` 其中一項。
+ *   rowNo {number} 真實行號。
+ *   valuesByField {Object<string,*>} 機器鍵 → 要寫的值（呼叫方已經 `sanitizeCellText_()`）。不在 `def.keys` 的鍵略過
+ *     （與單格版本回 `false` 一樣）。
+ *   options {{currentRow:(Array|undefined), maxGap:(number|undefined)}=} 見上。
+ * Returns:
+ *   {{segments:number, cells:number, gapCells:number}} 寫了幾段（＝`setValues()`／`setValue()` 的次數）、
+ *     幾格有改動的、幾格是原值寫回的。
+ */
+function setRowCellsTextSafe_(sheet, def, rowNo, valuesByField, options) {
+  forgetReadSheetMemo_();
+  var out = { segments: 0, cells: 0, gapCells: 0 };
+  if (!sheet || !def) return out;
+  var opts = options || {};
+  var currentRow = Array.isArray(opts.currentRow) ? opts.currentRow : null;
+  var maxGap = (currentRow && Number(opts.maxGap) > 0) ? Number(opts.maxGap) : 0;
+
+  var cells = [];
+  Object.keys(valuesByField || {}).forEach(function (fieldKey) {
+    var colIndex = def.keys.indexOf(fieldKey) + 1;
+    if (colIndex <= 0) return;
+    cells.push({ col: colIndex, key: fieldKey, value: valuesByField[fieldKey], changed: true });
+  });
+  if (cells.length === 0) return out;
+  cells.sort(function (a, b) { return a.col - b.col; });
+
+  function gapCellsBetween(fromCol, toCol) {
+    var gap = [];
+    for (var col = fromCol + 1; col < toCol; col++) {
+      var key = def.keys[col - 1];
+      var current = currentRow[col - 1];
+      if (!isRoundTripSafeCellValue_(current, isTextFormatField_(def, key))) return null;
+      gap.push({ col: col, key: key, value: current === null ? '' : current, changed: false });
+    }
+    return gap;
+  }
+
+  var segments = [];
+  var segment = [cells[0]];
+  for (var n = 1; n < cells.length; n++) {
+    var prev = segment[segment.length - 1];
+    var next = cells[n];
+    var gapSize = next.col - prev.col - 1;
+    var gap = [];
+    if (gapSize > 0 && gapSize <= maxGap) gap = gapCellsBetween(prev.col, next.col);
+    if (gapSize === 0 || (gap && gapSize <= maxGap)) {
+      segment = segment.concat(gap || [], [next]);
+    } else {
+      segments.push(segment);
+      segment = [next];
+    }
+  }
+  segments.push(segment);
+
+  segments.forEach(function (run) {
+    // 先把這一段之內「有改動而且屬於純文字欄」的連續部分設成 '@'，再一次寫值。
+    var k = 0;
+    while (k < run.length) {
+      if (!(run[k].changed && isTextFormatField_(def, run[k].key))) { k++; continue; }
+      var m = k;
+      while (m + 1 < run.length && run[m + 1].changed && isTextFormatField_(def, run[m + 1].key)) m++;
+      sheet.getRange(rowNo, run[k].col, 1, m - k + 1).setNumberFormat('@');
+      k = m + 1;
+    }
+    if (run.length === 1) {
+      sheet.getRange(rowNo, run[0].col, 1, 1).setValue(run[0].value);
+    } else {
+      sheet.getRange(rowNo, run[0].col, 1, run.length).setValues([run.map(function (c) { return c.value; })]);
+    }
+    out.segments++;
+    run.forEach(function (c) { if (c.changed) out.cells++; else out.gapCells++; });
+  });
+  return out;
 }
 
 /**

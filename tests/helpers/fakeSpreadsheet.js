@@ -159,7 +159,12 @@ function makeFakeSheet(headers, keys, rowObjects, options) {
   // 真的有 #gid=」，不驗證那個數字本身。
   var fakeSheetId = 100000 + (headers.length * 1000) + keys.length;
   var sheetName = '';
+  // R-060／R-061：呼叫次數（只計次，不影響任何行為）。寫入＝setValue／setValues／setNumberFormat／clearContent；
+  //   讀取＝getValues／getValue。測試用 `sheet.__calls` 比較改動之前、之後的次數，`__resetCalls()` 歸零。
+  var calls = { setValue: 0, setValues: 0, setNumberFormat: 0, clearContent: 0, getValues: 0, getValue: 0 };
   return {
+    __calls: calls,
+    __resetCalls: function () { Object.keys(calls).forEach(function (k) { calls[k] = 0; }); },
     __escapedValues: escapedValues,
     __numberFormats: numberFormats,
     getSheetId: function () { return fakeSheetId; },
@@ -197,6 +202,7 @@ function makeFakeSheet(headers, keys, rowObjects, options) {
       numCols = numCols || 1;
       return {
         getValues: function () {
+          calls.getValues++;
           var out = [];
           for (var i = 0; i < numRows; i++) {
             var rowIdx = r - 1 + i;
@@ -211,6 +217,7 @@ function makeFakeSheet(headers, keys, rowObjects, options) {
           return out;
         },
         setValues: function (values) {
+          calls.setValues++;
           for (var i = 0; i < values.length; i++) {
             var rowIdx = r - 1 + i;
             while (data.length <= rowIdx) data.push([]);
@@ -226,15 +233,18 @@ function makeFakeSheet(headers, keys, rowObjects, options) {
         // 假物件缺了它們的話，那些程式碼會在 try/catch 內悄悄失敗，測試表面
         // 上還是「通過」——所以這裡一併補齊。
         getValue: function () {
+          calls.getValue++;
           var srcRow = data[r - 1];
           return srcRow && srcRow[c - 1] !== undefined ? srcRow[c - 1] : '';
         },
         setValue: function (value) {
+          calls.setValue++;
           while (data.length <= r - 1) data.push([]);
           data[r - 1][c - 1] = writeCell(value, r, c, numberFormats, escapedValues);
           return this;
         },
         clearContent: function () {
+          calls.clearContent++;
           for (var i = 0; i < numRows; i++) {
             var rowIdx = r - 1 + i;
             if (data[rowIdx]) {
@@ -246,6 +256,7 @@ function makeFakeSheet(headers, keys, rowObjects, options) {
         setFontWeight: function () { return this; },
         setBackground: function () { return this; },
         setNumberFormat: function (format) {
+          calls.setNumberFormat++;
           for (var i = 0; i < numRows; i++) {
             for (var j = 0; j < numCols; j++) {
               numberFormats[(r + i) + ':' + (c + j)] = format;
